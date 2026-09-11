@@ -1,7 +1,7 @@
 'use client';
 
 import { Frame, useEditor } from '@craftjs/core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   ARTBOARD_MIN_HEIGHT,
   MAX_STAGE_WIDTH,
@@ -24,6 +24,14 @@ function ResizeGrip({
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; width: number } | null>(null);
 
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    start.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
     <div
       role="separator"
@@ -44,11 +52,8 @@ function ResizeGrip({
         if (!start.current) return;
         onResize(start.current.width + (event.clientX - start.current.x) / zoom);
       }}
-      onPointerUp={(event) => {
-        start.current = null;
-        setDragging(false);
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
       onKeyDown={(event) => {
         const step = event.shiftKey ? 100 : 10;
         if (event.key === 'ArrowRight') {

@@ -66,6 +66,29 @@ describe('Stage', () => {
     expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1100px' });
   });
 
+  it('ends the drag on pointer cancel, so a later move does not resize', async () => {
+    renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
+    const grip = await screen.findByRole('separator', { name: 'Resize the stage' });
+    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
+    expect(grip.firstElementChild).toHaveClass('bg-acc');
+    fireEvent.pointerCancel(grip, { clientX: 100, pointerId: 1 });
+    expect(grip.firstElementChild).toHaveClass('bg-border');
+    fireEvent.pointerMove(grip, { clientX: 400, pointerId: 1 });
+    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1000px' });
+  });
+
+  it('keeps the selection when the grip is pressed', async () => {
+    const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
+    await screen.findByText('Nothing on the stage yet');
+    editor().actions.selectNode(ROOT_NODE);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize the stage' }), {
+      clientX: 0,
+      pointerId: 1,
+    });
+    expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true);
+  });
+
   it('scales the artboard down when the column is narrower than it', async () => {
     const spy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
     function ZoomProbe() {
