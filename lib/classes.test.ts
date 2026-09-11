@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   BACKGROUND_CLASSES,
   CLASS_TABLES,
@@ -86,8 +89,10 @@ describe('class tables', () => {
     for (const table of Object.values(CLASS_TABLES)) {
       for (const value of Object.values(table)) {
         expect(typeof value).toBe('string');
-        expect(value).not.toContain('$');
       }
     }
+    const testDir = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(join(testDir, 'classes.ts'), 'utf8');
+    expect(source).not.toMatch(/\$\{/);
   });
 });
