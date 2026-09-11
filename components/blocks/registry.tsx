@@ -1,11 +1,13 @@
 import { Element } from '@craftjs/core';
-import { LayoutGrid, type LucideIcon } from 'lucide-react';
+import { LayoutGrid, MousePointerClick, TextCursorInput, type LucideIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
+import { Button, buttonSchema } from './button';
+import { Input, inputSchema } from './input';
 import { LayoutBox, layoutBoxSchema } from './layout-box';
 import type { BlockSchema, BlockType } from './schema';
 
-export const resolver = { LayoutBox };
+export const resolver = { LayoutBox, Button, Input };
 
 export const KNOWN_TYPES: ReadonlySet<string> = new Set(Object.keys(resolver));
 
@@ -27,10 +29,26 @@ export const trayItems: TrayItem[] = [
     icon: LayoutGrid,
     create: () => <Element is={LayoutBox} canvas />,
   },
+  {
+    type: 'Button',
+    label: 'Button',
+    hint: 'shadcn Button',
+    icon: MousePointerClick,
+    create: () => <Button />,
+  },
+  {
+    type: 'Input',
+    label: 'Input',
+    hint: 'shadcn Input with label',
+    icon: TextCursorInput,
+    create: () => <Input />,
+  },
 ];
 
 const schemas: Partial<Record<string, BlockSchema>> = {
   LayoutBox: layoutBoxSchema,
+  Button: buttonSchema,
+  Input: inputSchema,
 };
 
 export function schemaFor(type: string): BlockSchema | null {
