@@ -16,6 +16,7 @@ describe('Input block', () => {
     expect(input).toHaveAttribute('type', 'email');
     expect(input).toHaveAttribute('readonly');
     expect(input).toHaveAttribute('tabindex', '-1');
+    expect(input).toHaveClass('pointer-events-none');
     expect(screen.getByText('Email')).toBeInTheDocument();
     expect(input.closest('[data-block="Input"]')).not.toBeNull();
   });

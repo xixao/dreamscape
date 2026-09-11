@@ -43,7 +43,7 @@ export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
         readOnly
         tabIndex={-1}
         aria-disabled={merged.disabled || undefined}
-        className={cn(merged.disabled && 'opacity-50')}
+        className={cn('pointer-events-none', merged.disabled && 'opacity-50')}
       />
     </div>
   );
