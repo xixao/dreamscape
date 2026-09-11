@@ -1,0 +1,90 @@
+import { Element, useNode, type UserComponent } from '@craftjs/core';
+import type { ReactNode } from 'react';
+import {
+  Card as UiCard,
+  CardContent as UiCardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { type GrowProps, blockClasses } from '@/lib/classes';
+import { cn } from '@/lib/utils';
+import { DropZone } from './drop-zone';
+import { GROW_FIELD, type BlockSchema } from './schema';
+
+export interface CardBlockProps extends GrowProps {
+  title: string;
+  description: string;
+}
+
+export const CARD_DEFAULTS: CardBlockProps = {
+  title: 'Card title',
+  description: '',
+  grow: false,
+};
+
+export const CardContent: UserComponent<{ children?: ReactNode }> = ({ children }) => {
+  const {
+    connectors: { connect },
+    childCount,
+  } = useNode((node) => ({ childCount: node.data.nodes.length }));
+
+  return (
+    <UiCardContent
+      ref={(element) => {
+        if (element) connect(element);
+      }}
+      data-zone="CardContent"
+      className="flex flex-col gap-4"
+    >
+      {childCount === 0 ? <DropZone /> : children}
+    </UiCardContent>
+  );
+};
+
+CardContent.craft = {
+  displayName: 'CardContent',
+  rules: {
+    canDrag: () => false,
+  },
+};
+
+export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
+  const merged: CardBlockProps = { ...CARD_DEFAULTS, ...props };
+  const {
+    connectors: { connect, drag },
+  } = useNode();
+  const showHeader = merged.title !== '' || merged.description !== '';
+
+  return (
+    <UiCard
+      ref={(element) => {
+        if (element) connect(drag(element));
+      }}
+      data-block="Card"
+      className={cn('w-full', blockClasses(merged))}
+    >
+      {showHeader && (
+        <CardHeader>
+          {merged.title !== '' && <CardTitle>{merged.title}</CardTitle>}
+          {merged.description !== '' && <CardDescription>{merged.description}</CardDescription>}
+        </CardHeader>
+      )}
+      <Element id="content" is={CardContent} canvas />
+    </UiCard>
+  );
+};
+
+Card.craft = {
+  displayName: 'Card',
+  props: CARD_DEFAULTS,
+};
+
+export const cardSchema: BlockSchema = {
+  type: 'Card',
+  fields: [
+    { prop: 'title', label: 'Title', kind: 'text', section: 'Content' },
+    { prop: 'description', label: 'Description', kind: 'text', section: 'Content' },
+    GROW_FIELD,
+  ],
+};
