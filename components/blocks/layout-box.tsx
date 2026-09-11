@@ -5,7 +5,6 @@ import {
   GAP_OPTIONS,
   LAYOUT_BOX_DEFAULTS,
   PADDING_OPTIONS,
-  ROOT_LAYOUT_PROPS,
   type LayoutBoxProps,
   blockClasses,
   layoutBoxClasses,
@@ -26,12 +25,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
     childCount,
   } = useNode((node) => ({ childCount: node.data.nodes.length }));
   const isRoot = id === ROOT_NODE;
-  // Craft.js bakes `LayoutBox.craft.props` (LAYOUT_BOX_DEFAULTS) into node.data.props
-  // at node-creation time for any bare `<Element is={LayoutBox} />`, root or nested, so
-  // `props` here already has every key filled in and a plain merge can't distinguish
-  // "root" from "nested". The root is not user-configurable (canDrag is false, no
-  // properties panel), so it always renders with the fixed ROOT_LAYOUT_PROPS instead.
-  const merged: LayoutBoxProps = isRoot ? ROOT_LAYOUT_PROPS : { ...LAYOUT_BOX_DEFAULTS, ...props };
+  const merged: LayoutBoxProps = { ...LAYOUT_BOX_DEFAULTS, ...props };
 
   return (
     <div

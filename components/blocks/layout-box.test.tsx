@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor } from '@testing-library/react';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { renderTree } from '@/test/craft-harness';
 import { LayoutBox } from './layout-box';
 
@@ -62,5 +62,18 @@ describe('LayoutBox', () => {
     const [root, inner] = await findBoxes(container, 2);
     expect(inner).toHaveClass('flex-1');
     expect(root).not.toHaveClass('flex-1');
+  });
+
+  it('renders the root from its node props, so the inspector can edit it', async () => {
+    const { container, editor } = renderTree(<Element is={LayoutBox} canvas />);
+    const [root] = await findBoxes(container, 1);
+    expect(root).toHaveClass('p-6');
+    act(() => {
+      editor().actions.setProp(ROOT_NODE, (props: { padding: number; gap: number }) => {
+        props.padding = 8;
+        props.gap = 2;
+      });
+    });
+    await waitFor(() => expect(root).toHaveClass('p-8', 'gap-2'));
   });
 });

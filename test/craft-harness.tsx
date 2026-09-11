@@ -1,8 +1,9 @@
 import { Editor, Frame, useEditor } from '@craftjs/core';
 import { render } from '@testing-library/react';
-import { useEffect, type ReactElement } from 'react';
+import { cloneElement, useEffect, type ReactElement } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { StageProvider } from '@/components/workbench/stage-context';
+import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
 
 type EditorHandle = Pick<ReturnType<typeof useEditor>, 'actions' | 'query'>;
 
@@ -35,5 +36,6 @@ export function renderTree(
   rootElement: ReactElement,
   { width = 1440, data }: { width?: number; data?: string } = {},
 ) {
-  return renderInEditor(<Frame data={data}>{rootElement}</Frame>, { width });
+  const root = cloneElement(rootElement, { ...ROOT_LAYOUT_PROPS, ...(rootElement.props as object) });
+  return renderInEditor(<Frame data={data}>{root}</Frame>, { width });
 }
