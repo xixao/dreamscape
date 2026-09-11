@@ -7,6 +7,7 @@ import { PANEL } from './chrome';
 import { ComponentTray } from './component-tray';
 import { Stage } from './stage';
 import { StageProvider } from './stage-context';
+import { Topbar } from './topbar';
 
 export function Workbench() {
   const [initialLayout] = useState(() => emptyLayoutJson());
@@ -15,7 +16,7 @@ export function Workbench() {
     <Editor resolver={resolver} indicator={{ success: 'var(--acc)', error: 'var(--bad)' }}>
       <StageProvider>
         <div className="grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3">
-          <div className="col-span-3 h-[54px]" />
+          <Topbar onNew={() => {}} />
           <ComponentTray />
           <Stage data={initialLayout} />
           <aside className={PANEL} />
