@@ -77,7 +77,16 @@ describe('Workbench', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    fetchMock = vi.fn().mockResolvedValue(ok('T1'));
+    // A fresh Response per call (not mockResolvedValue, which would hand
+    // every call the very same Response instance): a Fetch Response body
+    // can only be read once, and addScreen's flow can legitimately send
+    // twice in one test (the immediate flush, plus Craft's own
+    // onNodesChange first-fire for the brand new empty Frame - see the
+    // comment on that pattern further down). A second .json() read of an
+    // already-consumed shared Response throws, which the real saver treats
+    // as a network failure and retries after a real 5 s timer - one that
+    // then outlives the test and can fire during a later, unrelated one.
+    fetchMock = vi.fn().mockImplementation(() => Promise.resolve(ok('T1')));
     vi.stubGlobal('fetch', fetchMock);
     window.location.hash = '';
   });
@@ -326,6 +335,18 @@ describe('Workbench', () => {
       const newTab = within(tablist).getByRole('tab', { name: 'Frame 2' });
       expect(newTab).toHaveAttribute('aria-selected', 'true');
       expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+
+      // Drains this screen's own save traffic before the test ends: Craft's
+      // own onNodesChange first-fire for the brand new empty Frame is not a
+      // no-op here (deserializing then reserializing a fresh
+      // emptyLayoutJson() is not byte-identical to the string it started
+      // from, so it looks like a real edit and queues one more, harmless
+      // save on top of the one addScreen already queued). Undrained, that
+      // second save's async tail can complete during a LATER test instead
+      // of this one and call that test's own fetchMock - the same class of
+      // problem this file's own afterEach comment documents for the retry
+      // timer.
+      await new Promise((resolve) => setTimeout(resolve, 200));
     });
 
     it('writes the URL hash to the switched-to screen id', async () => {
@@ -354,6 +375,59 @@ describe('Workbench', () => {
       expect(body.screens[1]).toEqual(SCREEN_2);
     });
 
+    it('New screen copies the current screen\'s device, not just its width', async () => {
+      const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
+      render(<Workbench file={makeFile({ screens: [deviceScreen] })} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874'),
+      );
+
+      // Drains this screen's own save traffic (the immediate flush from
+      // switchScreen, plus Craft's onNodesChange first-fire for the brand
+      // new empty Frame - a pre-existing quirk unrelated to this feature:
+      // deserializing then reserializing a fresh emptyLayoutJson() is not
+      // byte-identical to the string it started from, so it looks like a
+      // real edit and queues one more harmless save) before this test ends.
+      // Undrained, that second save's async tail can otherwise complete
+      // during a LATER test and call that test's own fetchMock instead -
+      // the same class of problem this file's own afterEach comment (above)
+      // documents for the retry timer.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('switching screens restores each one\'s own device (or lack of one) in the readout', async () => {
+      const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
+      render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
+
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874');
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent(`${SCREEN_2.stageWidth} px`));
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874'),
+      );
+    });
+
+    it('does not queue a save merely from switching to a screen that already has a device', async () => {
+      const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
+      render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('flushes the saver before switching screens, ahead of the normal debounce', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
@@ -362,6 +436,36 @@ describe('Workbench', () => {
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
+    });
+  });
+
+  describe('device presets', () => {
+    it('choosing a device from the top bar queues a save with stageWidth, stageHeight and deviceName', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0].stageWidth).toBe(402);
+      expect(body.screens[0].stageHeight).toBe(874);
+      expect(body.screens[0].deviceName).toBe('iPhone 16 & 17 Pro');
+      expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
+    });
+
+    it('clicking a Mobile/Tablet/Desktop segment after a device queues a save clearing stageHeight and deviceName', async () => {
+      const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
+      render(<Workbench file={makeFile({ screens: [deviceScreen] })} />);
+
+      await userEvent.click(presetButton('Desktop'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0].stageWidth).toBe(1440);
+      expect(body.screens[0].stageHeight).toBeNull();
+      expect(body.screens[0].deviceName).toBeNull();
     });
   });
 

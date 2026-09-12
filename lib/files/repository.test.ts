@@ -61,10 +61,24 @@ describe('files repository', () => {
       expect(JSON.parse(file.screens![0].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
+    it('round-trips a screen given an explicit stageHeight and deviceName', async () => {
+      const created = await repo.create({
+        screens: [screen({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' })],
+      });
+
+      const fetched = await repo.get(created.id);
+
+      expect(fetched?.screens?.[0]).toMatchObject({
+        stageWidth: 402,
+        stageHeight: 874,
+        deviceName: 'iPhone 16 & 17 Pro',
+      });
+    });
+
     it('clamps every screen stage width to the valid range', async () => {
       const file = await repo.create({ screens: [screen({ stageWidth: 10 }), screen({ stageWidth: 5000 })] });
 
-      expect(file.screens?.[0].stageWidth).toBe(320);
+      expect(file.screens?.[0].stageWidth).toBe(120);
       expect(file.screens?.[1].stageWidth).toBe(1920);
     });
 
@@ -178,11 +192,30 @@ describe('files repository', () => {
       expect(withOne?.screens?.[0].name).toBe('Solo');
     });
 
+    it('saves a device onto a screen and clears it again on a later save', async () => {
+      const created = await repo.create();
+      const screenId = created.screens![0].id;
+
+      await repo.save(created.id, {
+        screens: [
+          { id: screenId, name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' },
+        ],
+      });
+      const withDevice = await repo.get(created.id);
+      expect(withDevice?.screens?.[0]).toMatchObject({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' });
+
+      await repo.save(created.id, {
+        screens: [{ id: screenId, name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }],
+      });
+      const cleared = await repo.get(created.id);
+      expect(cleared?.screens?.[0]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
+    });
+
     it('clamps stage width to the valid range, per screen', async () => {
       const created = await repo.create();
 
       await repo.save(created.id, { screens: [screen({ stageWidth: 10 })] });
-      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(320);
+      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(120);
 
       await repo.save(created.id, { screens: [screen({ stageWidth: 5000 })] });
       expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(1920);
@@ -322,6 +355,16 @@ describe('files repository', () => {
 
     it('returns null for a missing id', async () => {
       expect(await repo.duplicate('doesnotexist')).toBeNull();
+    });
+
+    it('keeps each screen\'s device on the copy', async () => {
+      const created = await repo.create({
+        screens: [screen({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' })],
+      });
+
+      const copy = await repo.duplicate(created.id);
+
+      expect(copy?.screens?.[0]).toMatchObject({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' });
     });
 
     it('keeps the same folder as the original', async () => {

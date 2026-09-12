@@ -236,8 +236,11 @@ export function Workbench({
       name: `Frame ${screens.length + 1}`,
       layout: emptyLayoutJson(),
       stageWidth: current.stageWidth,
-      stageHeight: null,
-      deviceName: null,
+      // Copies the source screen's device, same as duplicateScreen's plain
+      // spread already does - a new frame starts out matching the one it
+      // was added from, device included, not just its width.
+      stageHeight: current.stageHeight ?? null,
+      deviceName: current.deviceName ?? null,
     };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
     const next = [...screens, newScreen];
@@ -279,13 +282,52 @@ export function Workbench({
   function handleWidthChange(width: number): void {
     const current = screens.find((screen) => screen.id === currentScreenId);
     // No-op guard: WorkbenchShell's own width-reinit effect (below) calls
-    // this same setWidth whenever the screen changes, purely to make
-    // StageProvider's context match a screen it didn't remount for (see the
-    // comment on <StageProvider> below) - not because anything actually
-    // changed. Without this, every screen switch would queue an identical,
-    // pointless save.
-    if (current && current.stageWidth === width) return;
-    const next = screens.map((screen) => (screen.id === currentScreenId ? { ...screen, stageWidth: width } : screen));
+    // this same setWidth whenever the screen changes and has no device,
+    // purely to make StageProvider's context match a screen it didn't
+    // remount for (see the comment on <StageProvider> below) - not because
+    // anything actually changed. Without this, every screen switch would
+    // queue an identical, pointless save. stageHeight/deviceName are
+    // compared against null (not undefined) since a Screen predating this
+    // feature (or one already cleared) may omit them entirely.
+    if (
+      current &&
+      current.stageWidth === width &&
+      (current.stageHeight ?? null) === null &&
+      (current.deviceName ?? null) === null
+    ) {
+      return;
+    }
+    // setWidth (the grip, the Mobile/Tablet/Desktop segments) always clears
+    // the frame's device in the stage context - this mirrors that onto the
+    // saved screen, so a plain width change also clears a device the
+    // screen previously had.
+    const next = screens.map((screen) =>
+      screen.id === currentScreenId ? { ...screen, stageWidth: width, stageHeight: null, deviceName: null } : screen,
+    );
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  function handleDeviceChange(device: { width: number; height: number; deviceName: string }): void {
+    const current = screens.find((screen) => screen.id === currentScreenId);
+    // Same no-op guard as handleWidthChange, above, and for the same
+    // reason: WorkbenchShell's resync effect calls setDevice whenever the
+    // screen changes and already has this exact device, purely to make the
+    // stage context match it - not because anything actually changed.
+    if (
+      current &&
+      current.stageWidth === device.width &&
+      current.stageHeight === device.height &&
+      current.deviceName === device.deviceName
+    ) {
+      return;
+    }
+    const next = screens.map((screen) =>
+      screen.id === currentScreenId
+        ? { ...screen, stageWidth: device.width, stageHeight: device.height, deviceName: device.deviceName }
+        : screen,
+    );
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -320,7 +362,13 @@ export function Workbench({
         session, and WorkbenchShell re-initialises its width per screen
         itself (see the effect there) without remounting anything.
       */}
-      <StageProvider initialWidth={currentScreen.stageWidth} onWidthChange={handleWidthChange}>
+      <StageProvider
+        initialWidth={currentScreen.stageWidth}
+        initialHeight={currentScreen.stageHeight ?? null}
+        initialDeviceName={currentScreen.deviceName ?? null}
+        onWidthChange={handleWidthChange}
+        onDeviceChange={handleDeviceChange}
+      >
         <WorkbenchShell
           fileId={file.id}
           folderId={file.folderId ?? null}
@@ -381,20 +429,31 @@ function WorkbenchShell({
   const [panelMode, setPanelMode] = useState<PanelMode>('design');
   useWorkbenchKeyboard({ onToggleUi: () => setUiHidden((hidden) => !hidden) });
   const { actions } = useEditor();
-  const { setWidth } = useStage();
+  const { setWidth, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
 
   // StageProvider is intentionally not remounted per screen (see the comment
-  // on <StageProvider> in Workbench), so without this its width/breakpoint
-  // context would keep reflecting whichever screen was active before -
-  // stale for every useStage() consumer here (the topbar readout, the
-  // inspector's breakpoint badge, the artboard itself). Re-initialises only
-  // on an actual screen change, not on every resize (handleWidthChange's own
-  // no-op guard also keeps this from queuing a spurious save). A layout
-  // effect so the artboard never paints the new screen at the old width.
+  // on <StageProvider> in Workbench), so without this its width/height/
+  // device/breakpoint context would keep reflecting whichever screen was
+  // active before - stale for every useStage() consumer here (the topbar
+  // readout and device chip, the inspector's breakpoint badge, the artboard
+  // itself). Re-initialises only on an actual screen change, not on every
+  // resize (handleWidthChange's/handleDeviceChange's own no-op guards also
+  // keep this from queuing a spurious save). setDevice when the screen has
+  // one (stageHeight is always set alongside deviceName - see addScreen,
+  // duplicateScreen and validateScreens, which all keep the two together;
+  // the stageHeight check here is defensive, not an expected case), setWidth
+  // otherwise - the same two entry points a user's own action reaches this
+  // context through. A layout effect so the artboard never paints the new
+  // screen at the old width or height.
   useLayoutEffect(() => {
     const screen = screens.find((candidate) => candidate.id === currentScreenId);
-    if (screen) setWidth(screen.stageWidth);
+    if (!screen) return;
+    if (screen.deviceName && screen.stageHeight != null) {
+      setDevice({ name: screen.deviceName, width: screen.stageWidth, height: screen.stageHeight });
+    } else {
+      setWidth(screen.stageWidth);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 

@@ -15,14 +15,14 @@ describe('presets', () => {
 });
 
 describe('clampWidth', () => {
-  it('keeps widths inside 320 to 1920 and rounds', () => {
-    expect(MIN_STAGE_WIDTH).toBe(320);
+  it('keeps widths inside 120 to 1920 and rounds', () => {
+    expect(MIN_STAGE_WIDTH).toBe(120);
     expect(MAX_STAGE_WIDTH).toBe(1920);
-    expect(clampWidth(100)).toBe(320);
+    expect(clampWidth(100)).toBe(120);
     expect(clampWidth(5000)).toBe(1920);
     expect(clampWidth(700.4)).toBe(700);
     expect(clampWidth(700.6)).toBe(701);
-    expect(clampWidth(Number.NaN)).toBe(320);
+    expect(clampWidth(Number.NaN)).toBe(120);
   });
 });
 
