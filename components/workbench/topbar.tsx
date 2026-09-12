@@ -64,7 +64,7 @@ export function Topbar({ onNew }: { onNew: () => void }) {
 
   return (
     <TooltipProvider delayDuration={0}>
-      <header className={cn(PANEL, 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
+      <header className={cn(PANEL, 'shadow-panel', 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
         <span className="text-[13px] font-semibold">Assembly Workbench</span>
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
         <ToggleGroup

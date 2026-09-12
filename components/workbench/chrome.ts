@@ -1,6 +1,6 @@
 // SF2 §7 card + §10.1 bevel, used for the tray, inspector and topbar surfaces.
 export const PANEL =
-  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--shadow-lg)]';
+  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--sf-shadow-lg)]';
 
 // SF2 §10.2 grip header of a vertical panel.
 export const PANEL_HEADER =
@@ -16,7 +16,7 @@ export const LABEL =
 export const CHIP =
   'flex items-center gap-1.5 min-h-[30px] px-2 rounded-md bg-(--chip) border border-(color:--bevel-line) shadow-[var(--bevel-hi),var(--bevel-drop)] focus-within:border-acc';
 export const CHIP_INPUT =
-  'h-auto min-w-0 w-full border-0 bg-transparent px-0 py-1.5 font-mono text-[12.5px] font-medium text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 dark:bg-transparent';
+  'h-auto min-w-0 w-full border-0 bg-transparent px-0 py-1.5 font-mono text-[12.5px] font-medium text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0';
 
 // SF2 §10.4 segmented control: recessed track, raised active item.
 export const SEG_GROUP =
@@ -37,7 +37,14 @@ export const EMPTY_TITLE = 'block text-[15px] font-semibold text-t2 mb-1.5';
 export const SEARCH =
   'flex items-center gap-2 rounded-[9px] border bg-muted px-3 py-2 focus-within:border-acc';
 export const SEARCH_INPUT =
-  'h-auto min-w-0 w-full border-0 bg-transparent p-0 text-[13px] text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 dark:bg-transparent placeholder:text-t4';
+  'h-auto min-w-0 w-full border-0 bg-transparent p-0 text-[13px] text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 placeholder:text-t4';
 
-// SF2 §5 .btn.danger: red text at rest, 12% wash on hover.
-export const DANGER_GHOST = 'text-bad hover:text-bad hover:bg-bad/12';
+// SF2 §5 .btn.danger: red text at rest, 12% wash on hover. The trailing `!`
+// forces these to win even when a consumer mixes this into a Radix `Slot`
+// (e.g. an AlertDialogAction with asChild): Slot concatenates its own
+// variant's className with the child's rather than running them through
+// tailwind-merge, so a plain (unmarked) hover:bg-bad/12 can lose the cascade
+// to a ghost/outline variant's own hover:bg-muted. Confirmed live: without
+// `!`, the New Layout dialog's "Clear stage" button showed the plain ghost
+// grey hover instead of the red wash.
+export const DANGER_GHOST = 'text-bad hover:text-bad! hover:bg-bad/12!';

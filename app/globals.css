@@ -56,8 +56,8 @@
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-canvas: var(--canvas);
-  --shadow-panel: var(--shadow);
-  --shadow-panel-lg: var(--shadow-lg);
+  --shadow-panel: var(--sf-shadow);
+  --shadow-panel-lg: var(--sf-shadow-lg);
 }
 
 :root {
@@ -103,8 +103,8 @@
   --ok: #4CAF7D;
   --warn: #E8B34B;
   --bad: #E05D5D;
-  --shadow: 0 14px 36px rgba(16, 14, 22, 0.55);
-  --shadow-lg: 0 18px 44px rgba(16, 14, 22, 0.55);
+  --sf-shadow: 0 14px 36px rgba(16, 14, 22, 0.55);
+  --sf-shadow-lg: 0 18px 44px rgba(16, 14, 22, 0.55);
   --canvas: #14121B;
   --chip: rgba(255, 255, 255, 0.055);
   --bevel-line: rgba(255, 255, 255, 0.09);

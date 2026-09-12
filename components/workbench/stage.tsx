@@ -89,7 +89,7 @@ export function Stage({ data }: { data: string }) {
     <div
       ref={columnRef}
       data-testid="stage-column"
-      className="min-w-0 overflow-auto rounded-xl bg-canvas"
+      className="min-w-0 overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
       onPointerDown={(event) => {
         const target = event.target as HTMLElement;
         if (!target.closest('[data-artboard]')) actions.selectNode();

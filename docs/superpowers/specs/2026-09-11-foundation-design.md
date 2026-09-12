@@ -166,7 +166,7 @@ Ignored while focus is inside any input, textarea, select or contenteditable.
 - On load, the saved JSON is passed to `<Frame data={...}>`. If the JSON is missing, corrupt, has no `ROOT`, or references a block type that no longer exists, the stage starts empty and a `console.warn` explains why. No toast, no modal.
 - Stage width also persists (`assembly-workbench:stage-width`), so a reload comes back at the same width.
 - The workbench renders client-side only (`next/dynamic` with `ssr: false` from a small client loader), because both Craft.js and the localStorage reads need the browser, and a server render would not match.
-- New (topbar) opens an `AlertDialog`: title "Start a new layout?", description "This clears everything on the stage. Undo will not bring it back.", Cancel on the left, "Clear stage" styled as destructive on the right. Confirming deserializes the empty tree and clears the history. Escape and Cancel close it without clearing.
+- New (topbar) opens an `AlertDialog`: title "Start a new layout?", description "This clears everything on the stage. Undo will not bring it back.", Cancel on the left, "Clear stage" on the right with the SF2 danger treatment (red text, red wash on hover). Confirming deserializes the empty tree and clears the history. Escape and Cancel close it without clearing.
 
 ### 4.11 Data model summary
 
@@ -176,7 +176,7 @@ The serialized tree is Craft.js's own format: a map from node id to `{ type: { r
 
 Four seams, and nothing else, know what the components look like:
 
-1. `components/ui/*`: the shadcn files themselves. Replacing them with the real design system's implementations (same export names) changes every block and the whole chrome at once.
+1. `components/ui/*`: the shadcn files themselves. Replacing them with the real design system's implementations (same export names) changes every block and the whole chrome at once. The Dialog block's design-mode panel is composed from Tailwind and plain elements rather than `@/components/ui/dialog`, because Radix's `DialogTitle` needs a `Dialog` root; that block's look is restyled by editing `components/blocks/dialog.tsx`.
 2. `app/globals.css`, the `.theme-basic` block: the artboard's theme. Replacing its values re-skins every prototyped screen without touching a block.
 3. `components/blocks/*`, the `variant` and `size` option lists in each block's schema. If the real system has different variants, these are the lines to edit.
 4. `lib/classes.ts`: the layout class tables, which are plain Tailwind and stay as they are.

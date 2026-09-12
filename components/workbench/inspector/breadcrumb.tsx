@@ -25,7 +25,7 @@ export function NodeBreadcrumb() {
       .node(id)
       .ancestors(true)
       .filter((ancestorId) => !ZONE_TYPES.has(state.nodes[ancestorId].data.name))
-      .reverse();
+      .toReversed();
     return {
       trail: ancestors.map((ancestorId) => ({
         id: ancestorId,

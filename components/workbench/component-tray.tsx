@@ -22,7 +22,7 @@ export function ComponentTray() {
   const filteredItems = filterTrayItems(trayItems, filter);
 
   return (
-    <aside className={cn(PANEL, 'flex min-h-0 flex-col')}>
+    <aside aria-label="Components" className={cn(PANEL, 'flex min-h-0 flex-col')}>
       <div className={PANEL_HEADER}>
         <span className={PANEL_TITLE}>Components</span>
       </div>

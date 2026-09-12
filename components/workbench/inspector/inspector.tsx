@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { schemaFor } from '@/components/blocks/registry';
 import type { SectionName } from '@/components/blocks/schema';
-import type { Breakpoint } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
 import {
   DANGER_GHOST,
@@ -46,8 +45,6 @@ export function Inspector() {
     };
   });
   const schema = type ? schemaFor(type) : null;
-
-  const jump = (target: Breakpoint) => setPreset(target);
 
   return (
     <aside aria-label="Inspector" className={cn(PANEL, 'flex min-h-0 flex-col')}>
@@ -91,7 +88,7 @@ export function Inspector() {
                         field={field}
                         value={props[field.prop]}
                         breakpoint={breakpoint}
-                        onJumpToBreakpoint={jump}
+                        onJumpToBreakpoint={setPreset}
                         onChange={(next) => {
                           const setter = (draft: Record<string, unknown>) => {
                             draft[field.prop] = next;

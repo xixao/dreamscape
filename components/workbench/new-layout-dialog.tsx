@@ -10,7 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { buttonVariants } from '@/components/ui/button';
+import { DANGER_GHOST } from './chrome';
 
 export function NewLayoutDialog({
   open,
@@ -32,11 +32,7 @@ export function NewLayoutDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            className={buttonVariants({ variant: 'destructive' })}
-            onClick={onConfirm}
-          >
+          <AlertDialogAction variant="ghost" className={DANGER_GHOST} onClick={onConfirm}>
             Clear stage
           </AlertDialogAction>
         </AlertDialogFooter>
