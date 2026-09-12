@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EXAMPLES } from '@/lib/examples';
-import type { FileRecord } from '@/lib/files/repository';
+import type { FileRecord, Screen } from '@/lib/files/repository';
 import { Workbench } from './workbench';
 
 // The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
@@ -14,13 +14,37 @@ function presetButton(label: string) {
   return button;
 }
 
+// Screen content for these tests comes from two different bundled examples
+// (not a hand-built layout string) deliberately: every example is already
+// proven to round-trip byte-for-byte through Craft's own deserialize/
+// serialize (see lib/examples/index.test.tsx's "renders ... with no console
+// errors" checks and the "unchanged layout on mount" tests just below,
+// which depend on exactly this property for EXAMPLES[0]). A hand-built
+// layout is not guaranteed to have it - Craft's deserialize normalizes a
+// node's props against its component's own `craft.props` defaults, and a
+// fixture assembled by hand can drift from that just enough (a few bytes)
+// to make a screen's very first mount look like a real edit and trigger an
+// unwanted extra save that has nothing to do with what a test is checking.
+const SCREEN_1: Screen = {
+  id: 'screen0001',
+  name: 'Frame 1',
+  layout: EXAMPLES[0].layout,
+  stageWidth: EXAMPLES[0].stageWidth,
+};
+const SCREEN_2: Screen = {
+  id: 'screen0002',
+  name: 'Frame 2',
+  layout: EXAMPLES[2].layout, // Settings: has a "Save changes" button, unlike Login.
+  stageWidth: EXAMPLES[2].stageWidth,
+};
+
 const BASE_FILE: FileRecord = {
   id: 'file0000ab',
   name: 'Untitled',
   createdAt: '2026-09-12T00:00:00.000Z',
   updatedAt: '2026-09-12T00:00:00.000Z',
-  layout: EXAMPLES[0].layout,
-  stageWidth: EXAMPLES[0].stageWidth,
+  folderId: null,
+  screens: [SCREEN_1],
 };
 
 function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
@@ -55,21 +79,33 @@ describe('Workbench', () => {
   beforeEach(() => {
     fetchMock = vi.fn().mockResolvedValue(ok('T1'));
     vi.stubGlobal('fetch', fetchMock);
+    window.location.hash = '';
   });
 
+  // Deliberately does not call vi.unstubAllGlobals(): this file's own
+  // afterEach runs before the testing-library setup file's afterEach(()
+  // => cleanup()) (inner-scope hooks run before outer/global ones), and
+  // Workbench flushes any pending save on unmount. Unstubbing fetch here
+  // would make that unmount-triggered flush hit the real (unmocked) fetch
+  // instead - which fails, and the saver's own retry-after-5s logic then
+  // schedules a real setTimeout that outlives this test and can fire
+  // during a later, unrelated one, sending a stale patch through whatever
+  // fetchMock that later test happens to be asserting against. beforeEach
+  // already installs a fresh stub before every test, so nothing here
+  // actually depends on unstubbing in between.
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.useRealTimers();
+    window.location.hash = '';
   });
 
-  it('renders the layout passed in file.layout', () => {
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+  it('renders the layout of the file\'s first screen', () => {
+    render(<Workbench file={makeFile()} />);
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   it('sends exactly one PATCH after the debounce when a prop changes on ROOT', async () => {
-    const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    const { container } = render(<Workbench file={makeFile()} />);
 
     await changeRootLayoutMode(container);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
@@ -79,8 +115,9 @@ describe('Workbench', () => {
     expect(init.method).toBe('PATCH');
     const body = JSON.parse(init.body);
     expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
-    expect(typeof body.layout).toBe('string');
-    expect(JSON.parse(body.layout).ROOT.props.mode).toBe('grid');
+    expect(body.screens).toHaveLength(1);
+    expect(JSON.parse(body.screens[0].layout).ROOT.props.mode).toBe('grid');
+    expect(body.screens[0].id).toBe(SCREEN_1.id);
   });
 
   it('shows Saving then Saved in the topbar', async () => {
@@ -89,7 +126,7 @@ describe('Workbench', () => {
       resolveFetch = resolve;
     });
     fetchMock.mockReturnValueOnce(pending);
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    render(<Workbench file={makeFile()} />);
 
     await userEvent.click(presetButton('Mobile'));
     await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saving'), {
@@ -102,7 +139,7 @@ describe('Workbench', () => {
 
   it('shows the conflict message and a Reload button after a 409 response', async () => {
     fetchMock.mockResolvedValueOnce(conflict('Tserver'));
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    render(<Workbench file={makeFile()} />);
 
     await userEvent.click(presetButton('Mobile'));
 
@@ -113,19 +150,19 @@ describe('Workbench', () => {
     expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
   });
 
-  it('PATCHes the new stage width when the frame width changes', async () => {
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+  it('PATCHes the new stage width, on the current screen, when the frame width changes', async () => {
+    render(<Workbench file={makeFile()} />);
 
     await userEvent.click(presetButton('Mobile'));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.stageWidth).toBe(375);
+    expect(body.screens[0].stageWidth).toBe(375);
     expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
   });
 
   it('PATCHes the new name when the file name field is renamed', async () => {
-    render(<Workbench file={makeFile({ name: 'Untitled' })} layoutInvalid={false} />);
+    render(<Workbench file={makeFile({ name: 'Untitled' })} />);
 
     const field = screen.getByTestId('file-name');
     await userEvent.clear(field);
@@ -136,31 +173,8 @@ describe('Workbench', () => {
     expect(body.name).toBe('My design');
   });
 
-  it('shows the invalid-layout notice in place of the save state', () => {
-    render(<Workbench file={makeFile()} layoutInvalid={true} />);
-    expect(screen.getByTestId('save-state')).toHaveTextContent(
-      'The saved design could not be read; this file starts empty.',
-    );
-  });
-
-  it('does not save an invalid layout until the user makes a real change, then clears the notice', async () => {
-    render(<Workbench file={makeFile()} layoutInvalid={true} />);
-    expect(screen.getByTestId('save-state')).toHaveTextContent('starts empty');
-
-    // Give any mount-only effect a moment to (not) fire before checking.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByTestId('save-state')).toHaveTextContent('starts empty');
-
-    await userEvent.click(presetButton('Mobile'));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
-    expect(screen.getByTestId('save-state')).not.toHaveTextContent('starts empty');
-    await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saved'));
-  });
-
   it('flushes a pending save on unmount', async () => {
-    const { unmount } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    const { unmount } = render(<Workbench file={makeFile()} />);
 
     await userEvent.click(presetButton('Mobile'));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -171,7 +185,7 @@ describe('Workbench', () => {
   });
 
   it('flushes a pending save on pagehide', async () => {
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    render(<Workbench file={makeFile()} />);
 
     await userEvent.click(presetButton('Mobile'));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -184,7 +198,7 @@ describe('Workbench', () => {
   });
 
   it('New frame still clears the layout after confirming', async () => {
-    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    render(<Workbench file={makeFile()} />);
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
@@ -208,7 +222,7 @@ describe('Workbench', () => {
 
     it('sends no PATCH within 2s of fake time, even once the root gets selected with no real edit', async () => {
       vi.useFakeTimers();
-      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      const { container } = render(<Workbench file={makeFile()} />);
 
       // Craft's onNodesChange fires unconditionally the first time its store
       // notifies after mount (it has nothing yet to compare that firing's
@@ -223,7 +237,7 @@ describe('Workbench', () => {
     });
 
     it('still sends exactly one PATCH for a real edit made after that unchanged first firing', async () => {
-      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      const { container } = render(<Workbench file={makeFile()} />);
       selectRoot(container);
 
       // Let the (correctly suppressed) first firing's would-be debounce
@@ -237,11 +251,11 @@ describe('Workbench', () => {
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(JSON.parse(body.layout).ROOT.props.mode).toBe('grid');
+      expect(JSON.parse(body.screens[0].layout).ROOT.props.mode).toBe('grid');
     });
 
     it('does not send another PATCH when the same change is applied again with no diff', async () => {
-      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      const { container } = render(<Workbench file={makeFile()} />);
 
       await changeRootLayoutMode(container);
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
@@ -261,7 +275,7 @@ describe('Workbench', () => {
 
   describe('Show/Hide UI', () => {
     it('Cmd+\\ hides the Components and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
-      render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
@@ -280,6 +294,103 @@ describe('Workbench', () => {
       expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
+    });
+  });
+
+  describe('screens', () => {
+    it('renders a chip for each screen, the first active by default', () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      const tablist = screen.getByRole('tablist', { name: 'Screens' });
+      expect(within(tablist).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Frame 1', 'Frame 2']);
+      expect(within(tablist).getByRole('tab', { name: 'Frame 1' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('switching screens swaps the artboard content', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('New screen adds a screen sized like the current one and switches to it', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+
+      const tablist = screen.getByRole('tablist', { name: 'Screens' });
+      expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
+      const newTab = within(tablist).getByRole('tab', { name: 'Frame 2' });
+      expect(newTab).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+    });
+
+    it('writes the URL hash to the switched-to screen id', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(window.location.hash).toBe(`#s=${SCREEN_2.id}`);
+    });
+
+    it('opens the screen named by the URL hash on mount', () => {
+      window.location.hash = `#s=${SCREEN_2.id}`;
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('the saver receives every screen, not just the one being edited', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(presetButton('Mobile'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens).toHaveLength(2);
+      expect(body.screens[0].id).toBe(SCREEN_1.id);
+      expect(body.screens[0].stageWidth).toBe(375);
+      expect(body.screens[1]).toEqual(SCREEN_2);
+    });
+
+    it('flushes the saver before switching screens, ahead of the normal debounce', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(presetButton('Mobile'));
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
+    });
+  });
+
+  describe('the Files back link', () => {
+    it('goes to the top level when the file has no folder', () => {
+      render(<Workbench file={makeFile({ folderId: null })} />);
+      expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/');
+    });
+
+    it('goes to the file\'s folder when it has one', () => {
+      render(<Workbench file={makeFile({ folderId: 'folder0001' })} />);
+      expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/folders/folder0001');
+    });
+  });
+
+  describe('Present', () => {
+    it('opens the play route for the current screen and updates it after switching', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_1.id}`,
+      );
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_2.id}`,
+      );
     });
   });
 });

@@ -1,6 +1,11 @@
+import { snapToSpacing } from '@/lib/classes';
 import { clampWidth } from '@/lib/stage';
 
 type SerializedNodeLike = { type?: { resolvedName?: string } | string };
+
+function resolvedTypeName(node: SerializedNodeLike | undefined): string | undefined {
+  return typeof node?.type === 'string' ? node.type : node?.type?.resolvedName;
+}
 
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
@@ -45,13 +50,60 @@ export function validateLayout(json: string, knownTypes: ReadonlySet<string>): V
   }
 
   for (const [id, node] of Object.entries(parsed as Record<string, SerializedNodeLike>)) {
-    const name = typeof node?.type === 'string' ? node.type : node?.type?.resolvedName;
+    const name = resolvedTypeName(node);
     if (!name || !knownTypes.has(name)) {
       return { ok: false, reason: `uses an unknown block "${name}" (node ${id})` };
     }
   }
 
   return { ok: true, tree: parsed as Record<string, unknown> };
+}
+
+type LayoutBoxLikeNode = SerializedNodeLike & {
+  props?: { gapPx?: unknown; paddingPx?: unknown; gap?: unknown; padding?: unknown } & Record<string, unknown>;
+};
+
+/**
+ * Rewrites every LayoutBox node's legacy `gap`/`padding` (Tailwind spacing
+ * units, from layouts saved before the 8 px spacing scale landed) into
+ * `gapPx`/`paddingPx`, deleting the legacy keys. Must run on the raw JSON
+ * string BEFORE a layout is deserialized by Craft: Craft merges each node's
+ * `craft.props` defaults on deserialize, so by the time a legacy node's
+ * props are inspected at runtime `gapPx` already appears "present" (as the
+ * merged-in default) and the real legacy `gap` value is never converted -
+ * see `normalizeSpacing` in lib/classes.ts, which only helps when `gapPx` is
+ * genuinely absent.
+ *
+ * A no-op, returning `json` unchanged, when the string is not valid JSON;
+ * validateLayout is what rejects that, not this function.
+ */
+export function normalizeLayout(json: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return json;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) return json;
+
+  for (const node of Object.values(parsed as Record<string, LayoutBoxLikeNode>)) {
+    if (resolvedTypeName(node) !== 'LayoutBox') continue;
+    const props = node.props;
+    if (!props) continue;
+
+    if (props.gapPx === undefined && typeof props.gap === 'number') {
+      props.gapPx = snapToSpacing(props.gap * 4);
+    }
+    delete props.gap;
+
+    if (props.paddingPx === undefined && typeof props.padding === 'number') {
+      props.paddingPx = snapToSpacing(props.padding * 4);
+    }
+    delete props.padding;
+  }
+
+  return JSON.stringify(parsed);
 }
 
 // A file holds several of these (files.screens, migration 0002). `layout` is

@@ -5,6 +5,8 @@ import { useEffect } from 'react';
 import { Button } from '@/components/blocks/button';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { resolver } from '@/components/blocks/registry';
+import type { Screen } from '@/lib/files/repository';
+import { PrototypeProvider } from './prototype-context';
 import { StageProvider } from './stage-context';
 import { NodeIndicator, SelectionOutline } from './node-indicator';
 
@@ -156,5 +158,101 @@ describe('NodeIndicator re-measurement', () => {
     });
     await screen.findByRole('button', { name: 'New' });
     await waitFor(() => expect(outline).toHaveStyle({ top: '42px' }));
+  });
+});
+
+describe('NodeIndicator interaction tag', () => {
+  const SCREENS: Screen[] = [
+    { id: 's1', name: 'Login', layout: '{}', stageWidth: 1440 },
+    { id: 's2', name: 'Hello world', layout: '{}', stageWidth: 1440 },
+  ];
+
+  function Probe({ onReady }: { onReady: (handle: EditorHandle) => void }) {
+    const { actions, query } = useEditor();
+    useEffect(() => {
+      onReady({ actions, query });
+    });
+    return null;
+  }
+
+  function mount(panelMode: 'design' | 'prototype') {
+    let handle: EditorHandle | null = null;
+    const utils = render(
+      <PrototypeProvider value={{ panelMode, screens: SCREENS }}>
+        <Editor resolver={resolver} onRender={NodeIndicator}>
+          <StageProvider>
+            <Frame>
+              <Element is={LayoutBox} canvas>
+                <Button label="Sign in" />
+              </Element>
+            </Frame>
+            <Probe onReady={(h) => (handle = h)} />
+          </StageProvider>
+        </Editor>
+      </PrototypeProvider>,
+    );
+    const editor = (): EditorHandle => {
+      if (!handle) throw new Error('editor not mounted');
+      return handle;
+    };
+    return { ...utils, editor };
+  }
+
+  async function wireNavigateToHelloWorld(editor: () => EditorHandle): Promise<string> {
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(buttonId, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'navigate', targetScreenId: 's2' }];
+      });
+    });
+    await waitFor(() =>
+      expect(editor().query.node(buttonId).get().data.custom?.interactions).toBeDefined(),
+    );
+    return buttonId;
+  }
+
+  it('shows the tag reading the target screen name while in prototype mode, even unselected', async () => {
+    const { editor } = mount('prototype');
+    await screen.findByRole('button', { name: 'Sign in' });
+    await wireNavigateToHelloWorld(editor);
+
+    const tag = await screen.findByTestId('interaction-tag');
+    expect(tag).toHaveTextContent('→ Hello world');
+    expect(screen.queryByTestId('selection-outline')).toBeNull();
+  });
+
+  it('shows no tag in design mode even though the node has an interaction', async () => {
+    const { editor } = mount('design');
+    await screen.findByRole('button', { name: 'Sign in' });
+    await wireNavigateToHelloWorld(editor);
+
+    expect(screen.queryByTestId('interaction-tag')).toBeNull();
+  });
+
+  it('shows the outline together with the tag when the wired node is also selected', async () => {
+    const { editor } = mount('prototype');
+    await screen.findByRole('button', { name: 'Sign in' });
+    const buttonId = await wireNavigateToHelloWorld(editor);
+
+    act(() => editor().actions.selectNode(buttonId));
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    expect(await screen.findByTestId('interaction-tag')).toHaveTextContent('→ Hello world');
+    expect(await screen.findByTestId('selection-outline')).toHaveAttribute('data-weight', 'selected');
+  });
+
+  it('removes the tag once the interaction is cleared', async () => {
+    const { editor } = mount('prototype');
+    await screen.findByRole('button', { name: 'Sign in' });
+    const buttonId = await wireNavigateToHelloWorld(editor);
+    await screen.findByTestId('interaction-tag');
+
+    act(() => {
+      editor().actions.setCustom(buttonId, (custom: Record<string, unknown>) => {
+        delete custom.interactions;
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('interaction-tag')).toBeNull());
   });
 });

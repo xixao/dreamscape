@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalLayout, validateLayout, validateScreens, type ScreenInput } from './validate';
+import { canonicalLayout, normalizeLayout, validateLayout, validateScreens, type ScreenInput } from './validate';
 
 describe('canonicalLayout', () => {
   it('treats two encodings that differ only in object key order as equal', () => {
@@ -152,5 +152,72 @@ describe('validateScreens', () => {
     if (!low.ok || !high.ok) throw new Error('expected ok');
     expect(low.screens[0].stageWidth).toBe(320);
     expect(high.screens[0].stageWidth).toBe(1920);
+  });
+});
+
+describe('normalizeLayout', () => {
+  it('converts a LayoutBox node\'s legacy gap/padding (Tailwind units) into gapPx/paddingPx and deletes the legacy keys', () => {
+    const legacy = JSON.stringify({
+      ROOT: { type: { resolvedName: 'LayoutBox' }, props: { gap: 2, padding: 4 }, nodes: [] },
+    });
+
+    const normalized = JSON.parse(normalizeLayout(legacy));
+
+    // gap: 2 Tailwind units * 4 = 8px (already on-scale); padding: 4 * 4 = 16px.
+    expect(normalized.ROOT.props).toEqual({ gapPx: 8, paddingPx: 16 });
+  });
+
+  it('rounds an off-scale legacy value to the nearest 8px step, same as snapToSpacing', () => {
+    const legacy = JSON.stringify({
+      ROOT: { type: { resolvedName: 'LayoutBox' }, props: { gap: 3 }, nodes: [] },
+    });
+
+    // 3 units * 4 = 12px, snaps up to 16 (ties round up).
+    expect(JSON.parse(normalizeLayout(legacy)).ROOT.props.gapPx).toBe(16);
+  });
+
+  it('leaves gapPx/paddingPx already present untouched and still strips the legacy keys', () => {
+    const mixed = JSON.stringify({
+      ROOT: { type: { resolvedName: 'LayoutBox' }, props: { gapPx: 32, gap: 1, paddingPx: 0, padding: 6 }, nodes: [] },
+    });
+
+    expect(JSON.parse(normalizeLayout(mixed)).ROOT.props).toEqual({ gapPx: 32, paddingPx: 0 });
+  });
+
+  it('is a no-op for a layout already fully on the px scale', () => {
+    const modern = JSON.stringify({
+      ROOT: { type: { resolvedName: 'LayoutBox' }, props: { gapPx: 8, paddingPx: 8 }, nodes: [] },
+    });
+
+    expect(JSON.parse(normalizeLayout(modern))).toEqual(JSON.parse(modern));
+  });
+
+  it('normalizes every LayoutBox node in the tree independently, by plain string or resolvedName type', () => {
+    const tree = JSON.stringify({
+      ROOT: { type: 'LayoutBox', props: { gap: 0, padding: 2 }, nodes: ['child'] },
+      child: { type: { resolvedName: 'LayoutBox' }, props: { gap: 4 }, nodes: [] },
+    });
+
+    const normalized = JSON.parse(normalizeLayout(tree));
+    expect(normalized.ROOT.props).toEqual({ gapPx: 0, paddingPx: 8 });
+    expect(normalized.child.props).toEqual({ gapPx: 16 });
+  });
+
+  it('does not touch gap/padding-shaped props on a non-LayoutBox node', () => {
+    const tree = JSON.stringify({
+      ROOT: { type: { resolvedName: 'LayoutBox' }, props: {}, nodes: ['child'] },
+      child: { type: { resolvedName: 'Button' }, props: { gap: 2, padding: 4 }, nodes: [] },
+    });
+
+    expect(JSON.parse(normalizeLayout(tree)).child.props).toEqual({ gap: 2, padding: 4 });
+  });
+
+  it('returns the input unchanged when it is not valid JSON, leaving validateLayout to reject it', () => {
+    expect(normalizeLayout('{not json')).toBe('{not json');
+  });
+
+  it('leaves a node with no props alone', () => {
+    const tree = JSON.stringify({ ROOT: { type: { resolvedName: 'LayoutBox' }, nodes: [] } });
+    expect(normalizeLayout(tree)).toBe(tree);
   });
 });

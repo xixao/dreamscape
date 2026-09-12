@@ -1,19 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { Card } from '@/components/blocks/card';
 import { LayoutBox } from '@/components/blocks/layout-box';
+import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { useStage } from '../stage-context';
-import { Inspector } from './inspector';
+import { Inspector, type PanelMode } from './inspector';
 
 function WidthProbe() {
   return <output data-testid="width">{useStage().width}</output>;
 }
 
-function mount(width = 1440) {
+const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 1440 }];
+
+function mount(
+  width = 1440,
+  { panelMode = 'design', onPanelModeChange = vi.fn() }: { panelMode?: PanelMode; onPanelModeChange?: (mode: PanelMode) => void } = {},
+) {
   return renderInEditor(
     <>
       <Frame>
@@ -22,7 +28,12 @@ function mount(width = 1440) {
           <Button label="Pay" />
         </Element>
       </Frame>
-      <Inspector />
+      <Inspector
+        screens={ONE_SCREEN}
+        currentScreenId="s1"
+        panelMode={panelMode}
+        onPanelModeChange={onPanelModeChange}
+      />
       <WidthProbe />
     </>,
     { width },
@@ -125,5 +136,34 @@ describe('Inspector', () => {
     await userEvent.click(within(panel).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Pay' })).toBeNull());
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
+  });
+
+  describe('Design / Prototype panel mode', () => {
+    it('shows a Design | Prototype segmented control, Design active by default', () => {
+      mount();
+      const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
+      expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(seg).getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'off');
+    });
+
+    it('calls onPanelModeChange when Prototype is clicked', async () => {
+      const onPanelModeChange = vi.fn();
+      mount(1440, { onPanelModeChange });
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('prototype');
+    });
+
+    it('shows the Prototype tab content instead of the Design fields when panelMode is prototype', async () => {
+      const { editor } = mount(1440, { panelMode: 'prototype' });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).getByText('Select a layer to add an interaction.')).toBeInTheDocument();
+      expect(within(panel).queryByText('Nothing selected')).toBeNull();
+
+      await select(editor, 'button');
+      expect(within(panel).getByRole('combobox', { name: 'On click' })).toBeInTheDocument();
+      expect(within(panel).queryByTestId('inspector-type')).toBeNull();
+    });
   });
 });

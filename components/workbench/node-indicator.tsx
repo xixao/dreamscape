@@ -4,7 +4,10 @@ import { ROOT_NODE, useEditor, useNode } from '@craftjs/core';
 import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { ZONE_TYPES } from '@/components/blocks/registry';
+import { describeInteraction, getInteraction } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
+import { InteractionTag } from './interaction-tag';
+import { usePrototypeContext } from './prototype-context';
 import { useStage } from './stage-context';
 
 export type OutlineWeight = 'hover' | 'selected';
@@ -52,13 +55,14 @@ export function SelectionOutline({
 }
 
 export function NodeIndicator({ render }: { render: ReactElement }) {
-  const { id, dom, name, displayName, isHovered } = useNode((node) => ({
+  const { id, dom, name, displayName, isHovered, custom } = useNode((node) => ({
     dom: node.dom,
     name: node.data.name,
     displayName: node.data.displayName,
     isHovered: node.events.hovered,
+    custom: node.data.custom,
   }));
-  const { isSelected, treeVersion } = useEditor((state) => ({
+  const { isSelected, treeVersion, nodes } = useEditor((state) => ({
     isSelected: state.events.selected.has(id),
     // A cheap fingerprint of the whole tree's shape: every node id paired with
     // its own ordered children, joined into one string. It changes whenever any
@@ -68,17 +72,25 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     treeVersion: Object.entries(state.nodes)
       .map(([nodeId, node]) => `${nodeId}:${node.data.nodes.join(',')}`)
       .join('|'),
+    // A plain reference, not a transform: describeInteraction below only
+    // reads from it when this node actually has an interaction to describe
+    // (rare), so this costs nothing for every other node's collector.
+    nodes: state.nodes,
   }));
   // The stage scales the artboard with a CSS `zoom` factor to fit the column
   // (see stage.tsx). `zoom` and `width` are read here only to force the effect
   // below to re-measure when either changes; see the adaptation note where
   // they're added to its dependency array.
   const { zoom, width } = useStage();
+  const { panelMode, screens } = usePrototypeContext();
   const [rect, setRect] = useState<DOMRect | null>(null);
 
   const isRoot = id === ROOT_NODE;
   const isZone = ZONE_TYPES.has(name);
-  const active = !isRoot && !isZone && (isSelected || isHovered);
+  const interaction = !isRoot && !isZone ? getInteraction({ data: { custom } }) : null;
+  const showOutline = !isRoot && !isZone && (isSelected || isHovered);
+  const showTag = panelMode === 'prototype' && interaction !== null;
+  const active = showOutline || showTag;
 
   useEffect(() => {
     if (!dom || !active) {
@@ -110,18 +122,25 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     // re-measure on every such structural change.
   }, [dom, active, zoom, width, treeVersion]);
 
+  const tagText = showTag ? describeInteraction(interaction, screens, nodes) : null;
+
   return (
     <>
       {render}
       {rect &&
         active &&
         createPortal(
-          <SelectionOutline
-            rect={rect}
-            color="var(--acc)"
-            label={displayName || name}
-            weight={isSelected ? 'selected' : 'hover'}
-          />,
+          <>
+            {showOutline && (
+              <SelectionOutline
+                rect={rect}
+                color="var(--acc)"
+                label={displayName || name}
+                weight={isSelected ? 'selected' : 'hover'}
+              />
+            )}
+            {tagText && <InteractionTag rect={rect} text={tagText} />}
+          </>,
           document.body,
         )}
     </>

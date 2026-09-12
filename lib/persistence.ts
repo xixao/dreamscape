@@ -1,8 +1,9 @@
+import type { Screen } from './files/repository';
+
 export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 
 export type FilePatch = {
-  layout?: string;
-  stageWidth?: number;
+  screens?: Screen[];
   name?: string;
 };
 

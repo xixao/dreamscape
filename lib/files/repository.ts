@@ -6,7 +6,7 @@ import { files, folders } from '@/db/schema';
 // @craftjs/core and the block components, which breaks when this
 // repository is loaded from a plain server module such as a files API
 // route handler (see known-types.ts for the full explanation).
-import { KNOWN_TYPES, defaultScreen, emptyLayoutJson } from '@/components/blocks/known-types';
+import { KNOWN_TYPES, defaultScreen } from '@/components/blocks/known-types';
 import { validateScreens, type Screen } from './validate';
 
 // Re-exported so callers only need to know about lib/files/repository.ts,
@@ -36,16 +36,6 @@ export type FileRecord = FileSummary & {
   // Same optionality rationale as folderId/screenCount above: workbench.tsx's
   // BASE_FILE predates screens. Real repository code always populates it.
   screens?: Screen[];
-  // TEMPORARY compatibility mirror of screens[0]'s layout/stageWidth, for
-  // the pre-Task-S2 workbench client (components/workbench/workbench.tsx
-  // and workbench-loader.tsx), which still reads a single top-level
-  // layout/stageWidth and has not been rewired to read `screens` yet - see
-  // the S1 task report for why this could not just be removed outright.
-  // Required (not optional) because that client dereferences both fields
-  // directly with no fallback. Task S2 rewires that client and deletes
-  // these two fields for good.
-  layout: string;
-  stageWidth: number;
 };
 export type SaveInput = {
   name?: string;
@@ -146,18 +136,9 @@ function toSummary(row: FileRow): FileSummary {
 }
 
 function toRecord(row: FileRow): FileRecord {
-  const screens = toApiScreens(row.screens);
-  // screens is never empty in practice - create()/save() both run every
-  // screens array through validateScreens, which rejects zero screens - so
-  // screens[0] is always defined; the fallback only guards a row written
-  // by something other than this repository (a hand-run SQL statement,
-  // for instance) from throwing here.
-  const first = screens[0] as Screen | undefined;
   return {
     ...toSummary(row),
-    screens,
-    layout: first?.layout ?? emptyLayoutJson(),
-    stageWidth: first?.stageWidth ?? 1440,
+    screens: toApiScreens(row.screens),
   };
 }
 

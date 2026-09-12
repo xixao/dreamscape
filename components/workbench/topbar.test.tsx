@@ -23,6 +23,9 @@ function renderTopbar(
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
+    fileId: 'file123abc',
+    folderId: null,
+    currentScreenId: 'screen0001',
     ...overrides,
     onRename,
     onNew,
@@ -65,7 +68,15 @@ describe('Topbar', () => {
     const { editor } = renderInEditor(
       <>
         <Frame data={emptyLayoutJson()} />
-        <Topbar fileName="Untitled" onRename={() => {}} saveState="saved" onNew={() => {}} />
+        <Topbar
+          fileName="Untitled"
+          onRename={() => {}}
+          saveState="saved"
+          onNew={() => {}}
+          fileId="file123abc"
+          folderId={null}
+          currentScreenId="screen0001"
+        />
       </>,
     );
     await screen.findByText('This frame is empty');
@@ -90,9 +101,24 @@ describe('Topbar', () => {
     expect(onNew).toHaveBeenCalledTimes(1);
   });
 
-  it('has a ghost link back to Files before the product name', () => {
-    renderTopbar();
+  it('has a ghost link back to Files before the product name, at the top level when the file has no folder', () => {
+    renderTopbar({ folderId: null });
     expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/');
+  });
+
+  it('links back to the file\'s folder when it has one', () => {
+    renderTopbar({ folderId: 'folder0001' });
+    expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/folders/folder0001');
+  });
+
+  describe('Present', () => {
+    it('is a ghost icon link opening the play route for the current screen in a new tab', () => {
+      renderTopbar({ fileId: 'file123abc', currentScreenId: 'screen0002' });
+      const present = screen.getByRole('link', { name: 'Present' });
+      expect(present).toHaveAttribute('href', '/f/file123abc/play?screen=screen0002');
+      expect(present).toHaveAttribute('target', '_blank');
+      expect(present).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    });
   });
 
   describe('file name field', () => {

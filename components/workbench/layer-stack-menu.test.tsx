@@ -5,9 +5,12 @@ import { Button } from '@/components/blocks/button';
 import { Card } from '@/components/blocks/card';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import { HOLD_MS } from '@/lib/layer-stack';
+import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { LayerStackMenu } from './layer-stack-menu';
 import { Stage } from './stage';
+
+const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }];
 
 // Builds ROOT(Frame) -> Card -> CardContent(zone) -> Button("Sign in"), the
 // exact tree the spec's own harness example uses, via the same
@@ -18,7 +21,16 @@ import { Stage } from './stage';
 async function setup() {
   const utils = renderInEditor(
     <>
-      <Stage data={emptyLayoutJson()} />
+      <Stage
+        data={emptyLayoutJson()}
+        screens={ONE_SCREEN}
+        currentScreenId="s1"
+        onSelectScreen={() => {}}
+        onAddScreen={() => {}}
+        onRenameScreen={() => {}}
+        onDuplicateScreen={() => {}}
+        onDeleteScreen={() => {}}
+      />
       <LayerStackMenu />
     </>,
   );

@@ -322,12 +322,9 @@ describe('files API route handlers', () => {
       expect(patchResponse.status).toBe(200);
 
       const getResponse = await GET_FILE(new Request(`http://x/api/files/${file.id}`), withId(file.id));
-      const body = (await readBody(getResponse)) as { file: { stageWidth: number; screens: Array<{ stageWidth: number }> } };
+      const body = (await readBody(getResponse)) as { file: { screens: Array<{ stageWidth: number }> } };
 
       expect(body.file.screens[0].stageWidth).toBe(1920);
-      // The temporary layout/stageWidth compatibility mirror (see FileRecord
-      // in lib/files/repository.ts) tracks screens[0].
-      expect(body.file.stageWidth).toBe(1920);
     });
 
     it('moves a file into a folder', async () => {

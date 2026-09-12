@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   FilePlus2,
   Monitor,
+  Play,
   Redo2,
   Smartphone,
   Tablet,
@@ -153,25 +154,33 @@ export function Topbar({
   saveState,
   notice,
   onNew,
+  fileId,
+  folderId,
+  currentScreenId,
 }: {
   fileName: string;
   onRename: (name: string) => void;
   saveState: SaveState;
   notice?: string;
   onNew: () => void;
+  fileId: string;
+  folderId: string | null;
+  currentScreenId: string;
 }) {
   const { width, breakpoint, preset, zoom, setPreset } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
     canUndo: query.history.canUndo(),
     canRedo: query.history.canRedo(),
   }));
+  const filesHref = folderId ? `/folders/${folderId}` : '/';
+  const presentHref = `/f/${fileId}/play?screen=${currentScreenId}`;
 
   return (
     <TooltipProvider delayDuration={0}>
       <header className={cn(PANEL, 'shadow-panel', 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link href="/" aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
+            <Link href={filesHref} aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
               <ArrowLeft className="size-4" aria-hidden />
             </Link>
           </TooltipTrigger>
@@ -215,6 +224,20 @@ export function Topbar({
         </span>
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={presentHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Present"
+              className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+            >
+              <Play className="size-4" aria-hidden />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Present</TooltipContent>
+        </Tooltip>
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />

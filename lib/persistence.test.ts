@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Screen } from './files/repository';
 import { createFileSaver } from './persistence';
+
+function screen(id: string, overrides: Partial<Screen> = {}): Screen {
+  return { id, name: 'Frame 1', layout: '{}', stageWidth: 1440, ...overrides };
+}
+
+const SCREENS_A: Screen[] = [screen('s1')];
+const SCREENS_B: Screen[] = [screen('s1'), screen('s2', { name: 'Frame 2' })];
 
 describe('createFileSaver', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -13,7 +21,7 @@ describe('createFileSaver', () => {
     return new Response(JSON.stringify({ updatedAt }), { status: 409 });
   }
 
-  it('merges two queued patches into one PATCH with baseUpdatedAt, then sends the adopted updatedAt as the next baseUpdatedAt', async () => {
+  it('merges two queued patches (different fields) into one PATCH with baseUpdatedAt, then sends the adopted updatedAt as the next baseUpdatedAt', async () => {
     const fetchMock = vi.fn();
     fetchMock.mockResolvedValueOnce(ok('T1'));
     fetchMock.mockResolvedValueOnce(ok('T2'));
@@ -23,8 +31,8 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'L1' });
-    saver.queue({ stageWidth: 900 });
+    saver.queue({ screens: SCREENS_A });
+    saver.queue({ name: 'Renamed' });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -33,15 +41,15 @@ describe('createFileSaver', () => {
     expect(init.method).toBe('PATCH');
     expect(init.headers).toEqual({ 'content-type': 'application/json' });
     expect(init.keepalive).toBe(false);
-    expect(JSON.parse(init.body)).toEqual({ layout: 'L1', stageWidth: 900, baseUpdatedAt: 'T0' });
+    expect(JSON.parse(init.body)).toEqual({ screens: SCREENS_A, name: 'Renamed', baseUpdatedAt: 'T0' });
     expect(saver.getUpdatedAt()).toBe('T1');
 
-    saver.queue({ name: 'Renamed' });
+    saver.queue({ screens: SCREENS_B });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      name: 'Renamed',
+      screens: SCREENS_B,
       baseUpdatedAt: 'T1',
     });
   });
@@ -74,13 +82,13 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'x' });
+    saver.queue({ screens: SCREENS_A });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(saver.getState()).toBe('conflict');
     expect(saver.getUpdatedAt()).toBe('T0');
 
-    saver.queue({ layout: 'y' });
+    saver.queue({ screens: SCREENS_B });
     await vi.runAllTimersAsync();
     await saver.flush();
 
@@ -98,7 +106,7 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'x' });
+    saver.queue({ screens: SCREENS_A });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(saver.getState()).toBe('error');
@@ -108,7 +116,7 @@ describe('createFileSaver', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      layout: 'x',
+      screens: SCREENS_A,
       baseUpdatedAt: 'T0',
     });
     expect(saver.getState()).toBe('saved');
@@ -125,7 +133,7 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'bad' });
+    saver.queue({ screens: SCREENS_A });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(saver.getState()).toBe('error');
@@ -145,7 +153,7 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'z' });
+    saver.queue({ screens: SCREENS_A });
     await saver.flush();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -169,7 +177,7 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'a' });
+    saver.queue({ screens: SCREENS_A });
     await vi.advanceTimersByTimeAsync(800);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -191,7 +199,7 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'x' });
+    saver.queue({ screens: SCREENS_A });
     saver.dispose();
     await vi.runAllTimersAsync();
 
@@ -213,19 +221,19 @@ describe('createFileSaver', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    saver.queue({ layout: 'a' });
+    saver.queue({ screens: SCREENS_A });
     await vi.advanceTimersByTimeAsync(800);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(saver.getState()).toBe('saving');
 
-    saver.queue({ layout: 'b' });
+    saver.queue({ screens: SCREENS_B });
     resolveFirst(ok('T1'));
     await vi.advanceTimersByTimeAsync(0);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-      layout: 'b',
+      screens: SCREENS_B,
       baseUpdatedAt: 'T1',
     });
 

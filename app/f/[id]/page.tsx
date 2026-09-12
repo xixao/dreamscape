@@ -7,32 +7,30 @@ import { notFound } from 'next/navigation';
 import { KNOWN_TYPES, emptyLayoutJson } from '@/components/blocks/known-types';
 import { WorkbenchLoader } from '@/components/workbench/workbench-loader';
 import { getRepository } from '@/lib/files/http';
-import { validateLayout } from '@/lib/files/validate';
+import { normalizeLayout, validateLayout } from '@/lib/files/validate';
 
 export const dynamic = 'force-dynamic';
 
-// Task S1 (see docs/superpowers/plans/2026-09-12-screens-prototype-play.md)
-// replaced a file's single layout/stageWidth with a `screens` array, but
-// WorkbenchLoader/Workbench are not rewired to it until Task S2 - until
-// then they still read `file.layout`/`file.stageWidth`, and FileRecord
-// keeps those two fields as a temporary mirror of `screens[0]` (see the
-// comment on FileRecord in lib/files/repository.ts) so this page needs no
-// change of its own to keep working: it renders the file's first screen
-// only, exactly the old single-screen behavior, and a second screen (once
-// something can create one) is invisible here until Task S2 lands.
+// Every screen's layout is run through normalizeLayout (rewrites any
+// pre-8px-scale legacy gap/padding into gapPx/paddingPx, see
+// lib/files/validate.ts) and then validateLayout before the file ever
+// reaches the client Workbench: a screen that still fails validation after
+// normalizing (unparsable JSON, or a block type this build no longer knows)
+// gets an empty stand-in instead, the same recovery a single-layout file
+// always had, just scoped to the one screen that needed it rather than the
+// whole file. StageErrorBoundary remains the last-resort net for anything
+// Craft itself refuses to deserialize that this shallow check cannot see.
 export default async function FilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const repository = await getRepository();
   const file = await repository.get(id);
   if (!file) notFound();
 
-  const validated = validateLayout(file.layout, KNOWN_TYPES);
-  const layoutInvalid = !validated.ok;
+  const screens = (file.screens ?? []).map((screen) => {
+    const normalized = normalizeLayout(screen.layout);
+    const validated = validateLayout(normalized, KNOWN_TYPES);
+    return { ...screen, layout: validated.ok ? normalized : emptyLayoutJson() };
+  });
 
-  return (
-    <WorkbenchLoader
-      file={layoutInvalid ? { ...file, layout: emptyLayoutJson() } : file}
-      layoutInvalid={layoutInvalid}
-    />
-  );
+  return <WorkbenchLoader file={{ ...file, screens }} />;
 }

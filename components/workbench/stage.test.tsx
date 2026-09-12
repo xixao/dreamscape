@@ -1,18 +1,63 @@
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { Stage } from './stage';
 import { useStage } from './stage-context';
+
+const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }];
+
+// The screens-strip's own chip/rename/menu behavior is covered in
+// screens-strip.test.tsx in isolation; these props just confirm Stage wires
+// it in above the artboard with what it's given.
+function screenProps(overrides: Partial<ComponentProps<typeof Stage>> = {}): ComponentProps<typeof Stage> {
+  return {
+    data: emptyLayoutJson(),
+    screens: ONE_SCREEN,
+    currentScreenId: 's1',
+    onSelectScreen: vi.fn(),
+    onAddScreen: vi.fn(),
+    onRenameScreen: vi.fn(),
+    onDuplicateScreen: vi.fn(),
+    onDeleteScreen: vi.fn(),
+    ...overrides,
+  };
+}
 
 describe('Stage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  it('renders the screens strip above the artboard', async () => {
+    const screens: Screen[] = [
+      { id: 's1', name: 'Login', layout: emptyLayoutJson(), stageWidth: 1440 },
+      { id: 's2', name: 'Hello world', layout: emptyLayoutJson(), stageWidth: 1440 },
+    ];
+    const onSelectScreen = vi.fn();
+    renderInEditor(<Stage {...screenProps({ screens, currentScreenId: 's1', onSelectScreen })} />);
+
+    const tablist = await screen.findByRole('tablist', { name: 'Screens' });
+    expect(within(tablist).getByRole('tab', { name: 'Login' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(tablist).getByRole('tab', { name: 'Hello world' })).toHaveAttribute('aria-selected', 'false');
+
+    await userEvent.click(within(tablist).getByRole('tab', { name: 'Hello world' }));
+    expect(onSelectScreen).toHaveBeenCalledWith('s2');
+  });
+
+  it('calls onAddScreen from the strip\'s New screen button', async () => {
+    const onAddScreen = vi.fn();
+    renderInEditor(<Stage {...screenProps({ onAddScreen })} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'New screen' }));
+    expect(onAddScreen).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the artboard at the stage width in the basic theme', async () => {
-    renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 768 });
+    renderInEditor(<Stage {...screenProps({ data: emptyLayoutJson() })} />, { width: 768 });
     const artboard = await screen.findByTestId('artboard');
     expect(artboard).toHaveClass('theme-basic');
     expect(artboard).toHaveStyle({ width: '768px', minHeight: '640px' });
@@ -20,7 +65,7 @@ describe('Stage', () => {
   });
 
   it('deselects when the canvas outside the artboard is pressed', async () => {
-    const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
+    const { editor } = renderInEditor(<Stage {...screenProps()} />);
     await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
@@ -30,7 +75,7 @@ describe('Stage', () => {
   });
 
   it('keeps the selection when the artboard itself is pressed', async () => {
-    const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
+    const { editor } = renderInEditor(<Stage {...screenProps()} />);
     await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
@@ -40,7 +85,7 @@ describe('Stage', () => {
   });
 
   it('resizes with the grip, dividing the pointer delta by the zoom', async () => {
-    renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
+    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
     const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     expect(grip).toHaveAttribute('aria-valuenow', '1000');
 
@@ -56,7 +101,7 @@ describe('Stage', () => {
   });
 
   it('resizes with the arrow keys, ten times faster with Shift', async () => {
-    renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
+    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
     const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     fireEvent.keyDown(grip, { key: 'ArrowRight' });
     expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1010px' });
@@ -67,7 +112,7 @@ describe('Stage', () => {
   });
 
   it('ends the drag on pointer cancel, so a later move does not resize', async () => {
-    renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
+    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
     const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
     expect(grip.firstElementChild).toHaveClass('bg-acc');
@@ -78,7 +123,7 @@ describe('Stage', () => {
   });
 
   it('keeps the selection when the grip is pressed', async () => {
-    const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
+    const { editor } = renderInEditor(<Stage {...screenProps()} />);
     await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
@@ -96,7 +141,7 @@ describe('Stage', () => {
     }
     renderInEditor(
       <>
-        <Stage data={emptyLayoutJson()} />
+        <Stage {...screenProps()} />
         <ZoomProbe />
       </>,
       { width: 1440 },

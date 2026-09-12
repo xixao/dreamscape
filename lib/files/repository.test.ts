@@ -47,11 +47,6 @@ describe('files repository', () => {
       expect(isIsoString(file.createdAt)).toBe(true);
       expect(isIsoString(file.updatedAt)).toBe(true);
       expect(file.folderId).toBeNull();
-
-      // Temporary compatibility mirror for the pre-Task-S2 workbench client
-      // (see the FileRecord comment in ./repository.ts): always screens[0].
-      expect(JSON.parse(file.layout)).toEqual(JSON.parse(emptyLayoutJson()));
-      expect(file.stageWidth).toBe(1440);
     });
 
     it('creates a file with the given screens, in order', async () => {
@@ -64,8 +59,6 @@ describe('files repository', () => {
       expect(file.screenCount).toBe(2);
       expect(file.screens?.map((s) => s.name)).toEqual(['Login', 'Frame 2']);
       expect(JSON.parse(file.screens![0].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
-      // The compatibility mirror always reflects the first screen.
-      expect(JSON.parse(file.layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
     it('clamps every screen stage width to the valid range', async () => {

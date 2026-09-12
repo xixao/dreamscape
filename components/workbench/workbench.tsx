@@ -1,31 +1,54 @@
 'use client';
 
 import { Editor, useEditor } from '@craftjs/core';
-import { useEffect, useRef, useState } from 'react';
+import { nanoid } from 'nanoid';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { canonicalLayout } from '@/lib/files/validate';
-import type { FileRecord } from '@/lib/files/repository';
+import type { FileRecord, Screen } from '@/lib/files/repository';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
 import { ComponentTray } from './component-tray';
-import { Inspector } from './inspector/inspector';
+import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
+import { PrototypeProvider } from './prototype-context';
 import { useZoneRedirect } from './selection';
 import { Stage } from './stage';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider } from './stage-context';
 import { Topbar } from './topbar';
 
-export const INVALID_LAYOUT_NOTICE = 'The saved design could not be read; this file starts empty.';
+// A file always has at least one screen by the time it reaches this
+// component in real use (the repository's create()/save() both run every
+// screens array through validateScreens, which rejects zero screens) - this
+// is only a fallback for the optional `screens` field's own precedent (see
+// the comment on FileRecord in lib/files/repository.ts), e.g. an older test
+// fixture that predates screens.
+function resolveInitialScreens(file: FileRecord): Screen[] {
+  return file.screens && file.screens.length > 0 ? file.screens : [defaultScreen()];
+}
 
-export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInvalid: boolean }) {
+// The current screen id is remembered in the URL hash (#s=<id>) so a reload
+// keeps it; falls back to the first screen when the hash names no screen of
+// this file (missing, stale after a delete, or simply absent on first load).
+function screenIdFromHash(hash: string, screens: Screen[]): string {
+  const match = /[#&]s=([^&]+)/.exec(hash);
+  const id = match?.[1];
+  return id && screens.some((screen) => screen.id === id) ? id : screens[0].id;
+}
+
+type MinimalQuery = { serialize: () => string };
+
+export function Workbench({ file }: { file: FileRecord }) {
   const [saveState, setSaveState] = useState<SaveState>('saved');
-  const [notice, setNotice] = useState<string | undefined>(
-    layoutInvalid ? INVALID_LAYOUT_NOTICE : undefined,
-  );
   const [fileName, setFileName] = useState(file.name);
+  const [screens, setScreens] = useState<Screen[]>(() => resolveInitialScreens(file));
+  const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
+    screenIdFromHash(window.location.hash, resolveInitialScreens(file)),
+  );
 
   // Lazy useState (not useMemo) so the saver is created exactly once and holds
   // its own pending-write timer across renders, the same guarantee a ref would
@@ -40,25 +63,83 @@ export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInv
     }),
   );
 
-  // The very first onNodesChange fires from Craft's own initial deserialize of
-  // the frame, not a user edit. For an invalid layout that first firing is
-  // deserializing the empty stand-in this component was handed instead of the
-  // unreadable original, so it must not overwrite the stored (corrupted)
-  // layout before the user has actually changed anything.
-  const skipNextNodesChange = useRef(layoutInvalid);
+  function queuePatch(patch: FilePatch): void {
+    saver.queue(patch);
+  }
 
-  // Craft's own store notifies onNodesChange unconditionally the first time
-  // it fires after mount (nothing to compare that firing's content against
-  // yet), which happens on the first store change of any kind - including a
-  // plain selection click, not just an edit. Comparing against the layout we
-  // know is already saved (rather than trusting every firing to mean "save
-  // this") keeps a second tab's read-only open, or the owning tab's own first
-  // click, from queuing a no-op write that only serves to bump updatedAt and
-  // hand the next real editor a conflict nobody caused. Compared canonically,
-  // not by raw string equality: Postgres's jsonb column doesn't preserve
-  // object key order on round-trip, and Craft's own parse-then-serialize
-  // doesn't reliably reproduce the exact key order it was given either.
-  const lastSavedLayout = useRef(file.layout);
+  // Craft.js's <Editor> reads its onNodesChange (and resolver/onRender/etc.)
+  // exactly once, at its own first mount, via an internal useRef(props) -
+  // never re-reading it on later renders (confirmed against the installed
+  // 0.2.12 bundle: `const n = useRef(t)` in the Editor component, where `t`
+  // is its own props). A plain inline closure would therefore keep
+  // referencing whichever `screens`/`currentScreenId` were current the
+  // moment this component first rendered, silently going stale the first
+  // time the user switches or adds a screen.
+  //
+  // These refs are how the stable callback below still always resolves
+  // "which screen is this for" and "what did we last save for it" without
+  // itself closing over state that could go stale. Every place that changes
+  // `screens` or `currentScreenId` (switchScreen and friends, further down)
+  // updates the matching ref itself, synchronously in the same event
+  // handler, right alongside the state setter - not here during render,
+  // which both trips the react-hooks/refs lint rule and, for
+  // currentScreenIdRef specifically, would update too late anyway:
+  // switching screens remounts Craft's <Frame> (the key on StageProvider
+  // below), and Frame's own mount calls Craft's deserialize() synchronously
+  // inside its render function body, re-triggering this very subscription
+  // before any effect from this render has had a chance to run.
+  const screensRef = useRef(screens);
+  const currentScreenIdRef = useRef(currentScreenId);
+  // Per screen id, the layout JSON string last known to match what the
+  // server has, so a plain selection click (which still fires Craft's own
+  // onNodesChange) is not mistaken for an edit worth saving - the same
+  // canonical-compare guard the single-screen editor always had, now keyed
+  // per screen instead of assuming there is only one.
+  const lastSavedLayoutsRef = useRef<Record<string, string>>(
+    Object.fromEntries(screens.map((screen) => [screen.id, screen.layout])),
+  );
+
+  // A stable function identity (useCallback with an empty dependency array,
+  // rather than the ref-holds-a-reassigned-closure pattern), because Craft
+  // only ever reads this prop once (see above) - passing a fresh closure
+  // every render here would only ever be seen once anyway, and reassigning a
+  // ref during render to fake "freshness" is exactly what the rule above
+  // guards against. This works because the body below only ever reads the
+  // refs declared above (never a plain state variable, by design, so it
+  // never goes stale) and calls `saver`/`setScreens`, both stable across
+  // every render - so capturing this one closure forever is correct, not
+  // just permitted.
+  const onNodesChange = useCallback((query: MinimalQuery) => {
+    const screenId = currentScreenIdRef.current;
+    const json = query.serialize();
+    const previous = lastSavedLayoutsRef.current[screenId];
+    if (previous !== undefined && canonicalLayout(json) === canonicalLayout(previous)) return;
+    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
+    const next = screensRef.current.map((screen) => (screen.id === screenId ? { ...screen, layout: json } : screen));
+    screensRef.current = next;
+    // Deferred to a microtask rather than called inline: this firing can
+    // happen synchronously from INSIDE another component's render phase.
+    // Switching (or adding/duplicating) a screen remounts Craft's <Frame>,
+    // and Frame's own mount - a library internal, not an effect - calls
+    // Craft's deserialize() right in its render function body, which
+    // synchronously re-triggers this very subscription. Calling setScreens
+    // directly from there updates Workbench (a different, already-mounted
+    // component) while Frame is still rendering, which React warns about
+    // and which was observed to occasionally double- or under-count the
+    // resulting save depending on unrelated timing elsewhere in the tree. A
+    // microtask runs after the current render/commit finishes, which is
+    // indistinguishable from synchronous for anything a user or a test can
+    // observe.
+    queueMicrotask(() => {
+      setScreens(next);
+      saver.queue({ screens: next });
+    });
+    // Deliberately empty: see the comment above this callback for why every
+    // value it needs comes from a ref or a value stable for this
+    // component's whole lifetime, and none of it needs to trigger a new
+    // closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const onPageHide = () => {
@@ -84,40 +165,101 @@ export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInv
     [saver],
   );
 
-  function queuePatch(patch: FilePatch): void {
-    setNotice(undefined);
-    saver.queue(patch);
+  function switchScreen(id: string): void {
+    if (id === currentScreenId) return;
+    void saver.flush();
+    // Updated synchronously here, in the same event handler as the state
+    // setter (not during render - see the comment on currentScreenIdRef's
+    // declaration above): by the time this returns, Craft's <Frame> for the
+    // new screen is guaranteed not to have mounted yet, so the ref is always
+    // correct before its render-phase deserialize() can re-trigger
+    // onNodesChange.
+    currentScreenIdRef.current = id;
+    setCurrentScreenId(id);
+    window.history.replaceState(null, '', `#s=${id}`);
   }
+
+  function addScreen(): void {
+    const current = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
+    const newScreen: Screen = {
+      id: nanoid(10),
+      name: `Frame ${screens.length + 1}`,
+      layout: emptyLayoutJson(),
+      stageWidth: current.stageWidth,
+      stageHeight: null,
+      deviceName: null,
+    };
+    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
+    const next = [...screens, newScreen];
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+    switchScreen(newScreen.id);
+  }
+
+  function renameScreen(id: string, name: string): void {
+    const next = screens.map((screen) => (screen.id === id ? { ...screen, name } : screen));
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  function duplicateScreen(id: string): void {
+    const index = screens.findIndex((screen) => screen.id === id);
+    if (index === -1) return;
+    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy` };
+    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
+    const next = [...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)];
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+    switchScreen(copy.id);
+  }
+
+  function deleteScreen(id: string): void {
+    if (screens.length <= 1) return;
+    const next = screens.filter((screen) => screen.id !== id);
+    delete lastSavedLayoutsRef.current[id];
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+    if (id === currentScreenId) switchScreen(next[0].id);
+  }
+
+  function handleWidthChange(width: number): void {
+    const next = screens.map((screen) => (screen.id === currentScreenId ? { ...screen, stageWidth: width } : screen));
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  const currentScreen = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
 
   return (
     <Editor
       resolver={resolver}
       onRender={NodeIndicator}
       indicator={{ success: 'var(--acc)', error: 'var(--bad)' }}
-      onNodesChange={(query) => {
-        if (skipNextNodesChange.current) {
-          skipNextNodesChange.current = false;
-          return;
-        }
-        const json = query.serialize();
-        if (canonicalLayout(json) === canonicalLayout(lastSavedLayout.current)) {
-          return;
-        }
-        lastSavedLayout.current = json;
-        queuePatch({ layout: json });
-      }}
+      onNodesChange={onNodesChange}
     >
-      <StageProvider initialWidth={file.stageWidth} onWidthChange={(width) => queuePatch({ stageWidth: width })}>
+      <StageProvider key={currentScreenId} initialWidth={currentScreen.stageWidth} onWidthChange={handleWidthChange}>
         <WorkbenchShell
-          initialLayout={file.layout}
           fileId={file.id}
+          folderId={file.folderId ?? null}
           fileName={fileName}
           onRename={(name) => {
             setFileName(name);
             queuePatch({ name });
           }}
           saveState={saveState}
-          notice={notice}
+          screens={screens}
+          currentScreenId={currentScreenId}
+          currentScreenLayout={currentScreen.layout}
+          onSelectScreen={switchScreen}
+          onAddScreen={addScreen}
+          onRenameScreen={renameScreen}
+          onDuplicateScreen={duplicateScreen}
+          onDeleteScreen={deleteScreen}
         />
       </StageProvider>
     </Editor>
@@ -125,60 +267,96 @@ export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInv
 }
 
 function WorkbenchShell({
-  initialLayout,
   fileId,
+  folderId,
   fileName,
   onRename,
   saveState,
-  notice,
+  screens,
+  currentScreenId,
+  currentScreenLayout,
+  onSelectScreen,
+  onAddScreen,
+  onRenameScreen,
+  onDuplicateScreen,
+  onDeleteScreen,
 }: {
-  initialLayout: string;
   fileId: string;
+  folderId: string | null;
   fileName: string;
   onRename: (name: string) => void;
   saveState: SaveState;
-  notice?: string;
+  screens: Screen[];
+  currentScreenId: string;
+  currentScreenLayout: string;
+  onSelectScreen: (id: string) => void;
+  onAddScreen: () => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onDuplicateScreen: (id: string) => void;
+  onDeleteScreen: (id: string) => void;
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
+  const [panelMode, setPanelMode] = useState<PanelMode>('design');
   useWorkbenchKeyboard({ onToggleUi: () => setUiHidden((hidden) => !hidden) });
   const { actions } = useEditor();
   const [newOpen, setNewOpen] = useState(false);
 
   return (
-    <div
-      className={
-        uiHidden
-          ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
-          : 'grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-      }
-    >
-      {!uiHidden && (
-        <Topbar
-          key="topbar"
-          fileName={fileName}
-          onRename={onRename}
-          saveState={saveState}
-          notice={notice}
-          onNew={() => setNewOpen(true)}
+    <PrototypeProvider value={{ panelMode, screens }}>
+      <div
+        className={
+          uiHidden
+            ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
+            : 'grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+        }
+      >
+        {!uiHidden && (
+          <Topbar
+            key="topbar"
+            fileName={fileName}
+            onRename={onRename}
+            saveState={saveState}
+            onNew={() => setNewOpen(true)}
+            fileId={fileId}
+            folderId={folderId}
+            currentScreenId={currentScreenId}
+          />
+        )}
+        {!uiHidden && <ComponentTray key="tray" />}
+        <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
+          <Stage
+            data={currentScreenLayout}
+            screens={screens}
+            currentScreenId={currentScreenId}
+            onSelectScreen={onSelectScreen}
+            onAddScreen={onAddScreen}
+            onRenameScreen={onRenameScreen}
+            onDuplicateScreen={onDuplicateScreen}
+            onDeleteScreen={onDeleteScreen}
+          />
+        </StageErrorBoundary>
+        {!uiHidden && (
+          <Inspector
+            key="inspector"
+            screens={screens}
+            currentScreenId={currentScreenId}
+            panelMode={panelMode}
+            onPanelModeChange={setPanelMode}
+          />
+        )}
+        <NewLayoutDialog
+          key="new-dialog"
+          open={newOpen}
+          onOpenChange={setNewOpen}
+          onConfirm={() => {
+            actions.selectNode();
+            actions.deserialize(emptyLayoutJson());
+            actions.history.clear();
+          }}
         />
-      )}
-      {!uiHidden && <ComponentTray key="tray" />}
-      <StageErrorBoundary key="stage" fileId={fileId}>
-        <Stage data={initialLayout} />
-      </StageErrorBoundary>
-      {!uiHidden && <Inspector key="inspector" />}
-      <NewLayoutDialog
-        key="new-dialog"
-        open={newOpen}
-        onOpenChange={setNewOpen}
-        onConfirm={() => {
-          actions.selectNode();
-          actions.deserialize(emptyLayoutJson());
-          actions.history.clear();
-        }}
-      />
-      <LayerStackMenu key="layer-stack-menu" />
-    </div>
+        <LayerStackMenu key="layer-stack-menu" />
+      </div>
+    </PrototypeProvider>
   );
 }

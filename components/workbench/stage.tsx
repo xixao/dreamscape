@@ -2,6 +2,7 @@
 
 import { Frame, useEditor } from '@craftjs/core';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import type { Screen } from '@/lib/files/repository';
 import {
   ARTBOARD_MIN_HEIGHT,
   MAX_STAGE_WIDTH,
@@ -10,6 +11,7 @@ import {
   computeZoom,
 } from '@/lib/stage';
 import { cn } from '@/lib/utils';
+import { ScreensStrip } from './screens-strip';
 import { useStage } from './stage-context';
 
 function ResizeGrip({
@@ -70,7 +72,25 @@ function ResizeGrip({
   );
 }
 
-export function Stage({ data }: { data: string }) {
+export function Stage({
+  data,
+  screens,
+  currentScreenId,
+  onSelectScreen,
+  onAddScreen,
+  onRenameScreen,
+  onDuplicateScreen,
+  onDeleteScreen,
+}: {
+  data: string;
+  screens: Screen[];
+  currentScreenId: string;
+  onSelectScreen: (id: string) => void;
+  onAddScreen: () => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onDuplicateScreen: (id: string) => void;
+  onDeleteScreen: (id: string) => void;
+}) {
   const { width, zoom, setWidth, setZoom } = useStage();
   const { actions } = useEditor();
   const columnRef = useRef<HTMLDivElement>(null);
@@ -89,20 +109,31 @@ export function Stage({ data }: { data: string }) {
     <div
       ref={columnRef}
       data-testid="stage-column"
-      className="min-w-0 overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
+      className="flex min-w-0 flex-col overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
       onPointerDown={(event) => {
         const target = event.target as HTMLElement;
         if (!target.closest('[data-artboard]')) actions.selectNode();
       }}
     >
-      <div className="flex justify-center" style={{ padding: STAGE_PADDING }}>
+      <div className="flex shrink-0 items-center border-b border-line-soft bg-canvas px-3 py-2">
+        <ScreensStrip
+          screens={screens}
+          currentScreenId={currentScreenId}
+          onSelect={onSelectScreen}
+          onAdd={onAddScreen}
+          onRename={onRenameScreen}
+          onDuplicate={onDuplicateScreen}
+          onDelete={onDeleteScreen}
+        />
+      </div>
+      <div className="flex flex-1 justify-center" style={{ padding: STAGE_PADDING }}>
         <div data-artboard data-testid="artboard-zoom" className="relative shrink-0" style={{ zoom }}>
           <div
             data-testid="artboard"
             className="theme-basic border border-line-strong bg-background font-sans text-foreground shadow-panel-lg"
             style={{ width, minHeight: ARTBOARD_MIN_HEIGHT }}
           >
-            <Frame data={data} />
+            <Frame key={currentScreenId} data={data} />
           </div>
           <ResizeGrip width={width} zoom={zoom} onResize={setWidth} />
         </div>

@@ -5,7 +5,7 @@ import { KNOWN_TYPES } from '@/components/blocks/registry';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { validateLayout } from '@/lib/files/validate';
 import { renderTree } from '@/test/craft-harness';
-import { EXAMPLES, exampleToScreens, findExample } from './index';
+import { EXAMPLES, exampleToScreens, findExample, type Example } from './index';
 
 type SerializedNode = { type: { resolvedName: string } };
 
@@ -158,5 +158,20 @@ describe('exampleToScreens', () => {
     const second = exampleToScreens(login);
 
     expect(first[0].id).not.toBe(second[0].id);
+  });
+
+  it('normalizes legacy gap/padding spacing in the example layout, in case an example still carries it', () => {
+    const legacyExample: Example = {
+      slug: 'login',
+      name: 'Legacy example',
+      layout: JSON.stringify({
+        ROOT: { type: { resolvedName: 'LayoutBox' }, props: { gap: 2 }, nodes: [] },
+      }),
+      stageWidth: 1440,
+    };
+
+    const screens = exampleToScreens(legacyExample);
+
+    expect(JSON.parse(screens[0].layout).ROOT.props).toEqual({ gapPx: 8 });
   });
 });
