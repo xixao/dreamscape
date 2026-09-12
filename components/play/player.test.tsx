@@ -196,6 +196,18 @@ describe('Player', () => {
     expect(screen.queryByTestId('selection-outline')).toBeNull();
   });
 
+  it('paints the artboard text in the basic theme foreground, not the chrome text colour', async () => {
+    const { container } = render(<Player file={makeFile()} initialScreenId="screen1" />);
+    await screen.findByRole('button', { name: 'Go to second screen' });
+
+    // The SF2 chrome sets a light body text colour; the white artboard must
+    // reset it or every Text block in Play reads as faint gray on white.
+    const artboard = container.querySelector('.theme-basic');
+    expect(artboard).not.toBeNull();
+    expect(artboard).toHaveClass('bg-background');
+    expect(artboard).toHaveClass('text-foreground');
+  });
+
   it('shows the screen name and a close link back to the editor in the overlay', async () => {
     render(<Player file={makeFile()} initialScreenId="screen1" />);
     await screen.findByRole('button', { name: 'Go to second screen' });

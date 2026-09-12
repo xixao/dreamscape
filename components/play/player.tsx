@@ -149,7 +149,7 @@ export function Player({ file, initialScreenId }: { file: FileRecord; initialScr
 
   return (
     <PlayProvider value={play}>
-      <div className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8">
+      <div className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
         <StageProvider key={state.currentScreenId} initialWidth={currentScreen.stageWidth}>
           <div
             className="relative shrink-0 bg-background"
