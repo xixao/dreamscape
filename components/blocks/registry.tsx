@@ -8,7 +8,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
 import { Button, buttonSchema } from './button';
 import { Card, CardContent, cardSchema } from './card';
 import { Dialog, DialogContent, dialogSchema } from './dialog';
@@ -89,19 +88,6 @@ export function schemaFor(type: string): BlockSchema | null {
 }
 
 // Server-only code: import this from ./known-types instead (see the note
-// on KNOWN_TYPES above).
-export function emptyLayoutJson(): string {
-  return JSON.stringify({
-    ROOT: {
-      type: { resolvedName: 'LayoutBox' },
-      isCanvas: true,
-      props: ROOT_LAYOUT_PROPS,
-      displayName: 'LayoutBox',
-      custom: {},
-      hidden: false,
-      nodes: [],
-      linkedNodes: {},
-      parent: null,
-    },
-  });
-}
+// on KNOWN_TYPES above). Re-exported here, rather than redefined, so the
+// client tree's copy can never drift from the server-safe one.
+export { emptyLayoutJson } from './known-types';

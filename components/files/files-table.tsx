@@ -24,6 +24,15 @@ import { cn } from '@/lib/utils';
 
 const TH = cn(LABEL, 'text-left px-4 py-3 border-b border-line-soft');
 
+function RowMessage({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="mt-1 text-[12.5px] text-bad">
+      {message}
+    </p>
+  );
+}
+
 function IconAction({
   label,
   icon: Icon,
@@ -52,6 +61,7 @@ export function FilesTable({ files }: { files: FileSummary[] }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FileSummary | null>(null);
+  const [rowMessage, setRowMessage] = useState<{ id: string; text: string } | null>(null);
 
   function startRename(id: string) {
     setRenamingId(id);
@@ -81,18 +91,37 @@ export function FilesTable({ files }: { files: FileSummary[] }) {
       return;
     }
 
+    if (!response.ok) {
+      setRenameError('Could not rename the file. Try again.');
+      return;
+    }
+
     cancelRename();
     router.refresh();
   }
 
   async function handleDuplicate(file: FileSummary) {
+    setRowMessage(null);
     const response = await fetch(`/api/files/${file.id}/duplicate`, { method: 'POST' });
+    if (!response.ok) {
+      setRowMessage({ id: file.id, text: 'Could not duplicate the file. Try again.' });
+      return;
+    }
     const data = await response.json();
     router.push(`/f/${data.file.id}`);
   }
 
   async function handleDelete(file: FileSummary) {
-    await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
+    setRowMessage(null);
+    const response = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
+    // A 404 means the file is already gone (e.g. deleted elsewhere), so the
+    // refresh that drops it from the list is exactly what we want, with no
+    // error to show. Any other non-2xx is a real failure: leave the row
+    // as-is and report it instead of refreshing.
+    if (!response.ok && response.status !== 404) {
+      setRowMessage({ id: file.id, text: 'Could not delete the file. Reload and try again.' });
+      return;
+    }
     router.refresh();
   }
 
@@ -141,12 +170,15 @@ export function FilesTable({ files }: { files: FileSummary[] }) {
                             }}
                           />
                         </div>
-                        {renameError && <p className="mt-1 text-xs text-bad">{renameError}</p>}
+                        <RowMessage message={renameError} />
                       </div>
                     ) : (
-                      <Link href={`/f/${file.id}`} className="font-medium hover:text-acc2">
-                        {file.name}
-                      </Link>
+                      <div>
+                        <Link href={`/f/${file.id}`} className="font-medium hover:text-acc2">
+                          {file.name}
+                        </Link>
+                        <RowMessage message={rowMessage?.id === file.id ? rowMessage.text : null} />
+                      </div>
                     )}
                   </td>
                   <td className={td}>

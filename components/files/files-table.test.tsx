@@ -155,6 +155,18 @@ describe('FilesTable', () => {
     );
   });
 
+  it('shows an inline error in the row and does not navigate when duplicating fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+    render(<FilesTable files={files} />);
+    await userEvent.click(within(rowFor('Login screen')).getByRole('button', { name: 'Duplicate' }));
+
+    expect(await within(rowFor('Login screen')).findByRole('alert')).toHaveTextContent(
+      'Could not duplicate the file. Try again.',
+    );
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it('asks for confirmation before deleting, and only deletes when confirmed', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
 
@@ -177,5 +189,45 @@ describe('FilesTable', () => {
 
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     expect(fetch).toHaveBeenCalledWith('/api/files/file1', expect.objectContaining({ method: 'DELETE' }));
+  });
+
+  it('shows an inline error in the row and does not refresh when deleting fails with a server error', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+    render(<FilesTable files={files} />);
+    await userEvent.click(within(rowFor('Login screen')).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(await within(rowFor('Login screen')).findByRole('alert')).toHaveTextContent(
+      'Could not delete the file. Reload and try again.',
+    );
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('still refreshes (with no error message) when deleting a file that is already gone', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+
+    render(<FilesTable files={files} />);
+    await userEvent.click(within(rowFor('Login screen')).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows a message and stays in edit mode when renaming fails with a server error', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+    render(<FilesTable files={files} />);
+    await userEvent.click(within(rowFor('Login screen')).getByRole('button', { name: 'Rename' }));
+    const input = await screen.findByLabelText('File name');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Sign in screen{Enter}');
+
+    expect(await screen.findByText('Could not rename the file. Try again.')).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('File name')).toBeInTheDocument();
   });
 });

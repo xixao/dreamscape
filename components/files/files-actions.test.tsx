@@ -77,4 +77,33 @@ describe('FilesActions', () => {
     expect(newFileButton).toBeEnabled();
     expect(exampleButton).toBeEnabled();
   });
+
+  it('shows an inline error and does not navigate when the create request fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'boom' }),
+    });
+
+    render(<FilesActions />);
+    await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not create the file. Try again.');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('clears the create error on the next attempt', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'boom' }) })
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ file: { id: 'new2' } }) });
+
+    render(<FilesActions />);
+    await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/f/new2'));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
