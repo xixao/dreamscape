@@ -43,6 +43,14 @@ Specs: `docs/superpowers/specs/2026-09-12-folders-and-comments-design.md` and `d
 
 Per `docs/superpowers/specs/2026-09-12-layer-stack-menu-design.md` sections 2 to 5: `lib/layer-stack.ts` (+ tests), `components/workbench/layer-stack-menu.tsx` (+ tests), wiring in `WorkbenchShell`. Commit "Add the press-and-hold layer stack menu".
 
+### Task 12b: Keyboard shortcuts overlay
+
+Per `docs/superpowers/specs/2026-09-12-shortcuts-overlay-design.md` sections 2 to 5: `lib/shortcuts.ts` (+ tests), `components/workbench/shortcuts-overlay.tsx` (+ tests), `HANDLED_SHORTCUTS` exported from `keyboard.tsx`, wiring in `WorkbenchShell`. Runs after Task 11 because both touch `keyboard.tsx` and `workbench.tsx`. Commit "Show the keyboard shortcuts while holding the command key".
+
+### Task 12c: Device presets for the frame
+
+Per the research in `docs/research/2026-09-12-figma-device-presets.md` and the data file `lib/stage/device-presets.json`: the Mobile, Tablet and Desktop buttons in the top bar each open a device list (shadcn `DropdownMenu` or `Select`, SF2-styled) grouped as Figma groups them; choosing a device sets the frame's width and height (the artboard gets a fixed height equal to the device height with content scrolling inside it, and `min-height` no longer applies); the readout shows the device name (for example `iPhone 16 Pro · 402 x 874 · 63%`); a custom width from the grip clears the device name; the file stores `deviceName` and `stageHeight` alongside `stageWidth` (schema: `stage_height integer null`, `device_name text null`, migration). Tests: the preset data validates (every entry has positive integer width and height); choosing a device sets width, height and the readout; the grip clears the device; persistence round trip through the API. Commit "Add Figma device presets to the frame sizes".
+
 ### Task 13: Migrate, redeploy, verify
 
 `npm run db:migrate` against Neon, `npm run deploy`, walk spec section 6's browser check and the layer stack spec's browser check on the production URL, note results in the ledger.
