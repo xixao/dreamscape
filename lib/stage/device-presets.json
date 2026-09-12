@@ -1,0 +1,107 @@
+[
+  {
+    "group": "Phone",
+    "devices": [
+      {
+        "name": "iPhone 17 Pro Max",
+        "width": 440,
+        "height": 956
+      },
+      {
+        "name": "iPhone 17 Pro",
+        "width": 402,
+        "height": 874
+      },
+      {
+        "name": "iPhone Air",
+        "width": 420,
+        "height": 912
+      },
+      {
+        "name": "iPhone 17",
+        "width": 402,
+        "height": 874
+      },
+      {
+        "name": "iPhone 16 Pro Max",
+        "width": 440,
+        "height": 956
+      },
+      {
+        "name": "iPhone 16 Pro",
+        "width": 402,
+        "height": 874
+      },
+      {
+        "name": "iPhone 16 Plus",
+        "width": 430,
+        "height": 932
+      },
+      {
+        "name": "iPhone 16",
+        "width": 393,
+        "height": 852
+      }
+    ]
+  },
+  {
+    "group": "Tablet",
+    "devices": [
+      {
+        "name": "iPad Pro 13-inch",
+        "width": 1032,
+        "height": 1376
+      },
+      {
+        "name": "iPad Pro 11-inch",
+        "width": 834,
+        "height": 1210
+      },
+      {
+        "name": "iPad Air 13-inch",
+        "width": 1024,
+        "height": 1366
+      },
+      {
+        "name": "iPad Air 11-inch",
+        "width": 820,
+        "height": 1180
+      },
+      {
+        "name": "iPad mini",
+        "width": 744,
+        "height": 1133
+      },
+      {
+        "name": "iPad",
+        "width": 820,
+        "height": 1180
+      }
+    ]
+  },
+  {
+    "group": "Desktop",
+    "devices": [
+      {
+        "name": "Desktop",
+        "width": 1440,
+        "height": 1024
+      }
+    ]
+  },
+  {
+    "group": "Social Media",
+    "devices": [
+      {
+        "name": "Instagram Post",
+        "width": 1080,
+        "height": 1080
+      },
+      {
+        "name": "Instagram Story",
+        "width": 1080,
+        "height": 1920
+      }
+    ]
+  }
+]
