@@ -1,20 +1,45 @@
 'use client';
 
+import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
-import { trayItems } from '@/components/blocks/registry';
+import { Search } from 'lucide-react';
+import { trayItems, type TrayItem } from '@/components/blocks/registry';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { PANEL, PANEL_HEADER, PANEL_TITLE } from './chrome';
+import { PANEL, PANEL_HEADER, PANEL_TITLE, SEARCH, SEARCH_INPUT } from './chrome';
+
+export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return items;
+  return items.filter((item) =>
+    [item.label, item.hint, item.type].some((field) => field.toLowerCase().includes(trimmed)),
+  );
+}
 
 export function ComponentTray() {
   const { connectors } = useEditor();
+  const [filter, setFilter] = useState('');
+  const filteredItems = filterTrayItems(trayItems, filter);
 
   return (
     <aside className={cn(PANEL, 'flex min-h-0 flex-col')}>
       <div className={PANEL_HEADER}>
         <span className={PANEL_TITLE}>Components</span>
       </div>
+      <div className="px-2 pt-2">
+        <div className={SEARCH}>
+          <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <Input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder="Filter components"
+            aria-label="Filter components"
+            className={SEARCH_INPUT}
+          />
+        </div>
+      </div>
       <ul className="flex flex-col gap-1 overflow-y-auto p-2">
-        {trayItems.map((item) => (
+        {filteredItems.map((item) => (
           <li
             key={item.type}
             data-tray-item={item.type}
@@ -29,6 +54,9 @@ export function ComponentTray() {
           </li>
         ))}
       </ul>
+      {filteredItems.length === 0 && (
+        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No components match.</p>
+      )}
     </aside>
   );
 }

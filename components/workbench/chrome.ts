@@ -33,5 +33,11 @@ export const EMPTY =
   'border border-dashed border-line-strong rounded-xl p-11 text-center text-[13.5px] text-muted-foreground';
 export const EMPTY_TITLE = 'block text-[15px] font-semibold text-t2 mb-1.5';
 
+// SF2 §5 search field.
+export const SEARCH =
+  'flex items-center gap-2 rounded-[9px] border bg-muted px-3 py-2 focus-within:border-acc';
+export const SEARCH_INPUT =
+  'h-auto min-w-0 w-full border-0 bg-transparent p-0 text-[13px] text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 dark:bg-transparent placeholder:text-t4';
+
 // SF2 §5 .btn.danger: red text at rest, 12% wash on hover.
 export const DANGER_GHOST = 'text-bad hover:text-bad hover:bg-bad/12';
