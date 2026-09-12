@@ -90,6 +90,13 @@ describe('ScreensStrip', () => {
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
       expect(screen.getByLabelText('Screen name')).toHaveValue('Login');
     });
+
+    it('the chevron menu\'s Rename item leaves the input focused', async () => {
+      renderStrip();
+      await userEvent.click(screen.getByRole('button', { name: 'Login menu' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+      expect(screen.getByLabelText('Screen name')).toHaveFocus();
+    });
   });
 
   describe('duplicate', () => {

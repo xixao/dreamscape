@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { cache } from 'react';
 // Imported from known-types.ts, not registry.tsx: see app/f/[id]/page.tsx's
 // own identical comment (registry.tsx pulls in @craftjs/core, which breaks
 // Next's server bundling for a server component).
@@ -10,14 +11,25 @@ import { normalizeLayout, validateLayout } from '@/lib/files/validate';
 
 export const dynamic = 'force-dynamic';
 
+// generateMetadata and PlayPage both need this file, so the lookup is
+// wrapped in React's cache(): within a single request the second call reads
+// the memoized result instead of hitting the repository again (a per-request
+// memoization, not a cross-request cache - see
+// https://react.dev/reference/react/cache). app/f/[id]/page.tsx has no
+// generateMetadata of its own, so it has no matching double read to mirror
+// this against.
+const getFile = cache(async (id: string) => {
+  const repository = await getRepository();
+  return repository.get(id);
+});
+
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const repository = await getRepository();
-  const file = await repository.get(id);
+  const file = await getFile(id);
   return { title: file ? `${file.name} (Play)` : 'File not found' };
 }
 
@@ -37,8 +49,7 @@ export default async function PlayPage({
 }) {
   const { id } = await params;
   const { screen } = await searchParams;
-  const repository = await getRepository();
-  const file = await repository.get(id);
+  const file = await getFile(id);
   if (!file) notFound();
 
   const screens = (file.screens ?? []).map((s) => {

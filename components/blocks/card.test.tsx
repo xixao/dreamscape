@@ -65,4 +65,15 @@ describe('Card block in play mode', () => {
 
     expect(play.back).toHaveBeenCalledTimes(1);
   });
+
+  it('shows no design-time placeholder in an empty content zone', async () => {
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Card />
+      </Element>,
+    );
+    await waitFor(() => expect(container.querySelector('[data-zone="CardContent"]')).not.toBeNull());
+
+    expect(screen.queryByText('Drop here')).toBeNull();
+  });
 });

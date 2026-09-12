@@ -1,11 +1,13 @@
 'use client';
 
 import { Editor, Frame } from '@craftjs/core';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { resolver } from '@/components/blocks/registry';
+import { LABEL } from '@/components/workbench/chrome';
 import { StageProvider } from '@/components/workbench/stage-context';
 import type { FileRecord } from '@/lib/files/repository';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import { cn } from '@/lib/utils';
 import { PlayProvider, type PlayContextValue } from './play-context';
 
 interface PlayState {
@@ -72,14 +74,27 @@ function playReducer(state: PlayState, action: PlayAction): PlayState {
  * sidesteps it the same way for the design-mode editor).
  */
 export function Player({ file, initialScreenId }: { file: FileRecord; initialScreenId: string }) {
-  const screens = file.screens ?? [];
+  const screens = useMemo(() => file.screens ?? [], [file.screens]);
+  const validScreenIds = useMemo(() => new Set(screens.map((screen) => screen.id)), [screens]);
   const [state, dispatch] = useReducer(playReducer, {
     currentScreenId: initialScreenId,
     history: [],
     openDialogIds: new Set<string>(),
   });
 
-  const navigate = useCallback((screenId: string) => dispatch({ type: 'navigate', screenId }), []);
+  // Ignores a navigate interaction whose stored targetScreenId names a
+  // screen that no longer exists (deleted in the editor after the
+  // interaction was set up): state is left exactly as it was, rather than
+  // dispatching and letting the render-time `?? screens[0]` fallback below
+  // silently teleport to screen 1 while history/closeHref keep pointing at
+  // the now-invalid id.
+  const navigate = useCallback(
+    (screenId: string) => {
+      if (!validScreenIds.has(screenId)) return;
+      dispatch({ type: 'navigate', screenId });
+    },
+    [validScreenIds],
+  );
   const back = useCallback(() => dispatch({ type: 'back' }), []);
   const openDialog = useCallback((nodeId: string) => dispatch({ type: 'openDialog', nodeId }), []);
   const closeDialog = useCallback((nodeId: string) => dispatch({ type: 'closeDialog', nodeId }), []);
@@ -93,13 +108,35 @@ export function Player({ file, initialScreenId }: { file: FileRecord; initialScr
   const currentScreen = screens.find((screen) => screen.id === state.currentScreenId) ?? screens[0];
   const closeHref = `/f/${file.id}#s=${state.currentScreenId}`;
 
+  // Read by the Escape handler below instead of closing over
+  // state.openDialogIds directly: that effect is only re-subscribed when
+  // closeHref changes (a screen switch), not on every dialog open/close, so
+  // a plain closure would go stale the moment a dialog opens or closes
+  // without a screen change.
+  const openDialogIdsRef = useRef(state.openDialogIds);
+  useEffect(() => {
+    openDialogIdsRef.current = state.openDialogIds;
+  }, [state.openDialogIds]);
+
   // Re-subscribed whenever closeHref changes (a screen switch) so the
   // handler always closes over the current link, rather than a ref written
   // during render - see workbench.tsx's own comment on why the latter trips
   // the react-hooks/refs lint rule and can even read stale in some cases.
+  //
+  // Radix's Dialog also dismisses on Escape via DismissableLayer's own
+  // document-level, capture-phase listener, which runs before this
+  // window-level bubble-phase one and calls event.preventDefault() when it
+  // dismisses (see @radix-ui/react-dismissable-layer) - so on the very
+  // keypress that closes a dialog, event.defaultPrevented is already true
+  // by the time this handler sees it. openDialogIdsRef is a second,
+  // independent check for any dialog left open by a path that did not
+  // preventDefault. Either way, the first Escape closes only the dialog;
+  // Play itself only exits once no dialog is open.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') window.location.assign(closeHref);
+      if (event.key !== 'Escape') return;
+      if (event.defaultPrevented || openDialogIdsRef.current.size > 0) return;
+      window.location.assign(closeHref);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -126,10 +163,10 @@ export function Player({ file, initialScreenId }: { file: FileRecord; initialScr
             </Editor>
           </div>
         </StageProvider>
-        <div className="fixed top-3 right-3 z-50 flex items-center gap-3 rounded-md bg-black/80 px-3 py-1.5 font-mono text-[11px] text-white">
-          <span>{currentScreen.name}</span>
-          <span className="text-white/60">Esc to exit</span>
-          <a href={closeHref} className="underline hover:no-underline">
+        <div className="fixed top-3 right-3 z-50 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg">
+          <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
+          <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
+          <a href={closeHref} className="text-t2 underline hover:no-underline">
             Close
           </a>
         </div>

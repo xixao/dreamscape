@@ -88,7 +88,7 @@ const SCREEN_2_TREE = {
     displayName: 'LayoutBox',
     custom: {},
     hidden: false,
-    nodes: ['greeting', 'backButton'],
+    nodes: ['greeting', 'backButton', 'missingNavButton'],
     linkedNodes: {},
     parent: null,
   },
@@ -109,6 +109,20 @@ const SCREEN_2_TREE = {
     props: { label: 'Go back' },
     displayName: 'Button',
     custom: { interactions: [{ id: 'i3', trigger: 'click', action: 'back' }] },
+    hidden: false,
+    nodes: [],
+    linkedNodes: {},
+    parent: 'ROOT',
+  },
+  // Wired to a screen id this file does not have - simulates a navigate
+  // interaction whose target screen was deleted in the editor after the
+  // interaction was set up.
+  missingNavButton: {
+    type: { resolvedName: 'Button' },
+    isCanvas: false,
+    props: { label: 'Go to missing screen' },
+    displayName: 'Button',
+    custom: { interactions: [{ id: 'i4', trigger: 'click', action: 'navigate', targetScreenId: 'no-such-screen' }] },
     hidden: false,
     nodes: [],
     linkedNodes: {},
@@ -211,6 +225,36 @@ describe('Player', () => {
 
     expect(assign).toHaveBeenCalledWith('/f/file1#s=screen1');
     vi.unstubAllGlobals();
+  });
+
+  it('closes an open dialog on the first Escape and exits Play only on the second', async () => {
+    const user = userEvent.setup();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    render(<Player file={makeFile()} initialScreenId="screen1" />);
+    await user.click(await screen.findByRole('button', { name: 'Open confirm' }));
+    await screen.findByRole('dialog');
+
+    await user.keyboard('{Escape}');
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await user.keyboard('{Escape}');
+    expect(assign).toHaveBeenCalledWith('/f/file1#s=screen1');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores a navigate interaction whose target screen no longer exists', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} initialScreenId="screen2" />);
+    await screen.findByText('Hello world');
+
+    await user.click(screen.getByRole('button', { name: 'Go to missing screen' }));
+
+    expect(screen.getByText('Hello world')).toBeInTheDocument();
+    expect(screen.getByText('Second screen')).toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
   });
 
   it('falls back to the first screen when initialScreenId names no screen of this file', async () => {

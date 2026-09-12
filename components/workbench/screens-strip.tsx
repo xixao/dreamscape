@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type Ref } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import {
   AlertDialog,
@@ -30,10 +30,12 @@ function RenameInput({
   screen,
   onCommit,
   onCancel,
+  inputRef,
 }: {
   screen: Screen;
   onCommit: (name: string) => void;
   onCancel: () => void;
+  inputRef: Ref<HTMLInputElement>;
 }) {
   // Commits on Enter, cancels on Escape (spec: "double-click renames inline,
   // Enter/Escape") - deliberately no commit-on-blur: when this opens from
@@ -42,10 +44,13 @@ function RenameInput({
   // this input are swapped in by the same setRenamingId update) and moves
   // focus to <body> right after, which a commit-on-blur handler would
   // wrongly read as the user clicking away and use to commit the unchanged
-  // value immediately. onCloseAutoFocus below stops Radix returning focus
-  // to its trigger instead, so plain autoFocus here still lands and stays.
+  // value immediately. autoFocus covers the double-click path (no Radix
+  // menu involved, so nothing fights it for focus); the chevron-menu path
+  // relies instead on DropdownMenuContent's onCloseAutoFocus focusing
+  // `inputRef` directly once Radix has fully finished closing - see there.
   return (
     <Input
+      ref={inputRef}
       autoFocus
       aria-label="Screen name"
       defaultValue={screen.name}
@@ -83,6 +88,10 @@ export function ScreensStrip({
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Screen | null>(null);
+  // renamingId is a single id, so at most one RenameInput is ever mounted -
+  // one shared ref covers whichever screen is currently being renamed. Read
+  // from DropdownMenuContent's onCloseAutoFocus below.
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   function commitRename(target: Screen, raw: string): void {
     setRenamingId(null);
@@ -101,6 +110,7 @@ export function ScreensStrip({
                 screen={item}
                 onCommit={(name) => commitRename(item, name)}
                 onCancel={() => setRenamingId(null)}
+                inputRef={renameInputRef}
               />
             ) : (
               <button
@@ -129,12 +139,26 @@ export function ScreensStrip({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="start"
-                // Without this, Radix returns focus to the trigger button the
-                // instant the menu finishes closing, which blurs the rename
-                // input this item's onSelect just mounted with autoFocus -
-                // and that blur immediately commits/cancels the rename before
-                // the user has typed anything.
-                onCloseAutoFocus={(event) => event.preventDefault()}
+                // event.preventDefault() stops Radix returning focus to the
+                // trigger button the instant the menu finishes closing,
+                // which would blur the rename input this item's onSelect
+                // just mounted with autoFocus and immediately commit/cancel
+                // the rename before the user has typed anything. autoFocus
+                // alone isn't reliable in a real browser though - its exit
+                // animation leaves focus sitting on the closing menu content
+                // instead of the input - so this also focuses+selects the
+                // input directly once Radix has fully finished closing: the
+                // one point guaranteed to come after whatever Radix itself
+                // just did with focus, in jsdom (no exit animation, so this
+                // fires synchronously on close) as well as a real browser.
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  const input = renameInputRef.current;
+                  if (input) {
+                    input.focus();
+                    input.select();
+                  }
+                }}
               >
                 <DropdownMenuItem onSelect={() => setRenamingId(item.id)}>Rename</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onDuplicate(item.id)}>Duplicate</DropdownMenuItem>
