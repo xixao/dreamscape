@@ -15,8 +15,13 @@ class ResizeObserverStub {
 const g = globalThis as unknown as { ResizeObserver?: typeof ResizeObserverStub };
 g.ResizeObserver ??= ResizeObserverStub;
 
-const proto = Element.prototype as unknown as Record<string, unknown>;
-proto.hasPointerCapture ??= () => false;
-proto.setPointerCapture ??= () => {};
-proto.releasePointerCapture ??= () => {};
-proto.scrollIntoView ??= () => {};
+// Repository/API tests opt into `@vitest-environment node` (no DOM), but this
+// setup file still runs there since it's registered globally. Guard the DOM
+// patch so it only applies under jsdom.
+if (typeof Element !== 'undefined') {
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  proto.hasPointerCapture ??= () => false;
+  proto.setPointerCapture ??= () => {};
+  proto.releasePointerCapture ??= () => {};
+  proto.scrollIntoView ??= () => {};
+}

@@ -1,9 +1,8 @@
 import { MAX_STAGE_WIDTH, MIN_STAGE_WIDTH } from './stage';
+import { validateLayout } from './files/validate';
 
 export const LAYOUT_STORAGE_KEY = 'assembly-workbench:layout:v1';
 export const WIDTH_STORAGE_KEY = 'assembly-workbench:stage-width';
-
-type SerializedNodeLike = { type?: { resolvedName?: string } | string };
 
 export function saveLayout(json: string, storage: Storage = window.localStorage): void {
   try {
@@ -26,23 +25,10 @@ export function loadLayout(
   }
   if (raw === null) return null;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.warn('Saved layout is not valid JSON; starting empty.');
+  const result = validateLayout(raw, knownTypes);
+  if (!result.ok) {
+    console.warn(`Saved layout ${result.reason}; starting empty.`);
     return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null || !('ROOT' in parsed)) {
-    console.warn('Saved layout has no ROOT node; starting empty.');
-    return null;
-  }
-  for (const [id, node] of Object.entries(parsed as Record<string, SerializedNodeLike>)) {
-    const name = typeof node?.type === 'string' ? node.type : node?.type?.resolvedName;
-    if (!name || !knownTypes.has(name)) {
-      console.warn(`Saved layout uses an unknown block "${name}" (node ${id}); starting empty.`);
-      return null;
-    }
   }
   return raw;
 }
