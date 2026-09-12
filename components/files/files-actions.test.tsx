@@ -15,47 +15,76 @@ beforeEach(() => {
 });
 
 describe('FilesActions', () => {
-  it('renders the secondary example button and the primary new file button', () => {
-    render(<FilesActions />);
+  it('renders New folder, the secondary example button and the primary new file button', () => {
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'New folder' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New from example: Login screen' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ New file' })).toBeInTheDocument();
   });
 
-  it('creates an empty file and navigates to it', async () => {
+  it('calls onNewFolder when New folder is clicked, without making a request', async () => {
+    global.fetch = vi.fn();
+    const onNewFolder = vi.fn();
+    render(<FilesActions folderId={null} onNewFolder={onNewFolder} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'New folder' }));
+
+    expect(onNewFolder).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('creates an empty file at the top level and navigates to it', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
       json: async () => ({ file: { id: 'new1', name: 'Untitled' } }),
     });
 
-    render(<FilesActions />);
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/f/new1'));
     expect(fetch).toHaveBeenCalledWith(
       '/api/files',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({}) }),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ folderId: null }) }),
     );
   });
 
-  it('creates a file from the login example and navigates to it', async () => {
+  it('creates a file inside the current folder', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ file: { id: 'new1', name: 'Untitled' } }),
+    });
+
+    render(<FilesActions folderId="folder1" onNewFolder={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/f/new1'));
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/files',
+      expect.objectContaining({ body: JSON.stringify({ folderId: 'folder1' }) }),
+    );
+  });
+
+  it('creates a file from the login example in the current folder and navigates to it', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
       json: async () => ({ file: { id: 'ex1', name: 'Login screen' } }),
     });
 
-    render(<FilesActions />);
+    render(<FilesActions folderId="folder1" onNewFolder={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'New from example: Login screen' }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/f/ex1'));
     expect(fetch).toHaveBeenCalledWith(
       '/api/files',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ example: 'login' }) }),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ example: 'login', folderId: 'folder1' }) }),
     );
   });
 
-  it('disables both buttons while a request is in flight, and re-enables after', async () => {
+  it('disables the file-creating buttons while a request is in flight, and re-enables after', async () => {
     let resolveFetch: (value: unknown) => void = () => {};
     global.fetch = vi.fn().mockImplementation(
       () =>
@@ -64,7 +93,7 @@ describe('FilesActions', () => {
         }),
     );
 
-    render(<FilesActions />);
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     const newFileButton = screen.getByRole('button', { name: '+ New file' });
     const exampleButton = screen.getByRole('button', { name: 'New from example: Login screen' });
 
@@ -85,7 +114,7 @@ describe('FilesActions', () => {
       json: async () => ({ error: 'boom' }),
     });
 
-    render(<FilesActions />);
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not create the file. Try again.');
@@ -98,7 +127,7 @@ describe('FilesActions', () => {
       .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'boom' }) })
       .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ file: { id: 'new2' } }) });
 
-    render(<FilesActions />);
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: '+ New file' }));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
 

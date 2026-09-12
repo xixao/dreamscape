@@ -1,11 +1,14 @@
 import { FilesPage } from '@/components/files/files-page';
-import { getDb } from '@/db/client';
-import { createFilesRepository } from '@/lib/files/repository';
+import { getRepository } from '@/lib/files/http';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  const repo = createFilesRepository(await getDb());
-  const files = await repo.list();
-  return <FilesPage files={files} />;
+  const repository = await getRepository();
+  const [path, { folders, files }] = await Promise.all([
+    repository.folderPath(null),
+    repository.listChildren(null),
+  ]);
+
+  return <FilesPage path={path ?? []} folders={folders} files={files} folderId={null} />;
 }

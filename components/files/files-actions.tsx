@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { EXAMPLES } from '@/lib/examples';
 
-// SF2 §5 .btn look, reused verbatim from the plan for the two Files-page
+// SF2 §5 .btn look, reused verbatim from the plan for the Files-page
 // actions. h-auto overrides the shadcn Button's fixed h-8 so the literal
 // padding drives the box height, the same override CHIP_INPUT/SEARCH_INPUT/
 // SEG_ITEM already apply in chrome.ts when fully re-skinning a primitive.
@@ -14,7 +14,13 @@ const SECONDARY_BUTTON =
 const PRIMARY_BUTTON =
   'h-auto text-[13px] bg-[image:var(--grad)] text-white font-semibold border-0 rounded-[9px] px-[15px] py-[9px] hover:brightness-[1.08] hover:text-white';
 
-export function FilesActions() {
+export function FilesActions({
+  folderId,
+  onNewFolder,
+}: {
+  folderId: string | null;
+  onNewFolder: () => void;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +34,7 @@ export function FilesActions() {
       const response = await fetch('/api/files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, folderId }),
       });
       if (!response.ok) {
         setError('Could not create the file. Try again.');
@@ -44,6 +50,9 @@ export function FilesActions() {
   return (
     <div>
       <div className="flex items-center gap-2">
+        <Button type="button" variant="ghost" className={SECONDARY_BUTTON} onClick={onNewFolder}>
+          New folder
+        </Button>
         <Button
           type="button"
           variant="ghost"

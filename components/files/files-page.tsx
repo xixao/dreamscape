@@ -1,11 +1,55 @@
+'use client';
+
+import { Fragment, useState } from 'react';
+import Link from 'next/link';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { PANEL } from '@/components/workbench/chrome';
-import type { FileSummary } from '@/lib/files/repository';
+import type { FileSummary, FolderSummary } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
 import { FilesActions } from './files-actions';
 import { FilesTable } from './files-table';
 
-export function FilesPage({ files }: { files: FileSummary[] }) {
-  const count = files.length === 1 ? '1 file' : `${files.length} files`;
+// "N folders, M files": singular forms for exactly one, a zero part is
+// omitted entirely, and (per spec) the fully-empty case renders no count at
+// all - that state is handled by FilesTable's own empty-state message.
+function countLabel(folderCount: number, fileCount: number): string {
+  const parts: string[] = [];
+  if (folderCount > 0) parts.push(folderCount === 1 ? '1 folder' : `${folderCount} folders`);
+  if (fileCount > 0) parts.push(fileCount === 1 ? '1 file' : `${fileCount} files`);
+  return parts.join(', ');
+}
+
+export function FilesPage({
+  path,
+  folders,
+  files,
+  folderId,
+}: {
+  // Root-first, inclusive of the current folder itself (see
+  // lib/files/repository.ts's folderPath): [] at the top level, otherwise
+  // path[path.length - 1] is the current folder and everything before it
+  // is its ancestor chain, root first.
+  path: FolderSummary[];
+  folders: FolderSummary[];
+  files: FileSummary[];
+  folderId: string | null;
+}) {
+  const [isAddingFolder, setIsAddingFolder] = useState(false);
+
+  const title = path.length === 0 ? 'Files' : path[path.length - 1].name;
+  // Ancestors shown as links: "Files" (the root) plus every folder in the
+  // path except the current one, which is rendered as the plain, current
+  // crumb below instead.
+  const ancestors =
+    path.length === 0 ? [] : [{ id: null as string | null, name: 'Files' }, ...path.slice(0, -1)];
+  const count = countLabel(folders.length, files.length);
 
   return (
     <div className="max-w-[1420px] mx-auto px-5 pt-4">
@@ -15,13 +59,37 @@ export function FilesPage({ files }: { files: FileSummary[] }) {
         <span className="text-[13px] font-semibold">Assembly Workbench</span>
       </header>
       <div className="pt-[26px] px-1 pb-10">
+        <Breadcrumb className="mb-1.5">
+          <BreadcrumbList className="font-mono text-[10.5px]">
+            {ancestors.map((ancestor) => (
+              <Fragment key={ancestor.id ?? 'root'}>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href={ancestor.id === null ? '/' : `/folders/${ancestor.id}`}>{ancestor.name}</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+              </Fragment>
+            ))}
+            <BreadcrumbItem>
+              <BreadcrumbPage>{title}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
         <div className="flex items-center gap-3.5 mb-[18px]">
-          <h1 className="text-2xl font-semibold">Files</h1>
-          <span className="font-mono text-xs font-medium text-muted-foreground">{count}</span>
+          <h1 className="text-2xl font-semibold">{title}</h1>
+          {count && <span className="font-mono text-xs font-medium text-muted-foreground">{count}</span>}
           <div className="flex-1" />
-          <FilesActions />
+          <FilesActions folderId={folderId} onNewFolder={() => setIsAddingFolder(true)} />
         </div>
-        <FilesTable files={files} />
+        <FilesTable
+          folderId={folderId}
+          folders={folders}
+          files={files}
+          isAddingFolder={isAddingFolder}
+          onCancelAddFolder={() => setIsAddingFolder(false)}
+        />
       </div>
     </div>
   );
