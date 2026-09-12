@@ -488,4 +488,55 @@ describe('Workbench', () => {
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
     });
   });
+
+  describe('Chat panel', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('is closed by default; the topbar button opens it as a fourth column, reflected in aria-pressed', async () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
+      const chatButton = screen.getByRole('button', { name: 'Chat' });
+      expect(chatButton).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+
+      await userEvent.click(chatButton);
+
+      expect(chatButton).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px_360px]');
+
+      await userEvent.click(chatButton);
+      expect(chatButton).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+    });
+
+    it('Cmd+J toggles the chat panel open and closed', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
+
+      fireEvent.keyDown(window, { key: 'j', metaKey: true });
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+
+      fireEvent.keyDown(window, { key: 'j', metaKey: true });
+      expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
+    });
+
+    it('hides with Cmd+\ along with the other panels and returns with them', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
+    });
+  });
 });

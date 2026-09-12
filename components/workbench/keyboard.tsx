@@ -22,8 +22,10 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.closest(POPUP_SELECTOR) !== null;
 }
 
-export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}): void {
-  const { onToggleUi } = options;
+export function useWorkbenchKeyboard(
+  options: { onToggleUi?: () => void; onToggleChat?: () => void } = {},
+): void {
+  const { onToggleUi, onToggleChat } = options;
   const { actions, query } = useEditor();
 
   useEffect(() => {
@@ -34,6 +36,15 @@ export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}):
       if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
         event.preventDefault();
         onToggleUi?.();
+        return;
+      }
+
+      // Chat panel toggle, same precedence as Show/Hide UI above: it must
+      // still work while a text field, select or dialog owns the
+      // interaction (in particular, from inside the chat composer itself).
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        onToggleChat?.();
         return;
       }
 
@@ -71,5 +82,5 @@ export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}):
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query, onToggleUi]);
+  }, [actions, query, onToggleUi, onToggleChat]);
 }

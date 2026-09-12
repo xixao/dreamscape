@@ -20,17 +20,20 @@ function renderTopbar(
 ) {
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
+  const onToggleChat = overrides.onToggleChat ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
     fileId: 'file123abc',
     folderId: null,
     currentScreenId: 'screen0001',
+    chatOpen: false,
     ...overrides,
     onRename,
     onNew,
+    onToggleChat,
   };
-  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew };
+  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew, onToggleChat };
 }
 
 describe('stageReadout', () => {
@@ -76,6 +79,8 @@ describe('Topbar', () => {
           fileId="file123abc"
           folderId={null}
           currentScreenId="screen0001"
+          chatOpen={false}
+          onToggleChat={() => {}}
         />
       </>,
     );
@@ -208,6 +213,33 @@ describe('Topbar', () => {
         'The saved design could not be read; this file starts empty.',
       );
       expect(screen.queryByText('Saving')).toBeNull();
+    });
+  });
+
+  describe('Chat toggle', () => {
+    it('reflects chatOpen through aria-pressed', () => {
+      renderTopbar({ chatOpen: false });
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('is pressed when chatOpen is true', () => {
+      renderTopbar({ chatOpen: true });
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('calls onToggleChat when clicked', async () => {
+      const { onToggleChat } = renderTopbar({ chatOpen: false });
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(onToggleChat).toHaveBeenCalledTimes(1);
+    });
+
+    it('spans 3 columns when chat is closed and 4 when it is open', () => {
+      const { unmount } = renderTopbar({ chatOpen: false });
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
+      unmount();
+
+      renderTopbar({ chatOpen: true });
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-4');
     });
   });
 });

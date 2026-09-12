@@ -6,8 +6,8 @@ import { LayoutBox } from '@/components/blocks/layout-box';
 import { renderInEditor } from '@/test/craft-harness';
 import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
-function Keys({ onToggleUi }: { onToggleUi?: () => void }) {
-  useWorkbenchKeyboard({ onToggleUi });
+function Keys({ onToggleUi, onToggleChat }: { onToggleUi?: () => void; onToggleChat?: () => void }) {
+  useWorkbenchKeyboard({ onToggleUi, onToggleChat });
   return (
     <>
       <input aria-label="typing" />
@@ -18,7 +18,7 @@ function Keys({ onToggleUi }: { onToggleUi?: () => void }) {
   );
 }
 
-function mount(onToggleUi?: () => void) {
+function mount(onToggleUi?: () => void, onToggleChat?: () => void) {
   const utils = renderInEditor(
     <>
       <Frame>
@@ -26,7 +26,7 @@ function mount(onToggleUi?: () => void) {
           <Button label="Doomed" />
         </Element>
       </Frame>
-      <Keys onToggleUi={onToggleUi} />
+      <Keys onToggleUi={onToggleUi} onToggleChat={onToggleChat} />
     </>,
   );
   return utils;
@@ -186,5 +186,75 @@ describe('useWorkbenchKeyboard onToggleUi', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: '\\', metaKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onToggleChat', () => {
+  it('calls onToggleChat and prevents default for Cmd+J', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onToggleChat for Ctrl+J', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when the target is an input', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when a popup or dialog owns the interaction', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onToggleChat for other keys or a bare j', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j' });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(onToggleChat).not.toHaveBeenCalled();
+  });
+
+  it('does not call onToggleUi for Cmd+J or onToggleChat for Cmd+\\', async () => {
+    const onToggleUi = vi.fn();
+    const onToggleChat = vi.fn();
+    mount(onToggleUi, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+    expect(onToggleUi).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when onToggleChat is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'j', metaKey: true })).not.toThrow();
   });
 });

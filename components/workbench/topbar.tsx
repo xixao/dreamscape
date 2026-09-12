@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   FilePlus2,
+  MessageSquareText,
   Monitor,
   Play,
   Redo2,
@@ -44,17 +45,30 @@ function IconAction({
   label,
   icon: Icon,
   disabled,
+  pressed,
   onClick,
 }: {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  // Undefined (the default) omits aria-pressed entirely, so every existing
+  // caller (Undo, Redo, New frame) renders exactly as before. Only a toggle
+  // like the Chat button passes an actual boolean.
+  pressed?: boolean;
   onClick: () => void;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} disabled={disabled} onClick={onClick}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={onClick}
+          className={pressed ? 'bg-muted text-foreground' : undefined}
+        >
           <Icon className="size-4" aria-hidden />
         </Button>
       </TooltipTrigger>
@@ -157,6 +171,8 @@ export function Topbar({
   fileId,
   folderId,
   currentScreenId,
+  chatOpen,
+  onToggleChat,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -166,6 +182,8 @@ export function Topbar({
   fileId: string;
   folderId: string | null;
   currentScreenId: string;
+  chatOpen: boolean;
+  onToggleChat: () => void;
 }) {
   const { width, breakpoint, preset, zoom, setPreset } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -177,7 +195,14 @@ export function Topbar({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <header className={cn(PANEL, 'shadow-panel', 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
+      <header
+        className={cn(
+          PANEL,
+          'shadow-panel',
+          chatOpen ? 'col-span-4' : 'col-span-3',
+          'flex h-[54px] items-center gap-2 px-3.5',
+        )}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Link href={filesHref} aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
@@ -241,6 +266,7 @@ export function Topbar({
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
+        <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
       </header>
     </TooltipProvider>
   );
