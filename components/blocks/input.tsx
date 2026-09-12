@@ -1,7 +1,9 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Input as UiInput } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -24,9 +26,13 @@ export const INPUT_DEFAULTS: InputBlockProps = {
 
 export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
   const merged: InputBlockProps = { ...INPUT_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -35,15 +41,17 @@ export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
       }}
       data-block="Input"
       className={cn('flex flex-col gap-2', blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiInput
         type={merged.type}
         placeholder={merged.placeholder}
-        readOnly
-        tabIndex={-1}
-        aria-disabled={merged.disabled || undefined}
-        className={cn('pointer-events-none', merged.disabled && 'opacity-50')}
+        readOnly={!isPlay}
+        tabIndex={isPlay ? undefined : -1}
+        disabled={isPlay ? merged.disabled : undefined}
+        aria-disabled={!isPlay && merged.disabled ? true : undefined}
+        className={cn(!isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       />
     </div>
   );

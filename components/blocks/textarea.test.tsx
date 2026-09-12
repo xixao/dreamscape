@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Textarea } from './textarea';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Textarea block', () => {
   it('renders a read-only textarea with its label and placeholder', async () => {
@@ -43,5 +44,36 @@ describe('Textarea block', () => {
     expect(textarea).toHaveAttribute('aria-disabled', 'true');
     expect(textarea).not.toBeDisabled();
     expect(textarea).toHaveClass('opacity-50');
+  });
+});
+
+describe('Textarea block in play mode', () => {
+  it('is typeable: not readonly, not pointer-events-none, and accepts input', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Textarea label="Bio" placeholder="Tell us about yourself" />
+      </Element>,
+      play,
+    );
+    const textarea = await screen.findByPlaceholderText('Tell us about yourself');
+    expect(textarea).not.toHaveAttribute('readonly');
+    expect(textarea).not.toHaveAttribute('tabindex', '-1');
+    expect(textarea).not.toHaveClass('pointer-events-none');
+
+    await userEvent.type(textarea, 'Hello there');
+
+    expect(textarea).toHaveValue('Hello there');
+  });
+
+  it('becomes really disabled (not just aria-disabled) when disabled is on', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Textarea placeholder="Off" disabled />
+      </Element>,
+      play,
+    );
+    expect(await screen.findByPlaceholderText('Off')).toBeDisabled();
   });
 });

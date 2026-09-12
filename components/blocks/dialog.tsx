@@ -1,7 +1,17 @@
 import { Element, useNode, type UserComponent } from '@craftjs/core';
 import type { ReactNode } from 'react';
 import { Button as UiButton } from '@/components/ui/button';
+import {
+  Dialog as UiDialog,
+  DialogContent as UiDialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { DropZone } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
@@ -50,9 +60,52 @@ DialogContent.craft = {
 
 export const Dialog: UserComponent<Partial<DialogBlockProps>> = (props) => {
   const merged: DialogBlockProps = { ...DIALOG_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    id,
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
+
+  // Play mode renders the real shadcn Dialog, controlled by this node's own
+  // id: `play.isDialogOpen(id)` is true either because this Dialog's own
+  // trigger was clicked (below) or because some other node's openDialog
+  // interaction targeted this id (Player wires that through the same
+  // context - see components/play/player.tsx). previewOpen (an editorOnly
+  // field) has no effect here; it only controls the design-mode inline
+  // preview below.
+  if (isPlay) {
+    return (
+      <div
+        ref={(element) => {
+          if (element) connect(drag(element));
+        }}
+        data-block="Dialog"
+        className={cn('flex flex-col items-start gap-4', blockClasses(merged))}
+        onClick={onClick}
+      >
+        <UiDialog
+          open={play.isDialogOpen(id)}
+          onOpenChange={(open) => (open ? play.openDialog(id) : play.closeDialog(id))}
+        >
+          <DialogTrigger asChild>
+            <UiButton type="button" variant="outline">
+              {merged.triggerLabel}
+            </UiButton>
+          </DialogTrigger>
+          <UiDialogContent>
+            <DialogHeader>
+              <DialogTitle>{merged.title}</DialogTitle>
+              {merged.description !== '' && <DialogDescription>{merged.description}</DialogDescription>}
+            </DialogHeader>
+            <Element id="content" is={DialogContent} canvas />
+          </UiDialogContent>
+        </UiDialog>
+      </div>
+    );
+  }
 
   return (
     <div

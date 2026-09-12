@@ -7,7 +7,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { parseList } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
@@ -27,10 +29,13 @@ export const TABLE_DEFAULTS: TableBlockProps = {
 
 export const Table: UserComponent<Partial<TableBlockProps>> = (props) => {
   const merged: TableBlockProps = { ...TABLE_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
   const columns = parseList(merged.columns);
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiTable
@@ -39,6 +44,7 @@ export const Table: UserComponent<Partial<TableBlockProps>> = (props) => {
       }}
       data-block="Table"
       className={cn(blockClasses(merged))}
+      onClick={onClick}
     >
       <TableHeader>
         <TableRow>

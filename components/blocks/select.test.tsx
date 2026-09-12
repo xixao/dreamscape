@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Select } from './select';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Select block', () => {
   it('renders only the trigger with the placeholder, no dropdown content', async () => {
@@ -52,5 +53,37 @@ describe('Select block', () => {
     expect(trigger).toHaveAttribute('aria-disabled', 'true');
     expect(trigger).toHaveClass('opacity-50');
     expect(trigger).not.toHaveAttribute('disabled');
+  });
+});
+
+describe('Select block in play mode', () => {
+  it('renders the real dropdown and lets an option be chosen', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Select label="Country" options="Canada, France, Japan" />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull());
+    expect(container.querySelector('[data-slot="select-trigger"]')).not.toHaveClass('pointer-events-none');
+    expect(container.querySelector('[data-slot="select-trigger"]')).not.toHaveAttribute('tabindex', '-1');
+
+    await userEvent.click(screen.getByRole('combobox'));
+    await userEvent.click(await screen.findByRole('option', { name: 'France' }));
+
+    expect(await screen.findByText('France')).toBeInTheDocument();
+  });
+
+  it('disables the trigger for real when disabled is on', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Select disabled />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull());
+    expect(container.querySelector('[data-slot="select-trigger"]')).toBeDisabled();
   });
 });

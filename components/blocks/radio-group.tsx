@@ -1,7 +1,10 @@
 import { useNode, type UserComponent } from '@craftjs/core';
+import { useState } from 'react';
 import { RadioGroup as UiRadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { parseList } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
@@ -30,14 +33,20 @@ function selectedValue(options: readonly string[], selected: number): string {
 
 // Every item is pointer-events-none and untabbable, and its Label carries no
 // htmlFor, so a click anywhere in the group selects the block instead of
-// changing the selection, the same reasoning as Checkbox and Switch.
+// changing the selection, the same reasoning as Checkbox and Switch. Play
+// mode (see usePlay()) makes it a real, selectable radio group instead.
 export const RadioGroup: UserComponent<Partial<RadioGroupBlockProps>> = (props) => {
   const merged: RadioGroupBlockProps = { ...RADIO_GROUP_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
   const options = parseList(merged.options);
-  const value = selectedValue(options, merged.selected);
+  const defaultValue = selectedValue(options, merged.selected);
+  const [value, setValue] = useState(defaultValue);
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -46,17 +55,19 @@ export const RadioGroup: UserComponent<Partial<RadioGroupBlockProps>> = (props) 
       }}
       data-block="RadioGroup"
       className={cn('flex flex-col gap-3', blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiRadioGroup
-        value={value}
-        onValueChange={() => {}}
-        aria-disabled={merged.disabled || undefined}
-        className={cn('pointer-events-none gap-2', merged.disabled && 'opacity-50')}
+        value={isPlay ? value : defaultValue}
+        onValueChange={isPlay ? setValue : () => {}}
+        disabled={isPlay ? merged.disabled : undefined}
+        aria-disabled={!isPlay && merged.disabled ? true : undefined}
+        className={cn('gap-2', !isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       >
         {options.map((option) => (
           <div key={option} className="flex items-center gap-2">
-            <RadioGroupItem value={option} tabIndex={-1} />
+            <RadioGroupItem value={option} tabIndex={isPlay ? undefined : -1} />
             <Label>{option}</Label>
           </div>
         ))}

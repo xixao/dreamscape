@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element, ROOT_NODE } from '@craftjs/core';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 import { LayoutBox } from './layout-box';
 
 async function findBoxes(container: HTMLElement, count: number) {
@@ -86,4 +87,28 @@ describe('LayoutBox', () => {
   // for both <Frame data={...}> deserialization and plain JSX children, so
   // legacy-only props never reach this component still missing gapPx by the
   // time it renders. See the block comment above `merged` in layout-box.tsx.
+});
+
+describe('LayoutBox in play mode', () => {
+  it('runs its own click interaction on a non-root frame', async () => {
+    const play = makePlayValue();
+    const { container, editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Element is={LayoutBox} canvas />
+      </Element>,
+      play,
+    );
+    const boxes = await findBoxes(container, 2);
+    const nestedId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(nestedId, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'back' }];
+      });
+    });
+    await waitFor(() => expect(editor().query.node(nestedId).get().data.custom?.interactions).toBeDefined());
+
+    await userEvent.click(boxes[1]);
+
+    expect(play.back).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Tabs } from './tabs';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Tabs block', () => {
   it('renders the default tabs with the first one active and an empty content zone', async () => {
@@ -70,5 +71,27 @@ describe('Tabs block', () => {
     );
     await screen.findByText('Overview');
     expect(container.querySelector('[data-block="Tabs"]')).toHaveClass('flex-1');
+  });
+});
+
+describe('Tabs block in play mode', () => {
+  it('switches the active tab when a different trigger is clicked', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Tabs tabs="Alpha, Beta, Gamma" />
+      </Element>,
+      play,
+    );
+    const alpha = (await screen.findByText('Alpha')).closest('[role="tab"]')!;
+    const beta = screen.getByText('Beta').closest('[role="tab"]')!;
+    expect(alpha).toHaveAttribute('data-state', 'active');
+    expect(beta).not.toHaveClass('pointer-events-none');
+    expect(beta).not.toHaveAttribute('tabindex', '-1');
+
+    await userEvent.click(beta);
+
+    expect(beta).toHaveAttribute('data-state', 'active');
+    expect(alpha).toHaveAttribute('data-state', 'inactive');
   });
 });

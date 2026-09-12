@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Alert as UiAlert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -21,9 +23,12 @@ export const ALERT_DEFAULTS: AlertBlockProps = {
 
 export const Alert: UserComponent<Partial<AlertBlockProps>> = (props) => {
   const merged: AlertBlockProps = { ...ALERT_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiAlert
@@ -33,6 +38,7 @@ export const Alert: UserComponent<Partial<AlertBlockProps>> = (props) => {
       data-block="Alert"
       variant={merged.variant}
       className={cn(blockClasses(merged))}
+      onClick={onClick}
     >
       <AlertTitle>{merged.title}</AlertTitle>
       {merged.description !== '' && <AlertDescription>{merged.description}</AlertDescription>}

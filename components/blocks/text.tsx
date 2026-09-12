@@ -1,5 +1,7 @@
 import { useNode, type UserComponent } from '@craftjs/core';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { type Breakpoint, resolve } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
 import { useStage } from '@/components/workbench/stage-context';
@@ -48,11 +50,14 @@ const ALIGN_CLASSES: Record<TextAlign, string> = {
 export const Text: UserComponent<Partial<TextBlockProps>> = (props) => {
   const merged: TextBlockProps = { ...TEXT_DEFAULTS, ...props };
   const { breakpoint } = useStage();
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
   const Tag = ROLE_TAG[merged.role];
   const align = resolve<TextAlign>(merged.align, breakpoint as Breakpoint);
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <Tag
@@ -66,6 +71,7 @@ export const Text: UserComponent<Partial<TextBlockProps>> = (props) => {
         merged.muted && 'text-muted-foreground',
         blockClasses(merged),
       )}
+      onClick={onClick}
     >
       {merged.text}
     </Tag>

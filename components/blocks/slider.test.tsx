@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Slider, clampPercent } from './slider';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('clampPercent', () => {
   it('clamps into 0..100 and falls back to 0 for invalid text', () => {
@@ -89,5 +90,41 @@ describe('Slider block', () => {
       return el!;
     });
     expect(block).toHaveClass('flex-1');
+  });
+});
+
+describe('Slider block in play mode', () => {
+  it('is interactive: not pointer-events-none, and responds to keyboard input', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Slider value="50" />
+      </Element>,
+      play,
+    );
+    const thumb = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>('[data-block="Slider"] [role="slider"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(container.querySelector('[data-slot="slider"]')).not.toHaveClass('pointer-events-none');
+    expect(thumb).toHaveAttribute('aria-valuenow', '50');
+
+    await userEvent.click(thumb);
+    await userEvent.keyboard('{ArrowRight}');
+
+    expect(thumb).toHaveAttribute('aria-valuenow', '51');
+  });
+
+  it('becomes really disabled when disabled is on', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Slider disabled />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-slot="slider"]')).not.toBeNull());
+    expect(container.querySelector('[data-slot="slider"]')).toHaveAttribute('data-disabled');
   });
 });

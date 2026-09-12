@@ -1,7 +1,9 @@
 import { Element, useNode, type UserComponent } from '@craftjs/core';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Tabs as UiTabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { parseList } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 import { DropZone } from './drop-zone';
@@ -25,9 +27,11 @@ function activeLabel(tabs: readonly string[], active: number): string {
   return tabs[index];
 }
 
-// Only one content zone exists in v1, for whichever tab is active; switching
-// tabs is not interactive yet (the Components panel groups it under Layout). The triggers are
-// pointer-events-none so clicking the tab bar selects the block.
+// Only one content zone exists in v1, for whichever tab is active: switching
+// tabs (play mode only, see usePlay()) changes which trigger looks active
+// but never changes the rendered content, since there is only the one
+// shared zone regardless of tab. In design mode the triggers stay
+// pointer-events-none so clicking the tab bar selects the block instead.
 export const TabsContent: UserComponent<{ children?: ReactNode }> = ({ children }) => {
   const {
     connectors: { connect },
@@ -56,11 +60,17 @@ TabsContent.craft = {
 
 export const Tabs: UserComponent<Partial<TabsBlockProps>> = (props) => {
   const merged: TabsBlockProps = { ...TABS_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
   const tabs = parseList(merged.tabs);
-  const active = activeLabel(tabs, merged.active);
+  const defaultActive = activeLabel(tabs, merged.active);
+  const [activeTab, setActiveTab] = useState(defaultActive);
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
+  const active = isPlay ? activeTab : defaultActive;
 
   return (
     <div
@@ -69,11 +79,17 @@ export const Tabs: UserComponent<Partial<TabsBlockProps>> = (props) => {
       }}
       data-block="Tabs"
       className={cn('flex flex-col gap-3', blockClasses(merged))}
+      onClick={onClick}
     >
-      <UiTabs value={active}>
+      <UiTabs value={active} onValueChange={isPlay ? setActiveTab : undefined}>
         <TabsList>
           {tabs.map((tab) => (
-            <TabsTrigger key={tab} value={tab} tabIndex={-1} className="pointer-events-none">
+            <TabsTrigger
+              key={tab}
+              value={tab}
+              tabIndex={isPlay ? undefined : -1}
+              className={cn(!isPlay && 'pointer-events-none')}
+            >
               {tab}
             </TabsTrigger>
           ))}

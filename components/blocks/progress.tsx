@@ -1,7 +1,9 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Progress as UiProgress } from '@/components/ui/progress';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 import { clampPercent } from '@/lib/lists';
@@ -21,9 +23,12 @@ export { clampPercent };
 
 export const Progress: UserComponent<Partial<ProgressBlockProps>> = (props) => {
   const merged: ProgressBlockProps = { ...PROGRESS_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -32,6 +37,7 @@ export const Progress: UserComponent<Partial<ProgressBlockProps>> = (props) => {
       }}
       data-block="Progress"
       className={cn('flex w-full flex-col gap-2', blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiProgress value={clampPercent(merged.value)} />

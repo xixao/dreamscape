@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Alert } from './alert';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Alert block', () => {
   it('renders the default title and description', async () => {
@@ -46,5 +47,29 @@ describe('Alert block', () => {
     );
     await screen.findByText('Heads up');
     expect(container.querySelector('[data-block="Alert"]')).toHaveClass('flex-1');
+  });
+});
+
+describe('Alert block in play mode', () => {
+  it('runs its own click interaction', async () => {
+    const play = makePlayValue();
+    const { container, editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Alert />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-block="Alert"]')).not.toBeNull());
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(id, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'back' }];
+      });
+    });
+    await waitFor(() => expect(editor().query.node(id).get().data.custom?.interactions).toBeDefined());
+
+    await userEvent.click(container.querySelector('[data-block="Alert"]')!);
+
+    expect(play.back).toHaveBeenCalledTimes(1);
   });
 });

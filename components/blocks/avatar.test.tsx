@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Avatar } from './avatar';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Avatar block', () => {
   it('renders a fallback with the default initials at medium size', async () => {
@@ -62,5 +63,29 @@ describe('Avatar block', () => {
     );
     await screen.findByText('AB');
     expect(container.querySelector('[data-block="Avatar"]')).toHaveClass('flex-1');
+  });
+});
+
+describe('Avatar block in play mode', () => {
+  it('runs its own click interaction', async () => {
+    const play = makePlayValue();
+    const { container, editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Avatar />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-block="Avatar"]')).not.toBeNull());
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(id, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'back' }];
+      });
+    });
+    await waitFor(() => expect(editor().query.node(id).get().data.custom?.interactions).toBeDefined());
+
+    await userEvent.click(container.querySelector('[data-block="Avatar"]')!);
+
+    expect(play.back).toHaveBeenCalledTimes(1);
   });
 });

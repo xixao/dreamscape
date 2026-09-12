@@ -1,7 +1,16 @@
 import { useNode, type UserComponent } from '@craftjs/core';
-import { Select as UiSelect, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select as UiSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
+import { parseList } from '@/lib/lists';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -24,12 +33,17 @@ export const SELECT_DEFAULTS: SelectBlockProps = {
 // dropdown: `options` is stored for later (code generation, real preview in
 // a play mode) but is not read here. pointer-events-none keeps the trigger
 // from ever opening, so a click always falls through to the block for
-// selection, matching the Input block's read-only treatment.
+// selection, matching the Input block's read-only treatment. Play mode (see
+// usePlay()) renders the real dropdown with `options` parsed into items.
 export const Select: UserComponent<Partial<SelectBlockProps>> = (props) => {
   const merged: SelectBlockProps = { ...SELECT_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -38,17 +52,33 @@ export const Select: UserComponent<Partial<SelectBlockProps>> = (props) => {
       }}
       data-block="Select"
       className={cn('flex flex-col gap-2', blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
-      <UiSelect>
-        <SelectTrigger
-          tabIndex={-1}
-          aria-disabled={merged.disabled || undefined}
-          className={cn('pointer-events-none w-full', merged.disabled && 'opacity-50')}
-        >
-          <SelectValue placeholder={merged.placeholder} />
-        </SelectTrigger>
-      </UiSelect>
+      {isPlay ? (
+        <UiSelect disabled={merged.disabled}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={merged.placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {parseList(merged.options).map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </UiSelect>
+      ) : (
+        <UiSelect>
+          <SelectTrigger
+            tabIndex={-1}
+            aria-disabled={merged.disabled || undefined}
+            className={cn('pointer-events-none w-full', merged.disabled && 'opacity-50')}
+          >
+            <SelectValue placeholder={merged.placeholder} />
+          </SelectTrigger>
+        </UiSelect>
+      )}
     </div>
   );
 };

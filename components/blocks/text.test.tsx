@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Text } from './text';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Text block', () => {
   it('renders a paragraph with the default text when no props are given', async () => {
@@ -90,5 +91,29 @@ describe('Text block', () => {
       </Element>,
     );
     expect(await screen.findByText('Grown')).toHaveClass('flex-1');
+  });
+});
+
+describe('Text block in play mode', () => {
+  it('runs its own click interaction', async () => {
+    const play = makePlayValue();
+    const { editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Text text="Click me" />
+      </Element>,
+      play,
+    );
+    const textNode = await screen.findByText('Click me');
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(id, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'back' }];
+      });
+    });
+    await waitFor(() => expect(editor().query.node(id).get().data.custom?.interactions).toBeDefined());
+
+    await userEvent.click(textNode);
+
+    expect(play.back).toHaveBeenCalledTimes(1);
   });
 });

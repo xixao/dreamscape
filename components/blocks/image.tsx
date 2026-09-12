@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Image as ImageIcon } from 'lucide-react';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -36,9 +38,12 @@ const RADIUS_CLASSES: Record<ImageRadius, string> = {
 
 export const Image: UserComponent<Partial<ImageBlockProps>> = (props) => {
   const merged: ImageBlockProps = { ...IMAGE_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -52,6 +57,7 @@ export const Image: UserComponent<Partial<ImageBlockProps>> = (props) => {
         RADIUS_CLASSES[merged.radius],
         blockClasses(merged),
       )}
+      onClick={onClick}
     >
       <ImageIcon className="size-8" aria-hidden />
       <span className="text-sm">{merged.label}</span>

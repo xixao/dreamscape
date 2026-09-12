@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Button as UiButton } from '@/components/ui/button';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -24,9 +26,13 @@ export const BUTTON_DEFAULTS: ButtonBlockProps = {
 
 export const Button: UserComponent<Partial<ButtonBlockProps>> = (props) => {
   const merged: ButtonBlockProps = { ...BUTTON_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiButton
@@ -37,8 +43,10 @@ export const Button: UserComponent<Partial<ButtonBlockProps>> = (props) => {
       data-block="Button"
       variant={merged.variant}
       size={merged.size}
+      disabled={isPlay ? merged.disabled : undefined}
       aria-disabled={merged.disabled || undefined}
       className={cn(blockClasses(merged), merged.disabled && 'opacity-50')}
+      onClick={onClick}
     >
       {merged.label}
     </UiButton>

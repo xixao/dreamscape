@@ -73,6 +73,38 @@ export type DescribeNodes = Record<
 
 const DEFAULT_DIALOG_TITLE = 'Dialog';
 
+export interface InteractionRunner {
+  navigate: (screenId: string) => void;
+  back: () => void;
+  openDialog: (nodeId: string) => void;
+}
+
+/**
+ * Turns a node's stored interaction into a ready-to-call onClick handler
+ * bound to the given play-context actions, or undefined when there is no
+ * interaction to run (so a block can pass the result straight to its root
+ * element's `onClick` with no further branching). Used by every block in
+ * play mode (spec docs/superpowers/specs/2026-09-12-screens-prototype-play-design.md
+ * #5: "Any block with a click interaction ... gets the onClick in play
+ * mode"), so the action-to-context-call mapping lives in exactly one place
+ * instead of being re-derived in each of the 20 block components.
+ */
+export function interactionHandler(
+  interaction: Interaction | null,
+  runner: InteractionRunner,
+): (() => void) | undefined {
+  if (!interaction) return undefined;
+  if (interaction.action === 'navigate') {
+    const { targetScreenId } = interaction;
+    return () => runner.navigate(targetScreenId);
+  }
+  if (interaction.action === 'openDialog') {
+    const { targetNodeId } = interaction;
+    return () => runner.openDialog(targetNodeId);
+  }
+  return () => runner.back();
+}
+
 /**
  * Builds the canvas tag text (spec #4: "→ <target name>", "→ Dialog:
  * <title>", "← Back") for a node's interaction. `screens` and `nodes` are

@@ -7,7 +7,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { DropZone } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
@@ -51,10 +53,13 @@ CardContent.craft = {
 
 export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
   const merged: CardBlockProps = { ...CARD_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
   const showHeader = merged.title !== '' || merged.description !== '';
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiCard
@@ -63,6 +68,7 @@ export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
       }}
       data-block="Card"
       className={cn(blockClasses(merged))}
+      onClick={onClick}
     >
       {showHeader && (
         <CardHeader>

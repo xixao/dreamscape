@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Badge as UiBadge } from '@/components/ui/badge';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -19,9 +21,12 @@ export const BADGE_DEFAULTS: BadgeBlockProps = {
 
 export const Badge: UserComponent<Partial<BadgeBlockProps>> = (props) => {
   const merged: BadgeBlockProps = { ...BADGE_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiBadge
@@ -31,6 +36,7 @@ export const Badge: UserComponent<Partial<BadgeBlockProps>> = (props) => {
       data-block="Badge"
       variant={merged.variant}
       className={cn(blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.text}
     </UiBadge>

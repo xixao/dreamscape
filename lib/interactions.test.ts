@@ -3,6 +3,7 @@ import type { Screen } from './files/repository';
 import {
   describeInteraction,
   getInteraction,
+  interactionHandler,
   setInteraction,
   type DescribeNodes,
   type Interaction,
@@ -95,5 +96,41 @@ describe('describeInteraction', () => {
   it('describes a back interaction', () => {
     const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'back' };
     expect(describeInteraction(interaction, screens, nodes)).toBe('← Back');
+  });
+});
+
+describe('interactionHandler', () => {
+  function runner() {
+    return { navigate: vi.fn(), back: vi.fn(), openDialog: vi.fn() };
+  }
+
+  it('returns undefined for no interaction', () => {
+    expect(interactionHandler(null, runner())).toBeUndefined();
+  });
+
+  it('calls navigate with the target screen id', () => {
+    const play = runner();
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'navigate', targetScreenId: 's2' };
+    const handler = interactionHandler(interaction, play);
+    handler?.();
+    expect(play.navigate).toHaveBeenCalledWith('s2');
+    expect(play.back).not.toHaveBeenCalled();
+    expect(play.openDialog).not.toHaveBeenCalled();
+  });
+
+  it('calls openDialog with the target node id', () => {
+    const play = runner();
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'openDialog', targetNodeId: 'dialog1' };
+    interactionHandler(interaction, play)?.();
+    expect(play.openDialog).toHaveBeenCalledWith('dialog1');
+    expect(play.navigate).not.toHaveBeenCalled();
+  });
+
+  it('calls back with no arguments', () => {
+    const play = runner();
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'back' };
+    interactionHandler(interaction, play)?.();
+    expect(play.back).toHaveBeenCalledWith();
+    expect(play.navigate).not.toHaveBeenCalled();
   });
 });

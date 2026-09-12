@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Avatar as UiAvatar, AvatarFallback } from '@/components/ui/avatar';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -28,9 +30,12 @@ const UI_SIZE: Record<AvatarSize, 'sm' | 'default' | 'lg'> = {
 
 export const Avatar: UserComponent<Partial<AvatarBlockProps>> = (props) => {
   const merged: AvatarBlockProps = { ...AVATAR_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiAvatar
@@ -40,6 +45,7 @@ export const Avatar: UserComponent<Partial<AvatarBlockProps>> = (props) => {
       data-block="Avatar"
       size={UI_SIZE[merged.size]}
       className={cn(blockClasses(merged))}
+      onClick={onClick}
     >
       <AvatarFallback>{merged.initials}</AvatarFallback>
     </UiAvatar>

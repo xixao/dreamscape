@@ -1,11 +1,12 @@
 /* eslint-disable jsx-a11y/alt-text -- `Image` here is this file's own block (components/blocks/image.tsx),
    not next/image's Image; jsx-a11y matches the component name and does not know the difference. */
 import { describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Image } from './image';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Image block', () => {
   it('renders a muted placeholder box with the default label and a square aspect', async () => {
@@ -74,5 +75,29 @@ describe('Image block', () => {
     );
     await screen.findByText('Image');
     expect(container.querySelector('[data-block="Image"]')).toHaveClass('flex-1');
+  });
+});
+
+describe('Image block in play mode', () => {
+  it('runs its own click interaction', async () => {
+    const play = makePlayValue();
+    const { container, editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Image />
+      </Element>,
+      play,
+    );
+    await waitFor(() => expect(container.querySelector('[data-block="Image"]')).not.toBeNull());
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    act(() => {
+      editor().actions.setCustom(id, (custom: Record<string, unknown>) => {
+        custom.interactions = [{ id: 'i1', trigger: 'click', action: 'back' }];
+      });
+    });
+    await waitFor(() => expect(editor().query.node(id).get().data.custom?.interactions).toBeDefined());
+
+    await userEvent.click(container.querySelector('[data-block="Image"]')!);
+
+    expect(play.back).toHaveBeenCalledTimes(1);
   });
 });

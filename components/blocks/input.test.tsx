@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Input } from './input';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Input block', () => {
   it('renders a read-only input with its label and placeholder', async () => {
@@ -41,5 +42,36 @@ describe('Input block', () => {
     const input = await screen.findByPlaceholderText('Off');
     expect(input).toHaveAttribute('aria-disabled', 'true');
     expect(input).not.toBeDisabled();
+  });
+});
+
+describe('Input block in play mode', () => {
+  it('is typeable: not readonly, not pointer-events-none, and accepts input', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Input label="Email" placeholder="you@example.com" />
+      </Element>,
+      play,
+    );
+    const input = await screen.findByPlaceholderText('you@example.com');
+    expect(input).not.toHaveAttribute('readonly');
+    expect(input).not.toHaveAttribute('tabindex', '-1');
+    expect(input).not.toHaveClass('pointer-events-none');
+
+    await userEvent.type(input, 'matt@example.com');
+
+    expect(input).toHaveValue('matt@example.com');
+  });
+
+  it('becomes really disabled (not just aria-disabled) when disabled is on', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Input placeholder="Off" disabled />
+      </Element>,
+      play,
+    );
+    expect(await screen.findByPlaceholderText('Off')).toBeDisabled();
   });
 });

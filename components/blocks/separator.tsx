@@ -1,6 +1,8 @@
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Separator as UiSeparator } from '@/components/ui/separator';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -17,9 +19,12 @@ export const SEPARATOR_DEFAULTS: SeparatorBlockProps = {
 
 export const Separator: UserComponent<Partial<SeparatorBlockProps>> = (props) => {
   const merged: SeparatorBlockProps = { ...SEPARATOR_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <UiSeparator
@@ -29,6 +34,7 @@ export const Separator: UserComponent<Partial<SeparatorBlockProps>> = (props) =>
       data-block="Separator"
       orientation={merged.orientation}
       className={cn(merged.orientation === 'horizontal' && 'w-full', blockClasses(merged))}
+      onClick={onClick}
     />
   );
 };

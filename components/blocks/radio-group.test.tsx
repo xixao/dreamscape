@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Element } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { RadioGroup } from './radio-group';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('RadioGroup block', () => {
   it('renders the default options with the first selected', async () => {
@@ -82,5 +83,52 @@ describe('RadioGroup block', () => {
     const group = container.querySelector('[role="radiogroup"]')!;
     expect(group).toHaveAttribute('aria-disabled', 'true');
     expect(group).toHaveClass('opacity-50');
+  });
+});
+
+describe('RadioGroup block in play mode', () => {
+  it('selects an option when clicked: not pointer-events-none, real tab focus', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <RadioGroup options="Small, Medium, Large" />
+      </Element>,
+      play,
+    );
+    const radios = await waitFor(() => {
+      const els = container.querySelectorAll('[data-block="RadioGroup"] button[role="radio"]');
+      expect(els.length).toBe(3);
+      return els;
+    });
+    expect(container.querySelector('[role="radiogroup"]')).not.toHaveClass('pointer-events-none');
+    for (const radio of radios) {
+      expect(radio).not.toHaveAttribute('tabindex', '-1');
+    }
+    expect(radios[0]).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(radios[2]);
+
+    expect(radios[2]).toHaveAttribute('aria-checked', 'true');
+    expect(radios[0]).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('becomes really disabled (not just aria-disabled) when disabled is on', async () => {
+    const play = makePlayValue();
+    const { container } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <RadioGroup disabled />
+      </Element>,
+      play,
+    );
+    // The group root renders as a plain div (role="radiogroup" is not a
+    // native form control jest-dom's toBeDisabled recognizes); Radix
+    // propagates a disabled Root to each item button, which does render as
+    // a real <button>, so that is what a "really disabled" assertion checks.
+    const radio = await waitFor(() => {
+      const el = container.querySelector('[data-block="RadioGroup"] button[role="radio"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(radio).toBeDisabled();
   });
 });

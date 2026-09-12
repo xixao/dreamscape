@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
-import { Element } from '@craftjs/core';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
 import { Dialog } from './dialog';
 import { Button } from './button';
-import { renderTree } from '@/test/craft-harness';
+import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Dialog block', () => {
   it('renders the trigger and the inline preview with a content zone', async () => {
@@ -67,5 +68,62 @@ describe('Dialog block', () => {
     const zone = editor().query.node(zoneId);
     expect(zone.get().rules.canMoveIn([incomingDialog.nodes[incomingDialog.rootNodeId]], zone.get(), editor().query.node)).toBe(false);
     expect(zone.get().rules.canMoveIn([incomingButton.nodes[incomingButton.rootNodeId]], zone.get(), editor().query.node)).toBe(true);
+  });
+});
+
+describe('Dialog block in play mode', () => {
+  it('calls openDialog with its own node id when the trigger is clicked', async () => {
+    const play = makePlayValue();
+    const { editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Dialog triggerLabel="Invite" title="Invite a teammate" />
+      </Element>,
+      play,
+    );
+    const dialogId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Invite' }));
+
+    expect(play.openDialog).toHaveBeenCalledWith(dialogId);
+  });
+
+  it('renders the real dialog with its title when isDialogOpen says it is open', async () => {
+    const play = makePlayValue({ isDialogOpen: () => true });
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Dialog title="Already open" />
+      </Element>,
+      play,
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Already open')).toBeInTheDocument();
+  });
+
+  it('renders no dialog while isDialogOpen says it is closed', async () => {
+    const play = makePlayValue();
+    renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Dialog title="Should stay closed" />
+      </Element>,
+      play,
+    );
+    await screen.findByRole('button', { name: 'Open dialog' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('calls closeDialog with its own node id when the close button is clicked', async () => {
+    const play = makePlayValue({ isDialogOpen: () => true });
+    const { editor } = renderPlayTree(
+      <Element is={LayoutBox} canvas>
+        <Dialog title="Closable" />
+      </Element>,
+      play,
+    );
+    const dialogId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    const dialog = await screen.findByRole('dialog');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+
+    expect(play.closeDialog).toHaveBeenCalledWith(dialogId);
   });
 });

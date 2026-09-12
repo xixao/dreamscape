@@ -1,7 +1,10 @@
 import { useNode, type UserComponent } from '@craftjs/core';
+import { useState } from 'react';
 import { Switch as UiSwitch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -20,9 +23,14 @@ export const SWITCH_DEFAULTS: SwitchBlockProps = {
 
 export const Switch: UserComponent<Partial<SwitchBlockProps>> = (props) => {
   const merged: SwitchBlockProps = { ...SWITCH_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const [checked, setChecked] = useState(merged.checked);
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -31,14 +39,16 @@ export const Switch: UserComponent<Partial<SwitchBlockProps>> = (props) => {
       }}
       data-block="Switch"
       className={cn('flex items-center justify-between gap-3', blockClasses(merged))}
+      onClick={onClick}
     >
       <Label>{merged.label}</Label>
       <UiSwitch
-        checked={merged.checked}
-        onCheckedChange={() => {}}
-        tabIndex={-1}
-        aria-disabled={merged.disabled || undefined}
-        className={cn('pointer-events-none', merged.disabled && 'opacity-50')}
+        checked={isPlay ? checked : merged.checked}
+        onCheckedChange={isPlay ? setChecked : () => {}}
+        disabled={isPlay ? merged.disabled : undefined}
+        tabIndex={isPlay ? undefined : -1}
+        aria-disabled={!isPlay && merged.disabled ? true : undefined}
+        className={cn(!isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       />
     </div>
   );

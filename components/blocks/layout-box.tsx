@@ -9,8 +9,10 @@ import {
   layoutBoxClasses,
   normalizeSpacing,
 } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
+import { usePlay } from '@/components/play/play-context';
 import { useStage } from '@/components/workbench/stage-context';
 import { DropZone, StageEmptyState } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
@@ -19,12 +21,15 @@ export type LayoutBoxBlockProps = Partial<LayoutBoxProps> & { children?: ReactNo
 
 export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...props }) => {
   const { breakpoint } = useStage();
+  const play = usePlay();
   const {
     connectors: { connect, drag },
     id,
     childCount,
-  } = useNode((node) => ({ childCount: node.data.nodes.length }));
+    custom,
+  } = useNode((node) => ({ childCount: node.data.nodes.length, custom: node.data.custom }));
   const isRoot = id === ROOT_NODE;
+  const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
   // normalizeSpacing is applied to the raw incoming `props` (not `merged`)
   // so a legacy props object (gap/padding Tailwind units, no gapPx/paddingPx
   // of its own) converts correctly instead of being masked by the new 8 px
@@ -56,6 +61,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
       data-block="LayoutBox"
       className={cn(layoutBoxClasses(merged, breakpoint), !isRoot && blockClasses(merged))}
       style={isRoot ? { minHeight: ARTBOARD_MIN_HEIGHT } : undefined}
+      onClick={onClick}
     >
       {childCount === 0 ? (isRoot ? <StageEmptyState /> : <DropZone />) : children}
     </div>

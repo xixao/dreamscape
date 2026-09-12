@@ -1,7 +1,10 @@
 import { useNode, type UserComponent } from '@craftjs/core';
+import { useState } from 'react';
 import { Slider as UiSlider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
+import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
 import { clampPercent } from '@/lib/lists';
@@ -25,12 +28,20 @@ export { clampPercent };
 // pointer-events is inherited by descendants), so a click always selects
 // the block. The installed Slider only forwards extra props to its Root,
 // not to the thumb it renders internally, so the thumb keeps Radix's own
-// tabIndex 0; that one gap is called out in the build report.
+// tabIndex 0; that one gap is called out in the build report. Play mode
+// (see usePlay()) removes pointer-events-none so the thumb is really
+// draggable/keyboard-adjustable.
 export const Slider: UserComponent<Partial<SliderBlockProps>> = (props) => {
   const merged: SliderBlockProps = { ...SLIDER_DEFAULTS, ...props };
+  const play = usePlay();
   const {
     connectors: { connect, drag },
-  } = useNode();
+    custom,
+  } = useNode((node) => ({ custom: node.data.custom }));
+  const isPlay = play.mode === 'play';
+  const defaultValue = clampPercent(merged.value);
+  const [value, setValue] = useState(defaultValue);
+  const onClick = isPlay ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
@@ -39,14 +50,16 @@ export const Slider: UserComponent<Partial<SliderBlockProps>> = (props) => {
       }}
       data-block="Slider"
       className={cn('flex flex-col gap-3', blockClasses(merged))}
+      onClick={onClick}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiSlider
-        value={[clampPercent(merged.value)]}
-        onValueChange={() => {}}
-        tabIndex={-1}
-        aria-disabled={merged.disabled || undefined}
-        className={cn('pointer-events-none', merged.disabled && 'opacity-50')}
+        value={[isPlay ? value : defaultValue]}
+        onValueChange={isPlay ? (next) => setValue(next[0]) : () => {}}
+        disabled={isPlay ? merged.disabled : undefined}
+        tabIndex={isPlay ? undefined : -1}
+        aria-disabled={!isPlay && merged.disabled ? true : undefined}
+        className={cn(!isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       />
     </div>
   );
