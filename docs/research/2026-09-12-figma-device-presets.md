@@ -37,6 +37,10 @@ Figma's Frame tool (press F) shows device presets grouped by category in the Des
 - Figma Community: surfaces community files and plugins, not a fixed size list.
 - Archive: presumed older or deprecated presets; no source documents its contents.
 
+## Update, 2026-09-12: confirmed from Matt's Figma
+
+Matt sent screenshots of the live Frame preset panel. `device-presets.json` now holds those lists verbatim for Phone (12 entries, iPhone 17 through Android Medium), Tablet (5), Desktop (6, including Wireframes and TV), Presentation (2), Watch (6) and Paper (5), in Figma's order. Social Media was not captured; its two Instagram entries stay from secondary sources. Watch and Paper sizes go below the stage's former 320 px minimum width, so the device presets task lowers the minimum to 120 px.
+
 ## Recommendation
 
 Treat device-presets.json as a solid start for Phone, Tablet, Desktop, and the two Instagram sizes. Fill in Presentation, Watch, Paper, and the rest of Social Media by reading the live panel directly, since Figma does not publish this list as text anywhere.

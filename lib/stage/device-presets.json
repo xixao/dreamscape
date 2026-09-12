@@ -2,106 +2,74 @@
   {
     "group": "Phone",
     "devices": [
-      {
-        "name": "iPhone 17 Pro Max",
-        "width": 440,
-        "height": 956
-      },
-      {
-        "name": "iPhone 17 Pro",
-        "width": 402,
-        "height": 874
-      },
-      {
-        "name": "iPhone Air",
-        "width": 420,
-        "height": 912
-      },
-      {
-        "name": "iPhone 17",
-        "width": 402,
-        "height": 874
-      },
-      {
-        "name": "iPhone 16 Pro Max",
-        "width": 440,
-        "height": 956
-      },
-      {
-        "name": "iPhone 16 Pro",
-        "width": 402,
-        "height": 874
-      },
-      {
-        "name": "iPhone 16 Plus",
-        "width": 430,
-        "height": 932
-      },
-      {
-        "name": "iPhone 16",
-        "width": 393,
-        "height": 852
-      }
+      { "name": "iPhone 17", "width": 402, "height": 874 },
+      { "name": "iPhone 16 & 17 Pro", "width": 402, "height": 874 },
+      { "name": "iPhone 16", "width": 393, "height": 852 },
+      { "name": "iPhone 16 & 17 Pro Max", "width": 440, "height": 956 },
+      { "name": "iPhone 16 Plus", "width": 430, "height": 932 },
+      { "name": "iPhone Air", "width": 420, "height": 912 },
+      { "name": "iPhone 14 & 15 Pro Max", "width": 430, "height": 932 },
+      { "name": "iPhone 14 & 15 Pro", "width": 393, "height": 852 },
+      { "name": "iPhone 13 & 14", "width": 390, "height": 844 },
+      { "name": "iPhone 14 Plus", "width": 428, "height": 926 },
+      { "name": "Android Compact", "width": 412, "height": 917 },
+      { "name": "Android Medium", "width": 700, "height": 840 }
     ]
   },
   {
     "group": "Tablet",
     "devices": [
-      {
-        "name": "iPad Pro 13-inch",
-        "width": 1032,
-        "height": 1376
-      },
-      {
-        "name": "iPad Pro 11-inch",
-        "width": 834,
-        "height": 1210
-      },
-      {
-        "name": "iPad Air 13-inch",
-        "width": 1024,
-        "height": 1366
-      },
-      {
-        "name": "iPad Air 11-inch",
-        "width": 820,
-        "height": 1180
-      },
-      {
-        "name": "iPad mini",
-        "width": 744,
-        "height": 1133
-      },
-      {
-        "name": "iPad",
-        "width": 820,
-        "height": 1180
-      }
+      { "name": "iPad mini 8.3", "width": 744, "height": 1133 },
+      { "name": "Surface Pro 8", "width": 1440, "height": 960 },
+      { "name": "iPad Pro 11\"", "width": 834, "height": 1194 },
+      { "name": "iPad Pro 12.9\"", "width": 1024, "height": 1366 },
+      { "name": "Android Expanded", "width": 1280, "height": 800 }
     ]
   },
   {
     "group": "Desktop",
     "devices": [
-      {
-        "name": "Desktop",
-        "width": 1440,
-        "height": 1024
-      }
+      { "name": "MacBook Air", "width": 1280, "height": 832 },
+      { "name": "MacBook Pro 14\"", "width": 1512, "height": 982 },
+      { "name": "MacBook Pro 16\"", "width": 1728, "height": 1117 },
+      { "name": "Desktop", "width": 1440, "height": 1024 },
+      { "name": "Wireframes", "width": 1440, "height": 1024 },
+      { "name": "TV", "width": 1280, "height": 720 }
+    ]
+  },
+  {
+    "group": "Presentation",
+    "devices": [
+      { "name": "Slide 16:9", "width": 1920, "height": 1080 },
+      { "name": "Slide 4:3", "width": 1024, "height": 768 }
+    ]
+  },
+  {
+    "group": "Watch",
+    "devices": [
+      { "name": "Apple Watch Series 10 42mm", "width": 187, "height": 223 },
+      { "name": "Apple Watch Series 10 46mm", "width": 208, "height": 248 },
+      { "name": "Apple Watch 41mm", "width": 176, "height": 215 },
+      { "name": "Apple Watch 45mm", "width": 198, "height": 242 },
+      { "name": "Apple Watch 44mm", "width": 184, "height": 224 },
+      { "name": "Apple Watch 40mm", "width": 162, "height": 197 }
+    ]
+  },
+  {
+    "group": "Paper",
+    "devices": [
+      { "name": "A4", "width": 595, "height": 842 },
+      { "name": "A5", "width": 420, "height": 595 },
+      { "name": "A6", "width": 297, "height": 420 },
+      { "name": "Letter", "width": 612, "height": 792 },
+      { "name": "Tabloid", "width": 792, "height": 1224 }
     ]
   },
   {
     "group": "Social Media",
     "devices": [
-      {
-        "name": "Instagram Post",
-        "width": 1080,
-        "height": 1080
-      },
-      {
-        "name": "Instagram Story",
-        "width": 1080,
-        "height": 1920
-      }
+      { "name": "Instagram Post", "width": 1080, "height": 1080 },
+      { "name": "Instagram Story", "width": 1080, "height": 1920 }
     ]
   }
 ]
