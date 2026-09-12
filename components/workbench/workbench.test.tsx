@@ -393,4 +393,99 @@ describe('Workbench', () => {
       );
     });
   });
+
+  // Craft's <Editor> stays mounted across a screen switch (only the <Frame>
+  // below it remounts, keyed by screen id - see the comment on <StageProvider>
+  // in workbench.tsx), so its undo/redo history is a single shared stack
+  // unless something clears it: without switchScreen doing that, Undo on the
+  // screen you just switched to would replay the PREVIOUS screen's inverse
+  // patches against this screen's own (identically-id'd) nodes.
+  describe('undo history is per screen', () => {
+    it('starts empty on the screen you switch to, so Undo/Redo and Cmd+Z do not touch it', async () => {
+      const { container } = render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await changeRootLayoutMode(container);
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled());
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+
+      // The new screen's history must start empty, not inherit screen 1's.
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+
+      fireEvent.keyDown(window, { key: 'z', metaKey: true });
+
+      // A no-op: the keyboard handler itself only calls actions.history.undo()
+      // when query.history.canUndo() is true, so this must leave everything
+      // exactly as it was - screen 2's own content, no Redo newly enabled.
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    });
+  });
+
+  describe('the invalid-layout notice', () => {
+    const NOTICE = 'The saved design of this screen could not be read; it starts empty.';
+
+    it('shows only for a screen in invalidScreenIds, clears on switch, and returns until that screen is edited', async () => {
+      const { container } = render(
+        <Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} invalidScreenIds={[SCREEN_1.id]} />,
+      );
+
+      expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE);
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
+
+      await changeRootLayoutMode(container);
+      await waitFor(() => expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE));
+    });
+
+    it('does not show when no screen is invalid', () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE);
+    });
+  });
+
+  describe('editor UI state persists across a screen switch', () => {
+    it('keeps Prototype mode, the Components search filter and hidden UI, and updates the width readout', async () => {
+      const narrowScreen2: Screen = { ...SCREEN_2, stageWidth: 375 };
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, narrowScreen2] })} />);
+
+      await userEvent.type(screen.getByLabelText('Search components'), 'Button');
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+
+      // Neither the search filter nor the panel mode is specific to a
+      // screen - both belong to the editor session, not the document, so
+      // they must survive the switch untouched.
+      expect(screen.getByLabelText('Search components')).toHaveValue('Button');
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+      // The width readout, in contrast, IS per screen and must update.
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px'));
+
+      // Hiding the UI and switching again must not bring it back by itself.
+      // The screens strip stays visible even with the rest of the UI
+      // hidden (see the "Show/Hide UI" tests above), so switching is still
+      // possible without it.
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
+    });
+  });
 });

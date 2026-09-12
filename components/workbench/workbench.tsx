@@ -18,8 +18,13 @@ import { PrototypeProvider } from './prototype-context';
 import { useZoneRedirect } from './selection';
 import { Stage } from './stage';
 import { StageErrorBoundary } from './stage-error-boundary';
-import { StageProvider } from './stage-context';
+import { StageProvider, useStage } from './stage-context';
 import { Topbar } from './topbar';
+
+// Shown in the topbar's save-state slot for a screen whose saved layout
+// failed validation and was silently started empty (see the invalidScreenIds
+// prop below and app/f/[id]/page.tsx, which computes it).
+const INVALID_LAYOUT_NOTICE = 'The saved design of this screen could not be read; it starts empty.';
 
 // A file always has at least one screen by the time it reaches this
 // component in real use (the repository's create()/save() both run every
@@ -42,13 +47,47 @@ function screenIdFromHash(hash: string, screens: Screen[]): string {
 
 type MinimalQuery = { serialize: () => string };
 
-export function Workbench({ file }: { file: FileRecord }) {
+type EditorActions = ReturnType<typeof useEditor>['actions'];
+
+// Craft's actions are only reachable via useEditor() from a descendant of
+// <Editor>, but switchScreen (below, in Workbench) needs to call
+// actions.history.clear() and Workbench is <Editor>'s own parent, not its
+// descendant. This is the bridge: a child that does nothing but keep a ref
+// to the latest actions in sync, so switchScreen can reach them
+// synchronously without itself becoming a descendant. Written into the ref
+// from an effect (never during render) per the react-hooks/refs rule - by
+// the time a user can trigger switchScreen, this has always already run.
+function EditorActionsBridge({ actionsRef }: { actionsRef: { current: EditorActions | null } }) {
+  const { actions } = useEditor();
+  useEffect(() => {
+    actionsRef.current = actions;
+  }, [actions, actionsRef]);
+  return null;
+}
+
+export function Workbench({
+  file,
+  invalidScreenIds = [],
+}: {
+  file: FileRecord;
+  // Screen ids whose saved layout failed validation server-side and was
+  // replaced with an empty one before this component ever saw it (see
+  // app/f/[id]/page.tsx's resolveClientScreens). Drives the topbar notice
+  // below - purely a hint for that notice, never re-validated here.
+  invalidScreenIds?: string[];
+}) {
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [fileName, setFileName] = useState(file.name);
   const [screens, setScreens] = useState<Screen[]>(() => resolveInitialScreens(file));
   const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
     screenIdFromHash(window.location.hash, resolveInitialScreens(file)),
   );
+  // Screens the user has actually changed this session (a real edit, per
+  // onNodesChange's own canonical-layout comparison below - not merely
+  // selecting something on it). Only used to clear the invalid-layout
+  // notice for a screen once it no longer describes that screen's state.
+  const [editedScreenIds, setEditedScreenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const editorActionsRef = useRef<EditorActions | null>(null);
 
   // Lazy useState (not useMemo) so the saver is created exactly once and holds
   // its own pending-write timer across renders, the same guarantee a ref would
@@ -133,6 +172,7 @@ export function Workbench({ file }: { file: FileRecord }) {
     queueMicrotask(() => {
       setScreens(next);
       saver.queue({ screens: next });
+      setEditedScreenIds((prev) => (prev.has(screenId) ? prev : new Set(prev).add(screenId)));
     });
     // Deliberately empty: see the comment above this callback for why every
     // value it needs comes from a ref or a value stable for this
@@ -168,6 +208,16 @@ export function Workbench({ file }: { file: FileRecord }) {
   function switchScreen(id: string): void {
     if (id === currentScreenId) return;
     void saver.flush();
+    // Undo/redo history is per screen, not global: Craft's <Editor> stays
+    // mounted across every screen (only the <Frame> below it remounts, keyed
+    // by screen id), so its history is one shared stack unless cleared here.
+    // Left alone, Undo on the screen just switched to would replay the
+    // PREVIOUS screen's inverse patches against this screen's own nodes
+    // (same ids, e.g. ROOT) - silently corrupting it, or throwing mid-apply
+    // for a non-root id the new tree doesn't have. Ordered after the saver
+    // flush and before the state update below, per the same synchronous
+    // ordering the ref updates already depend on.
+    editorActionsRef.current?.history.clear();
     // Updated synchronously here, in the same event handler as the state
     // setter (not during render - see the comment on currentScreenIdRef's
     // declaration above): by the time this returns, Craft's <Frame> for the
@@ -227,6 +277,14 @@ export function Workbench({ file }: { file: FileRecord }) {
   }
 
   function handleWidthChange(width: number): void {
+    const current = screens.find((screen) => screen.id === currentScreenId);
+    // No-op guard: WorkbenchShell's own width-reinit effect (below) calls
+    // this same setWidth whenever the screen changes, purely to make
+    // StageProvider's context match a screen it didn't remount for (see the
+    // comment on <StageProvider> below) - not because anything actually
+    // changed. Without this, every screen switch would queue an identical,
+    // pointless save.
+    if (current && current.stageWidth === width) return;
     const next = screens.map((screen) => (screen.id === currentScreenId ? { ...screen, stageWidth: width } : screen));
     screensRef.current = next;
     setScreens(next);
@@ -234,6 +292,15 @@ export function Workbench({ file }: { file: FileRecord }) {
   }
 
   const currentScreen = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
+  // Only while the current screen's own saved layout failed validation
+  // (invalidScreenIds, from the server) and the user hasn't yet made a real
+  // edit to it this session (editedScreenIds, from onNodesChange above) -
+  // the moment either stops being true for this screen, the notice is gone
+  // for good until a reload.
+  const notice =
+    invalidScreenIds.includes(currentScreenId) && !editedScreenIds.has(currentScreenId)
+      ? INVALID_LAYOUT_NOTICE
+      : undefined;
 
   return (
     <Editor
@@ -242,7 +309,18 @@ export function Workbench({ file }: { file: FileRecord }) {
       indicator={{ success: 'var(--acc)', error: 'var(--bad)' }}
       onNodesChange={onNodesChange}
     >
-      <StageProvider key={currentScreenId} initialWidth={currentScreen.stageWidth} onWidthChange={handleWidthChange}>
+      <EditorActionsBridge actionsRef={editorActionsRef} />
+      {/*
+        Deliberately not keyed by currentScreenId (it used to be): that keyed
+        every consumer below - the topbar, tray, inspector, and WorkbenchShell's
+        own uiHidden/panelMode state - for a full remount on every screen
+        switch, silently resetting all of it back to defaults. Only the
+        <Frame> inside Stage needs to remount per screen (it already has its
+        own key there); StageProvider stays mounted for the file's whole
+        session, and WorkbenchShell re-initialises its width per screen
+        itself (see the effect there) without remounting anything.
+      */}
+      <StageProvider initialWidth={currentScreen.stageWidth} onWidthChange={handleWidthChange}>
         <WorkbenchShell
           fileId={file.id}
           folderId={file.folderId ?? null}
@@ -252,6 +330,7 @@ export function Workbench({ file }: { file: FileRecord }) {
             queuePatch({ name });
           }}
           saveState={saveState}
+          notice={notice}
           screens={screens}
           currentScreenId={currentScreenId}
           currentScreenLayout={currentScreen.layout}
@@ -272,6 +351,7 @@ function WorkbenchShell({
   fileName,
   onRename,
   saveState,
+  notice,
   screens,
   currentScreenId,
   currentScreenLayout,
@@ -286,6 +366,7 @@ function WorkbenchShell({
   fileName: string;
   onRename: (name: string) => void;
   saveState: SaveState;
+  notice?: string;
   screens: Screen[];
   currentScreenId: string;
   currentScreenLayout: string;
@@ -300,7 +381,21 @@ function WorkbenchShell({
   const [panelMode, setPanelMode] = useState<PanelMode>('design');
   useWorkbenchKeyboard({ onToggleUi: () => setUiHidden((hidden) => !hidden) });
   const { actions } = useEditor();
+  const { setWidth } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // StageProvider is intentionally not remounted per screen (see the comment
+  // on <StageProvider> in Workbench), so without this its width/breakpoint
+  // context would keep reflecting whichever screen was active before -
+  // stale for every useStage() consumer here (the topbar readout, the
+  // inspector's breakpoint badge, the artboard itself). Re-initialises only
+  // on an actual screen change, not on every resize (handleWidthChange's own
+  // no-op guard also keeps this from queuing a spurious save).
+  useEffect(() => {
+    const screen = screens.find((candidate) => candidate.id === currentScreenId);
+    if (screen) setWidth(screen.stageWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentScreenId]);
 
   return (
     <PrototypeProvider value={{ panelMode, screens }}>
@@ -317,6 +412,7 @@ function WorkbenchShell({
             fileName={fileName}
             onRename={onRename}
             saveState={saveState}
+            notice={notice}
             onNew={() => setNewOpen(true)}
             fileId={fileId}
             folderId={folderId}

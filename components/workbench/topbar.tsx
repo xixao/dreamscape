@@ -135,7 +135,7 @@ function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: s
     <div className="flex items-center gap-2">
       <span
         data-testid="save-state"
-        className={cn('font-mono text-[11px]', notice ? 'text-muted-foreground' : SAVE_STATE_CLASS[saveState])}
+        className={cn('font-mono text-[11px]', notice ? 'text-warn' : SAVE_STATE_CLASS[saveState])}
       >
         {notice ?? SAVE_STATE_TEXT[saveState]}
       </span>
