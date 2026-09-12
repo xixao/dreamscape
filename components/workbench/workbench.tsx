@@ -3,8 +3,8 @@
 import { Editor } from '@craftjs/core';
 import { useState } from 'react';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
-import { PANEL } from './chrome';
 import { ComponentTray } from './component-tray';
+import { Inspector } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { NodeIndicator } from './node-indicator';
 import { useZoneRedirect } from './selection';
@@ -37,7 +37,7 @@ function WorkbenchShell({ initialLayout }: { initialLayout: string }) {
       <Topbar onNew={() => {}} />
       <ComponentTray />
       <Stage data={initialLayout} />
-      <aside className={PANEL} />
+      <Inspector />
     </div>
   );
 }
