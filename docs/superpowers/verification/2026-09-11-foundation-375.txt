@@ -1,0 +1,22 @@
+Assembly Workbench, foundation verification, stage width 375 (mobile preset)
+Captured 2026-09-11 against HEAD cf79510, via live browser (Chrome DevTools automation).
+
+Topbar readout text:
+375 px · mobile
+
+Artboard element (.theme-basic):
+  getBoundingClientRect().width = 375
+  computed style width        = 375px
+(no zoom applied: 375 fits the stage column at 100%, so the readout carries no percentage,
+matching spec section 4.3 "at 100% it shows nothing")
+
+data-block elements, in document order, with their flex-col/flex-row class:
+  1. LayoutBox  -> flex-col   (root: column at both breakpoints, per spec 4.5)
+  2. LayoutBox  -> flex-col   (nested box: responsive `direction`, resolves to mobile = column)
+  3. Card       -> flex-col   (Card's own internal layout, not the responsive direction prop)
+  4. Card       -> flex-col   (second Card, same internal layout)
+  5. Button     -> (no flex-col/flex-row class; Button is not a flex container)
+  6. Input      -> flex-col   (shadcn Input's wrapping label/control stack)
+
+Visible layout: the two Cards are stacked vertically inside the nested LayoutBox, confirming
+the responsive `direction` prop resolved to "column" at the mobile breakpoint (width < 768).

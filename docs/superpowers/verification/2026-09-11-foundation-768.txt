@@ -1,0 +1,23 @@
+Assembly Workbench, foundation verification, stage width 768 (tablet preset)
+Captured 2026-09-11 against HEAD cf79510, via live browser (Chrome DevTools automation).
+
+Topbar readout text:
+768 px · desktop
+
+Artboard element (.theme-basic):
+  getBoundingClientRect().width = 768
+  computed style width        = 768px
+(no zoom applied at this viewport size: 768 fits the stage column at 100%)
+
+data-block elements, in document order, with their flex-col/flex-row class:
+  1. LayoutBox  -> flex-col   (root: column at both breakpoints, per spec 4.5)
+  2. LayoutBox  -> flex-row   (nested box: responsive `direction`, resolves to desktop = row,
+                               because breakpoint = width < 768 ? mobile : desktop, and 768 is
+                               not less than 768, so tablet previews the desktop config)
+  3. Card       -> flex-col   (Card's own internal layout, not the responsive direction prop)
+  4. Card       -> flex-col   (second Card, same internal layout)
+  5. Button     -> (no flex-col/flex-row class; Button is not a flex container)
+  6. Input      -> flex-col   (shadcn Input's wrapping label/control stack)
+
+Visible layout: the two Cards sit side by side inside the nested LayoutBox, confirming Tablet
+previews the desktop configuration at 768 px exactly as spec section 7 step 3 describes.

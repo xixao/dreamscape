@@ -1,0 +1,26 @@
+Assembly Workbench, foundation verification, stage width 1440 (desktop preset)
+Captured 2026-09-11 against HEAD cf79510, via live browser (Chrome DevTools automation).
+
+Topbar readout text:
+1440 px · desktop · 63%
+
+Artboard element (.theme-basic):
+  getBoundingClientRect().width = 903.99   (rendered/visual size, after zoom-to-fit)
+  computed style width        = 1439.99px (authored CSS width, before zoom; the .01px is a
+                                            subpixel rounding artifact of the CSS `zoom` scale
+                                            factor, not a real sizing bug)
+(zoom applied: 1440 exceeds the stage column's inner width at this viewport, so the artboard
+is scaled down and the readout shows the resulting percentage, per spec section 4.3)
+
+data-block elements, in document order, with their flex-col/flex-row class:
+  1. LayoutBox  -> flex-col   (root: column at both breakpoints, per spec 4.5)
+  2. LayoutBox  -> flex-row   (nested box: responsive `direction`, resolves to desktop = row)
+  3. Card       -> flex-col   (Card's own internal layout, not the responsive direction prop)
+  4. Card       -> flex-col   (second Card, same internal layout)
+  5. Button     -> (no flex-col/flex-row class; Button is not a flex container)
+  6. Input      -> flex-col   (shadcn Input's wrapping label/control stack)
+
+Visible layout: the two Cards sit side by side inside the nested LayoutBox, matching the 768
+result (both are the "desktop" breakpoint), scaled to 63% to fit the stage column at this
+browser viewport. Craft.js's drop indicators and hit-testing were confirmed correct under this
+zoom during the build (see spec section 8), so the scaled rendering does not affect editing.

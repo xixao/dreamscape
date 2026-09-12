@@ -1,7 +1,7 @@
 # Assembly Workbench, Sub-project 1: Foundation
 
 Date: 2026-09-11
-Status: approved by Matt on 2026-09-11; remaining choices delegated to Claude and recorded here
+Status: implemented 2026-09-11; verified against section 7
 
 ## 1. What this sub-project delivers
 
@@ -166,7 +166,7 @@ Ignored while focus is inside any input, textarea, select or contenteditable.
 - On load, the saved JSON is passed to `<Frame data={...}>`. If the JSON is missing, corrupt, has no `ROOT`, or references a block type that no longer exists, the stage starts empty and a `console.warn` explains why. No toast, no modal.
 - Stage width also persists (`assembly-workbench:stage-width`), so a reload comes back at the same width.
 - The workbench renders client-side only (`next/dynamic` with `ssr: false` from a small client loader), because both Craft.js and the localStorage reads need the browser, and a server render would not match.
-- New (topbar) opens an `AlertDialog`: title "Start a new layout?", description "This clears everything on the stage. Undo will not bring it back.", Cancel on the left, "Clear stage" styled as destructive on the right. Confirming deserializes the empty tree and clears the history. Escape and clicking the overlay cancel.
+- New (topbar) opens an `AlertDialog`: title "Start a new layout?", description "This clears everything on the stage. Undo will not bring it back.", Cancel on the left, "Clear stage" styled as destructive on the right. Confirming deserializes the empty tree and clears the history. Escape and Cancel close it without clearing.
 
 ### 4.11 Data model summary
 
@@ -259,11 +259,24 @@ Not unit-tested (jsdom has no real drag and drop): the drag from tray to stage, 
 
 ## 8. Risks and the order of work
 
-- **Craft.js on React 19.3 and Next 16.** The library's last release is 19 months old. The very first implementation step after scaffolding, theming and the pure libraries is a spike: mount `Editor`, `Frame`, one canvas `Element` and one draggable in the fresh app and confirm drag, drop, select and undo work in dev with React Strict Mode on. If Strict Mode breaks it, turn Strict Mode off and note it. If it is broken beyond that, stop and report before building anything on top of it. The alternative if it comes to that is dnd-kit plus a hand-rolled tree store, which is a different spec.
-- **`zoom` and drop indicators.** Craft.js positions indicators with bounding rects; `zoom` is layout-aware so this should just work, but it is checked in the spike at 1440 in a narrow window. Fallback: transform scale with manual rect scaling.
+- **Craft.js on React 19.3 and Next 16.** The library's last release is 19 months old. The very first implementation step after scaffolding, theming and the pure libraries is a spike: mount `Editor`, `Frame`, one canvas `Element` and one draggable in the fresh app and confirm drag, drop, select and undo work in dev with React Strict Mode on. If Strict Mode breaks it, turn Strict Mode off and note it. If it is broken beyond that, stop and report before building anything on top of it. The alternative if it comes to that is dnd-kit plus a hand-rolled tree store, which is a different spec. Confirmed at verification: Craft.js worked under React 19 and Next 16 with Strict Mode on, so the Strict-Mode-off fallback was not needed.
+- **`zoom` and drop indicators.** Craft.js positions indicators with bounding rects; `zoom` is layout-aware so this should just work, but it is checked in the spike at 1440 in a narrow window. Fallback: transform scale with manual rect scaling. Confirmed at verification: CSS `zoom` worked correctly with Craft.js's drop indicators at 375, 768 and 1440, so the transform-scale fallback was not needed.
 - **Tailwind 4 class detection.** Every class string must be written out literally in `lib/classes.ts` and `chrome.ts`. A test asserts the class tables only contain literal strings, so a future `gap-${n}` refactor fails immediately.
 - **shadcn CLI drift.** After `shadcn add`, the installed `button.tsx` is read to confirm the variant and size names the schemas use; if the CLI's current output differs, the schema option lists follow the installed file.
 - **Next 16 defaults.** Turbopack, `next.config.ts`, and whatever create-next-app asks about (React Compiler is declined) are accepted as they come; nothing here depends on a specific Next feature beyond the App Router, `next/font` and `next/dynamic`.
+
+`actions.history.clear` exists on the Craft.js editor and is used by New to reset undo history when the stage is cleared, confirmed at verification (Undo and Redo are both disabled immediately after confirming New), so no workaround was needed.
+
+**Build notes** (deviations found during the build, recorded here for anyone picking this up later):
+
+- The shadcn CLI now defaults to Base UI, so the Radix flavor was installed explicitly (`components.json` style `radix-nova`).
+- Vitest config is `vitest.config.mts` with `resolve.tsconfigPaths: true` (Vite 8).
+- The installed `Tooltip` has no built-in provider, so the topbar wraps one.
+- The design-mode `Input` uses `pointer-events-none` so clicks reach its block.
+- The resize grip ends the drag on `pointercancel`.
+- The keyboard hook reads the selection from `query.getState()` at keydown time.
+- The selection overlay re-measures on zoom/width changes.
+- Radix `AlertDialog` does not close on overlay click, so section 4.10's last sentence reads "Escape and Cancel close it without clearing." (confirmed live: clicking outside the New-layout dialog leaves it open; Escape and Cancel both close it without clearing the stage).
 
 ## 9. Copy and styling rules
 
