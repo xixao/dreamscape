@@ -60,7 +60,7 @@ export const Dialog: UserComponent<Partial<DialogBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Dialog"
-      className={cn('flex w-full flex-col items-start gap-4', blockClasses(merged))}
+      className={cn('flex flex-col items-start gap-4', blockClasses(merged))}
     >
       <UiButton type="button" variant="outline">
         {merged.triggerLabel}

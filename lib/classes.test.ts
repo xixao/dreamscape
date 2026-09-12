@@ -3,11 +3,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
+  ALIGN_CLASSES,
   BACKGROUND_CLASSES,
   CLASS_TABLES,
   COLUMN_OPTIONS,
   GAP_CLASSES,
   GAP_OPTIONS,
+  JUSTIFY_CLASSES,
   LAYOUT_BOX_DEFAULTS,
   PADDING_CLASSES,
   PADDING_OPTIONS,
@@ -19,20 +21,20 @@ import {
 describe('layoutBoxClasses', () => {
   it('renders the default box as a column on mobile and a row on desktop', () => {
     expect(layoutBoxClasses(LAYOUT_BOX_DEFAULTS, 'mobile')).toBe(
-      'w-full min-w-0 flex flex-col justify-start items-stretch gap-4 p-4',
+      'min-w-0 flex flex-col justify-start items-stretch gap-4 p-4',
     );
     expect(layoutBoxClasses(LAYOUT_BOX_DEFAULTS, 'desktop')).toBe(
-      'w-full min-w-0 flex flex-row justify-start items-stretch gap-4 p-4',
+      'min-w-0 flex flex-row justify-start items-stretch gap-4 p-4',
     );
   });
 
   it('renders grid mode with the resolved column count', () => {
     const grid = { ...LAYOUT_BOX_DEFAULTS, mode: 'grid' as const };
     expect(layoutBoxClasses(grid, 'mobile')).toBe(
-      'w-full min-w-0 grid grid-cols-1 items-stretch gap-4 p-4',
+      'min-w-0 grid grid-cols-1 items-stretch gap-4 p-4',
     );
     expect(layoutBoxClasses(grid, 'desktop')).toBe(
-      'w-full min-w-0 grid grid-cols-3 items-stretch gap-4 p-4',
+      'min-w-0 grid grid-cols-3 items-stretch gap-4 p-4',
     );
     for (const columns of COLUMN_OPTIONS) {
       const out = layoutBoxClasses(
@@ -53,14 +55,26 @@ describe('layoutBoxClasses', () => {
       background: 'card' as const,
     };
     expect(layoutBoxClasses(props, 'mobile')).toBe(
-      'w-full min-w-0 flex flex-col justify-between items-center gap-8 p-0 bg-card border rounded-lg',
+      'min-w-0 flex flex-col justify-between items-center gap-8 p-0 bg-card border rounded-lg',
     );
     expect(layoutBoxClasses(props, 'desktop')).toBe(
-      'w-full min-w-0 flex flex-row justify-center items-end gap-8 p-0 bg-card border rounded-lg',
+      'min-w-0 flex flex-row justify-center items-end gap-8 p-0 bg-card border rounded-lg',
     );
     expect(layoutBoxClasses({ ...props, background: 'muted' }, 'mobile')).toContain(
       'bg-muted rounded-lg',
     );
+  });
+
+  it('resolves align start and justify end', () => {
+    const props = {
+      ...LAYOUT_BOX_DEFAULTS,
+      align: { mobile: 'start' as const },
+      justify: { mobile: 'end' as const },
+    };
+    const out = layoutBoxClasses(props, 'mobile');
+    expect(out).toContain(ALIGN_CLASSES.start);
+    expect(out).toContain(JUSTIFY_CLASSES.end);
+    expect(out).toBe('min-w-0 flex flex-col justify-end items-start gap-4 p-4');
   });
 
   it('has a class for every gap and padding option', () => {
@@ -70,8 +84,11 @@ describe('layoutBoxClasses', () => {
   });
 
   it('keeps the root as a column at both breakpoints with padding 6', () => {
+    expect(layoutBoxClasses(ROOT_LAYOUT_PROPS, 'mobile')).toBe(
+      'min-w-0 flex flex-col justify-start items-stretch gap-4 p-6',
+    );
     expect(layoutBoxClasses(ROOT_LAYOUT_PROPS, 'desktop')).toBe(
-      'w-full min-w-0 flex flex-col justify-start items-stretch gap-4 p-6',
+      'min-w-0 flex flex-col justify-start items-stretch gap-4 p-6',
     );
   });
 });

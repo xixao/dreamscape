@@ -62,7 +62,7 @@ export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Card"
-      className={cn('w-full', blockClasses(merged))}
+      className={cn(blockClasses(merged))}
     >
       {showHeader && (
         <CardHeader>

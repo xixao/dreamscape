@@ -57,8 +57,16 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     name: node.data.name,
     isHovered: node.events.hovered,
   }));
-  const { isSelected } = useEditor((state) => ({
+  const { isSelected, treeVersion } = useEditor((state) => ({
     isSelected: state.events.selected.has(id),
+    // A cheap fingerprint of the whole tree's shape: every node id paired with
+    // its own ordered children, joined into one string. It changes whenever any
+    // node anywhere is added, removed, or moved, unlike a plain node-count or
+    // id-list check, which misses a same-parent reorder. Read only to force the
+    // effect below to re-run; see the note in its dependency array.
+    treeVersion: Object.entries(state.nodes)
+      .map(([nodeId, node]) => `${nodeId}:${node.data.nodes.join(',')}`)
+      .join('|'),
   }));
   // The stage scales the artboard with a CSS `zoom` factor to fit the column
   // (see stage.tsx). `zoom` and `width` are read here only to force the effect
@@ -94,7 +102,12 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     // neither ResizeObserver nor a window resize/scroll event fires for it.
     // Depending on them here forces a re-measure whenever the artboard
     // rescales (preset switch or resize-grip drag).
-  }, [dom, active, zoom, width]);
+    // `treeVersion` is the same kind of dependency: adding, removing or moving
+    // a node elsewhere in the tree can shift this node's position (e.g. a new
+    // sibling pushes it over) without resizing this node's own box, which is
+    // the one thing ResizeObserver watches. Depending on it here forces a
+    // re-measure on every such structural change.
+  }, [dom, active, zoom, width, treeVersion]);
 
   return (
     <>

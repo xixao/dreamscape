@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { Editor, Element, Frame, ROOT_NODE, useEditor } from '@craftjs/core';
 import { useEffect } from 'react';
 import { Button } from '@/components/blocks/button';
@@ -7,6 +7,8 @@ import { LayoutBox } from '@/components/blocks/layout-box';
 import { resolver } from '@/components/blocks/registry';
 import { StageProvider } from './stage-context';
 import { NodeIndicator, SelectionOutline } from './node-indicator';
+
+type EditorHandle = { actions: ReturnType<typeof useEditor>['actions']; query: ReturnType<typeof useEditor>['query'] };
 
 describe('SelectionOutline', () => {
   it('positions itself from the rect and shows the label only when selected', () => {
@@ -68,5 +70,72 @@ describe('NodeIndicator', () => {
     );
     await screen.findByRole('button', { name: 'Alone' });
     await waitFor(() => expect(screen.queryByTestId('selection-outline')).toBeNull());
+  });
+});
+
+describe('NodeIndicator re-measurement', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('re-reads the rect when a node is added elsewhere in the tree, even though the selected node itself never resizes', async () => {
+    // jsdom never fires ResizeObserver for real (vitest.setup.ts stubs it out
+    // entirely), so the only way this test can see a second measurement is if
+    // something else in the dependency array changed and re-ran the effect.
+    let top = 1;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          top,
+          left: 0,
+          width: 10,
+          height: 10,
+          right: 10,
+          bottom: top + 10,
+          x: 0,
+          y: top,
+          toJSON() {},
+        }) as DOMRect,
+    );
+
+    let handle: EditorHandle | null = null;
+    function Probe() {
+      const { actions, query } = useEditor();
+      useEffect(() => {
+        handle = { actions, query };
+      });
+      return null;
+    }
+    function SelectFirstChild() {
+      const { actions, query } = useEditor();
+      useEffect(() => {
+        const id = query.node(ROOT_NODE).get().data.nodes[0];
+        if (id) actions.selectNode(id);
+      }, [actions, query]);
+      return null;
+    }
+
+    render(
+      <Editor resolver={resolver} onRender={NodeIndicator}>
+        <StageProvider>
+          <Frame>
+            <Element is={LayoutBox} canvas>
+              <Button label="Pick me" />
+            </Element>
+          </Frame>
+          <SelectFirstChild />
+          <Probe />
+        </StageProvider>
+      </Editor>,
+    );
+    await screen.findByRole('button', { name: 'Pick me' });
+    const outline = await screen.findByTestId('selection-outline');
+    await waitFor(() => expect(outline).toHaveStyle({ top: '1px' }));
+
+    top = 42;
+    act(() => {
+      const tree = handle!.query.parseReactElement(<Button label="New" />).toNodeTree();
+      handle!.actions.addNodeTree(tree, ROOT_NODE);
+    });
+    await screen.findByRole('button', { name: 'New' });
+    await waitFor(() => expect(outline).toHaveStyle({ top: '42px' }));
   });
 });

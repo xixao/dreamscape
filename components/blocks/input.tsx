@@ -34,7 +34,7 @@ export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Input"
-      className={cn('flex w-full flex-col gap-2', blockClasses(merged))}
+      className={cn('flex flex-col gap-2', blockClasses(merged))}
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiInput

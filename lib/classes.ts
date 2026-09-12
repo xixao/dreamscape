@@ -107,7 +107,7 @@ export const ROOT_LAYOUT_PROPS: LayoutBoxProps = {
 };
 
 export function layoutBoxClasses(props: LayoutBoxProps, breakpoint: Breakpoint): string {
-  const parts: string[] = ['w-full', 'min-w-0'];
+  const parts: string[] = ['min-w-0'];
   if (props.mode === 'grid') {
     parts.push('grid', COLUMNS_CLASSES[resolve(props.columns, breakpoint)]);
   } else {
