@@ -47,7 +47,7 @@ export function Inspector() {
   });
   const schema = type ? schemaFor(type) : null;
 
-  const jump = (target: Breakpoint) => setPreset(target === 'mobile' ? 'mobile' : 'desktop');
+  const jump = (target: Breakpoint) => setPreset(target);
 
   return (
     <aside aria-label="Inspector" className={cn(PANEL, 'flex min-h-0 flex-col')}>
@@ -62,7 +62,7 @@ export function Inspector() {
           </div>
         ) : (
           <>
-            <NodeBreadcrumb nodeId={id} />
+            <NodeBreadcrumb />
             <div className="flex items-center gap-2">
               <span data-testid="inspector-type" className="text-[13px] font-semibold">
                 {type}

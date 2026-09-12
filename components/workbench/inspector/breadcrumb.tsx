@@ -11,32 +11,31 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { ZONE_TYPES } from '@/components/blocks/registry';
+import { selectedIdFrom } from '../selection';
 
 function crumbName(id: string, name: string): string {
   return id === ROOT_NODE ? 'Stage' : name;
 }
 
-export function NodeBreadcrumb({ nodeId }: { nodeId: string }) {
-  // Deliberate departure from the brief: read straight from `query` during
-  // render instead of through a second useEditor collector keyed on `nodeId`.
-  // NodeBreadcrumb re-renders whenever its parent Inspector does (on every
-  // Craft.js notification), so `query` -- which always reflects the live
-  // store -- is already fresh here. A collector closing over the `nodeId`
-  // prop instead only re-runs on the *next* notification, one render behind
-  // the very selection change that produced this nodeId: verified live in the
-  // browser (selecting the root left the breadcrumb reading the previously
-  // selected node's crumb until the following click). This is the same
-  // closure-lag characteristic of Craft's useCollector documented for
-  // Inspector's props/childCount collector, applied here too.
-  const { actions, query } = useEditor();
-  const nodeName = (id: string): string => query.node(id).get()?.data.name ?? '';
-  const ancestors = query
-    .node(nodeId)
-    .ancestors(true)
-    .filter((id) => !ZONE_TYPES.has(nodeName(id)))
-    .reverse();
-  const trail = ancestors.map((id) => ({ id, name: crumbName(id, nodeName(id)) }));
-  const current = crumbName(nodeId, nodeName(nodeId));
+export function NodeBreadcrumb() {
+  const { actions, trail, current } = useEditor((state, query) => {
+    const id = selectedIdFrom(state);
+    if (!id || !state.nodes[id]) return { trail: [] as { id: string; name: string }[], current: '' };
+    const ancestors = query
+      .node(id)
+      .ancestors(true)
+      .filter((ancestorId) => !ZONE_TYPES.has(state.nodes[ancestorId].data.name))
+      .reverse();
+    return {
+      trail: ancestors.map((ancestorId) => ({
+        id: ancestorId,
+        name: crumbName(ancestorId, state.nodes[ancestorId].data.name),
+      })),
+      current: crumbName(id, state.nodes[id].data.name),
+    };
+  });
+
+  if (current === '') return null;
 
   return (
     <Breadcrumb>
