@@ -9,6 +9,15 @@ import * as schema from './schema';
 
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+// In `next dev`, Turbopack evaluates each route's server bundle with its own
+// module instances, so a module-level cache alone gives the Files page, the
+// editor page and the API routes separate in-memory PGlite databases when
+// DATABASE_URL is unset (a file created through /api/files then 404s in
+// /f/[id]). Outside tests the promise is cached on globalThis so every route
+// in the process shares one database. Tests keep the module-level cache: each
+// test file expects a fresh database.
+type DbGlobal = typeof globalThis & { __assemblyWorkbenchDb?: Promise<Db> };
+
 let dbPromise: Promise<Db> | null = null;
 
 async function createDb(): Promise<Db> {
@@ -31,10 +40,17 @@ async function createDb(): Promise<Db> {
 }
 
 export function getDb(): Promise<Db> {
-  if (!dbPromise) {
-    dbPromise = createDb();
+  if (process.env.NODE_ENV === 'test') {
+    if (!dbPromise) {
+      dbPromise = createDb();
+    }
+    return dbPromise;
   }
-  return dbPromise;
+  const shared = globalThis as DbGlobal;
+  if (!shared.__assemblyWorkbenchDb) {
+    shared.__assemblyWorkbenchDb = createDb();
+  }
+  return shared.__assemblyWorkbenchDb;
 }
 
 export async function resetDbForTests(): Promise<void> {

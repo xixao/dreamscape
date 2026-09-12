@@ -2,7 +2,7 @@
 
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { canonicalLayout } from '@/lib/files/validate';
@@ -390,8 +390,9 @@ function WorkbenchShell({
   // stale for every useStage() consumer here (the topbar readout, the
   // inspector's breakpoint badge, the artboard itself). Re-initialises only
   // on an actual screen change, not on every resize (handleWidthChange's own
-  // no-op guard also keeps this from queuing a spurious save).
-  useEffect(() => {
+  // no-op guard also keeps this from queuing a spurious save). A layout
+  // effect so the artboard never paints the new screen at the old width.
+  useLayoutEffect(() => {
     const screen = screens.find((candidate) => candidate.id === currentScreenId);
     if (screen) setWidth(screen.stageWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
