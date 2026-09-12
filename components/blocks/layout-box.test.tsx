@@ -17,7 +17,7 @@ describe('LayoutBox', () => {
     renderTree(<Element is={LayoutBox} canvas />);
     expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(
-      screen.getByText('Drag an asset from the Assets panel on the left and drop it here.'),
+      screen.getByText('Drag a component from the Components panel on the left and drop it here.'),
     ).toBeInTheDocument();
   });
 

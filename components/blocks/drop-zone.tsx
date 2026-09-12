@@ -11,7 +11,7 @@ export function StageEmptyState() {
     <div className="rounded-lg border border-dashed p-10 text-center">
       <p className="text-sm font-medium">This frame is empty</p>
       <p className="text-sm text-muted-foreground">
-        Drag an asset from the Assets panel on the left and drop it here.
+        Drag a component from the Components panel on the left and drop it here.
       </p>
     </div>
   );

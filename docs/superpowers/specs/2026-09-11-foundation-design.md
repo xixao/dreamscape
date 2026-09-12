@@ -82,7 +82,7 @@ The workbench is the full window (the SF2 "editor takeover" idea; there is no ma
 - Resize: a 12 px wide grip on the artboard's right edge (`cursor-col-resize`, a `bg-border` pill that turns `bg-acc` while dragging). Pointer drag changes `W` live, clamped to [320, 1920]. Pointer events with pointer capture, so the drag survives leaving the grip. The pointer delta is divided by the current zoom so the edge follows the cursor when the artboard is scaled.
 - Scale to fit: when `W` exceeds the column's inner width (column width minus 48), the artboard wrapper gets CSS `zoom: inner / W` (zoom is layout-aware, so scroll height and hit-testing stay correct; if Craft.js drop indicators misplace under `zoom`, the fallback is `transform: scale()` with a sized wrapper). The readout shows the resulting percentage; at 100% it shows nothing.
 - Breakpoint derivation: `breakpoint = W < 768 ? 'mobile' : 'desktop'` (768 is Tailwind's `md`). A `StageProvider` context exposes `{ width, breakpoint, preset, zoom, setWidth, setPreset, setZoom }`. Blocks read `breakpoint` to resolve responsive props; nothing in the stage relies on browser media queries, because the stage is a div inside a wide window and `md:` classes would never fire there.
-- Empty stage: the root container shows a dashed empty state in the artboard's own theme (`border border-dashed rounded-lg p-10 text-center`): "This frame is empty" in `text-sm font-medium`, then "Drag an asset from the Assets panel on the left and drop it here." in `text-sm text-muted-foreground`. The root uses this instead of the small "Drop here" placeholder described next.
+- Empty stage: the root container shows a dashed empty state in the artboard's own theme (`border border-dashed rounded-lg p-10 text-center`): "This frame is empty" in `text-sm font-medium`, then "Drag a component from the Components panel on the left and drop it here." in `text-sm text-muted-foreground`. The root uses this instead of the small "Drop here" placeholder described next.
 - Empty containers: any LayoutBox, Card content area or Dialog content area with no children renders a dashed placeholder (`min-h-20 border border-dashed rounded-md`) with "Drop here" in `text-xs text-muted-foreground`, so it stays a visible drop target.
 
 ### 4.4 Selection and hover
@@ -190,7 +190,7 @@ The chrome's copy uses Figma's words, so a designer who already knows Figma feel
 | What the user sees (Figma word) | What it is in the code |
 |---|---|
 | Frame | The `LayoutBox` block with auto layout (`mode: 'flex'`) |
-| Assets panel | The component tray |
+| Components panel (Figma says Assets; Matt chose Components) | The component tray |
 | Design panel | The inspector |
 | Canvas | The stage column |
 | Layer | A block, i.e. a Craft.js node |

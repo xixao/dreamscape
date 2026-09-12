@@ -22,9 +22,9 @@ export function ComponentTray() {
   const filteredItems = filterTrayItems(trayItems, filter);
 
   return (
-    <aside aria-label="Assets" className={cn(PANEL, 'flex min-h-0 flex-col')}>
+    <aside aria-label="Components" className={cn(PANEL, 'flex min-h-0 flex-col')}>
       <div className={PANEL_HEADER}>
-        <span className={PANEL_TITLE}>Assets</span>
+        <span className={PANEL_TITLE}>Components</span>
       </div>
       <div className="px-2 pt-2">
         <div className={SEARCH}>
@@ -32,8 +32,8 @@ export function ComponentTray() {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Search assets"
-            aria-label="Search assets"
+            placeholder="Search components"
+            aria-label="Search components"
             className={SEARCH_INPUT}
           />
         </div>
@@ -55,7 +55,7 @@ export function ComponentTray() {
         ))}
       </ul>
       {filteredItems.length === 0 && (
-        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No assets match.</p>
+        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No components match.</p>
       )}
     </aside>
   );

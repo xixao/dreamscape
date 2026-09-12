@@ -260,16 +260,16 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the Assets and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the Components and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} layoutInvalid={false} />);
-      expect(screen.getByRole('complementary', { name: 'Assets' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.queryByRole('complementary', { name: 'Assets' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
@@ -277,7 +277,7 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.getByRole('complementary', { name: 'Assets' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
