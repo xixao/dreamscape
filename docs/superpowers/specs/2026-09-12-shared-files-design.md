@@ -47,6 +47,8 @@ files
 
 `db/schema.ts` declares it with Drizzle. `db/client.ts` exports `getDb()`: with `DATABASE_URL` set it returns a Neon HTTP Drizzle instance (memoized); without it (tests) it returns a PGlite in-memory instance created once per process, with the schema applied through `drizzle-kit`'s generated SQL or `pushSchema`. Schema changes reach production with `npx drizzle-kit push` run locally against the pulled `DATABASE_URL`.
 
+**Task 9 update:** a second table, `folders` (nestable, self-referencing via a nullable `parent_id`), was added for the Files page's folder tree, and `files` gained a nullable `folder_id` referencing it (both foreign keys `on delete restrict`). This spec keeps describing the original one-table design; `docs/superpowers/specs/2026-09-12-folders-and-comments-design.md` section 3 is the source of truth for the folders schema and repository/API surface.
+
 ### 4.2 Repository
 
 `lib/files/repository.ts` exports `createFilesRepository(db)` returning:

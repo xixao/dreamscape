@@ -22,8 +22,21 @@ export async function POST(request: Request) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 });
   }
 
-  const { name, example } = parsed.data;
+  const { name, example, folderId } = parsed.data;
   const repository = await getRepository();
+
+  // Unlike layout (below, always the bundled example's, already
+  // known-good), folderId comes straight from the client here, so it needs
+  // its own explicit 400 rather than falling through to create()'s
+  // defensive throw-on-a-bad-folderId (see the comment on create() in
+  // lib/files/repository.ts), which Next would otherwise turn into an
+  // uncaught 500.
+  if (folderId !== undefined && folderId !== null) {
+    const path = await repository.folderPath(folderId);
+    if (path === null) {
+      return Response.json({ error: 'Folder does not exist' }, { status: 400 });
+    }
+  }
 
   // create() throws on an invalid layout (see lib/files/repository.ts), but
   // the only layout this route ever passes is the bundled example's, which
@@ -38,10 +51,11 @@ export async function POST(request: Request) {
       name: name ?? found?.name,
       layout: found?.layout,
       stageWidth: found?.stageWidth,
+      folderId,
     });
     return Response.json({ file }, { status: 201 });
   }
 
-  const file = await repository.create({ name });
+  const file = await repository.create({ name, folderId });
   return Response.json({ file }, { status: 201 });
 }

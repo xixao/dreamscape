@@ -42,5 +42,10 @@ export async function resetDbForTests(): Promise<void> {
     throw new Error('resetDbForTests() only works against the PGlite test database, and DATABASE_URL is set.');
   }
   const db = await getDb();
+
+  // files first: files.folder_id references folders.id with onDelete
+  // restrict, so a folder row cannot be removed while a file still points
+  // at it.
   await db.delete(schema.files);
+  await db.delete(schema.folders);
 }

@@ -116,6 +116,29 @@ describe('files API route handlers', () => {
       expect(response.status).toBe(400);
       expect(await readBody(response)).toEqual({ error: 'Invalid JSON' });
     });
+
+    it('creates a file inside a folder', async () => {
+      const repository = await getRepository();
+      const folder = await repository.createFolder({ name: 'Target' });
+      if (!folder.ok) throw new Error('expected createFolder to succeed');
+
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', { name: 'In folder', folderId: folder.folder.id }),
+      );
+      const body = (await readBody(response)) as { file: { folderId: string | null } };
+
+      expect(response.status).toBe(201);
+      expect(body.file.folderId).toBe(folder.folder.id);
+    });
+
+    it('returns 400 Folder does not exist when creating in an unknown folder', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', { name: 'X', folderId: 'doesnotexist' }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await readBody(response)).toEqual({ error: 'Folder does not exist' });
+    });
   });
 
   describe('GET /api/files/[id]', () => {
@@ -256,6 +279,49 @@ describe('files API route handlers', () => {
       const body = (await readBody(getResponse)) as { file: { stageWidth: number } };
 
       expect(body.file.stageWidth).toBe(1920);
+    });
+
+    it('moves a file into a folder', async () => {
+      const repository = await getRepository();
+      const folder = await repository.createFolder({ name: 'Target' });
+      if (!folder.ok) throw new Error('expected createFolder to succeed');
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { folderId: folder.folder.id }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      expect((await repository.get(file.id))?.folderId).toBe(folder.folder.id);
+    });
+
+    it('moves a file back to the top level with folderId null', async () => {
+      const repository = await getRepository();
+      const folder = await repository.createFolder({ name: 'Target' });
+      if (!folder.ok) throw new Error('expected createFolder to succeed');
+      const file = await repository.create({ folderId: folder.folder.id });
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { folderId: null }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      expect((await repository.get(file.id))?.folderId).toBeNull();
+    });
+
+    it('returns 400 Folder does not exist when moving into an unknown folder', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { folderId: 'doesnotexist' }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await readBody(response)).toEqual({ error: 'Folder does not exist' });
     });
   });
 
