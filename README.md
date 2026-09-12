@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Assembly Workbench
 
-## Getting Started
+An internal proof of concept of a Figma-like page builder built on shadcn/ui. Designers drag components onto a responsive frame, tune them in a Design panel for the mobile and desktop breakpoints, add screens, wire buttons to other screens in the Prototype panel, and present the result in Play mode. Files live in a shared Neon Postgres database on Vercel, so a link can be passed around without sign-in (the app is meant for an internal network).
 
-First, run the development server:
+Production: https://shadcn-assembly-workbench.vercel.app
+
+## Run it locally
+
+```bash
+npm install
+```
+
+The app needs a `DATABASE_URL`. Pull the one Vercel manages (you must be signed in to the Vercel CLI as a member of the team that owns the project):
+
+```bash
+npx vercel env pull .env.local
+```
+
+Any other Postgres connection string works too; put it in `.env.local` as `DATABASE_URL=...`. Then:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The Files page lists every file and folder; open one to edit it.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`.env.local` and `.vercel/` are git-ignored. Never commit them and never paste the connection string into a chat or a commit.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Checks
 
-## Learn More
+```bash
+npm test
+```
 
-To learn more about Next.js, take a look at the following resources:
+Vitest runs the unit and component tests. Database tests use an in-memory PGlite database and apply the migrations in `drizzle/` themselves, so `DATABASE_URL` must be unset in the test environment (the test setup refuses to reset a real database).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Before a deploy, also run the type check, the linter and a production build:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npx tsc --noEmit && npm run lint && npm run build
+```
 
-## Deploy on Vercel
+## Database
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Schema: `db/schema.ts` (Drizzle ORM). Tables: `files` (name, screens as JSON, folder) and `folders` (nestable, deletable only when empty).
+- Migrations: `drizzle/*.sql`, generated with `npm run db:generate` after a schema change. Commit the generated SQL and the `drizzle/meta` snapshot together.
+- `npm run db:migrate` applies pending migrations to the database in `DATABASE_URL` (loaded from `.env.local`).
+- `npm run db:seed` creates the "Login screen" example file when the `files` table is empty and does nothing otherwise, so it is safe to run on every deploy.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploy
+
+The production deployment is the Vercel project `shadcn-assembly-workbench`.
+
+```bash
+npm run deploy
+```
+
+That runs `vercel --prod --yes`, which builds on Vercel and switches production to the new build. Order of operations when a release includes a migration:
+
+1. Run the checks above.
+2. If the migration only adds columns or tables, run `npm run db:migrate` first, then `npm run deploy`.
+3. If the migration drops or renames columns the current production code still reads, run `npm run deploy` first and `npm run db:migrate` the moment the deploy reports ready. The old code keeps working until the switch, and the new code needs the new columns immediately after it.
+4. Run `npm run db:seed` if the database is new.
+5. Click through the production URL: open a file, edit, reload, and confirm the edit persisted.
+
+## Keyboard shortcuts in the editor
+
+| Keys | Action |
+| --- | --- |
+| Cmd+\ (Ctrl+\ on Windows) | Show or hide the top bar and both panels |
+| Cmd+Z, Shift+Cmd+Z | Undo, redo (history is per screen) |
+| Escape | Deselect |
+| Delete or Backspace | Delete the selected layer (the root frame and the content zones cannot be deleted) |
+| Press and hold on the canvas | Layer stack menu listing every layer under the pointer |
+
+## Where things are
+
+- `app/`: routes. `/` and `/folders/[id]` are the Files pages, `/f/[id]` is the editor, `/f/[id]/play` is Play mode, `/api/files` and `/api/folders` are the JSON APIs.
+- `components/workbench/`: the editor chrome (top bar, Components panel, canvas, layers, Design and Prototype panels). Its styling follows the SF2 design system spec; shared class tables live in `components/workbench/chrome.ts`.
+- `components/blocks/`: the components that can be placed on the frame. They render plain shadcn/ui as a placeholder for the product design systems that will replace it later. `components/blocks/registry.tsx` lists them for the Components panel.
+- `components/ui/`: shadcn/ui primitives. Do not hand-edit them; add new ones with `npx shadcn@latest add <name>`.
+- `components/files/` and `components/play/`: the Files pages and Play mode.
+- `lib/`: files repository and validation, the autosave client, examples, interactions, spacing and class helpers, device presets.
+- `db/` and `drizzle/`: database client, schema and migrations.
+- `docs/superpowers/specs/` and `docs/superpowers/plans/`: the design specs and implementation plans for each sub-project. `docs/research/` holds the research notes (diagram libraries, Figma device presets).
