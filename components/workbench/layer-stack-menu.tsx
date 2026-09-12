@@ -1,7 +1,15 @@
 'use client';
 
 import { useEditor, type EditorState } from '@craftjs/core';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { trayItems } from '@/components/blocks/registry';
 import {
@@ -25,8 +33,12 @@ const HINT_MAX_OPENS = 3;
 
 interface LayerStackState {
   open: boolean;
-  x: number;
-  y: number;
+  // The raw press point, kept separate from the rendered position: the
+  // popover's actual `x`/`y` are derived from this plus the measured
+  // popover size (see `flipToFit` and the `useLayoutEffect` in
+  // `LayerStackMenu`) and can flip to the opposite side of the cursor.
+  anchorX: number;
+  anchorY: number;
   entries: LayerStackEntry[];
   selectedId: string | null;
   showHint: boolean;
@@ -34,8 +46,8 @@ interface LayerStackState {
 
 const CLOSED_STATE: LayerStackState = {
   open: false,
-  x: 0,
-  y: 0,
+  anchorX: 0,
+  anchorY: 0,
   entries: [],
   selectedId: null,
   showHint: false,
@@ -75,21 +87,40 @@ function nextHintOpenCount(): number {
   }
 }
 
-function placeMenu(clientX: number, clientY: number): { x: number; y: number } {
+// Offsets the popover from the press point, then flips it to the opposite
+// side of the cursor on whichever axis would otherwise push it past the
+// window edge, and finally clamps both axes so the flipped position itself
+// never sits off the top/left edge (a popover taller/wider than the
+// window). `width`/`height` must come from measuring the actual rendered
+// popover (see the `useLayoutEffect` in `LayerStackMenu`) - clamping the
+// anchor alone (the previous approach) cannot prevent overflow because it
+// never accounts for the popover's own size.
+function flipToFit(
+  clientX: number,
+  clientY: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
   let x = clientX + MENU_OFFSET;
   let y = clientY + MENU_OFFSET;
   if (typeof window !== 'undefined') {
-    x = Math.min(x, Math.max(MENU_MARGIN, window.innerWidth - MENU_MARGIN));
-    y = Math.min(y, Math.max(MENU_MARGIN, window.innerHeight - MENU_MARGIN));
+    if (x + width + MENU_MARGIN > window.innerWidth) {
+      x = clientX - MENU_MARGIN - width;
+    }
+    if (y + height + MENU_MARGIN > window.innerHeight) {
+      y = clientY - MENU_MARGIN - height;
+    }
   }
-  return { x, y };
+  return { x: Math.max(x, MENU_MARGIN), y: Math.max(y, MENU_MARGIN) };
 }
 
 /**
  * Detects the press-and-hold gesture on a layer inside the artboard and owns
- * the menu's `{ open, x, y, entries }` (spec
+ * the menu's `{ open, anchorX, anchorY, entries }` (spec
  * docs/superpowers/specs/2026-09-12-layer-stack-menu-design.md #4), plus the
- * currently-selected id and whether to show the first-opens hint.
+ * currently-selected id and whether to show the first-opens hint. `anchorX`/
+ * `anchorY` are the raw press point; `LayerStackMenu` derives the actual
+ * rendered position from these plus the popover's measured size.
  *
  * Must run inside Craft's `Editor` context (it calls `useEditor`); `LayerStackMenu`
  * calls it and is rendered inside `WorkbenchShell`'s `<Editor>`.
@@ -100,6 +131,7 @@ export function useLayerStack() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressRef = useRef<{ x: number; y: number } | null>(null);
   const swallowNextClickRef = useRef(false);
+  const swallowTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const close = useCallback(() => {
     store.actions.setNodeEvent('hovered', []);
@@ -126,7 +158,22 @@ export function useLayerStack() {
       pressRef.current = null;
     }
 
+    function clearSwallowTimeout() {
+      if (swallowTimeoutRef.current !== null) {
+        clearTimeout(swallowTimeoutRef.current);
+        swallowTimeoutRef.current = null;
+      }
+    }
+
     function onPointerDown(event: PointerEvent) {
+      // Every new press invalidates whatever the previous gesture armed.
+      // Without this, a hold whose trailing `click` never reaches the
+      // column (the release landed outside it, or nothing else consumed
+      // it) leaves `swallowNextClickRef` armed forever, and it would go on
+      // to eat the click from a later, completely unrelated gesture.
+      swallowNextClickRef.current = false;
+      clearSwallowTimeout();
+
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element) || !target.closest(ARTBOARD_SELECTOR)) return;
@@ -147,12 +194,21 @@ export function useLayerStack() {
         if (entries.length === 0) return;
 
         swallowNextClickRef.current = true;
+        // Belt-and-suspenders alongside the pointerdown reset above: if no
+        // click at all follows this hold (the pointer is released
+        // somewhere that never dispatches one), this still disarms the
+        // flag on its own after a short delay instead of leaking it
+        // indefinitely into whatever gesture happens next.
+        clearSwallowTimeout();
+        swallowTimeoutRef.current = setTimeout(() => {
+          swallowNextClickRef.current = false;
+          swallowTimeoutRef.current = null;
+        }, 500);
         const opens = nextHintOpenCount();
-        const { x, y } = placeMenu(pressClientX, pressClientY);
         setState({
           open: true,
-          x,
-          y,
+          anchorX: pressClientX,
+          anchorY: pressClientY,
           entries,
           selectedId: selectedIdFrom(liveState),
           showHint: opens <= HINT_MAX_OPENS,
@@ -172,6 +228,14 @@ export function useLayerStack() {
       clearHold();
     }
 
+    // Escape cancels a pending hold the same way pointerup/pointercancel/
+    // dragstart do (spec #2's cancellation list also names Escape), rather
+    // than only closing an already-open menu - that's the separate `window`
+    // keydown listener in `LayerStackMenu` below, scoped to while `open`.
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && pressRef.current !== null) clearHold();
+    }
+
     // Capture phase, on the column specifically, so this always runs before
     // the click could reach Craft's own click-to-select handling or bubble
     // out as a plain canvas click: a press-and-release that completed a
@@ -182,6 +246,7 @@ export function useLayerStack() {
     function onClickCapture(event: MouseEvent) {
       if (!swallowNextClickRef.current) return;
       swallowNextClickRef.current = false;
+      clearSwallowTimeout();
       event.preventDefault();
       event.stopPropagation();
     }
@@ -191,14 +256,17 @@ export function useLayerStack() {
     column.addEventListener('pointerup', onHoldInterrupted);
     column.addEventListener('pointercancel', onHoldInterrupted);
     column.addEventListener('dragstart', onHoldInterrupted);
+    column.addEventListener('keydown', onKeyDown);
     column.addEventListener('click', onClickCapture, true);
     return () => {
       clearHold();
+      clearSwallowTimeout();
       column.removeEventListener('pointerdown', onPointerDown);
       column.removeEventListener('pointermove', onPointerMove);
       column.removeEventListener('pointerup', onHoldInterrupted);
       column.removeEventListener('pointercancel', onHoldInterrupted);
       column.removeEventListener('dragstart', onHoldInterrupted);
+      column.removeEventListener('keydown', onKeyDown);
       column.removeEventListener('click', onClickCapture, true);
     };
     // Deliberately mount-once: `query` reads Craft's live store no matter
@@ -216,19 +284,27 @@ export function useLayerStack() {
 
 export function LayerStackMenu() {
   const { store } = useEditor();
-  const { open, x, y, entries, selectedId, showHint, close, select } = useLayerStack();
+  const { open, anchorX, anchorY, entries, selectedId, showHint, close, select } = useLayerStack();
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  // Null until the popover has been measured at least once for this open;
+  // rendered hidden until then (see `style` below) so the naive,
+  // possibly-overflowing anchor position never actually paints.
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Reset the active row exactly on the open transition, adjusted during
   // render (same technique as topbar.tsx's FileNameField) rather than in an
   // effect: doing it here applies before this render commits instead of
   // costing an extra one, and avoids re-running on every `entries`/
   // `selectedId` change, which would fight the user's own arrow-key
-  // navigation.
+  // navigation. The measured `position` is reset here too: whichever way
+  // `open` just flipped, any position measured for the previous anchor is
+  // stale, so the popover must go back to rendering hidden-until-measured
+  // (see `style` below) instead of flashing at an old spot.
   const [trackedOpen, setTrackedOpen] = useState(false);
   if (open !== trackedOpen) {
     setTrackedOpen(open);
+    setPosition(null);
     if (open) {
       const selected = entries.findIndex((entry) => entry.id === selectedId);
       setActiveIndex(selected >= 0 ? selected : 0);
@@ -238,6 +314,24 @@ export function LayerStackMenu() {
   useEffect(() => {
     if (open) menuRef.current?.focus();
   }, [open]);
+
+  // Flips the popover to the opposite side of the cursor on whichever axis
+  // would otherwise push it past the window edge (spec #1: clamping the
+  // anchor alone still let it overflow near the right/bottom edge).
+  // `useLayoutEffect` so this measure-then-reposition happens before the
+  // browser paints: the popover commits once at the naive, hidden position
+  // (see `style` below), this effect immediately corrects it, and the
+  // browser only ever paints the corrected position - never the naive one.
+  // Only ever calls `setState` after actually reading the DOM it measures
+  // (the render above already handles resetting `position` when there is
+  // nothing to measure), matching the pattern React's own docs use for
+  // measure-then-reposition effects.
+  useLayoutEffect(() => {
+    if (!open || entries.length === 0) return;
+    const rect = menuRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPosition(flipToFit(anchorX, anchorY, rect.width, rect.height));
+  }, [open, entries, anchorX, anchorY]);
 
   // Close triggers that are not the gesture itself (spec #2): Escape,
   // Cmd/Ctrl+\ (the same Show/Hide UI chord), clicking outside the menu, or
@@ -289,6 +383,13 @@ export function LayerStackMenu() {
     }
   }
 
+  // Before the first measurement, render at the naive (unflipped) offset but
+  // hidden, so a popover that would have overflowed never has a chance to
+  // paint at the wrong spot first.
+  const style: CSSProperties = position
+    ? { left: position.x, top: position.y }
+    : { left: anchorX + MENU_OFFSET, top: anchorY + MENU_OFFSET, visibility: 'hidden' };
+
   return createPortal(
     <div
       ref={menuRef}
@@ -297,7 +398,7 @@ export function LayerStackMenu() {
       tabIndex={-1}
       data-testid="layer-stack-menu"
       className={cn(MENU_POPOVER, 'fixed z-50 outline-none')}
-      style={{ left: x, top: y }}
+      style={style}
       onKeyDown={onMenuKeyDown}
       onPointerLeave={() => store.actions.setNodeEvent('hovered', [])}
     >

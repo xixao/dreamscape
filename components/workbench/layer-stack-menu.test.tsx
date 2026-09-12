@@ -138,6 +138,14 @@ describe('LayerStackMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('cancels the hold on Escape before it fires', async () => {
+    const { button } = await setup();
+    press(button);
+    fireEvent.keyDown(button, { key: 'Escape' });
+    await advance(HOLD_MS);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('sets the Craft hovered event on the Card node when hovering its row, and clears it on leave', async () => {
     const { button, cardId, query } = await setup();
     press(button);
@@ -228,6 +236,27 @@ describe('LayerStackMenu', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('does not leak the swallow flag past an intervening pointerdown elsewhere', async () => {
+    const { button, cardId, query } = await setup();
+    const clickSpy = vi.fn();
+    button.addEventListener('click', clickSpy);
+
+    press(button);
+    await advance(HOLD_MS);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    // The trailing click from this hold never arrives (the release landed
+    // outside the column, or nothing else consumed it), so the swallow flag
+    // is still armed. A pointerdown on a completely different node - a new,
+    // unrelated gesture - must still disarm it, so the click that follows
+    // is not eaten.
+    const cardDom = query.node(cardId).get().dom as HTMLElement;
+    fireEvent.pointerDown(cardDom, { button: 0, clientX: 200, clientY: 200 });
+    fireEvent.click(button);
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the hint for only the first three opens in a session', async () => {
     const { button } = await setup();
     const hint = 'Hold on a layer to open this menu';
@@ -243,5 +272,69 @@ describe('LayerStackMenu', () => {
     await advance(HOLD_MS);
     expect(screen.getByRole('menu')).toBeInTheDocument();
     expect(screen.queryByText(hint)).toBeNull();
+  });
+
+  describe('flips to stay inside the window', () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+
+    function setViewport(innerWidth: number, innerHeight: number) {
+      Object.defineProperty(window, 'innerWidth', { value: innerWidth, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: innerHeight, configurable: true });
+    }
+
+    beforeEach(() => {
+      // The popover's real size only exists once it is rendered and
+      // measured, which is exactly what the component reads via
+      // `getBoundingClientRect` to decide whether to flip - stub it to a
+      // fixed size so the math is predictable in jsdom (same technique as
+      // node-indicator.test.tsx's re-measurement test).
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            width: 200,
+            height: 160,
+            top: 0,
+            left: 0,
+            right: 200,
+            bottom: 160,
+            x: 0,
+            y: 0,
+            toJSON() {},
+          }) as DOMRect,
+      );
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      setViewport(originalInnerWidth, originalInnerHeight);
+    });
+
+    it('flips left of the cursor when the naive placement would overflow the right edge', async () => {
+      setViewport(400, 800);
+      const { button } = await setup();
+      press(button, 390, 50);
+      await advance(HOLD_MS);
+
+      expect(screen.getByRole('menu')).toHaveStyle({ left: `${390 - 8 - 200}px` });
+    });
+
+    it('flips above the cursor when the naive placement would overflow the bottom edge', async () => {
+      setViewport(1000, 400);
+      const { button } = await setup();
+      press(button, 50, 390);
+      await advance(HOLD_MS);
+
+      expect(screen.getByRole('menu')).toHaveStyle({ top: `${390 - 8 - 160}px` });
+    });
+
+    it('keeps the naive offset placement when the popover already fits', async () => {
+      setViewport(1000, 800);
+      const { button } = await setup();
+      press(button, 50, 50);
+      await advance(HOLD_MS);
+
+      expect(screen.getByRole('menu')).toHaveStyle({ left: '58px', top: '58px' });
+    });
   });
 });
