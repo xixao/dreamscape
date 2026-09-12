@@ -1,6 +1,6 @@
 # Assembly Workbench
 
-An internal proof of concept of a Figma-like page builder built on shadcn/ui. Designers drag components onto a responsive frame, tune them in a Design panel for the mobile and desktop breakpoints, add screens, wire buttons to other screens in the Prototype panel, and present the result in Play mode. Files live in a shared Neon Postgres database on Vercel, so a link can be passed around without sign-in (the app is meant for an internal network).
+An internal proof of concept of a Figma-like page builder built on shadcn/ui. Present (top bar) opens the current file in Play mode, where wired buttons navigate between screens and open dialogs. Designers drag components onto a responsive frame, tune them in a Design panel for the mobile and desktop breakpoints, add screens, wire buttons to other screens in the Prototype panel, and present the result in Play mode. Files live in a shared Neon Postgres database on Vercel, so a link can be passed around without sign-in (the app is meant for an internal network).
 
 Production: https://shadcn-assembly-workbench.vercel.app
 
@@ -72,6 +72,7 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 | Escape | Deselect |
 | Delete or Backspace | Delete the selected layer (the root frame and the content zones cannot be deleted) |
 | Press and hold on the canvas | Layer stack menu listing every layer under the pointer |
+| Escape in Play mode | Leave the presentation and return to the editor on the screen you were viewing |
 
 ## Where things are
 
