@@ -1,6 +1,6 @@
 import { loadEnvConfig } from '@next/env';
 import { getDb } from '@/db/client';
-import { findExample } from '@/lib/examples';
+import { exampleToScreens, findExample } from '@/lib/examples';
 import { createFilesRepository } from '@/lib/files/repository';
 
 type FilesRepository = ReturnType<typeof createFilesRepository>;
@@ -21,7 +21,7 @@ export async function seedIfEmpty(repo: FilesRepository): Promise<{ created: boo
     throw new Error('The "login" example is missing.');
   }
 
-  const file = await repo.create({ name: login.name, layout: login.layout, stageWidth: login.stageWidth });
+  const file = await repo.create({ name: login.name, screens: exampleToScreens(login) });
   return { created: true, id: file.id };
 }
 

@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
 
 /**
@@ -61,4 +62,17 @@ export function emptyLayoutJson(): string {
       parent: null,
     },
   });
+}
+
+/**
+ * Builds the one screen a brand-new file starts with: an empty canvas named
+ * "Frame 1" at the default 1440px desktop width. Kept here (rather than in
+ * lib/files/repository.ts) so both the repository's create() and any other
+ * dependency-free caller can mint a screen without reaching into
+ * registry.tsx - see the module comment above for why that import boundary
+ * matters. A fresh nanoid(10) every call: two default screens created back
+ * to back must not collide.
+ */
+export function defaultScreen(name = 'Frame 1'): { id: string; name: string; layout: string; stageWidth: number } {
+  return { id: nanoid(10), name, layout: emptyLayoutJson(), stageWidth: 1440 };
 }

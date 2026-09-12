@@ -6,9 +6,14 @@ import { files, folders } from '@/db/schema';
 // @craftjs/core and the block components, which breaks when this
 // repository is loaded from a plain server module such as a files API
 // route handler (see known-types.ts for the full explanation).
-import { KNOWN_TYPES, emptyLayoutJson } from '@/components/blocks/known-types';
-import { clampWidth } from '@/lib/stage';
-import { validateLayout } from './validate';
+import { KNOWN_TYPES, defaultScreen, emptyLayoutJson } from '@/components/blocks/known-types';
+import { validateScreens, type Screen } from './validate';
+
+// Re-exported so callers only need to know about lib/files/repository.ts,
+// the file-level domain module - Screen itself lives in validate.ts purely
+// to avoid a repository.ts <-> validate.ts import cycle (validateScreens
+// returns Screen[] and repository.ts calls it).
+export type { Screen } from './validate';
 
 export type FileSummary = {
   id: string;
@@ -22,12 +27,29 @@ export type FileSummary = {
   // this field on every value they hand back, so any caller reading a real
   // file can treat an absent key the same as `null` (`file.folderId ?? null`).
   folderId?: string | null;
+  // Same optionality rationale as folderId above, this time for
+  // components/files/files-page.test.tsx's and files-table.test.tsx's
+  // FileSummary fixtures, written before screens existed.
+  screenCount?: number;
 };
-export type FileRecord = FileSummary & { layout: string; stageWidth: number };
+export type FileRecord = FileSummary & {
+  // Same optionality rationale as folderId/screenCount above: workbench.tsx's
+  // BASE_FILE predates screens. Real repository code always populates it.
+  screens?: Screen[];
+  // TEMPORARY compatibility mirror of screens[0]'s layout/stageWidth, for
+  // the pre-Task-S2 workbench client (components/workbench/workbench.tsx
+  // and workbench-loader.tsx), which still reads a single top-level
+  // layout/stageWidth and has not been rewired to read `screens` yet - see
+  // the S1 task report for why this could not just be removed outright.
+  // Required (not optional) because that client dereferences both fields
+  // directly with no fallback. Task S2 rewires that client and deletes
+  // these two fields for good.
+  layout: string;
+  stageWidth: number;
+};
 export type SaveInput = {
   name?: string;
-  layout?: string;
-  stageWidth?: number;
+  screens?: Screen[];
   baseUpdatedAt?: string;
   folderId?: string | null;
 };
@@ -75,6 +97,43 @@ function normalizeFolderName(name: string): string {
   return trimmed;
 }
 
+// The shape one screen takes inside the `screens` jsonb column: like
+// Screen, but `layout` is the parsed tree (a plain object), not a JSON
+// string, so Postgres stores it as real jsonb rather than a doubly-encoded
+// string. toApiScreens/toStoredScreen convert between the two at the
+// repository boundary, the same way toRecord's JSON.stringify(row.layout)
+// used to for the single old `layout` column.
+type StoredScreen = {
+  id: string;
+  name: string;
+  layout: Record<string, unknown>;
+  stageWidth: number;
+  stageHeight?: number | null;
+  deviceName?: string | null;
+};
+
+function toApiScreens(raw: unknown): Screen[] {
+  return (raw as StoredScreen[]).map((screen) => ({
+    id: screen.id,
+    name: screen.name,
+    layout: JSON.stringify(screen.layout),
+    stageWidth: screen.stageWidth,
+    stageHeight: screen.stageHeight ?? null,
+    deviceName: screen.deviceName ?? null,
+  }));
+}
+
+function toStoredScreen(screen: Screen): StoredScreen {
+  return {
+    id: screen.id,
+    name: screen.name,
+    layout: JSON.parse(screen.layout) as Record<string, unknown>,
+    stageWidth: screen.stageWidth,
+    stageHeight: screen.stageHeight ?? null,
+    deviceName: screen.deviceName ?? null,
+  };
+}
+
 function toSummary(row: FileRow): FileSummary {
   return {
     id: row.id,
@@ -82,14 +141,23 @@ function toSummary(row: FileRow): FileSummary {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     folderId: row.folderId,
+    screenCount: Array.isArray(row.screens) ? row.screens.length : 0,
   };
 }
 
 function toRecord(row: FileRow): FileRecord {
+  const screens = toApiScreens(row.screens);
+  // screens is never empty in practice - create()/save() both run every
+  // screens array through validateScreens, which rejects zero screens - so
+  // screens[0] is always defined; the fallback only guards a row written
+  // by something other than this repository (a hand-run SQL statement,
+  // for instance) from throwing here.
+  const first = screens[0] as Screen | undefined;
   return {
     ...toSummary(row),
-    layout: JSON.stringify(row.layout),
-    stageWidth: row.stageWidth,
+    screens,
+    layout: first?.layout ?? emptyLayoutJson(),
+    stageWidth: first?.stageWidth ?? 1440,
   };
 }
 
@@ -148,17 +216,17 @@ export function createFilesRepository(db: Db) {
   }
 
   async function create(
-    input: { name?: string; layout?: string; stageWidth?: number; folderId?: string | null } = {},
+    input: { name?: string; screens?: Screen[]; folderId?: string | null } = {},
   ): Promise<FileRecord> {
-    const layoutJson = input.layout ?? emptyLayoutJson();
-    const validated = validateLayout(layoutJson, KNOWN_TYPES);
+    const screensInput = input.screens ?? [defaultScreen()];
+    const validated = validateScreens(screensInput, KNOWN_TYPES);
     if (!validated.ok) {
-      throw new Error(`Cannot create a file: layout ${validated.reason}.`);
+      throw new Error(`Cannot create a file: ${validated.reason}.`);
     }
 
     // A folderId that names no existing folder is rejected by the
     // files.folder_id foreign key at insert time (thrown as a plain
-    // error), the same way an invalid layout is rejected just above: the
+    // error), the same way invalid screens are rejected just above: the
     // POST route pre-checks folderId with folderPath() so a real client
     // request comes back as a 400 (see app/api/files/route.ts), and this
     // throw is only ever reached if that pre-check is bypassed.
@@ -167,8 +235,7 @@ export function createFilesRepository(db: Db) {
       .values({
         id: nanoid(10),
         name: input.name ?? 'Untitled',
-        layout: validated.tree,
-        stageWidth: input.stageWidth !== undefined ? clampWidth(input.stageWidth) : 1440,
+        screens: validated.screens.map(toStoredScreen),
         folderId: input.folderId ?? null,
       })
       .returning();
@@ -195,11 +262,10 @@ export function createFilesRepository(db: Db) {
     const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
     if (input.name !== undefined) patch.name = input.name;
-    if (input.stageWidth !== undefined) patch.stageWidth = clampWidth(input.stageWidth);
-    if (input.layout !== undefined) {
-      const validated = validateLayout(input.layout, KNOWN_TYPES);
+    if (input.screens !== undefined) {
+      const validated = validateScreens(input.screens, KNOWN_TYPES);
       if (!validated.ok) return { ok: false, invalid: validated.reason };
-      patch.layout = validated.tree;
+      patch.screens = validated.screens.map(toStoredScreen);
     }
     if (input.folderId !== undefined) {
       // Unlike create()'s reliance on the foreign key, save() has an
@@ -220,13 +286,18 @@ export function createFilesRepository(db: Db) {
     const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
     if (!row) return null;
 
+    // Every screen gets a fresh id: a duplicated file's screens are new,
+    // independent identities, not aliases of the original's (interactions
+    // that target a screen by id, added in a later task, would otherwise
+    // resolve across both files at once).
+    const reIdScreens = (row.screens as StoredScreen[]).map((screen) => ({ ...screen, id: nanoid(10) }));
+
     const [copy] = await db
       .insert(files)
       .values({
         id: nanoid(10),
         name: `${row.name} copy`,
-        layout: row.layout,
-        stageWidth: row.stageWidth,
+        screens: reIdScreens,
         folderId: row.folderId,
       })
       .returning();

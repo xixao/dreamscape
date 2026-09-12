@@ -65,14 +65,19 @@ describe('files API route handlers', () => {
   });
 
   describe('POST /api/files', () => {
-    it('creates a default file and returns 201', async () => {
+    it('creates a default file with one default screen and returns 201', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', {}));
-      const body = (await readBody(response)) as { file: { name: string; stageWidth: number; layout: string } };
+      const body = (await readBody(response)) as {
+        file: { name: string; screenCount: number; screens: Array<{ name: string; stageWidth: number; layout: string }> };
+      };
 
       expect(response.status).toBe(201);
       expect(body.file.name).toBe('Untitled');
-      expect(body.file.stageWidth).toBe(1440);
-      expect(JSON.parse(body.file.layout)).toHaveProperty('ROOT');
+      expect(body.file.screenCount).toBe(1);
+      expect(body.file.screens).toHaveLength(1);
+      expect(body.file.screens[0].name).toBe('Frame 1');
+      expect(body.file.screens[0].stageWidth).toBe(1440);
+      expect(JSON.parse(body.file.screens[0].layout)).toHaveProperty('ROOT');
     });
 
     it('creates a file with a given name', async () => {
@@ -83,23 +88,47 @@ describe('files API route handlers', () => {
       expect(body.file.name).toBe('My design');
     });
 
+    it('creates a file with explicitly given screens', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            { id: 'aaaaaaaaaa', name: 'Frame 1', layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }), stageWidth: 375 },
+            { id: 'bbbbbbbbbb', name: 'Frame 2', layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }), stageWidth: 768 },
+          ],
+        }),
+      );
+      const body = (await readBody(response)) as {
+        file: { screenCount: number; screens: Array<{ id: string; name: string; stageWidth: number }> };
+      };
+
+      expect(response.status).toBe(201);
+      expect(body.file.screenCount).toBe(2);
+      expect(body.file.screens.map((s) => s.name)).toEqual(['Frame 1', 'Frame 2']);
+      expect(body.file.screens.map((s) => s.stageWidth)).toEqual([375, 768]);
+    });
+
     it('creates from the login example with the example name and layout when no name is given', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { example: 'login' }));
-      const body = (await readBody(response)) as { file: { name: string; stageWidth: number; layout: string } };
+      const body = (await readBody(response)) as {
+        file: { name: string; screens: Array<{ name: string; stageWidth: number; layout: string }> };
+      };
 
       expect(response.status).toBe(201);
       expect(body.file.name).toBe('Login screen');
-      expect(body.file.stageWidth).toBe(1440);
-      expect(Object.keys(JSON.parse(body.file.layout))).toHaveLength(7);
+      expect(body.file.screens).toHaveLength(1);
+      expect(body.file.screens[0].name).toBe('Login screen');
+      expect(body.file.screens[0].stageWidth).toBe(1440);
+      expect(Object.keys(JSON.parse(body.file.screens[0].layout))).toHaveLength(7);
     });
 
-    it('creates from the login example but keeps a given name', async () => {
+    it('creates from the login example but keeps a given file name (the screen keeps the example name)', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { name: 'Custom', example: 'login' }));
-      const body = (await readBody(response)) as { file: { name: string; layout: string } };
+      const body = (await readBody(response)) as { file: { name: string; screens: Array<{ name: string; layout: string }> } };
 
       expect(response.status).toBe(201);
       expect(body.file.name).toBe('Custom');
-      expect(Object.keys(JSON.parse(body.file.layout))).toHaveLength(7);
+      expect(body.file.screens[0].name).toBe('Login screen');
+      expect(Object.keys(JSON.parse(body.file.screens[0].layout))).toHaveLength(7);
     });
 
     it('rejects an unknown example with 400', async () => {
@@ -202,13 +231,15 @@ describe('files API route handlers', () => {
       expect(stored?.name).toBe('Changed elsewhere');
     });
 
-    it('returns 400 for an invalid layout', async () => {
+    it('returns 400 for an invalid layout inside a screen', async () => {
       const repository = await getRepository();
       const file = await repository.create();
 
       const response = await PATCH(
         jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
-          layout: JSON.stringify({ noRootHere: true }),
+          screens: [
+            { id: file.screens![0].id, name: 'Frame 1', layout: JSON.stringify({ noRootHere: true }), stageWidth: 1440 },
+          ],
         }),
         withId(file.id),
       );
@@ -218,7 +249,19 @@ describe('files API route handlers', () => {
       expect(typeof body.error).toBe('string');
 
       const stored = await repository.get(file.id);
-      expect(stored?.layout).toBe(file.layout);
+      expect(stored?.screens).toEqual(file.screens);
+    });
+
+    it('returns 400 for a screens array with zero screens', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { screens: [] }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(400);
     });
 
     it('returns 400 for an empty patch body', async () => {
@@ -265,19 +308,25 @@ describe('files API route handlers', () => {
       expect(await readBody(response)).toEqual({ error: 'Not found' });
     });
 
-    it('clamps stageWidth, visible through a subsequent GET', async () => {
+    it('clamps a screen stageWidth, visible through a subsequent GET', async () => {
       const repository = await getRepository();
       const file = await repository.create();
+      const original = file.screens![0];
 
       const patchResponse = await PATCH(
-        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { stageWidth: 5000 }),
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ id: original.id, name: original.name, layout: original.layout, stageWidth: 5000 }],
+        }),
         withId(file.id),
       );
       expect(patchResponse.status).toBe(200);
 
       const getResponse = await GET_FILE(new Request(`http://x/api/files/${file.id}`), withId(file.id));
-      const body = (await readBody(getResponse)) as { file: { stageWidth: number } };
+      const body = (await readBody(getResponse)) as { file: { stageWidth: number; screens: Array<{ stageWidth: number }> } };
 
+      expect(body.file.screens[0].stageWidth).toBe(1920);
+      // The temporary layout/stageWidth compatibility mirror (see FileRecord
+      // in lib/files/repository.ts) tracks screens[0].
       expect(body.file.stageWidth).toBe(1920);
     });
 
@@ -334,12 +383,15 @@ describe('files API route handlers', () => {
         new Request(`http://x/api/files/${file.id}/duplicate`, { method: 'POST' }),
         withId(file.id),
       );
-      const body = (await readBody(response)) as { file: { id: string; name: string; layout: string } };
+      const body = (await readBody(response)) as {
+        file: { id: string; name: string; screens: Array<{ id: string; layout: string }> };
+      };
 
       expect(response.status).toBe(201);
       expect(body.file.id).not.toBe(file.id);
       expect(body.file.name).toBe('Original copy');
-      expect(body.file.layout).toBe(file.layout);
+      expect(body.file.screens[0].layout).toBe(file.screens![0].layout);
+      expect(body.file.screens[0].id).not.toBe(file.screens![0].id);
     });
 
     it('returns 404 for a missing file', async () => {

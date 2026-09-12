@@ -5,7 +5,7 @@ import { KNOWN_TYPES } from '@/components/blocks/registry';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { validateLayout } from '@/lib/files/validate';
 import { renderTree } from '@/test/craft-harness';
-import { EXAMPLES, findExample } from './index';
+import { EXAMPLES, exampleToScreens, findExample } from './index';
 
 type SerializedNode = { type: { resolvedName: string } };
 
@@ -135,5 +135,28 @@ describe('findExample', () => {
 
   it('returns undefined for an unknown slug', () => {
     expect(findExample('nope')).toBeUndefined();
+  });
+});
+
+describe('exampleToScreens', () => {
+  it('wraps the example into one screen named after the example, carrying its layout and stageWidth', () => {
+    const login = findExample('login')!;
+
+    const screens = exampleToScreens(login);
+
+    expect(screens).toHaveLength(1);
+    expect(screens[0].name).toBe(login.name);
+    expect(screens[0].layout).toBe(login.layout);
+    expect(screens[0].stageWidth).toBe(login.stageWidth);
+    expect(screens[0].id).toHaveLength(10);
+  });
+
+  it('mints a fresh screen id every call', () => {
+    const login = findExample('login')!;
+
+    const first = exampleToScreens(login);
+    const second = exampleToScreens(login);
+
+    expect(first[0].id).not.toBe(second[0].id);
   });
 });

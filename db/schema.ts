@@ -1,4 +1,4 @@
-import { type AnyPgColumn, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { type AnyPgColumn, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 export const folders = pgTable('folders', {
   id: text('id').primaryKey(),
@@ -18,8 +18,14 @@ export const folders = pgTable('folders', {
 export const files = pgTable('files', {
   id: text('id').primaryKey(),
   name: text('name').notNull().default('Untitled'),
-  layout: jsonb('layout').notNull(),
-  stageWidth: integer('stage_width').notNull().default(1440),
+  // A file holds several screens (migration 0002 replaced the old single
+  // `layout`/`stage_width` columns with this array); see Screen in
+  // lib/files/validate.ts for the per-screen shape. Stored as an array of
+  // plain objects with each screen's layout parsed (not double-encoded as
+  // a string) - lib/files/repository.ts's toStoredScreen/toApiScreens
+  // convert to and from the `layout: string` shape the API and repository
+  // use everywhere else.
+  screens: jsonb('screens').notNull().default('[]'),
   // Nullable: a file with no folderId lives at the top level. Same
   // `restrict` rationale as folders.parentId above.
   folderId: text('folder_id').references((): AnyPgColumn => folders.id, { onDelete: 'restrict' }),

@@ -1,4 +1,4 @@
-import { findExample } from '@/lib/examples';
+import { exampleToScreens, findExample } from '@/lib/examples';
 import { createBody, getRepository } from '@/lib/files/http';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 });
   }
 
-  const { name, example, folderId } = parsed.data;
+  const { name, example, folderId, screens } = parsed.data;
   const repository = await getRepository();
 
   // Unlike layout (below, always the bundled example's, already
@@ -39,23 +39,22 @@ export async function POST(request: Request) {
   }
 
   // create() throws on an invalid layout (see lib/files/repository.ts), but
-  // the only layout this route ever passes is the bundled example's, which
-  // is already known-good (lib/examples/index.test.ts asserts it
-  // validates). So a throw here is not a client input problem to map to
-  // 400; it is an infrastructure failure (bundling regressed, the database
-  // is unreachable, ...), and should propagate to Next's default 500
-  // rather than being echoed back as a 400.
+  // the only layout this route ever passes via `example` is the bundled
+  // example's, which is already known-good (lib/examples/index.test.tsx
+  // asserts it validates). So a throw here is not a client input problem to
+  // map to 400; it is an infrastructure failure (bundling regressed, the
+  // database is unreachable, ...), and should propagate to Next's default
+  // 500 rather than being echoed back as a 400.
   if (example !== undefined) {
     const found = findExample(example);
     const file = await repository.create({
       name: name ?? found?.name,
-      layout: found?.layout,
-      stageWidth: found?.stageWidth,
+      screens: found ? exampleToScreens(found) : undefined,
       folderId,
     });
     return Response.json({ file }, { status: 201 });
   }
 
-  const file = await repository.create({ name, folderId });
+  const file = await repository.create({ name, screens, folderId });
   return Response.json({ file }, { status: 201 });
 }

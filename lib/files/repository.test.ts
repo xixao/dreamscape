@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
+import { nanoid } from 'nanoid';
 import { getDb, resetDbForTests } from '@/db/client';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import loginScreenLayout from '@/lib/examples/login-screen.json';
-import { createFilesRepository } from './repository';
+import { createFilesRepository, type Screen } from './repository';
 
 const LOGIN_SCREEN_JSON = JSON.stringify(loginScreenLayout);
 
@@ -15,6 +16,10 @@ function isIsoString(value: string): boolean {
   return typeof value === 'string' && new Date(value).toISOString() === value;
 }
 
+function screen(overrides: Partial<Screen> = {}): Screen {
+  return { id: nanoid(10), name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440, ...overrides };
+}
+
 describe('files repository', () => {
   let repo: ReturnType<typeof createFilesRepository>;
 
@@ -24,36 +29,67 @@ describe('files repository', () => {
   });
 
   describe('create', () => {
-    it('creates a file with defaults', async () => {
+    it('creates a file with one default screen', async () => {
       const file = await repo.create();
 
       expect(file.name).toBe('Untitled');
-      expect(JSON.parse(file.layout)).toEqual(JSON.parse(emptyLayoutJson()));
-      expect(file.stageWidth).toBe(1440);
+      expect(file.screens).toHaveLength(1);
+      expect(file.screens?.[0]).toMatchObject({
+        name: 'Frame 1',
+        stageWidth: 1440,
+        stageHeight: null,
+        deviceName: null,
+      });
+      expect(JSON.parse(file.screens![0].layout)).toEqual(JSON.parse(emptyLayoutJson()));
+      expect(file.screens![0].id).toHaveLength(10);
+      expect(file.screenCount).toBe(1);
       expect(file.id).toHaveLength(10);
       expect(isIsoString(file.createdAt)).toBe(true);
       expect(isIsoString(file.updatedAt)).toBe(true);
       expect(file.folderId).toBeNull();
-    });
 
-    it('creates a file with the login example layout', async () => {
-      const file = await repo.create({ name: 'Login screen', layout: LOGIN_SCREEN_JSON });
-
-      expect(file.name).toBe('Login screen');
-      expect(JSON.parse(file.layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
+      // Temporary compatibility mirror for the pre-Task-S2 workbench client
+      // (see the FileRecord comment in ./repository.ts): always screens[0].
+      expect(JSON.parse(file.layout)).toEqual(JSON.parse(emptyLayoutJson()));
       expect(file.stageWidth).toBe(1440);
     });
 
-    it('clamps stage width to the valid range', async () => {
-      const low = await repo.create({ stageWidth: 10 });
-      expect(low.stageWidth).toBe(320);
+    it('creates a file with the given screens, in order', async () => {
+      const file = await repo.create({
+        name: 'Login screen',
+        screens: [screen({ name: 'Login', layout: LOGIN_SCREEN_JSON }), screen({ name: 'Frame 2' })],
+      });
 
-      const high = await repo.create({ stageWidth: 5000 });
-      expect(high.stageWidth).toBe(1920);
+      expect(file.name).toBe('Login screen');
+      expect(file.screenCount).toBe(2);
+      expect(file.screens?.map((s) => s.name)).toEqual(['Login', 'Frame 2']);
+      expect(JSON.parse(file.screens![0].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
+      // The compatibility mirror always reflects the first screen.
+      expect(JSON.parse(file.layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
-    it('refuses to create a file with an invalid layout', async () => {
-      await expect(repo.create({ layout: '{not json' })).rejects.toThrow();
+    it('clamps every screen stage width to the valid range', async () => {
+      const file = await repo.create({ screens: [screen({ stageWidth: 10 }), screen({ stageWidth: 5000 })] });
+
+      expect(file.screens?.[0].stageWidth).toBe(320);
+      expect(file.screens?.[1].stageWidth).toBe(1920);
+    });
+
+    it('refuses to create a file with an invalid layout in a screen', async () => {
+      await expect(repo.create({ screens: [screen({ layout: '{not json' })] })).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+
+    it('refuses to create a file with zero screens', async () => {
+      await expect(repo.create({ screens: [] })).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+
+    it('refuses to create a file with duplicate screen ids', async () => {
+      const dupeId = nanoid(10);
+      await expect(
+        repo.create({ screens: [screen({ id: dupeId }), screen({ id: dupeId, name: 'Frame 2' })] }),
+      ).rejects.toThrow();
       expect(await repo.list()).toHaveLength(0);
     });
 
@@ -94,26 +130,37 @@ describe('files repository', () => {
       const created = await repo.create({ name: 'Findable' });
       expect(await repo.get(created.id)).toEqual(created);
     });
+
+    it('returns every screen layout as a JSON string', async () => {
+      const created = await repo.create({ name: 'Findable', screens: [screen(), screen({ name: 'Frame 2' })] });
+
+      const found = await repo.get(created.id);
+      for (const s of found?.screens ?? []) {
+        expect(typeof s.layout).toBe('string');
+        expect(() => JSON.parse(s.layout)).not.toThrow();
+      }
+      expect(found?.screens).toHaveLength(2);
+    });
   });
 
   describe('save', () => {
-    it('updates the name only, leaving layout and width untouched', async () => {
-      const created = await repo.create({ stageWidth: 800 });
+    it('updates the name only, leaving screens untouched', async () => {
+      const created = await repo.create({ screens: [screen({ stageWidth: 800 })] });
 
       const result = await repo.save(created.id, { name: 'Renamed' });
       expect(result).toEqual({ ok: true, updatedAt: expect.any(String) });
 
       const after = await repo.get(created.id);
       expect(after?.name).toBe('Renamed');
-      expect(after?.stageWidth).toBe(800);
-      expect(JSON.parse(after!.layout)).toEqual(JSON.parse(emptyLayoutJson()));
+      expect(after?.screens?.[0].stageWidth).toBe(800);
+      expect(JSON.parse(after!.screens![0].layout)).toEqual(JSON.parse(emptyLayoutJson()));
     });
 
-    it('returns a newer updatedAt when the layout changes', async () => {
+    it('returns a newer updatedAt when the screens change', async () => {
       const created = await repo.create();
       await wait(5);
 
-      const result = await repo.save(created.id, { layout: LOGIN_SCREEN_JSON });
+      const result = await repo.save(created.id, { screens: [screen({ layout: LOGIN_SCREEN_JSON })] });
 
       expect(result.ok).toBe(true);
       expect(result).toMatchObject({ updatedAt: expect.any(String) });
@@ -122,17 +169,30 @@ describe('files repository', () => {
       }
 
       const after = await repo.get(created.id);
-      expect(JSON.parse(after!.layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
+      expect(JSON.parse(after!.screens![0].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
-    it('clamps stage width to the valid range', async () => {
+    it('replaces the whole screens array, including adding or removing screens', async () => {
       const created = await repo.create();
 
-      await repo.save(created.id, { stageWidth: 10 });
-      expect((await repo.get(created.id))?.stageWidth).toBe(320);
+      await repo.save(created.id, { screens: [screen({ name: 'Frame 1' }), screen({ name: 'Frame 2' })] });
+      const withTwo = await repo.get(created.id);
+      expect(withTwo?.screenCount).toBe(2);
 
-      await repo.save(created.id, { stageWidth: 5000 });
-      expect((await repo.get(created.id))?.stageWidth).toBe(1920);
+      await repo.save(created.id, { screens: [screen({ name: 'Solo' })] });
+      const withOne = await repo.get(created.id);
+      expect(withOne?.screenCount).toBe(1);
+      expect(withOne?.screens?.[0].name).toBe('Solo');
+    });
+
+    it('clamps stage width to the valid range, per screen', async () => {
+      const created = await repo.create();
+
+      await repo.save(created.id, { screens: [screen({ stageWidth: 10 })] });
+      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(320);
+
+      await repo.save(created.id, { screens: [screen({ stageWidth: 5000 })] });
+      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(1920);
     });
 
     it('succeeds when baseUpdatedAt matches the current row', async () => {
@@ -181,15 +241,34 @@ describe('files repository', () => {
       expect((await repo.get(created.id))?.name).toBe('First writer');
     });
 
-    it('rejects an invalid layout and changes nothing', async () => {
+    it('rejects an invalid layout inside a screen and changes nothing', async () => {
       const created = await repo.create();
 
-      const result = await repo.save(created.id, { layout: '{not json' });
+      const result = await repo.save(created.id, { screens: [screen({ layout: '{not json' })] });
       expect(result).toEqual({ ok: false, invalid: expect.any(String) });
 
       const after = await repo.get(created.id);
-      expect(JSON.parse(after!.layout)).toEqual(JSON.parse(emptyLayoutJson()));
+      expect(JSON.parse(after!.screens![0].layout)).toEqual(JSON.parse(emptyLayoutJson()));
       expect(after?.updatedAt).toBe(created.updatedAt);
+    });
+
+    it('rejects a screens patch with zero screens, changing nothing', async () => {
+      const created = await repo.create();
+
+      const result = await repo.save(created.id, { screens: [] });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      expect((await repo.get(created.id))?.screenCount).toBe(1);
+    });
+
+    it('rejects a screens patch with duplicate screen ids, changing nothing', async () => {
+      const created = await repo.create();
+      const dupeId = nanoid(10);
+
+      const result = await repo.save(created.id, {
+        screens: [screen({ id: dupeId }), screen({ id: dupeId, name: 'Frame 2' })],
+      });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      expect((await repo.get(created.id))?.screenCount).toBe(1);
     });
 
     it('returns notFound for a missing id', async () => {
@@ -218,15 +297,34 @@ describe('files repository', () => {
 
   describe('duplicate', () => {
     it('copies the file with the name suffixed " copy"', async () => {
-      const created = await repo.create({ name: 'Original', layout: LOGIN_SCREEN_JSON, stageWidth: 768 });
+      const created = await repo.create({
+        name: 'Original',
+        screens: [screen({ layout: LOGIN_SCREEN_JSON, stageWidth: 768 })],
+      });
 
       const copy = await repo.duplicate(created.id);
 
       expect(copy?.name).toBe('Original copy');
       expect(copy?.id).not.toBe(created.id);
-      expect(copy?.stageWidth).toBe(768);
-      expect(JSON.parse(copy?.layout ?? '')).toEqual(JSON.parse(created.layout));
+      expect(copy?.screens?.[0].stageWidth).toBe(768);
+      expect(JSON.parse(copy?.screens?.[0].layout ?? '')).toEqual(JSON.parse(created.screens![0].layout));
       expect(await repo.list()).toHaveLength(2);
+    });
+
+    it('gives every screen a new id, keeping name, layout and count the same', async () => {
+      const created = await repo.create({
+        screens: [screen({ name: 'Frame 1' }), screen({ name: 'Frame 2', layout: LOGIN_SCREEN_JSON })],
+      });
+
+      const copy = await repo.duplicate(created.id);
+
+      expect(copy?.screens).toHaveLength(2);
+      expect(copy?.screens?.map((s) => s.name)).toEqual(['Frame 1', 'Frame 2']);
+      expect(copy?.screens?.map((s) => s.id)).not.toEqual(created.screens?.map((s) => s.id));
+      const copyIds = new Set(copy?.screens?.map((s) => s.id));
+      expect(copyIds.size).toBe(2);
+      for (const id of copyIds) expect(id).toHaveLength(10);
+      expect(JSON.parse(copy!.screens![1].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
     it('returns null for a missing id', async () => {

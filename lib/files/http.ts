@@ -16,10 +16,28 @@ const nameField = z.string().trim().min(1).max(120).optional();
 // ("move to the top level").
 const folderIdField = z.string().nullable().optional();
 
+// Shape only: id/name/layout/stageWidth types, nothing about content. The
+// content rules (name trimmed to 1..80, width clamped to [320, 1920], ids
+// unique and exactly 10 characters, layout valid against the known block
+// types, at least one screen) live in validateScreens (lib/files/validate.ts),
+// called from the repository - the same split validateLayout already had
+// with this module's own `layout: z.string()` check one level up.
+const screenField = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  layout: z.string(),
+  stageWidth: z.number().int(),
+  stageHeight: z.number().int().nullable().optional(),
+  deviceName: z.string().nullable().optional(),
+});
+
+const screensField = z.array(screenField).min(1).max(50);
+
 export const createBody = z.object({
   name: nameField,
   example: z.enum(['login', 'dashboard', 'settings', 'signup']).optional(),
   folderId: folderIdField,
+  screens: screensField.optional(),
 });
 
 export type CreateBody = z.infer<typeof createBody>;
@@ -31,16 +49,14 @@ export type CreateBody = z.infer<typeof createBody>;
 export const saveBody = z
   .object({
     name: nameField,
-    layout: z.string().optional(),
-    stageWidth: z.number().int().optional(),
+    screens: screensField.optional(),
     baseUpdatedAt: z.iso.datetime().optional(),
     folderId: folderIdField,
   })
   .refine(
     (body) =>
       body.name !== undefined ||
-      body.layout !== undefined ||
-      body.stageWidth !== undefined ||
+      body.screens !== undefined ||
       body.folderId !== undefined,
     'empty patch',
   );
