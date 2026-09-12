@@ -1,0 +1,291 @@
+{
+  "ROOT": {
+    "type": {
+      "resolvedName": "LayoutBox"
+    },
+    "isCanvas": true,
+    "props": {
+      "mode": "flex",
+      "direction": {
+        "mobile": "column",
+        "desktop": "column"
+      },
+      "columns": {
+        "mobile": 1,
+        "desktop": 3
+      },
+      "align": {
+        "mobile": "stretch",
+        "desktop": "stretch"
+      },
+      "justify": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "gap": 4,
+      "padding": 6,
+      "background": "none",
+      "grow": false
+    },
+    "displayName": "Frame",
+    "custom": {},
+    "parent": null,
+    "hidden": false,
+    "nodes": [
+      "settingsTitle",
+      "settingsCard"
+    ],
+    "linkedNodes": {}
+  },
+  "settingsTitle": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "Settings",
+      "role": "heading1",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "ROOT",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "settingsCard": {
+    "type": {
+      "resolvedName": "Card"
+    },
+    "isCanvas": false,
+    "props": {
+      "title": "Profile",
+      "description": "Update your account details and preferences.",
+      "grow": false
+    },
+    "displayName": "Card",
+    "custom": {},
+    "parent": "ROOT",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {
+      "content": "settingsCardContent"
+    }
+  },
+  "settingsCardContent": {
+    "type": {
+      "resolvedName": "CardContent"
+    },
+    "isCanvas": true,
+    "props": {},
+    "displayName": "CardContent",
+    "custom": {},
+    "parent": "settingsCard",
+    "hidden": false,
+    "nodes": [
+      "settingsIntro",
+      "nameInput",
+      "emailInput",
+      "roleSelect",
+      "notifSwitch",
+      "settingsSeparator",
+      "buttonRow"
+    ],
+    "linkedNodes": {}
+  },
+  "settingsIntro": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "These details appear on your public profile.",
+      "role": "paragraph",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "nameInput": {
+    "type": {
+      "resolvedName": "Input"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Full name",
+      "placeholder": "Ada Lovelace",
+      "type": "text",
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Input",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "emailInput": {
+    "type": {
+      "resolvedName": "Input"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Email",
+      "placeholder": "ada@example.com",
+      "type": "email",
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Input",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "roleSelect": {
+    "type": {
+      "resolvedName": "Select"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Role",
+      "placeholder": "Select a role",
+      "options": "Admin, Editor, Viewer",
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Select",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "notifSwitch": {
+    "type": {
+      "resolvedName": "Switch"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Enable notifications",
+      "checked": true,
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Switch",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "settingsSeparator": {
+    "type": {
+      "resolvedName": "Separator"
+    },
+    "isCanvas": false,
+    "props": {
+      "orientation": "horizontal",
+      "grow": false
+    },
+    "displayName": "Separator",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "buttonRow": {
+    "type": {
+      "resolvedName": "LayoutBox"
+    },
+    "isCanvas": true,
+    "props": {
+      "mode": "flex",
+      "direction": {
+        "mobile": "row",
+        "desktop": "row"
+      },
+      "columns": {
+        "mobile": 1,
+        "desktop": 3
+      },
+      "align": {
+        "mobile": "center",
+        "desktop": "center"
+      },
+      "justify": {
+        "mobile": "end",
+        "desktop": "end"
+      },
+      "gap": 3,
+      "padding": 0,
+      "background": "none",
+      "grow": false
+    },
+    "displayName": "Frame",
+    "custom": {},
+    "parent": "settingsCardContent",
+    "hidden": false,
+    "nodes": [
+      "cancelButton",
+      "saveButton"
+    ],
+    "linkedNodes": {}
+  },
+  "cancelButton": {
+    "type": {
+      "resolvedName": "Button"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Cancel",
+      "variant": "outline",
+      "size": "default",
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Button",
+    "custom": {},
+    "parent": "buttonRow",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "saveButton": {
+    "type": {
+      "resolvedName": "Button"
+    },
+    "isCanvas": false,
+    "props": {
+      "label": "Save changes",
+      "variant": "default",
+      "size": "default",
+      "disabled": false,
+      "grow": false
+    },
+    "displayName": "Button",
+    "custom": {},
+    "parent": "buttonRow",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  }
+}

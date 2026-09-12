@@ -18,13 +18,13 @@ describe('ComponentTray', () => {
 
   it('filterTrayItems keeps every item for a blank or whitespace query', () => {
     expect(filterTrayItems(trayItems, '')).toEqual(trayItems);
-    expect(filterTrayItems(trayItems, '')).toHaveLength(5);
+    expect(filterTrayItems(trayItems, '')).toHaveLength(trayItems.length);
     expect(filterTrayItems(trayItems, '   ')).toEqual(trayItems);
-    expect(filterTrayItems(trayItems, '   ')).toHaveLength(5);
+    expect(filterTrayItems(trayItems, '   ')).toHaveLength(trayItems.length);
   });
 
   it('filterTrayItems matches label, hint or type case-insensitively', () => {
-    expect(filterTrayItems(trayItems, 'inp').map((item) => item.type)).toEqual(['Input']);
+    expect(filterTrayItems(trayItems, 'textarea').map((item) => item.type)).toEqual(['Textarea']);
     expect(filterTrayItems(trayItems, 'CONTAINER').map((item) => item.type)).toEqual(['LayoutBox']);
     expect(filterTrayItems(trayItems, 'zzz')).toEqual([]);
   });

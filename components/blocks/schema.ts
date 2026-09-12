@@ -1,6 +1,26 @@
-export type BlockType = 'LayoutBox' | 'Button' | 'Input' | 'Card' | 'Dialog';
+export type BlockType =
+  | 'LayoutBox'
+  | 'Button'
+  | 'Input'
+  | 'Card'
+  | 'Dialog'
+  | 'Text'
+  | 'Image'
+  | 'Textarea'
+  | 'Select'
+  | 'Checkbox'
+  | 'RadioGroup'
+  | 'Switch'
+  | 'Slider'
+  | 'Badge'
+  | 'Avatar'
+  | 'Alert'
+  | 'Separator'
+  | 'Progress'
+  | 'Tabs'
+  | 'Table';
 
-export type ZoneType = 'CardContent' | 'DialogContent';
+export type ZoneType = 'CardContent' | 'DialogContent' | 'TabsContent';
 
 export type FieldKind = 'select' | 'text' | 'boolean';
 

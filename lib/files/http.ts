@@ -18,7 +18,7 @@ const folderIdField = z.string().nullable().optional();
 
 export const createBody = z.object({
   name: nameField,
-  example: z.enum(['login']).optional(),
+  example: z.enum(['login', 'dashboard', 'settings', 'signup']).optional(),
   folderId: folderIdField,
 });
 

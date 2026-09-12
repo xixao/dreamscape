@@ -1,0 +1,396 @@
+{
+  "ROOT": {
+    "type": {
+      "resolvedName": "LayoutBox"
+    },
+    "isCanvas": true,
+    "props": {
+      "mode": "flex",
+      "direction": {
+        "mobile": "column",
+        "desktop": "column"
+      },
+      "columns": {
+        "mobile": 1,
+        "desktop": 3
+      },
+      "align": {
+        "mobile": "stretch",
+        "desktop": "stretch"
+      },
+      "justify": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "gap": 4,
+      "padding": 6,
+      "background": "none",
+      "grow": false
+    },
+    "displayName": "Frame",
+    "custom": {},
+    "parent": null,
+    "hidden": false,
+    "nodes": [
+      "headingRow",
+      "cardsGrid",
+      "dashboardTable"
+    ],
+    "linkedNodes": {}
+  },
+  "headingRow": {
+    "type": {
+      "resolvedName": "LayoutBox"
+    },
+    "isCanvas": true,
+    "props": {
+      "mode": "flex",
+      "direction": {
+        "mobile": "row",
+        "desktop": "row"
+      },
+      "columns": {
+        "mobile": 1,
+        "desktop": 3
+      },
+      "align": {
+        "mobile": "center",
+        "desktop": "center"
+      },
+      "justify": {
+        "mobile": "between",
+        "desktop": "between"
+      },
+      "gap": 4,
+      "padding": 0,
+      "background": "none",
+      "grow": false
+    },
+    "displayName": "Frame",
+    "custom": {},
+    "parent": "ROOT",
+    "hidden": false,
+    "nodes": [
+      "dashboardTitle",
+      "dashboardBadge"
+    ],
+    "linkedNodes": {}
+  },
+  "dashboardTitle": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "Dashboard",
+      "role": "heading1",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "headingRow",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "dashboardBadge": {
+    "type": {
+      "resolvedName": "Badge"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "Live",
+      "variant": "secondary",
+      "grow": false
+    },
+    "displayName": "Badge",
+    "custom": {},
+    "parent": "headingRow",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "cardsGrid": {
+    "type": {
+      "resolvedName": "LayoutBox"
+    },
+    "isCanvas": true,
+    "props": {
+      "mode": "grid",
+      "direction": {
+        "mobile": "column",
+        "desktop": "row"
+      },
+      "columns": {
+        "mobile": 1,
+        "desktop": 3
+      },
+      "align": {
+        "mobile": "stretch",
+        "desktop": "stretch"
+      },
+      "justify": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "gap": 4,
+      "padding": 0,
+      "background": "none",
+      "grow": false
+    },
+    "displayName": "Frame",
+    "custom": {},
+    "parent": "ROOT",
+    "hidden": false,
+    "nodes": [
+      "revenueCard",
+      "usersCard",
+      "storageCard"
+    ],
+    "linkedNodes": {}
+  },
+  "revenueCard": {
+    "type": {
+      "resolvedName": "Card"
+    },
+    "isCanvas": false,
+    "props": {
+      "title": "Revenue",
+      "description": "",
+      "grow": false
+    },
+    "displayName": "Card",
+    "custom": {},
+    "parent": "cardsGrid",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {
+      "content": "revenueCardContent"
+    }
+  },
+  "revenueCardContent": {
+    "type": {
+      "resolvedName": "CardContent"
+    },
+    "isCanvas": true,
+    "props": {},
+    "displayName": "CardContent",
+    "custom": {},
+    "parent": "revenueCard",
+    "hidden": false,
+    "nodes": [
+      "revenueCaption",
+      "revenueProgress"
+    ],
+    "linkedNodes": {}
+  },
+  "revenueCaption": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "$48,200 this month",
+      "role": "caption",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "revenueCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "revenueProgress": {
+    "type": {
+      "resolvedName": "Progress"
+    },
+    "isCanvas": false,
+    "props": {
+      "value": "72",
+      "label": "",
+      "grow": false
+    },
+    "displayName": "Progress",
+    "custom": {},
+    "parent": "revenueCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "usersCard": {
+    "type": {
+      "resolvedName": "Card"
+    },
+    "isCanvas": false,
+    "props": {
+      "title": "Active users",
+      "description": "",
+      "grow": false
+    },
+    "displayName": "Card",
+    "custom": {},
+    "parent": "cardsGrid",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {
+      "content": "usersCardContent"
+    }
+  },
+  "usersCardContent": {
+    "type": {
+      "resolvedName": "CardContent"
+    },
+    "isCanvas": true,
+    "props": {},
+    "displayName": "CardContent",
+    "custom": {},
+    "parent": "usersCard",
+    "hidden": false,
+    "nodes": [
+      "usersCaption",
+      "usersProgress"
+    ],
+    "linkedNodes": {}
+  },
+  "usersCaption": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "1,204 this week",
+      "role": "caption",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "usersCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "usersProgress": {
+    "type": {
+      "resolvedName": "Progress"
+    },
+    "isCanvas": false,
+    "props": {
+      "value": "58",
+      "label": "",
+      "grow": false
+    },
+    "displayName": "Progress",
+    "custom": {},
+    "parent": "usersCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "storageCard": {
+    "type": {
+      "resolvedName": "Card"
+    },
+    "isCanvas": false,
+    "props": {
+      "title": "Storage used",
+      "description": "",
+      "grow": false
+    },
+    "displayName": "Card",
+    "custom": {},
+    "parent": "cardsGrid",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {
+      "content": "storageCardContent"
+    }
+  },
+  "storageCardContent": {
+    "type": {
+      "resolvedName": "CardContent"
+    },
+    "isCanvas": true,
+    "props": {},
+    "displayName": "CardContent",
+    "custom": {},
+    "parent": "storageCard",
+    "hidden": false,
+    "nodes": [
+      "storageCaption",
+      "storageProgress"
+    ],
+    "linkedNodes": {}
+  },
+  "storageCaption": {
+    "type": {
+      "resolvedName": "Text"
+    },
+    "isCanvas": false,
+    "props": {
+      "text": "312 GB of 500 GB",
+      "role": "caption",
+      "align": {
+        "mobile": "start",
+        "desktop": "start"
+      },
+      "muted": false,
+      "grow": false
+    },
+    "displayName": "Text",
+    "custom": {},
+    "parent": "storageCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "storageProgress": {
+    "type": {
+      "resolvedName": "Progress"
+    },
+    "isCanvas": false,
+    "props": {
+      "value": "62",
+      "label": "",
+      "grow": false
+    },
+    "displayName": "Progress",
+    "custom": {},
+    "parent": "storageCardContent",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  },
+  "dashboardTable": {
+    "type": {
+      "resolvedName": "Table"
+    },
+    "isCanvas": false,
+    "props": {
+      "columns": "Project, Status, Updated",
+      "rows": 4,
+      "grow": false
+    },
+    "displayName": "Table",
+    "custom": {},
+    "parent": "ROOT",
+    "hidden": false,
+    "nodes": [],
+    "linkedNodes": {}
+  }
+}

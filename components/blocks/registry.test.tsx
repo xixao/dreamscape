@@ -4,18 +4,82 @@ import { isResponsive } from '@/lib/responsive';
 import { KNOWN_TYPES, ZONE_TYPES, emptyLayoutJson, resolver, schemaFor, trayItems } from './registry';
 import type { BlockType } from './schema';
 
-const BLOCK_TYPES: BlockType[] = ['LayoutBox', 'Button', 'Input', 'Card', 'Dialog'];
+const BLOCK_TYPES: BlockType[] = [
+  'LayoutBox',
+  'Card',
+  'Tabs',
+  'Text',
+  'Image',
+  'Button',
+  'Input',
+  'Textarea',
+  'Select',
+  'Checkbox',
+  'RadioGroup',
+  'Switch',
+  'Slider',
+  'Badge',
+  'Avatar',
+  'Alert',
+  'Separator',
+  'Progress',
+  'Table',
+  'Dialog',
+];
+
+const TRAY_ORDER: BlockType[] = BLOCK_TYPES;
 
 describe('registry', () => {
-  it('resolves every block and both zones', () => {
+  it('resolves every block and every zone', () => {
     expect([...KNOWN_TYPES].sort()).toEqual(
-      ['Button', 'Card', 'CardContent', 'Dialog', 'DialogContent', 'Input', 'LayoutBox'],
+      [
+        'Alert',
+        'Avatar',
+        'Badge',
+        'Button',
+        'Card',
+        'CardContent',
+        'Checkbox',
+        'Dialog',
+        'DialogContent',
+        'Image',
+        'Input',
+        'LayoutBox',
+        'Progress',
+        'RadioGroup',
+        'Select',
+        'Separator',
+        'Slider',
+        'Switch',
+        'Table',
+        'Tabs',
+        'TabsContent',
+        'Text',
+        'Textarea',
+      ].sort(),
     );
-    expect([...ZONE_TYPES].sort()).toEqual(['CardContent', 'DialogContent']);
+    expect([...ZONE_TYPES].sort()).toEqual(['CardContent', 'DialogContent', 'TabsContent'].sort());
   });
 
   it('has one tray item per block type, in the spec order', () => {
-    expect(trayItems.map((item) => item.type)).toEqual(['LayoutBox', 'Card', 'Button', 'Input', 'Dialog']);
+    expect(trayItems.map((item) => item.type)).toEqual(TRAY_ORDER);
+  });
+
+  it('gives every tray item a label, a short hint and an icon', () => {
+    for (const item of trayItems) {
+      expect(item.label.length).toBeGreaterThan(0);
+      expect(item.hint.length).toBeGreaterThan(0);
+      expect(item.icon).toBeTruthy();
+    }
+  });
+
+  it('labels RadioGroup, Text, Image, Tabs and Table in plain words', () => {
+    const labelFor = (type: BlockType) => trayItems.find((item) => item.type === type)?.label;
+    expect(labelFor('RadioGroup')).toBe('Radio group');
+    expect(labelFor('Text')).toBe('Text');
+    expect(labelFor('Image')).toBe('Image');
+    expect(labelFor('Tabs')).toBe('Tabs');
+    expect(labelFor('Table')).toBe('Table');
   });
 
   it('has a schema for every block whose props exist in the block defaults', () => {
@@ -30,6 +94,8 @@ describe('registry', () => {
       }
     }
     expect(schemaFor('CardContent')).toBeNull();
+    expect(schemaFor('DialogContent')).toBeNull();
+    expect(schemaFor('TabsContent')).toBeNull();
     expect(schemaFor('Nope')).toBeNull();
   });
 

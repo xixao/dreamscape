@@ -19,7 +19,31 @@ import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
  * known-types.test.ts asserts this list matches registry.tsx's resolver
  * keys exactly, so the two cannot silently drift apart.
  */
-const KNOWN_TYPE_NAMES = ['LayoutBox', 'Button', 'Input', 'Card', 'Dialog', 'CardContent', 'DialogContent'] as const;
+const KNOWN_TYPE_NAMES = [
+  'LayoutBox',
+  'Button',
+  'Input',
+  'Card',
+  'Dialog',
+  'CardContent',
+  'DialogContent',
+  'Text',
+  'Image',
+  'Textarea',
+  'Select',
+  'Checkbox',
+  'RadioGroup',
+  'Switch',
+  'Slider',
+  'Badge',
+  'Avatar',
+  'Alert',
+  'Separator',
+  'Progress',
+  'Tabs',
+  'TabsContent',
+  'Table',
+] as const;
 
 export const KNOWN_TYPES: ReadonlySet<string> = new Set(KNOWN_TYPE_NAMES);
 
