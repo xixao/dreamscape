@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 .superpowers/
+
+# vendor agent skill files installed by the Neon integration
+.agents/
+.claude/skills/
+skills-lock.json
