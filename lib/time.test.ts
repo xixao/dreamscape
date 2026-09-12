@@ -55,10 +55,11 @@ describe('relativeTime', () => {
     expect(relativeTime(iso, NOW)).toBe(expected);
   });
 
-  it('formats a date 30+ days back as "Sep 12, 2026"', () => {
-    // NOW itself (2026-09-12, noon UTC) viewed from 40 days later.
+  it('formats a date 30+ days back as a short month, day and year', () => {
+    // NOW itself (2026-09-12, noon UTC) viewed from 40 days later. The day can
+    // roll over in far-east time zones, so only the shape and year are pinned.
     const laterNow = NOW + 40 * DAY;
-    expect(relativeTime(new Date(NOW).toISOString(), laterNow)).toBe('Sep 12, 2026');
+    expect(relativeTime(new Date(NOW).toISOString(), laterNow)).toMatch(/^Sep 1[23], 2026$/);
   });
 
   it('clamps future timestamps to "just now"', () => {
