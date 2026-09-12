@@ -9,6 +9,7 @@ import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persisten
 import { ComponentTray } from './component-tray';
 import { Inspector } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
+import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { useZoneRedirect } from './selection';
@@ -177,6 +178,7 @@ function WorkbenchShell({
           actions.history.clear();
         }}
       />
+      <LayerStackMenu key="layer-stack-menu" />
     </div>
   );
 }

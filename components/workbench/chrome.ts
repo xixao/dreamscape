@@ -48,3 +48,14 @@ export const SEARCH_INPUT =
 // `!`, the New frame dialog's "Clear frame" button showed the plain ghost
 // grey hover instead of the red wash.
 export const DANGER_GHOST = 'text-bad hover:text-bad! hover:bg-bad/12!';
+
+// SF2 popover, used by the press-and-hold layer stack menu (spec 2026-09-12,
+// section 3). MENU_ROW's own `hover:bg-accent` gives mouse hover feedback;
+// the keyboard-active row gets the same `bg-accent` applied conditionally,
+// since arrow-key navigation does not trigger a CSS :hover.
+export const MENU_POPOVER =
+  'bg-card border border-(color:--bevel-line) rounded-md shadow-panel-lg p-1 min-w-44';
+export const MENU_ROW =
+  'flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12.5px] hover:bg-accent';
+export const MENU_HINT = 'font-mono text-[10px] text-t4';
+export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
