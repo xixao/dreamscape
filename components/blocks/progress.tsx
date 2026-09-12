@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { type GrowProps, blockClasses } from '@/lib/classes';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
+import { clampPercent } from '@/lib/lists';
 
 export interface ProgressBlockProps extends GrowProps {
   value: string;
@@ -16,11 +17,7 @@ export const PROGRESS_DEFAULTS: ProgressBlockProps = {
   grow: false,
 };
 
-export function clampPercent(raw: string): number {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.min(100, Math.max(0, parsed));
-}
+export { clampPercent };
 
 export const Progress: UserComponent<Partial<ProgressBlockProps>> = (props) => {
   const merged: ProgressBlockProps = { ...PROGRESS_DEFAULTS, ...props };

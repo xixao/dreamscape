@@ -27,6 +27,7 @@ describe('Select block', () => {
     );
     await waitFor(() => expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull());
     expect(container.querySelector('[data-slot="select-trigger"]')).toHaveClass('pointer-events-none');
+    expect(container.querySelector('[data-slot="select-trigger"]')).toHaveAttribute('tabindex', '-1');
   });
 
   it('hides the label when empty and shows a custom placeholder', async () => {

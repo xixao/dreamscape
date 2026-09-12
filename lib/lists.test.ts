@@ -28,3 +28,14 @@ describe('parseList', () => {
     expect(parseList('  Name With Spaces  , Another One ')).toEqual(['Name With Spaces', 'Another One']);
   });
 });
+
+describe('clampPercent', () => {
+  it('parses and clamps to 0..100, treating non-numbers as 0', async () => {
+    const { clampPercent } = await import('./lists');
+    expect(clampPercent('42')).toBe(42);
+    expect(clampPercent('-10')).toBe(0);
+    expect(clampPercent('250')).toBe(100);
+    expect(clampPercent('abc')).toBe(0);
+    expect(clampPercent('')).toBe(0);
+  });
+});

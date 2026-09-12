@@ -42,6 +42,7 @@ export const Select: UserComponent<Partial<SelectBlockProps>> = (props) => {
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiSelect>
         <SelectTrigger
+          tabIndex={-1}
           aria-disabled={merged.disabled || undefined}
           className={cn('pointer-events-none w-full', merged.disabled && 'opacity-50')}
         >

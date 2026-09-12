@@ -11,3 +11,14 @@ export function parseList(text: string): string[] {
     .filter((item) => item.length > 0)
     .slice(0, 12);
 }
+
+/**
+ * Parses a percentage text prop ("42") into a number clamped to 0..100;
+ * anything that is not a finite number becomes 0. Shared by Progress and
+ * Slider.
+ */
+export function clampPercent(raw: string): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(100, Math.max(0, parsed));
+}

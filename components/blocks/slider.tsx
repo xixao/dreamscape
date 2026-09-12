@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label';
 import { type GrowProps, blockClasses } from '@/lib/classes';
 import { cn } from '@/lib/utils';
 import { GROW_FIELD, type BlockSchema } from './schema';
+import { clampPercent } from '@/lib/lists';
 
 export interface SliderBlockProps extends GrowProps {
   label: string;
@@ -18,11 +19,7 @@ export const SLIDER_DEFAULTS: SliderBlockProps = {
   grow: false,
 };
 
-export function clampPercent(raw: string): number {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.min(100, Math.max(0, parsed));
-}
+export { clampPercent };
 
 // pointer-events-none on the root blocks drag/click on the thumb (CSS
 // pointer-events is inherited by descendants), so a click always selects
