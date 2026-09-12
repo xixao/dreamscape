@@ -2,8 +2,15 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EXAMPLES } from '@/lib/examples';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { EXAMPLES, type ExampleSlug } from '@/lib/examples';
 
 // SF2 §5 .btn look, reused verbatim from the plan for the Files-page
 // actions. h-auto overrides the shadcn Button's fixed h-8 so the literal
@@ -24,9 +31,8 @@ export function FilesActions({
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const example = EXAMPLES[0];
 
-  async function createFile(body: { example?: 'login' }) {
+  async function createFile(body: { example?: ExampleSlug }) {
     if (pending) return;
     setPending(true);
     setError(null);
@@ -53,15 +59,21 @@ export function FilesActions({
         <Button type="button" variant="ghost" className={SECONDARY_BUTTON} onClick={onNewFolder}>
           New folder
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={SECONDARY_BUTTON}
-          disabled={pending}
-          onClick={() => createFile({ example: example.slug })}
-        >
-          New from example: {example.name}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" className={SECONDARY_BUTTON} disabled={pending}>
+              New from example
+              <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {EXAMPLES.map((example) => (
+              <DropdownMenuItem key={example.slug} onSelect={() => createFile({ example: example.slug })}>
+                {example.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           type="button"
           variant="ghost"

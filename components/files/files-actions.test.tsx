@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { EXAMPLES } from '@/lib/examples';
 import { FilesActions } from './files-actions';
 
 const push = vi.fn();
@@ -15,11 +16,19 @@ beforeEach(() => {
 });
 
 describe('FilesActions', () => {
-  it('renders New folder, the secondary example button and the primary new file button', () => {
+  it('renders New folder, the example menu and the primary new file button', () => {
     render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'New folder' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'New from example: Login screen' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New from example' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ New file' })).toBeInTheDocument();
+  });
+
+  it('lists every example in the menu', async () => {
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'New from example' }));
+    for (const example of EXAMPLES) {
+      expect(await screen.findByRole('menuitem', { name: example.name })).toBeInTheDocument();
+    }
   });
 
   it('calls onNewFolder when New folder is clicked, without making a request', async () => {
@@ -75,12 +84,33 @@ describe('FilesActions', () => {
     });
 
     render(<FilesActions folderId="folder1" onNewFolder={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: 'New from example: Login screen' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New from example' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Login screen' }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/f/ex1'));
     expect(fetch).toHaveBeenCalledWith(
       '/api/files',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ example: 'login', folderId: 'folder1' }) }),
+    );
+  });
+
+  it('creates a file from any other example with its own slug', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ file: { id: 'ex2', name: 'Dashboard' } }),
+    });
+    const other = EXAMPLES.find((example) => example.slug !== 'login');
+    if (!other) return;
+
+    render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'New from example' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: other.name }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/f/ex2'));
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/files',
+      expect.objectContaining({ body: JSON.stringify({ example: other.slug, folderId: null }) }),
     );
   });
 
@@ -95,7 +125,7 @@ describe('FilesActions', () => {
 
     render(<FilesActions folderId={null} onNewFolder={vi.fn()} />);
     const newFileButton = screen.getByRole('button', { name: '+ New file' });
-    const exampleButton = screen.getByRole('button', { name: 'New from example: Login screen' });
+    const exampleButton = screen.getByRole('button', { name: 'New from example' });
 
     await userEvent.click(newFileButton);
     expect(newFileButton).toBeDisabled();
