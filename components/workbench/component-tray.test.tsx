@@ -8,7 +8,7 @@ import { ComponentTray, filterTrayItems } from './component-tray';
 describe('ComponentTray', () => {
   it('lists every tray item with its label and hint', () => {
     renderInEditor(<ComponentTray />);
-    expect(screen.getByText('Components')).toBeInTheDocument();
+    expect(screen.getByText('Assets')).toBeInTheDocument();
     for (const item of trayItems) {
       const row = screen.getByText(item.label).closest('[data-tray-item]');
       expect(row).toHaveAttribute('data-tray-item', item.type);
@@ -31,7 +31,7 @@ describe('ComponentTray', () => {
 
   it('filters the rendered rows as the user types, and clears back to the full list', async () => {
     const { container } = renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Filter components');
+    const input = screen.getByLabelText('Search assets');
 
     await userEvent.type(input, 'dia');
     const matched = container.querySelectorAll('[data-tray-item]');
@@ -41,7 +41,7 @@ describe('ComponentTray', () => {
     await userEvent.clear(input);
     await userEvent.type(input, 'zzz');
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(0);
-    expect(screen.getByText('No components match.')).toBeInTheDocument();
+    expect(screen.getByText('No assets match.')).toBeInTheDocument();
 
     await userEvent.clear(input);
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(trayItems.length);

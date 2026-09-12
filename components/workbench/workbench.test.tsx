@@ -67,7 +67,7 @@ describe('Workbench persistence', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     localStorage.setItem(LAYOUT_STORAGE_KEY, DANGLING_CHILD);
     render(<Workbench />);
-    expect(await screen.findByText('Nothing on the stage yet')).toBeInTheDocument();
+    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(localStorage.getItem(LAYOUT_STORAGE_KEY)).toBeNull();
     expect(console.warn).toHaveBeenCalledWith(
       'Saved layout could not be loaded; starting empty.',
@@ -87,7 +87,7 @@ describe('Workbench persistence', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     localStorage.setItem(LAYOUT_STORAGE_KEY, '{');
     render(<Workbench />);
-    expect(await screen.findByText('Nothing on the stage yet')).toBeInTheDocument();
+    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
   });
 
   it('saves after a change and clears the stage through New', async () => {
@@ -95,15 +95,15 @@ describe('Workbench persistence', () => {
     render(<Workbench />);
     await screen.findByRole('button', { name: 'Restored' });
 
-    await userEvent.click(screen.getByRole('button', { name: 'New layout' }));
-    expect(await screen.findByText('Start a new layout?')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
+    expect(await screen.findByText('Start a new frame?')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByText('Start a new layout?')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Start a new frame?')).toBeNull());
     expect(screen.getByRole('button', { name: 'Restored' })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'New layout' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Clear stage' }));
-    expect(await screen.findByText('Nothing on the stage yet')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear frame' }));
+    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
 
     await waitFor(
@@ -114,7 +114,7 @@ describe('Workbench persistence', () => {
 
   it('debounces the stage width save, coalescing rapid changes into one write', async () => {
     render(<Workbench />);
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
     const widthWrites = () => setItemSpy.mock.calls.filter(([key]) => key === WIDTH_STORAGE_KEY);
 
@@ -128,7 +128,7 @@ describe('Workbench persistence', () => {
 
   it('flushes the debounced width save on unmount', async () => {
     const { unmount } = render(<Workbench />);
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     await userEvent.click(presetButton('Mobile'));
     expect(localStorage.getItem(WIDTH_STORAGE_KEY)).toBeNull();
     unmount();

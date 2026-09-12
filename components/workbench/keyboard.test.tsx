@@ -12,7 +12,7 @@ function Keys() {
     <>
       <input aria-label="typing" />
       <div role="alertdialog">
-        <button type="button">Clear stage</button>
+        <button type="button">Clear frame</button>
       </div>
     </>
   );
@@ -61,7 +61,7 @@ describe('isEditableTarget', () => {
         </div>
         <div role="alertdialog">
           <button type="button" data-testid="alert-action">
-            Clear stage
+            Clear frame
           </button>
         </div>
       </div>,
@@ -106,7 +106,7 @@ describe('useWorkbenchKeyboard', () => {
     editor().actions.selectNode(buttonId);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
 
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear stage' }), { key: 'Delete' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'Delete' });
     expect(screen.getByRole('button', { name: 'Doomed' })).toBeInTheDocument();
   });
 

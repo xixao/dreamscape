@@ -12,24 +12,27 @@ export function selectedIdFrom(state: EditorState): string | null {
 export interface SelectedNode {
   id: string | null;
   type: string | null;
+  displayName: string | null;
   parentId: string | null;
   isRoot: boolean;
   isZone: boolean;
 }
 
 export function useSelectedNode(): SelectedNode {
-  const { id, type, parentId } = useEditor((state) => {
+  const { id, type, displayName, parentId } = useEditor((state) => {
     const selectedId = selectedIdFrom(state);
     const node = selectedId ? state.nodes[selectedId] : null;
     return {
       id: node ? selectedId : null,
       type: node ? node.data.name : null,
+      displayName: node ? node.data.displayName || node.data.name : null,
       parentId: node ? (node.data.parent ?? null) : null,
     };
   });
   return {
     id,
     type,
+    displayName,
     parentId,
     isRoot: id === ROOT_NODE,
     isZone: type !== null && ZONE_TYPES.has(type),

@@ -96,7 +96,7 @@ export const dialogSchema: BlockSchema = {
     { prop: 'description', label: 'Description', kind: 'text', section: 'Content' },
     {
       prop: 'previewOpen',
-      label: 'Show content on stage',
+      label: 'Show content on canvas',
       kind: 'boolean',
       section: 'Editor',
       editorOnly: true,

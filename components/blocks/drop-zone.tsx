@@ -9,9 +9,9 @@ export function DropZone() {
 export function StageEmptyState() {
   return (
     <div className="rounded-lg border border-dashed p-10 text-center">
-      <p className="text-sm font-medium">Nothing on the stage yet</p>
+      <p className="text-sm font-medium">This frame is empty</p>
       <p className="text-sm text-muted-foreground">
-        Drag a component from the Components panel on the left and drop it here.
+        Drag an asset from the Assets panel on the left and drop it here.
       </p>
     </div>
   );

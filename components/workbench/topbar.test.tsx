@@ -50,7 +50,7 @@ describe('Topbar', () => {
         <Topbar onNew={() => {}} />
       </>,
     );
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     const undo = screen.getByRole('button', { name: 'Undo' });
     const redo = screen.getByRole('button', { name: 'Redo' });
     expect(undo).toBeDisabled();
@@ -69,7 +69,7 @@ describe('Topbar', () => {
   it('calls onNew', async () => {
     const onNew = vi.fn();
     renderInEditor(<Topbar onNew={onNew} />);
-    await userEvent.click(screen.getByRole('button', { name: 'New layout' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     expect(onNew).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,9 +15,9 @@ async function findBoxes(container: HTMLElement, count: number) {
 describe('LayoutBox', () => {
   it('shows the stage empty state when the root has no children', async () => {
     renderTree(<Element is={LayoutBox} canvas />);
-    expect(await screen.findByText('Nothing on the stage yet')).toBeInTheDocument();
+    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(
-      screen.getByText('Drag a component from the Components panel on the left and drop it here.'),
+      screen.getByText('Drag an asset from the Assets panel on the left and drop it here.'),
     ).toBeInTheDocument();
   });
 
@@ -28,7 +28,7 @@ describe('LayoutBox', () => {
       </Element>,
     );
     expect(await screen.findByText('Drop here')).toBeInTheDocument();
-    expect(screen.queryByText('Nothing on the stage yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('This frame is empty')).not.toBeInTheDocument();
   });
 
   it('resolves direction from the stage width', async () => {

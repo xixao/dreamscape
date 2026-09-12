@@ -82,7 +82,7 @@ The workbench is the full window (the SF2 "editor takeover" idea; there is no ma
 - Resize: a 12 px wide grip on the artboard's right edge (`cursor-col-resize`, a `bg-border` pill that turns `bg-acc` while dragging). Pointer drag changes `W` live, clamped to [320, 1920]. Pointer events with pointer capture, so the drag survives leaving the grip. The pointer delta is divided by the current zoom so the edge follows the cursor when the artboard is scaled.
 - Scale to fit: when `W` exceeds the column's inner width (column width minus 48), the artboard wrapper gets CSS `zoom: inner / W` (zoom is layout-aware, so scroll height and hit-testing stay correct; if Craft.js drop indicators misplace under `zoom`, the fallback is `transform: scale()` with a sized wrapper). The readout shows the resulting percentage; at 100% it shows nothing.
 - Breakpoint derivation: `breakpoint = W < 768 ? 'mobile' : 'desktop'` (768 is Tailwind's `md`). A `StageProvider` context exposes `{ width, breakpoint, preset, zoom, setWidth, setPreset, setZoom }`. Blocks read `breakpoint` to resolve responsive props; nothing in the stage relies on browser media queries, because the stage is a div inside a wide window and `md:` classes would never fire there.
-- Empty stage: the root container shows a dashed empty state in the artboard's own theme (`border border-dashed rounded-lg p-10 text-center`): "Nothing on the stage yet" in `text-sm font-medium`, then "Drag a component from the Components panel on the left and drop it here." in `text-sm text-muted-foreground`. The root uses this instead of the small "Drop here" placeholder described next.
+- Empty stage: the root container shows a dashed empty state in the artboard's own theme (`border border-dashed rounded-lg p-10 text-center`): "This frame is empty" in `text-sm font-medium`, then "Drag an asset from the Assets panel on the left and drop it here." in `text-sm text-muted-foreground`. The root uses this instead of the small "Drop here" placeholder described next.
 - Empty containers: any LayoutBox, Card content area or Dialog content area with no children renders a dashed placeholder (`min-h-20 border border-dashed rounded-md`) with "Drop here" in `text-xs text-muted-foreground`, so it stays a visible drop target.
 
 ### 4.4 Selection and hover
@@ -146,9 +146,9 @@ Class mapping lives in `lib/classes.ts` as tables of literal Tailwind strings (T
 
 Bound to the current selection.
 
-- Nothing selected: the SF2 empty state (dashed `--line-strong` border, `rounded-xl`, centered): "Nothing selected", "Click a component on the stage to edit it."
+- Nothing selected: the SF2 empty state (dashed `--line-strong` border, `rounded-xl`, centered): "Nothing selected", "Select a layer on the canvas to edit it."
 - Selected: a shadcn `Breadcrumb` of ancestors, root first (each ancestor clickable to select it, so a parent container is one click away), then the type name (`text-[13px] font-semibold`) with, for containers, a `Badge variant="secondary"` counting direct children ("3 items"), then the fields, then a Delete button at the bottom (a ghost `Button` with the SF2 danger treatment: `text-bad`, red wash on hover; hidden for the root).
-- Fields are generated from a per-block prop schema (each block file exports its own schema; `registry.tsx` collects them), one entry per prop with `kind`, `label`, `section`, `options`, `responsive`, `editorOnly`, `showWhen` (for `columns` only when `mode` is grid). Field kinds map to shadcn controls: 2 or 3 options → `ToggleGroup` styled as the SF2 segmented control; 4 or more → `Select` whose trigger is styled as the SF2 chip; text → `Input` styled as the SF2 chip; boolean → `Switch` on the same row as its label. Every field has a `Label` in the SF2 mono label treatment above it (beside it for switches). Fields group into sections with the SF2 hairline divider and a title (`text-[12.5px] font-semibold`): "Layout" (LayoutBox props, or `grow` for others), "Content" (labels, titles, placeholder), "Style" (variant, size, background), "Editor" (`previewOpen`).
+- Fields are generated from a per-block prop schema (each block file exports its own schema; `registry.tsx` collects them), one entry per prop with `kind`, `label`, `section`, `options`, `responsive`, `editorOnly`, `showWhen` (for `columns` only when `mode` is grid). Field kinds map to shadcn controls: 2 or 3 options → `ToggleGroup` styled as the SF2 segmented control; 4 or more → `Select` whose trigger is styled as the SF2 chip; text → `Input` styled as the SF2 chip; boolean → `Switch` on the same row as its label. Every field has a `Label` in the SF2 mono label treatment above it (beside it for switches). Fields group into sections with the SF2 hairline divider and a title (`text-[12.5px] font-semibold`): "Auto layout" (LayoutBox props, or `grow` for others), "Content" (labels, titles, placeholder), "Appearance" (variant, size, background), "Editor" (`previewOpen`).
 - Responsive fields edit the value for the stage's current breakpoint. The label carries a `Badge variant="outline"` in mono reading MOBILE or DESKTOP, and below the control a caption in `font-mono text-[10.5px] text-muted-foreground` shows the other breakpoint's value, for example `desktop: row`. Clicking that caption switches the stage to that breakpoint's preset (375 or 1440). This is the "what you see is what you're editing" model: at 768 the desktop config is active, and the readout says so.
 - Edits go through Craft.js `setProp` and are therefore undoable. Text fields commit on every keystroke through `actions.history.throttle(500)`, so typing a word is one undo step.
 
@@ -164,9 +164,9 @@ Ignored while focus is inside any input, textarea, select or contenteditable.
 
 - On every change, `query.serialize()` is written to `localStorage` under `assembly-workbench:layout:v1`, debounced 500 ms.
 - On load, the saved JSON is passed to `<Frame data={...}>`. If the JSON is missing, corrupt, has no `ROOT`, or references a block type that no longer exists, the stage starts empty and a `console.warn` explains why. No toast, no modal.
-- Stage width also persists (`assembly-workbench:stage-width`), so a reload comes back at the same width.
+- Frame width also persists (`assembly-workbench:stage-width`), so a reload comes back at the same width.
 - The workbench renders client-side only (`next/dynamic` with `ssr: false` from a small client loader), because both Craft.js and the localStorage reads need the browser, and a server render would not match.
-- New (topbar) opens an `AlertDialog`: title "Start a new layout?", description "This clears everything on the stage. Undo will not bring it back.", Cancel on the left, "Clear stage" on the right with the SF2 danger treatment (red text, red wash on hover). Confirming deserializes the empty tree and clears the history. Escape and Cancel close it without clearing.
+- New (topbar) opens an `AlertDialog`: title "Start a new frame?", description "This removes every layer in the frame. Undo will not bring it back.", Cancel on the left, "Clear frame" on the right with the SF2 danger treatment (red text, red wash on hover). Confirming deserializes the empty tree and clears the history. Escape and Cancel close it without clearing.
 
 ### 4.11 Data model summary
 
@@ -182,6 +182,25 @@ Four seams, and nothing else, know what the components look like:
 4. `lib/classes.ts`: the layout class tables, which are plain Tailwind and stay as they are.
 
 Blocks never import Radix or Tailwind-specific pieces directly; they only compose `@/components/ui/*` and read the schema. The chrome's SF2 treatment is isolated in `:root` and `components/workbench/chrome.ts`.
+
+### 4.13 Figma terminology
+
+The chrome's copy uses Figma's words, so a designer who already knows Figma feels at home. Nothing underneath changed to match: resolver keys, prop names, file names and saved layouts keep their original names, and the mapping below is the only place the two vocabularies meet.
+
+| What the user sees (Figma word) | What it is in the code |
+|---|---|
+| Frame | The `LayoutBox` block with auto layout (`mode: 'flex'`) |
+| Assets panel | The component tray |
+| Design panel | The inspector |
+| Canvas | The stage column |
+| Layer | A block, i.e. a Craft.js node |
+| Horizontal / Vertical | `direction: 'row'` / `direction: 'column'` (flex row / column) |
+| Distribution: Space between | `justify: 'between'` |
+| Fill container | The `grow` prop |
+| Fill | The `background` prop |
+| Alignment | The `align` prop |
+
+Code identifiers, resolver keys (`LayoutBox`, `Button`, `Input`, `Card`, `Dialog`, `CardContent`, `DialogContent`), prop names, file names, storage keys and saved layouts are unchanged by this table. The one runtime seam is `LayoutBox.craft.displayName`, which is `"Frame"`: Craft.js stores it on every node as `data.displayName` alongside the unchanged resolver name `data.name`, so the breadcrumb, the inspector's type name and the selection outline's name tag all read it (falling back to `data.name` when a block has no override) and show "Frame" without renaming `LayoutBox` itself anywhere a saved layout, a test, or another block's code refers to it.
 
 ## 5. File layout
 

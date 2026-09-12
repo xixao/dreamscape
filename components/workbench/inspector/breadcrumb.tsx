@@ -13,8 +13,8 @@ import {
 import { ZONE_TYPES } from '@/components/blocks/registry';
 import { selectedIdFrom } from '../selection';
 
-function crumbName(id: string, name: string): string {
-  return id === ROOT_NODE ? 'Stage' : name;
+function crumbName(id: string, displayName: string): string {
+  return id === ROOT_NODE ? 'Frame' : displayName;
 }
 
 export function NodeBreadcrumb() {
@@ -29,9 +29,12 @@ export function NodeBreadcrumb() {
     return {
       trail: ancestors.map((ancestorId) => ({
         id: ancestorId,
-        name: crumbName(ancestorId, state.nodes[ancestorId].data.name),
+        name: crumbName(
+          ancestorId,
+          state.nodes[ancestorId].data.displayName || state.nodes[ancestorId].data.name,
+        ),
       })),
-      current: crumbName(id, state.nodes[id].data.name),
+      current: crumbName(id, state.nodes[id].data.displayName || state.nodes[id].data.name),
     };
   });
 

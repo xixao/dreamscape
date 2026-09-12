@@ -36,7 +36,7 @@ function ResizeGrip({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the stage"
+      aria-label="Resize the frame"
       aria-valuenow={width}
       aria-valuemin={MIN_STAGE_WIDTH}
       aria-valuemax={MAX_STAGE_WIDTH}

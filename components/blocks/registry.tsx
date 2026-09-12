@@ -33,8 +33,8 @@ export interface TrayItem {
 export const trayItems: TrayItem[] = [
   {
     type: 'LayoutBox',
-    label: 'Layout box',
-    hint: 'Flex or grid container',
+    label: 'Frame',
+    hint: 'Auto layout container',
     icon: LayoutGrid,
     create: () => <Element is={LayoutBox} canvas />,
   },

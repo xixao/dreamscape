@@ -29,7 +29,7 @@ export interface BlockSchema {
 
 export const GROW_FIELD: FieldSchema = {
   prop: 'grow',
-  label: 'Grow to fill',
+  label: 'Fill container',
   kind: 'boolean',
   section: 'Layout',
 };

@@ -44,7 +44,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
 };
 
 LayoutBox.craft = {
-  displayName: 'LayoutBox',
+  displayName: 'Frame',
   props: LAYOUT_BOX_DEFAULTS,
   rules: {
     canDrag: (node) => node.id !== ROOT_NODE,
@@ -59,11 +59,11 @@ export const layoutBoxSchema: BlockSchema = {
   fields: [
     {
       prop: 'mode',
-      label: 'Mode',
+      label: 'Layout',
       kind: 'select',
       section: 'Layout',
       options: [
-        { value: 'flex', label: 'Flex' },
+        { value: 'flex', label: 'Auto layout' },
         { value: 'grid', label: 'Grid' },
       ],
     },
@@ -75,8 +75,8 @@ export const layoutBoxSchema: BlockSchema = {
       responsive: true,
       showWhen: isFlex,
       options: [
-        { value: 'row', label: 'Row' },
-        { value: 'column', label: 'Column' },
+        { value: 'row', label: 'Horizontal' },
+        { value: 'column', label: 'Vertical' },
       ],
     },
     {
@@ -90,7 +90,7 @@ export const layoutBoxSchema: BlockSchema = {
     },
     {
       prop: 'align',
-      label: 'Align',
+      label: 'Alignment',
       kind: 'select',
       section: 'Layout',
       responsive: true,
@@ -103,7 +103,7 @@ export const layoutBoxSchema: BlockSchema = {
     },
     {
       prop: 'justify',
-      label: 'Justify',
+      label: 'Distribution',
       kind: 'select',
       section: 'Layout',
       responsive: true,
@@ -112,7 +112,7 @@ export const layoutBoxSchema: BlockSchema = {
         { value: 'start', label: 'Start' },
         { value: 'center', label: 'Center' },
         { value: 'end', label: 'End' },
-        { value: 'between', label: 'Between' },
+        { value: 'between', label: 'Space between' },
       ],
     },
     {
@@ -131,7 +131,7 @@ export const layoutBoxSchema: BlockSchema = {
     },
     {
       prop: 'background',
-      label: 'Background',
+      label: 'Fill',
       kind: 'select',
       section: 'Style',
       options: [

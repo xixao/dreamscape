@@ -52,9 +52,10 @@ export function SelectionOutline({
 }
 
 export function NodeIndicator({ render }: { render: ReactElement }) {
-  const { id, dom, name, isHovered } = useNode((node) => ({
+  const { id, dom, name, displayName, isHovered } = useNode((node) => ({
     dom: node.dom,
     name: node.data.name,
+    displayName: node.data.displayName,
     isHovered: node.events.hovered,
   }));
   const { isSelected, treeVersion } = useEditor((state) => ({
@@ -118,7 +119,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
           <SelectionOutline
             rect={rect}
             color="var(--acc)"
-            label={name}
+            label={displayName || name}
             weight={isSelected ? 'selected' : 'hover'}
           />,
           document.body,

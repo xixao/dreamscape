@@ -25,15 +25,15 @@ export function NewLayoutDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Start a new layout?</AlertDialogTitle>
+          <AlertDialogTitle>Start a new frame?</AlertDialogTitle>
           <AlertDialogDescription>
-            This clears everything on the stage. Undo will not bring it back.
+            This removes every layer in the frame. Undo will not bring it back.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction variant="ghost" className={DANGER_GHOST} onClick={onConfirm}>
-            Clear stage
+            Clear frame
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

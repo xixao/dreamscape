@@ -71,6 +71,25 @@ describe('NodeIndicator', () => {
     await screen.findByRole('button', { name: 'Alone' });
     await waitFor(() => expect(screen.queryByTestId('selection-outline')).toBeNull());
   });
+
+  it('shows the displayName, not the resolver name, in the outline tag for a nested LayoutBox', async () => {
+    render(
+      <Editor resolver={resolver} onRender={NodeIndicator}>
+        <StageProvider>
+          <Frame>
+            <Element is={LayoutBox} canvas>
+              <Element is={LayoutBox} canvas />
+            </Element>
+          </Frame>
+          <Selector pick="first-child" />
+        </StageProvider>
+      </Editor>,
+    );
+    await screen.findByText('Drop here');
+    const outline = await screen.findByTestId('selection-outline');
+    expect(outline).toHaveAttribute('data-weight', 'selected');
+    expect(outline).toHaveTextContent('Frame');
+  });
 });
 
 describe('NodeIndicator re-measurement', () => {

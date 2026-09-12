@@ -41,20 +41,20 @@ describe('Inspector', () => {
   it('shows the empty state when nothing is selected', async () => {
     mount();
     await screen.findByText('Billing');
-    const panel = screen.getByRole('complementary', { name: 'Inspector' });
+    const panel = screen.getByRole('complementary', { name: 'Design' });
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
-    expect(within(panel).getByText('Click a component on the stage to edit it.')).toBeInTheDocument();
+    expect(within(panel).getByText('Select a layer on the canvas to edit it.')).toBeInTheDocument();
   });
 
   it('builds the fields for a selected Button from its schema and edits them', async () => {
     const { editor } = mount();
     await screen.findByText('Billing');
     const buttonId = await select(editor, 'button');
-    const panel = screen.getByRole('complementary', { name: 'Inspector' });
+    const panel = screen.getByRole('complementary', { name: 'Design' });
 
     expect(within(panel).getByTestId('inspector-type')).toHaveTextContent('Button');
-    expect(within(panel).getByText('Stage')).toBeInTheDocument();
-    for (const section of ['Layout', 'Content', 'Style']) {
+    expect(within(panel).getByText('Frame')).toBeInTheDocument();
+    for (const section of ['Auto layout', 'Content', 'Appearance']) {
       expect(within(panel).getByRole('heading', { name: section })).toBeInTheDocument();
     }
     expect(within(panel).queryByRole('heading', { name: 'Editor' })).toBeNull();
@@ -68,7 +68,7 @@ describe('Inspector', () => {
     await userEvent.click(within(panel).getByText('Small'));
     await waitFor(() => expect(editor().query.node(buttonId).get().data.props.size).toBe('sm'));
 
-    await userEvent.click(within(panel).getByRole('switch', { name: 'Grow to fill' }));
+    await userEvent.click(within(panel).getByRole('switch', { name: 'Fill container' }));
     await waitFor(() => expect(editor().query.node(buttonId).get().data.props.grow).toBe(true));
 
     expect(within(panel).getByRole('combobox', { name: 'Variant' })).toHaveTextContent('Default');
@@ -78,7 +78,8 @@ describe('Inspector', () => {
     const { editor } = mount(375);
     await screen.findByText('Billing');
     await select(editor, 'root');
-    const panel = screen.getByRole('complementary', { name: 'Inspector' });
+    const panel = screen.getByRole('complementary', { name: 'Design' });
+    expect(within(panel).getByTestId('inspector-type')).toHaveTextContent('Frame');
 
     const direction = within(panel).getByText('Direction').closest('[data-field]') as HTMLElement;
     expect(within(direction).getByText('mobile')).toBeInTheDocument();
@@ -90,7 +91,7 @@ describe('Inspector', () => {
     // installed default, independent of the Inspector code under test.
     expect(within(direction).getByTestId('breakpoint-caption')).toHaveTextContent('desktop: row');
 
-    await userEvent.click(within(direction).getByText('Row'));
+    await userEvent.click(within(direction).getByText('Horizontal'));
     await waitFor(() =>
       expect(editor().query.node(ROOT_NODE).get().data.props.direction).toEqual({
         mobile: 'row',
@@ -106,8 +107,8 @@ describe('Inspector', () => {
     const { editor } = mount();
     await screen.findByText('Billing');
     await select(editor, 'root');
-    const panel = screen.getByRole('complementary', { name: 'Inspector' });
-    expect(within(panel).queryByRole('switch', { name: 'Grow to fill' })).toBeNull();
+    const panel = screen.getByRole('complementary', { name: 'Design' });
+    expect(within(panel).queryByRole('switch', { name: 'Fill container' })).toBeNull();
     expect(within(panel).queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(within(panel).getByText('2 items')).toBeInTheDocument();
 
@@ -120,7 +121,7 @@ describe('Inspector', () => {
     const { editor } = mount();
     await screen.findByText('Billing');
     await select(editor, 'button');
-    const panel = screen.getByRole('complementary', { name: 'Inspector' });
+    const panel = screen.getByRole('complementary', { name: 'Design' });
     await userEvent.click(within(panel).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Pay' })).toBeNull());
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();

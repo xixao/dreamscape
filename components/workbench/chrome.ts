@@ -45,6 +45,6 @@ export const SEARCH_INPUT =
 // variant's className with the child's rather than running them through
 // tailwind-merge, so a plain (unmarked) hover:bg-bad/12 can lose the cascade
 // to a ghost/outline variant's own hover:bg-muted. Confirmed live: without
-// `!`, the New Layout dialog's "Clear stage" button showed the plain ghost
+// `!`, the New frame dialog's "Clear frame" button showed the plain ghost
 // grey hover instead of the red wash.
 export const DANGER_GHOST = 'text-bad hover:text-bad! hover:bg-bad/12!';

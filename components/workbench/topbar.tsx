@@ -69,7 +69,7 @@ export function Topbar({ onNew }: { onNew: () => void }) {
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
         <ToggleGroup
           type="single"
-          aria-label="Stage width"
+          aria-label="Frame width"
           value={preset ?? ''}
           onValueChange={(value) => {
             if (value) setPreset(value as StagePreset);
@@ -100,7 +100,7 @@ export function Topbar({ onNew }: { onNew: () => void }) {
         <div className="flex-1" />
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
-        <IconAction label="New layout" icon={FilePlus2} onClick={onNew} />
+        <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
       </header>
     </TooltipProvider>
   );

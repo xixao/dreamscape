@@ -23,10 +23,16 @@ import { NodeBreadcrumb } from './breadcrumb';
 import { Field } from './field';
 
 const SECTION_ORDER: SectionName[] = ['Layout', 'Content', 'Style', 'Editor'];
+const SECTION_TITLES: Record<SectionName, string> = {
+  Layout: 'Auto layout',
+  Content: 'Content',
+  Style: 'Appearance',
+  Editor: 'Editor',
+};
 const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 
 export function Inspector() {
-  const { id, type, isRoot } = useSelectedNode();
+  const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
   // The collector re-runs only on the next store notification, using whatever
   // closure was current when that notification fires. Deriving the selected id
@@ -47,22 +53,22 @@ export function Inspector() {
   const schema = type ? schemaFor(type) : null;
 
   return (
-    <aside aria-label="Inspector" className={cn(PANEL, 'flex min-h-0 flex-col')}>
+    <aside aria-label="Design" className={cn(PANEL, 'flex min-h-0 flex-col')}>
       <div className={PANEL_HEADER}>
-        <span className={PANEL_TITLE}>Inspector</span>
+        <span className={PANEL_TITLE}>Design</span>
       </div>
       <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
         {!id || !type || !schema || !props ? (
           <div className={EMPTY}>
             <b className={EMPTY_TITLE}>Nothing selected</b>
-            Click a component on the stage to edit it.
+            Select a layer on the canvas to edit it.
           </div>
         ) : (
           <>
             <NodeBreadcrumb />
             <div className="flex items-center gap-2">
               <span data-testid="inspector-type" className="text-[13px] font-semibold">
-                {type}
+                {displayName}
               </span>
               {CONTAINER_TYPES.has(type) && (
                 <Badge variant="secondary" className="font-mono text-[10px]">
@@ -80,7 +86,7 @@ export function Inspector() {
               if (fields.length === 0) return null;
               return (
                 <section key={section} className={SECTION}>
-                  <h3 className={SECTION_TITLE}>{section}</h3>
+                  <h3 className={SECTION_TITLE}>{SECTION_TITLES[section]}</h3>
                   <div className="flex flex-col gap-3">
                     {fields.map((field) => (
                       <Field

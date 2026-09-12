@@ -16,12 +16,12 @@ describe('Stage', () => {
     const artboard = await screen.findByTestId('artboard');
     expect(artboard).toHaveClass('theme-basic');
     expect(artboard).toHaveStyle({ width: '768px', minHeight: '640px' });
-    expect(await screen.findByText('Nothing on the stage yet')).toBeInTheDocument();
+    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
   });
 
   it('deselects when the canvas outside the artboard is pressed', async () => {
     const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
 
@@ -31,7 +31,7 @@ describe('Stage', () => {
 
   it('keeps the selection when the artboard itself is pressed', async () => {
     const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
 
@@ -41,7 +41,7 @@ describe('Stage', () => {
 
   it('resizes with the grip, dividing the pointer delta by the zoom', async () => {
     renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the stage' });
+    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     expect(grip).toHaveAttribute('aria-valuenow', '1000');
 
     fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
@@ -57,7 +57,7 @@ describe('Stage', () => {
 
   it('resizes with the arrow keys, ten times faster with Shift', async () => {
     renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the stage' });
+    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     fireEvent.keyDown(grip, { key: 'ArrowRight' });
     expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1010px' });
     fireEvent.keyDown(grip, { key: 'ArrowRight', shiftKey: true });
@@ -68,7 +68,7 @@ describe('Stage', () => {
 
   it('ends the drag on pointer cancel, so a later move does not resize', async () => {
     renderInEditor(<Stage data={emptyLayoutJson()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the stage' });
+    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
     fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
     expect(grip.firstElementChild).toHaveClass('bg-acc');
     fireEvent.pointerCancel(grip, { clientX: 100, pointerId: 1 });
@@ -79,10 +79,10 @@ describe('Stage', () => {
 
   it('keeps the selection when the grip is pressed', async () => {
     const { editor } = renderInEditor(<Stage data={emptyLayoutJson()} />);
-    await screen.findByText('Nothing on the stage yet');
+    await screen.findByText('This frame is empty');
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
-    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize the stage' }), {
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize the frame' }), {
       clientX: 0,
       pointerId: 1,
     });
