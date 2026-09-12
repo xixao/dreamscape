@@ -3,16 +3,19 @@
 import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import { Search } from 'lucide-react';
-import { trayItems, type TrayItem } from '@/components/blocks/registry';
+import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { PANEL, PANEL_HEADER, PANEL_TITLE, SEARCH, SEARCH_INPUT } from './chrome';
+import { LABEL, PANEL, PANEL_HEADER, PANEL_TITLE, SEARCH, SEARCH_INPUT } from './chrome';
+
+// Render order for the group headings; within a group, trayItems' own order wins.
+const GROUP_ORDER: readonly TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
 
 export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return items;
   return items.filter((item) =>
-    [item.label, item.hint, item.type].some((field) => field.toLowerCase().includes(trimmed)),
+    [item.label, item.type].some((field) => field.toLowerCase().includes(trimmed)),
   );
 }
 
@@ -38,22 +41,34 @@ export function ComponentTray() {
           />
         </div>
       </div>
-      <ul className="flex flex-col gap-1 overflow-y-auto p-2">
-        {filteredItems.map((item) => (
-          <li
-            key={item.type}
-            data-tray-item={item.type}
-            ref={(element) => {
-              if (element) connectors.create(element, item.create());
-            }}
-            className="flex cursor-grab items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent active:cursor-grabbing"
-          >
-            <item.icon className="size-4 text-acc2" aria-hidden />
-            <span className="text-[13px] font-medium text-foreground">{item.label}</span>
-            <span className="ml-auto font-mono text-[10.5px] text-t4">{item.hint}</span>
-          </li>
-        ))}
-      </ul>
+      <div className="flex flex-col overflow-y-auto pb-2">
+        {GROUP_ORDER.map((group) => {
+          const items = filteredItems.filter((item) => item.group === group);
+          if (items.length === 0) return null;
+          return (
+            <div key={group} data-tray-section={group}>
+              <div data-tray-group={group} className={cn(LABEL, 'px-3 pt-3 pb-1')}>
+                {group}
+              </div>
+              <ul className="flex flex-col gap-1 px-2">
+                {items.map((item) => (
+                  <li
+                    key={item.type}
+                    data-tray-item={item.type}
+                    ref={(element) => {
+                      if (element) connectors.create(element, item.create());
+                    }}
+                    className="flex cursor-grab items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent active:cursor-grabbing"
+                  >
+                    <item.icon className="size-4 text-acc2" aria-hidden />
+                    <span className="text-[13px] font-medium text-foreground">{item.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
       {filteredItems.length === 0 && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No components match.</p>
       )}

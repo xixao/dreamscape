@@ -39,8 +39,8 @@ describe('LayoutBox', () => {
       { width: 375 },
     );
     const [root, inner] = await findBoxes(mobile.container, 2);
-    expect(root).toHaveClass('flex-col', 'p-6');
-    expect(inner).toHaveClass('flex-col', 'gap-4', 'p-4');
+    expect(root).toHaveClass('flex-col', 'p-2');
+    expect(inner).toHaveClass('flex-col', 'gap-2', 'p-2');
     mobile.unmount();
 
     const desktop = renderTree(
@@ -67,13 +67,23 @@ describe('LayoutBox', () => {
   it('renders the root from its node props, so the inspector can edit it', async () => {
     const { container, editor } = renderTree(<Element is={LayoutBox} canvas />);
     const [root] = await findBoxes(container, 1);
-    expect(root).toHaveClass('p-6');
+    expect(root).toHaveClass('p-2');
     act(() => {
-      editor().actions.setProp(ROOT_NODE, (props: { padding: number; gap: number }) => {
-        props.padding = 8;
-        props.gap = 2;
+      editor().actions.setProp(ROOT_NODE, (props: { paddingPx: number; gapPx: number }) => {
+        props.paddingPx = 32;
+        props.gapPx = 24;
       });
     });
-    await waitFor(() => expect(root).toHaveClass('p-8', 'gap-2'));
+    await waitFor(() => expect(root).toHaveClass('p-8', 'gap-6'));
   });
+
+  // Legacy gap/padding (pre-8px-scale Tailwind units) conversion is covered
+  // at the pure-function level in lib/classes.test.ts (normalizeSpacing,
+  // snapToSpacing, layoutBoxClasses). It cannot be exercised through this
+  // component the way the tests above exercise gapPx/paddingPx: Craft.js
+  // merges LayoutBox.craft.props (LAYOUT_BOX_DEFAULTS, which has a concrete
+  // gapPx/paddingPx) into any node it creates that is missing those keys,
+  // for both <Frame data={...}> deserialization and plain JSX children, so
+  // legacy-only props never reach this component still missing gapPx by the
+  // time it renders. See the block comment above `merged` in layout-box.tsx.
 });

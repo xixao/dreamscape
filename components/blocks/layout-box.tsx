@@ -2,12 +2,12 @@ import { ROOT_NODE, useNode, type UserComponent } from '@craftjs/core';
 import type { ReactNode } from 'react';
 import {
   COLUMN_OPTIONS,
-  GAP_OPTIONS,
   LAYOUT_BOX_DEFAULTS,
-  PADDING_OPTIONS,
+  SPACING_OPTIONS,
   type LayoutBoxProps,
   blockClasses,
   layoutBoxClasses,
+  normalizeSpacing,
 } from '@/lib/classes';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
@@ -25,7 +25,26 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
     childCount,
   } = useNode((node) => ({ childCount: node.data.nodes.length }));
   const isRoot = id === ROOT_NODE;
-  const merged: LayoutBoxProps = { ...LAYOUT_BOX_DEFAULTS, ...props };
+  // normalizeSpacing is applied to the raw incoming `props` (not `merged`)
+  // so a legacy props object (gap/padding Tailwind units, no gapPx/paddingPx
+  // of its own) converts correctly instead of being masked by the new 8 px
+  // default: {...LAYOUT_BOX_DEFAULTS, ...props} alone would leave
+  // merged.gapPx at the default whenever props has no gapPx, even when it
+  // does carry a real legacy gap value.
+  //
+  // Caveat: Craft.js's own node deserialization already merges this
+  // component's static `craft.props` (LAYOUT_BOX_DEFAULTS below, which has a
+  // concrete gapPx/paddingPx) into any deserialized node missing those keys,
+  // before this component ever renders. So a *previously saved* node that
+  // has legacy gap/padding but no gapPx of its own will already read
+  // gapPx: 8 by the time `props` reaches here. This line is still correct
+  // and necessary for any props this component receives directly (a plain
+  // LayoutBoxProps value, or a node created with legacy props already
+  // attached), but fully migrating a pre-existing saved layout's spacing
+  // needs a normalizer at the point that layout is loaded, before Craft.js
+  // deserializes it (see the `lib/files/validate.ts` normaliser note in the
+  // task brief) -- out of this sub-project's file scope.
+  const merged: LayoutBoxProps = { ...LAYOUT_BOX_DEFAULTS, ...props, ...normalizeSpacing(props) };
 
   return (
     <div
@@ -116,18 +135,18 @@ export const layoutBoxSchema: BlockSchema = {
       ],
     },
     {
-      prop: 'gap',
+      prop: 'gapPx',
       label: 'Gap',
       kind: 'select',
       section: 'Layout',
-      options: GAP_OPTIONS.map((value) => ({ value, label: String(value) })),
+      options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
     },
     {
-      prop: 'padding',
+      prop: 'paddingPx',
       label: 'Padding',
       kind: 'select',
       section: 'Layout',
-      options: PADDING_OPTIONS.map((value) => ({ value, label: String(value) })),
+      options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
     },
     {
       prop: 'background',

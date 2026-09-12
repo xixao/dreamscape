@@ -22,8 +22,8 @@
         "mobile": "start",
         "desktop": "start"
       },
-      "gap": 4,
-      "padding": 6,
+      "gapPx": 16,
+      "paddingPx": 24,
       "background": "none",
       "grow": false
     },

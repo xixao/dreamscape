@@ -8,8 +8,8 @@
       "columns": { "mobile": 1, "desktop": 3 },
       "align": { "mobile": "stretch", "desktop": "center" },
       "justify": { "mobile": "start", "desktop": "start" },
-      "gap": 4,
-      "padding": 6,
+      "gapPx": 16,
+      "paddingPx": 24,
       "background": "none",
       "grow": false
     },

@@ -5,8 +5,7 @@ export type Direction = 'row' | 'column';
 export type Columns = 1 | 2 | 3 | 4;
 export type Align = 'start' | 'center' | 'end' | 'stretch';
 export type Justify = 'start' | 'center' | 'end' | 'between';
-export type Gap = 0 | 1 | 2 | 3 | 4 | 6 | 8;
-export type Padding = 0 | 2 | 4 | 6 | 8;
+export type SpacingPx = 0 | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 64;
 export type Background = 'none' | 'muted' | 'card';
 
 export interface GrowProps {
@@ -19,9 +18,13 @@ export interface LayoutBoxProps extends GrowProps {
   columns: Responsive<Columns>;
   align: Responsive<Align>;
   justify: Responsive<Justify>;
-  gap: Gap;
-  padding: Padding;
+  gapPx: SpacingPx;
+  paddingPx: SpacingPx;
   background: Background;
+  /** Legacy Tailwind gap unit (0,1,2,3,4,6,8) from layouts saved before the 8 px spacing scale. Converted to gapPx via snapToSpacing when gapPx is absent. */
+  gap?: number;
+  /** Legacy Tailwind padding unit (0,2,4,6,8) from layouts saved before the 8 px spacing scale. Converted to paddingPx via snapToSpacing when paddingPx is absent. */
+  padding?: number;
 }
 
 export const DIRECTION_CLASSES: Record<Direction, string> = {
@@ -50,22 +53,30 @@ export const JUSTIFY_CLASSES: Record<Justify, string> = {
   between: 'justify-between',
 };
 
-export const GAP_CLASSES: Record<Gap, string> = {
+// The 8 px spacing scale (Matt's product rule): gap and padding are only
+// ever one of these nine steps, shown in the inspector as "0 px" .. "64 px".
+export const GAP_PX_CLASSES: Record<SpacingPx, string> = {
   0: 'gap-0',
-  1: 'gap-1',
-  2: 'gap-2',
-  3: 'gap-3',
-  4: 'gap-4',
-  6: 'gap-6',
-  8: 'gap-8',
+  8: 'gap-2',
+  16: 'gap-4',
+  24: 'gap-6',
+  32: 'gap-8',
+  40: 'gap-10',
+  48: 'gap-12',
+  56: 'gap-14',
+  64: 'gap-16',
 };
 
-export const PADDING_CLASSES: Record<Padding, string> = {
+export const PADDING_PX_CLASSES: Record<SpacingPx, string> = {
   0: 'p-0',
-  2: 'p-2',
-  4: 'p-4',
-  6: 'p-6',
-  8: 'p-8',
+  8: 'p-2',
+  16: 'p-4',
+  24: 'p-6',
+  32: 'p-8',
+  40: 'p-10',
+  48: 'p-12',
+  56: 'p-14',
+  64: 'p-16',
 };
 
 export const BACKGROUND_CLASSES: Record<Background, string> = {
@@ -79,14 +90,51 @@ export const CLASS_TABLES = {
   COLUMNS_CLASSES,
   ALIGN_CLASSES,
   JUSTIFY_CLASSES,
-  GAP_CLASSES,
-  PADDING_CLASSES,
+  GAP_PX_CLASSES,
+  PADDING_PX_CLASSES,
   BACKGROUND_CLASSES,
 } as const;
 
-export const GAP_OPTIONS: readonly Gap[] = [0, 1, 2, 3, 4, 6, 8];
-export const PADDING_OPTIONS: readonly Padding[] = [0, 2, 4, 6, 8];
+export const SPACING_OPTIONS: readonly SpacingPx[] = [0, 8, 16, 24, 32, 40, 48, 56, 64];
 export const COLUMN_OPTIONS: readonly Columns[] = [1, 2, 3, 4];
+
+const SPACING_STEP = 8;
+const SPACING_MAX = 64;
+const DEFAULT_SPACING_PX: SpacingPx = 8;
+
+/**
+ * Snaps an arbitrary pixel value to the nearest step of the 8 px spacing
+ * scale, clamped to 0..64. Ties round up: 12 px sits exactly between the 8
+ * and 16 steps and snaps to 16.
+ */
+export function snapToSpacing(px: number): SpacingPx {
+  const snapped = Math.round(px / SPACING_STEP) * SPACING_STEP;
+  return Math.min(SPACING_MAX, Math.max(0, snapped)) as SpacingPx;
+}
+
+export interface LegacySpacingProps {
+  gapPx?: SpacingPx;
+  paddingPx?: SpacingPx;
+  gap?: number;
+  padding?: number;
+}
+
+/**
+ * Resolves the authoritative gapPx/paddingPx for a LayoutBox props object
+ * that may still carry the pre-8px-scale legacy gap/padding (Tailwind
+ * units): gapPx/paddingPx win when present, otherwise the legacy value is
+ * converted with snapToSpacing, otherwise the 8 px default. Used by both
+ * layoutBoxClasses (so the pure class function is correct on its own) and
+ * the LayoutBox block (which must normalize the raw node props *before*
+ * merging them with LAYOUT_BOX_DEFAULTS, or a legacy node's saved gap/padding
+ * would be masked by the new default instead of converted).
+ */
+export function normalizeSpacing(props: LegacySpacingProps): { gapPx: SpacingPx; paddingPx: SpacingPx } {
+  const gapPx = props.gapPx ?? (props.gap !== undefined ? snapToSpacing(props.gap * 4) : DEFAULT_SPACING_PX);
+  const paddingPx =
+    props.paddingPx ?? (props.padding !== undefined ? snapToSpacing(props.padding * 4) : DEFAULT_SPACING_PX);
+  return { gapPx, paddingPx };
+}
 
 export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
   mode: 'flex',
@@ -94,8 +142,8 @@ export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
   columns: { mobile: 1, desktop: 3 },
   align: { mobile: 'stretch', desktop: 'stretch' },
   justify: { mobile: 'start', desktop: 'start' },
-  gap: 4,
-  padding: 4,
+  gapPx: DEFAULT_SPACING_PX,
+  paddingPx: DEFAULT_SPACING_PX,
   background: 'none',
   grow: false,
 };
@@ -103,10 +151,10 @@ export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
 export const ROOT_LAYOUT_PROPS: LayoutBoxProps = {
   ...LAYOUT_BOX_DEFAULTS,
   direction: { mobile: 'column', desktop: 'column' },
-  padding: 6,
 };
 
 export function layoutBoxClasses(props: LayoutBoxProps, breakpoint: Breakpoint): string {
+  const { gapPx, paddingPx } = normalizeSpacing(props);
   const parts: string[] = ['min-w-0'];
   if (props.mode === 'grid') {
     parts.push('grid', COLUMNS_CLASSES[resolve(props.columns, breakpoint)]);
@@ -119,8 +167,8 @@ export function layoutBoxClasses(props: LayoutBoxProps, breakpoint: Breakpoint):
   }
   parts.push(
     ALIGN_CLASSES[resolve(props.align, breakpoint)],
-    GAP_CLASSES[props.gap],
-    PADDING_CLASSES[props.padding],
+    GAP_PX_CLASSES[gapPx],
+    PADDING_PX_CLASSES[paddingPx],
   );
   const background = BACKGROUND_CLASSES[props.background];
   if (background) parts.push(background);

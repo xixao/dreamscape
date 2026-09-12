@@ -83,155 +83,164 @@ export const KNOWN_TYPES: ReadonlySet<string> = new Set(Object.keys(resolver));
 
 export const ZONE_TYPES: ReadonlySet<string> = new Set(['CardContent', 'DialogContent', 'TabsContent']);
 
+export type TrayGroup = 'Layout' | 'Text and media' | 'Forms' | 'Feedback' | 'Data';
+
 export interface TrayItem {
   type: BlockType;
   label: string;
-  hint: string;
+  group: TrayGroup;
   icon: LucideIcon;
   create: () => ReactElement;
 }
 
+// Order matters: within a group, items render in this array's order (see
+// component-tray.tsx, which groups by `group` without re-sorting).
 export const trayItems: TrayItem[] = [
+  // Layout
   {
     type: 'LayoutBox',
     label: 'Frame',
-    hint: 'Auto layout container',
+    group: 'Layout',
     icon: LayoutGrid,
     create: () => <Element is={LayoutBox} canvas />,
   },
   {
     type: 'Card',
     label: 'Card',
-    hint: 'Header and content area',
+    group: 'Layout',
     icon: RectangleHorizontal,
     create: () => <Card />,
   },
   {
     type: 'Tabs',
     label: 'Tabs',
-    hint: 'One content area for the active tab',
+    group: 'Layout',
     icon: LayoutPanelTop,
     create: () => <Tabs />,
   },
   {
+    type: 'Separator',
+    label: 'Separator',
+    group: 'Layout',
+    icon: SeparatorHorizontal,
+    create: () => <Separator />,
+  },
+  // Text and media
+  {
     type: 'Text',
     label: 'Text',
-    hint: 'Heading, paragraph or caption',
+    group: 'Text and media',
     icon: Type,
     create: () => <Text />,
   },
   {
     type: 'Image',
     label: 'Image',
-    hint: 'Placeholder image box',
+    group: 'Text and media',
     icon: ImageIcon,
     // eslint-disable-next-line jsx-a11y/alt-text -- this Image is the block above, not next/image's.
     create: () => <Image />,
   },
   {
+    type: 'Avatar',
+    label: 'Avatar',
+    group: 'Text and media',
+    icon: CircleUserRound,
+    create: () => <Avatar />,
+  },
+  {
+    type: 'Badge',
+    label: 'Badge',
+    group: 'Text and media',
+    icon: Tag,
+    create: () => <Badge />,
+  },
+  // Forms
+  {
     type: 'Button',
     label: 'Button',
-    hint: 'shadcn Button',
+    group: 'Forms',
     icon: MousePointerClick,
     create: () => <Button />,
   },
   {
     type: 'Input',
     label: 'Input',
-    hint: 'shadcn Input with label',
+    group: 'Forms',
     icon: TextCursorInput,
     create: () => <Input />,
   },
   {
     type: 'Textarea',
     label: 'Textarea',
-    hint: 'Multi-line text input',
+    group: 'Forms',
     icon: AlignLeft,
     create: () => <Textarea />,
   },
   {
     type: 'Select',
     label: 'Select',
-    hint: 'Dropdown trigger',
+    group: 'Forms',
     icon: ChevronsUpDown,
     create: () => <Select />,
   },
   {
     type: 'Checkbox',
     label: 'Checkbox',
-    hint: 'Single checkbox with a label',
+    group: 'Forms',
     icon: SquareCheck,
     create: () => <Checkbox />,
   },
   {
     type: 'RadioGroup',
     label: 'Radio group',
-    hint: 'Radio options, one selected',
+    group: 'Forms',
     icon: CircleDot,
     create: () => <RadioGroup />,
   },
   {
     type: 'Switch',
     label: 'Switch',
-    hint: 'On or off toggle',
+    group: 'Forms',
     icon: ToggleLeft,
     create: () => <Switch />,
   },
   {
     type: 'Slider',
     label: 'Slider',
-    hint: 'Single value slider',
+    group: 'Forms',
     icon: SlidersHorizontal,
     create: () => <Slider />,
   },
-  {
-    type: 'Badge',
-    label: 'Badge',
-    hint: 'Small status label',
-    icon: Tag,
-    create: () => <Badge />,
-  },
-  {
-    type: 'Avatar',
-    label: 'Avatar',
-    hint: 'Initials in a circle',
-    icon: CircleUserRound,
-    create: () => <Avatar />,
-  },
+  // Feedback
   {
     type: 'Alert',
     label: 'Alert',
-    hint: 'Title and description banner',
+    group: 'Feedback',
     icon: TriangleAlert,
     create: () => <Alert />,
   },
   {
-    type: 'Separator',
-    label: 'Separator',
-    hint: 'Horizontal or vertical divider',
-    icon: SeparatorHorizontal,
-    create: () => <Separator />,
-  },
-  {
     type: 'Progress',
     label: 'Progress',
-    hint: 'Progress bar with an optional label',
+    group: 'Feedback',
     icon: GaugeCircle,
     create: () => <Progress />,
   },
   {
-    type: 'Table',
-    label: 'Table',
-    hint: 'Header row and placeholder cells',
-    icon: Table2,
-    create: () => <Table />,
-  },
-  {
     type: 'Dialog',
     label: 'Dialog',
-    hint: 'Trigger and content',
+    group: 'Feedback',
     icon: AppWindow,
     create: () => <Dialog />,
+  },
+  // Data
+  {
+    type: 'Table',
+    label: 'Table',
+    group: 'Data',
+    icon: Table2,
+    create: () => <Table />,
   },
 ];
 
