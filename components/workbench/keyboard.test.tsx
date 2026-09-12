@@ -8,7 +8,14 @@ import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
 function Keys() {
   useWorkbenchKeyboard();
-  return <input aria-label="typing" />;
+  return (
+    <>
+      <input aria-label="typing" />
+      <div role="alertdialog">
+        <button type="button">Clear stage</button>
+      </div>
+    </>
+  );
 }
 
 function mount() {
@@ -43,6 +50,25 @@ describe('isEditableTarget', () => {
     expect(isEditableTarget(screen.getByTestId('p'))).toBe(false);
     expect(isEditableTarget(null)).toBe(false);
   });
+
+  it('is true for an element inside a listbox, dialog, alertdialog, menu, combobox or radix popper wrapper', () => {
+    render(
+      <div>
+        <div role="listbox">
+          <button type="button" data-testid="option">
+            Option
+          </button>
+        </div>
+        <div role="alertdialog">
+          <button type="button" data-testid="alert-action">
+            Clear stage
+          </button>
+        </div>
+      </div>,
+    );
+    expect(isEditableTarget(screen.getByTestId('option'))).toBe(true);
+    expect(isEditableTarget(screen.getByTestId('alert-action'))).toBe(true);
+  });
 });
 
 describe('useWorkbenchKeyboard', () => {
@@ -70,6 +96,17 @@ describe('useWorkbenchKeyboard', () => {
     await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
 
     fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'Delete' });
+    expect(screen.getByRole('button', { name: 'Doomed' })).toBeInTheDocument();
+  });
+
+  it('ignores Delete while a popup or dialog owns the interaction', async () => {
+    const { editor } = mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear stage' }), { key: 'Delete' });
     expect(screen.getByRole('button', { name: 'Doomed' })).toBeInTheDocument();
   });
 

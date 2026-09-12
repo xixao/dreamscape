@@ -20,7 +20,8 @@ export function loadLayout(
   let raw: string | null;
   try {
     raw = storage.getItem(LAYOUT_STORAGE_KEY);
-  } catch {
+  } catch (error) {
+    console.warn('Could not read the saved layout.', error);
     return null;
   }
   if (raw === null) return null;
@@ -61,7 +62,8 @@ export function loadStageWidth(storage: Storage = window.localStorage): number |
     const value = Number(raw);
     if (!Number.isFinite(value) || value < MIN_STAGE_WIDTH || value > MAX_STAGE_WIDTH) return null;
     return Math.round(value);
-  } catch {
+  } catch (error) {
+    console.warn('Could not read the saved stage width.', error);
     return null;
   }
 }

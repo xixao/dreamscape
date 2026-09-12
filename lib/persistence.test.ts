@@ -15,6 +15,21 @@ const GOOD = JSON.stringify({
   b1: { type: { resolvedName: 'Button' }, nodes: [], parent: 'ROOT' },
 });
 
+function throwingStorage(): Storage {
+  return {
+    getItem() {
+      throw new Error('storage is unavailable');
+    },
+    setItem() {},
+    removeItem() {},
+    clear() {},
+    key() {
+      return null;
+    },
+    length: 0,
+  };
+}
+
 describe('layout persistence', () => {
   let warn: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
@@ -55,6 +70,12 @@ describe('layout persistence', () => {
     expect(loadLayout(KNOWN)).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Carousel'));
   });
+
+  it('warns and returns null when storage.getItem throws', () => {
+    expect(loadLayout(KNOWN, throwingStorage())).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Could not read the saved layout.', expect.any(Error));
+  });
 });
 
 describe('stage width persistence', () => {
@@ -74,6 +95,14 @@ describe('stage width persistence', () => {
     expect(loadStageWidth()).toBeNull();
     localStorage.setItem(WIDTH_STORAGE_KEY, '5000');
     expect(loadStageWidth()).toBeNull();
+  });
+
+  it('warns and returns null when storage.getItem throws', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(loadStageWidth(throwingStorage())).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Could not read the saved stage width.', expect.any(Error));
+    warn.mockRestore();
   });
 });
 

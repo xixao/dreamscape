@@ -7,10 +7,19 @@ import { selectedIdFrom } from './selection';
 
 const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
+// A popup or dialog owns the interaction while it is open: Delete/Backspace should
+// remove text or a list item inside it, not the selected block behind it, and
+// Escape/undo should be free to close the popup instead of touching the stage.
+const POPUP_SELECTOR =
+  '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
+
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (EDITABLE_TAGS.has(target.tagName)) return true;
-  return target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null;
+  if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null) {
+    return true;
+  }
+  return target.closest(POPUP_SELECTOR) !== null;
 }
 
 export function useWorkbenchKeyboard(): void {
