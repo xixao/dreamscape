@@ -60,6 +60,7 @@ describe('Workbench', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('renders the layout passed in file.layout', () => {
@@ -196,6 +197,66 @@ describe('Workbench', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Clear frame' }));
     expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+  });
+
+  describe('unchanged layout on mount', () => {
+    function selectRoot(container: HTMLElement): void {
+      const root = container.querySelector('[data-block="LayoutBox"]');
+      if (!root) throw new Error('root LayoutBox not found');
+      fireEvent.mouseDown(root);
+    }
+
+    it('sends no PATCH within 2s of fake time, even once the root gets selected with no real edit', async () => {
+      vi.useFakeTimers();
+      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+      // Craft's onNodesChange fires unconditionally the first time its store
+      // notifies after mount (it has nothing yet to compare that firing's
+      // content against), and a plain selection - not a prop change - is
+      // enough to trigger that first notification. That first firing's
+      // content matches what's already stored, so it must not be queued.
+      selectRoot(container);
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('still sends exactly one PATCH for a real edit made after that unchanged first firing', async () => {
+      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      selectRoot(container);
+
+      // Let the (correctly suppressed) first firing's would-be debounce
+      // window fully elapse before making a real edit, so the assertions
+      // below can't pass by accident from the two patches merging together
+      // before either is ever sent.
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await changeRootLayoutMode(container);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(JSON.parse(body.layout).ROOT.props.mode).toBe('grid');
+    });
+
+    it('does not send another PATCH when the same change is applied again with no diff', async () => {
+      const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+      await changeRootLayoutMode(container);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      // Re-applying the same value: a single-select ToggleGroup treats a
+      // click on the already-active item as a deselect, which the Field
+      // wrapper ignores (no option matches an empty value), so this reaches
+      // Craft as a no-op - if it produced a layout at all, it would be
+      // identical to what was just saved, and lastSavedLayout must not let
+      // a duplicate through either way.
+      await changeRootLayoutMode(container);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('Show/Hide UI', () => {

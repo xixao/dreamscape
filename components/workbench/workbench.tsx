@@ -3,6 +3,7 @@
 import { Editor, useEditor } from '@craftjs/core';
 import { useEffect, useRef, useState } from 'react';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { canonicalLayout } from '@/lib/files/validate';
 import type { FileRecord } from '@/lib/files/repository';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
 import { ComponentTray } from './component-tray';
@@ -45,6 +46,19 @@ export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInv
   // layout before the user has actually changed anything.
   const skipNextNodesChange = useRef(layoutInvalid);
 
+  // Craft's own store notifies onNodesChange unconditionally the first time
+  // it fires after mount (nothing to compare that firing's content against
+  // yet), which happens on the first store change of any kind - including a
+  // plain selection click, not just an edit. Comparing against the layout we
+  // know is already saved (rather than trusting every firing to mean "save
+  // this") keeps a second tab's read-only open, or the owning tab's own first
+  // click, from queuing a no-op write that only serves to bump updatedAt and
+  // hand the next real editor a conflict nobody caused. Compared canonically,
+  // not by raw string equality: Postgres's jsonb column doesn't preserve
+  // object key order on round-trip, and Craft's own parse-then-serialize
+  // doesn't reliably reproduce the exact key order it was given either.
+  const lastSavedLayout = useRef(file.layout);
+
   useEffect(() => {
     const onPageHide = () => {
       void saver.flush();
@@ -84,7 +98,12 @@ export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInv
           skipNextNodesChange.current = false;
           return;
         }
-        queuePatch({ layout: query.serialize() });
+        const json = query.serialize();
+        if (canonicalLayout(json) === canonicalLayout(lastSavedLayout.current)) {
+          return;
+        }
+        lastSavedLayout.current = json;
+        queuePatch({ layout: json });
       }}
     >
       <StageProvider initialWidth={file.stageWidth} onWidthChange={(width) => queuePatch({ stageWidth: width })}>

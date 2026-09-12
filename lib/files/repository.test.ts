@@ -128,6 +128,30 @@ describe('files repository', () => {
       expect(result).toEqual({ ok: true, updatedAt: expect.any(String) });
     });
 
+    it('keeps updatedAt strictly increasing across back-to-back saves, so a stale baseUpdatedAt still conflicts', async () => {
+      // No wait() between these two saves (unlike the other conflict tests
+      // below): both can land in the same wall-clock millisecond, which is
+      // exactly the case a plain `new Date()` in `save()` cannot tell apart.
+      const created = await repo.create();
+      const first = await repo.save(created.id, { name: 'First writer' });
+      const second = await repo.save(created.id, { name: 'Second writer' });
+
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      if (!first.ok || !second.ok) throw new Error('expected both saves to succeed');
+      expect(new Date(second.updatedAt).getTime()).toBeGreaterThan(new Date(first.updatedAt).getTime());
+
+      // A base from before the first save is stale relative to the row now
+      // (at second.updatedAt), even though it was captured in the same
+      // millisecond the first save landed in.
+      const stale = await repo.save(created.id, {
+        name: 'Third writer',
+        baseUpdatedAt: created.updatedAt,
+      });
+      expect(stale).toEqual({ ok: false, conflict: true, updatedAt: second.updatedAt });
+      expect((await repo.get(created.id))?.name).toBe('Second writer');
+    });
+
     it('returns a conflict and changes nothing when baseUpdatedAt is stale', async () => {
       const created = await repo.create();
       await wait(5);

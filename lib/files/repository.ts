@@ -80,7 +80,13 @@ export function createFilesRepository(db: Db) {
       return { ok: false, conflict: true, updatedAt: row.updatedAt.toISOString() };
     }
 
-    const patch: Partial<typeof files.$inferInsert> = { updatedAt: new Date() };
+    // Plain `new Date()` truncates to the millisecond, so two saves in the
+    // same millisecond would otherwise produce equal `updatedAt` values and
+    // a `baseUpdatedAt` conflict check against the earlier one could never
+    // detect the change. Force strictly-increasing timestamps per row by
+    // never going backward (or sideways) relative to what's already stored.
+    const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
+    const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
     if (input.name !== undefined) patch.name = input.name;
     if (input.stageWidth !== undefined) patch.stageWidth = clampWidth(input.stageWidth);
     if (input.layout !== undefined) {
