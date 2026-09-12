@@ -106,11 +106,11 @@ Common to every block except the root: draggable, deletable, and a `grow` boolea
 | `columns` | 1 to 4 (grid only) | yes | mobile 1, desktop 3 |
 | `align` | `start`, `center`, `end`, `stretch` | yes | `stretch` both |
 | `justify` | `start`, `center`, `end`, `between` | yes | `start` both |
-| `gap` | 0, 1, 2, 3, 4, 6, 8 (Tailwind steps) | no | 4 |
-| `padding` | 0, 2, 4, 6, 8 | no | 4 |
+| `gapPx` | 0, 8, 16, 24, 32, 40, 48, 56, 64 (pixels, 8 px steps; Matt's rule of 2026-09-12) | no | 8 |
+| `paddingPx` | 0, 8, 16, 24, 32, 40, 48, 56, 64 (pixels, 8 px steps) | no | 8 |
 | `background` | `none`, `muted`, `card` (card adds a border and radius) | no | `none` |
 
-The root of the tree is a LayoutBox (`column` at both breakpoints, padding 6, gap 4) that cannot be dragged or deleted and fills the artboard's minimum height. Its inspector hides `grow`.
+The root of the tree is a LayoutBox (`column` at both breakpoints, gap 8 px, padding 8 px) that cannot be dragged or deleted and fills the artboard's minimum height. Its inspector hides `grow`.
 
 **Button**: shadcn `Button`. Props: `label` (text, default "Button"), `variant` (default, destructive, outline, secondary, ghost, link), `size` (default, sm, lg), `disabled` (boolean). Not a container. In the editor, `disabled` renders as `aria-disabled` plus reduced opacity, because a truly disabled button can't be clicked to select it.
 
@@ -251,7 +251,7 @@ Unit tests (pure code, fast):
 
 - `lib/responsive`: `breakpointForWidth` at 320, 375, 767, 768, 1440; `resolve` picks the breakpoint value, falls back to mobile when desktop is missing, passes plain values through; `otherBreakpoint`.
 - `lib/stage`: `clampWidth` bounds and rounding; `presetForWidth` exact matches only; `computeZoom` is 1 when it fits and `available / width` when it doesn't.
-- `lib/classes`: LayoutBox class output for flex row/column, grid with 1 to 4 columns, every gap and padding step, every background; at both breakpoints; asserts exact class strings; every table value is a literal string.
+- `lib/classes`: LayoutBox class output for flex row/column, grid with 1 to 4 columns, every 8 px gap and padding step (legacy `gap`/`padding` unit values snap to the scale through `snapToSpacing`), every background; at both breakpoints; asserts exact class strings; every table value is a literal string.
 - `lib/persistence`: save/load round trip; corrupt JSON returns null and warns; JSON with no ROOT returns null; JSON naming an unknown block type returns null; stage width round trip and rejection of out-of-range values.
 - `blocks/registry`: every block type has a schema; every responsive schema entry corresponds to a `Responsive` default; `columns` is hidden unless `mode` is grid; `emptyLayoutJson()` parses and has a ROOT LayoutBox with the root defaults.
 

@@ -26,7 +26,7 @@ function activeLabel(tabs: readonly string[], active: number): string {
 }
 
 // Only one content zone exists in v1, for whichever tab is active; switching
-// tabs is not interactive yet (the tray hint says so). The triggers are
+// tabs is not interactive yet (the Components panel groups it under Layout). The triggers are
 // pointer-events-none so clicking the tab bar selects the block.
 export const TabsContent: UserComponent<{ children?: ReactNode }> = ({ children }) => {
   const {
