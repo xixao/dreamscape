@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
@@ -6,8 +6,8 @@ import { LayoutBox } from '@/components/blocks/layout-box';
 import { renderInEditor } from '@/test/craft-harness';
 import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
-function Keys() {
-  useWorkbenchKeyboard();
+function Keys({ onToggleUi }: { onToggleUi?: () => void }) {
+  useWorkbenchKeyboard({ onToggleUi });
   return (
     <>
       <input aria-label="typing" />
@@ -18,7 +18,7 @@ function Keys() {
   );
 }
 
-function mount() {
+function mount(onToggleUi?: () => void) {
   const utils = renderInEditor(
     <>
       <Frame>
@@ -26,7 +26,7 @@ function mount() {
           <Button label="Doomed" />
         </Element>
       </Frame>
-      <Keys />
+      <Keys onToggleUi={onToggleUi} />
     </>,
   );
   return utils;
@@ -130,5 +130,61 @@ describe('useWorkbenchKeyboard', () => {
 
     fireEvent.keyDown(window, { key: 'z', metaKey: true, shiftKey: true });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Doomed' })).toBeNull());
+  });
+});
+
+describe('useWorkbenchKeyboard onToggleUi', () => {
+  it('calls onToggleUi and prevents default for Cmd+\\', async () => {
+    const onToggleUi = vi.fn();
+    mount(onToggleUi);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onToggleUi for Ctrl+\\', async () => {
+    const onToggleUi = vi.fn();
+    mount(onToggleUi);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when the target is an input', async () => {
+    const onToggleUi = vi.fn();
+    mount(onToggleUi);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when a popup or dialog owns the interaction', async () => {
+    const onToggleUi = vi.fn();
+    mount(onToggleUi);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onToggleUi for other keys or a bare backslash', async () => {
+    const onToggleUi = vi.fn();
+    mount(onToggleUi);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'a', metaKey: true });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: '\\' });
+    expect(onToggleUi).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onToggleUi is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: '\\', metaKey: true })).not.toThrow();
   });
 });

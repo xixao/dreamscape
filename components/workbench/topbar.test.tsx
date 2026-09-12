@@ -1,8 +1,10 @@
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { SaveState } from '@/lib/persistence';
 import { renderInEditor } from '@/test/craft-harness';
 import { Topbar, stageReadout } from './topbar';
 
@@ -10,6 +12,22 @@ function presetButton(label: string) {
   const button = screen.getByText(label).closest('button');
   if (!button) throw new Error(`no button for ${label}`);
   return button;
+}
+
+function renderTopbar(
+  overrides: Partial<ComponentProps<typeof Topbar>> = {},
+  options?: { width?: number },
+) {
+  const onRename = overrides.onRename ?? vi.fn();
+  const onNew = overrides.onNew ?? vi.fn();
+  const props: ComponentProps<typeof Topbar> = {
+    fileName: 'Untitled',
+    saveState: 'saved',
+    ...overrides,
+    onRename,
+    onNew,
+  };
+  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew };
 }
 
 describe('stageReadout', () => {
@@ -22,7 +40,7 @@ describe('stageReadout', () => {
 
 describe('Topbar', () => {
   it('marks the active preset and switches width on click', async () => {
-    renderInEditor(<Topbar onNew={() => {}} />, { width: 1440 });
+    renderTopbar({}, { width: 1440 });
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
     expect(presetButton('Desktop')).toHaveAttribute('data-state', 'on');
     expect(presetButton('Mobile')).toHaveAttribute('data-state', 'off');
@@ -36,7 +54,7 @@ describe('Topbar', () => {
   });
 
   it('shows no active preset at a custom width', () => {
-    renderInEditor(<Topbar onNew={() => {}} />, { width: 900 });
+    renderTopbar({}, { width: 900 });
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · desktop');
     for (const label of ['Mobile', 'Tablet', 'Desktop']) {
       expect(presetButton(label)).toHaveAttribute('data-state', 'off');
@@ -47,7 +65,7 @@ describe('Topbar', () => {
     const { editor } = renderInEditor(
       <>
         <Frame data={emptyLayoutJson()} />
-        <Topbar onNew={() => {}} />
+        <Topbar fileName="Untitled" onRename={() => {}} saveState="saved" onNew={() => {}} />
       </>,
     );
     await screen.findByText('This frame is empty');
@@ -67,9 +85,103 @@ describe('Topbar', () => {
   });
 
   it('calls onNew', async () => {
-    const onNew = vi.fn();
-    renderInEditor(<Topbar onNew={onNew} />);
+    const { onNew } = renderTopbar();
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     expect(onNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('has a ghost link back to Files before the product name', () => {
+    renderTopbar();
+    expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/');
+  });
+
+  describe('file name field', () => {
+    it('commits a trimmed name on Enter', async () => {
+      const { onRename } = renderTopbar({ fileName: 'Untitled' });
+      const field = screen.getByTestId('file-name');
+      await userEvent.clear(field);
+      await userEvent.type(field, '  My design  {enter}');
+      expect(onRename).toHaveBeenCalledWith('My design');
+    });
+
+    it('commits on blur', async () => {
+      const { onRename } = renderTopbar({ fileName: 'Untitled' });
+      const field = screen.getByTestId('file-name');
+      await userEvent.clear(field);
+      await userEvent.type(field, 'Renamed');
+      fireEvent.blur(field);
+      expect(onRename).toHaveBeenCalledWith('Renamed');
+    });
+
+    it('reverts on Escape without committing', async () => {
+      const { onRename } = renderTopbar({ fileName: 'Untitled' });
+      const field = screen.getByTestId('file-name') as HTMLInputElement;
+      await userEvent.clear(field);
+      await userEvent.type(field, 'Discard me');
+      await userEvent.keyboard('{Escape}');
+      expect(field.value).toBe('Untitled');
+      expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('reverts when emptied', async () => {
+      const { onRename } = renderTopbar({ fileName: 'Untitled' });
+      const field = screen.getByTestId('file-name') as HTMLInputElement;
+      await userEvent.clear(field);
+      await userEvent.type(field, '{enter}');
+      expect(field.value).toBe('Untitled');
+      expect(onRename).not.toHaveBeenCalled();
+    });
+
+    it('caps the committed name at 120 characters', () => {
+      const { onRename } = renderTopbar({ fileName: 'Untitled' });
+      const field = screen.getByTestId('file-name');
+      const long = 'x'.repeat(150);
+      // fireEvent.change bypasses the maxLength attribute, exercising the
+      // defensive cap in the commit logic itself rather than the DOM's own.
+      fireEvent.change(field, { target: { value: long } });
+      fireEvent.keyDown(field, { key: 'Enter' });
+      expect(onRename).toHaveBeenCalledWith('x'.repeat(120));
+    });
+  });
+
+  describe('save state', () => {
+    const CASES: Array<{ state: SaveState; text: string }> = [
+      { state: 'saved', text: 'Saved' },
+      { state: 'saving', text: 'Saving' },
+      { state: 'error', text: 'Save failed, retrying' },
+      { state: 'conflict', text: 'Someone else changed this file.' },
+    ];
+
+    it.each(CASES)('shows "$text" for $state', ({ state, text }) => {
+      renderTopbar({ saveState: state });
+      expect(screen.getByTestId('save-state')).toHaveTextContent(text);
+    });
+
+    it('shows no Reload button unless the state is conflict', () => {
+      renderTopbar({ saveState: 'error' });
+      expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+    });
+
+    it('shows a Reload button on conflict that reloads the page', async () => {
+      renderTopbar({ saveState: 'conflict' });
+      const reloadSpy = vi.fn();
+      vi.stubGlobal('location', { ...window.location, reload: reloadSpy });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+      vi.unstubAllGlobals();
+    });
+
+    it('shows the notice instead of the save state when provided', () => {
+      renderTopbar({
+        saveState: 'saving',
+        notice: 'The saved design could not be read; this file starts empty.',
+      });
+      expect(screen.getByTestId('save-state')).toHaveTextContent(
+        'The saved design could not be read; this file starts empty.',
+      );
+      expect(screen.queryByText('Saving')).toBeNull();
+    });
   });
 });

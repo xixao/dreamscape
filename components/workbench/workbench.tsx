@@ -1,10 +1,10 @@
 'use client';
 
 import { Editor, useEditor } from '@craftjs/core';
-import { useEffect, useState } from 'react';
-import { KNOWN_TYPES, emptyLayoutJson, resolver } from '@/components/blocks/registry';
-import { debounce, loadLayout, loadStageWidth, saveLayout, saveStageWidth } from '@/lib/persistence';
-import { STAGE_PRESETS } from '@/lib/stage';
+import { useEffect, useRef, useState } from 'react';
+import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import type { FileRecord } from '@/lib/files/repository';
+import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
 import { ComponentTray } from './component-tray';
 import { Inspector } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -16,54 +16,140 @@ import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider } from './stage-context';
 import { Topbar } from './topbar';
 
-export function Workbench() {
-  const [initialLayout] = useState(() => loadLayout(KNOWN_TYPES) ?? emptyLayoutJson());
-  const [initialWidth] = useState(() => loadStageWidth() ?? STAGE_PRESETS.desktop);
-  // Lazy useState (not useMemo) so each debounced saver is created exactly once
-  // and holds its own pending-write timer across renders, the same guarantee a
-  // ref would give; useMemo is not guaranteed to preserve identity across
-  // renders (React may discard and recreate a memoized value), which could
-  // orphan a pending write.
-  const [save] = useState(() => debounce((json: string) => saveLayout(json), 500));
-  const [saveWidth] = useState(() => debounce(saveStageWidth, 500));
+export const INVALID_LAYOUT_NOTICE = 'The saved design could not be read; this file starts empty.';
 
+export function Workbench({ file, layoutInvalid }: { file: FileRecord; layoutInvalid: boolean }) {
+  const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [notice, setNotice] = useState<string | undefined>(
+    layoutInvalid ? INVALID_LAYOUT_NOTICE : undefined,
+  );
+  const [fileName, setFileName] = useState(file.name);
+
+  // Lazy useState (not useMemo) so the saver is created exactly once and holds
+  // its own pending-write timer across renders, the same guarantee a ref would
+  // give; useMemo is not guaranteed to preserve identity across renders (React
+  // may discard and recreate a memoized value), which could orphan a pending
+  // write.
+  const [saver] = useState(() =>
+    createFileSaver({
+      fileId: file.id,
+      initialUpdatedAt: file.updatedAt,
+      onState: setSaveState,
+    }),
+  );
+
+  // The very first onNodesChange fires from Craft's own initial deserialize of
+  // the frame, not a user edit. For an invalid layout that first firing is
+  // deserializing the empty stand-in this component was handed instead of the
+  // unreadable original, so it must not overwrite the stored (corrupted)
+  // layout before the user has actually changed anything.
+  const skipNextNodesChange = useRef(layoutInvalid);
+
+  useEffect(() => {
+    const onPageHide = () => {
+      void saver.flush();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [saver]);
+
+  // Flush only, no dispose(): React's development StrictMode intentionally
+  // mounts every component twice, running this cleanup once synchronously
+  // right after the first mount and then running the effect again. `saver`
+  // is created once via useState and survives that synthetic
+  // mount/cleanup/mount cycle, so calling dispose() here would permanently
+  // turn every later queue()/flush() into a no-op the moment the page loads
+  // in development, silently breaking autosave (confirmed live: a rename
+  // never reached the server). flush() alone is idempotent and safe to run
+  // from both the synthetic and the real unmount.
   useEffect(
     () => () => {
-      save.flush();
-      saveWidth.flush();
+      void saver.flush();
     },
-    [save, saveWidth],
+    [saver],
   );
+
+  function queuePatch(patch: FilePatch): void {
+    setNotice(undefined);
+    saver.queue(patch);
+  }
 
   return (
     <Editor
       resolver={resolver}
       onRender={NodeIndicator}
       indicator={{ success: 'var(--acc)', error: 'var(--bad)' }}
-      onNodesChange={(query) => save(query.serialize())}
+      onNodesChange={(query) => {
+        if (skipNextNodesChange.current) {
+          skipNextNodesChange.current = false;
+          return;
+        }
+        queuePatch({ layout: query.serialize() });
+      }}
     >
-      <StageProvider initialWidth={initialWidth} onWidthChange={saveWidth}>
-        <WorkbenchShell initialLayout={initialLayout} />
+      <StageProvider initialWidth={file.stageWidth} onWidthChange={(width) => queuePatch({ stageWidth: width })}>
+        <WorkbenchShell
+          initialLayout={file.layout}
+          fileId={file.id}
+          fileName={fileName}
+          onRename={(name) => {
+            setFileName(name);
+            queuePatch({ name });
+          }}
+          saveState={saveState}
+          notice={notice}
+        />
       </StageProvider>
     </Editor>
   );
 }
 
-function WorkbenchShell({ initialLayout }: { initialLayout: string }) {
+function WorkbenchShell({
+  initialLayout,
+  fileId,
+  fileName,
+  onRename,
+  saveState,
+  notice,
+}: {
+  initialLayout: string;
+  fileId: string;
+  fileName: string;
+  onRename: (name: string) => void;
+  saveState: SaveState;
+  notice?: string;
+}) {
   useZoneRedirect();
-  useWorkbenchKeyboard();
+  const [uiHidden, setUiHidden] = useState(false);
+  useWorkbenchKeyboard({ onToggleUi: () => setUiHidden((hidden) => !hidden) });
   const { actions } = useEditor();
   const [newOpen, setNewOpen] = useState(false);
 
   return (
-    <div className="grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3">
-      <Topbar onNew={() => setNewOpen(true)} />
-      <ComponentTray />
-      <StageErrorBoundary fallback={<Stage data={emptyLayoutJson()} />}>
+    <div
+      className={
+        uiHidden
+          ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
+          : 'grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+      }
+    >
+      {!uiHidden && (
+        <Topbar
+          key="topbar"
+          fileName={fileName}
+          onRename={onRename}
+          saveState={saveState}
+          notice={notice}
+          onNew={() => setNewOpen(true)}
+        />
+      )}
+      {!uiHidden && <ComponentTray key="tray" />}
+      <StageErrorBoundary key="stage" fileId={fileId}>
         <Stage data={initialLayout} />
       </StageErrorBoundary>
-      <Inspector />
+      {!uiHidden && <Inspector key="inspector" />}
       <NewLayoutDialog
+        key="new-dialog"
         open={newOpen}
         onOpenChange={setNewOpen}
         onConfirm={() => {

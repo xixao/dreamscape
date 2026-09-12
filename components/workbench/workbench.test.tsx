@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LAYOUT_STORAGE_KEY, WIDTH_STORAGE_KEY } from '@/lib/persistence';
+import { EXAMPLES } from '@/lib/examples';
+import type { FileRecord } from '@/lib/files/repository';
 import { Workbench } from './workbench';
 
 // The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
@@ -13,125 +14,211 @@ function presetButton(label: string) {
   return button;
 }
 
-const SAVED = JSON.stringify({
-  ROOT: {
-    type: { resolvedName: 'LayoutBox' },
-    isCanvas: true,
-    props: { mode: 'flex', direction: { mobile: 'column', desktop: 'column' }, columns: { mobile: 1, desktop: 3 }, align: { mobile: 'stretch', desktop: 'stretch' }, justify: { mobile: 'start', desktop: 'start' }, gap: 4, padding: 6, background: 'none', grow: false },
-    displayName: 'LayoutBox',
-    custom: {},
-    hidden: false,
-    nodes: ['btn1'],
-    linkedNodes: {},
-    parent: null,
-  },
-  btn1: {
-    type: { resolvedName: 'Button' },
-    isCanvas: false,
-    props: { label: 'Restored', variant: 'default', size: 'default', disabled: false, grow: false },
-    displayName: 'Button',
-    custom: {},
-    hidden: false,
-    nodes: [],
-    linkedNodes: {},
-    parent: 'ROOT',
-  },
-});
+const BASE_FILE: FileRecord = {
+  id: 'file0000ab',
+  name: 'Untitled',
+  createdAt: '2026-09-12T00:00:00.000Z',
+  updatedAt: '2026-09-12T00:00:00.000Z',
+  layout: EXAMPLES[0].layout,
+  stageWidth: EXAMPLES[0].stageWidth,
+};
 
-// Passes loadLayout's shallow validation (ROOT exists and every top-level node's
-// type is a known block) but ROOT claims a child, "missing", that has no entry of
-// its own. Craft.js's DefaultRender throws (TypeError: Cannot read properties of
-// undefined (reading 'children')) trying to render that child, which loadLayout's
-// own checks cannot see since they never walk into `nodes` arrays: confirmed by
-// probing this exact JSON against a real render before writing StageErrorBoundary.
-const DANGLING_CHILD = JSON.stringify({
-  ROOT: {
-    type: { resolvedName: 'LayoutBox' },
-    isCanvas: true,
-    props: { mode: 'flex', direction: { mobile: 'column', desktop: 'column' }, columns: { mobile: 1, desktop: 3 }, align: { mobile: 'stretch', desktop: 'stretch' }, justify: { mobile: 'start', desktop: 'start' }, gap: 4, padding: 6, background: 'none', grow: false },
-    displayName: 'LayoutBox',
-    custom: {},
-    hidden: false,
-    nodes: ['missing'],
-    linkedNodes: {},
-    parent: null,
-  },
-});
+function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
+  return { ...BASE_FILE, ...overrides };
+}
 
-describe('Workbench persistence', () => {
-  beforeEach(() => localStorage.clear());
-  afterEach(() => vi.restoreAllMocks());
+function ok(updatedAt: string): Response {
+  return new Response(JSON.stringify({ updatedAt }), { status: 200 });
+}
 
-  it('shows an empty stage and clears storage when the saved layout throws while rendering', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    localStorage.setItem(LAYOUT_STORAGE_KEY, DANGLING_CHILD);
-    render(<Workbench />);
-    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
-    expect(localStorage.getItem(LAYOUT_STORAGE_KEY)).toBeNull();
-    expect(console.warn).toHaveBeenCalledWith(
-      'Saved layout could not be loaded; starting empty.',
-      expect.anything(),
+function conflict(updatedAt: string): Response {
+  return new Response(JSON.stringify({ updatedAt }), { status: 409 });
+}
+
+// Selects the root frame by dispatching the mousedown Craft.js's connectors
+// listen for directly on its DOM node (its own `data-block="LayoutBox"`
+// element; the login example's only other blocks are Card/Input/Button), then
+// flips its "Layout" field from Auto layout to Grid through the Design panel:
+// a genuine `setProp` on ROOT driven through the rendered editor, not a bare
+// harness call.
+async function changeRootLayoutMode(container: HTMLElement): Promise<void> {
+  const root = container.querySelector('[data-block="LayoutBox"]');
+  if (!root) throw new Error('root LayoutBox not found');
+  fireEvent.mouseDown(root);
+  const group = screen.getByRole('radiogroup', { name: 'Layout' });
+  await userEvent.click(within(group).getByRole('radio', { name: 'Grid' }));
+}
+
+describe('Workbench', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue(ok('T1'));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('renders the layout passed in file.layout', () => {
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('sends exactly one PATCH after the debounce when a prop changes on ROOT', async () => {
+    const { container } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await changeRootLayoutMode(container);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`/api/files/${BASE_FILE.id}`);
+    expect(init.method).toBe('PATCH');
+    const body = JSON.parse(init.body);
+    expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
+    expect(typeof body.layout).toBe('string');
+    expect(JSON.parse(body.layout).ROOT.props.mode).toBe('grid');
+  });
+
+  it('shows Saving then Saved in the topbar', async () => {
+    let resolveFetch!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    fetchMock.mockReturnValueOnce(pending);
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await userEvent.click(presetButton('Mobile'));
+    await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saving'), {
+      timeout: 1500,
+    });
+
+    resolveFetch(ok('T1'));
+    await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saved'));
+  });
+
+  it('shows the conflict message and a Reload button after a 409 response', async () => {
+    fetchMock.mockResolvedValueOnce(conflict('Tserver'));
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await userEvent.click(presetButton('Mobile'));
+
+    await waitFor(
+      () => expect(screen.getByTestId('save-state')).toHaveTextContent('Someone else changed this file.'),
+      { timeout: 1500 },
+    );
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+  });
+
+  it('PATCHes the new stage width when the frame width changes', async () => {
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await userEvent.click(presetButton('Mobile'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.stageWidth).toBe(375);
+    expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
+  });
+
+  it('PATCHes the new name when the file name field is renamed', async () => {
+    render(<Workbench file={makeFile({ name: 'Untitled' })} layoutInvalid={false} />);
+
+    const field = screen.getByTestId('file-name');
+    await userEvent.clear(field);
+    await userEvent.type(field, 'My design{Enter}');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.name).toBe('My design');
+  });
+
+  it('shows the invalid-layout notice in place of the save state', () => {
+    render(<Workbench file={makeFile()} layoutInvalid={true} />);
+    expect(screen.getByTestId('save-state')).toHaveTextContent(
+      'The saved design could not be read; this file starts empty.',
     );
   });
 
-  it('restores the saved layout and width', async () => {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, SAVED);
-    localStorage.setItem(WIDTH_STORAGE_KEY, '768');
-    render(<Workbench />);
-    expect(await screen.findByRole('button', { name: 'Restored' })).toBeInTheDocument();
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · desktop');
+  it('does not save an invalid layout until the user makes a real change, then clears the notice', async () => {
+    render(<Workbench file={makeFile()} layoutInvalid={true} />);
+    expect(screen.getByTestId('save-state')).toHaveTextContent('starts empty');
+
+    // Give any mount-only effect a moment to (not) fire before checking.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('save-state')).toHaveTextContent('starts empty');
+
+    await userEvent.click(presetButton('Mobile'));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    expect(screen.getByTestId('save-state')).not.toHaveTextContent('starts empty');
+    await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saved'));
   });
 
-  it('starts empty when the saved layout is unusable', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    localStorage.setItem(LAYOUT_STORAGE_KEY, '{');
-    render(<Workbench />);
-    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+  it('flushes a pending save on unmount', async () => {
+    const { unmount } = render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await userEvent.click(presetButton('Mobile'));
+    expect(fetchMock).not.toHaveBeenCalled();
+    unmount();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
   });
 
-  it('saves after a change and clears the stage through New', async () => {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, SAVED);
-    render(<Workbench />);
-    await screen.findByRole('button', { name: 'Restored' });
+  it('flushes a pending save on pagehide', async () => {
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+
+    await userEvent.click(presetButton('Mobile'));
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
+  });
+
+  it('New frame still clears the layout after confirming', async () => {
+    render(<Workbench file={makeFile()} layoutInvalid={false} />);
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     expect(await screen.findByText('Start a new frame?')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Start a new frame?')).toBeNull());
-    expect(screen.getByRole('button', { name: 'Restored' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Clear frame' }));
     expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
-
-    await waitFor(
-      () => expect(localStorage.getItem(LAYOUT_STORAGE_KEY)).not.toContain('Restored'),
-      { timeout: 1500 },
-    );
   });
 
-  it('debounces the stage width save, coalescing rapid changes into one write', async () => {
-    render(<Workbench />);
-    await screen.findByText('This frame is empty');
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
-    const widthWrites = () => setItemSpy.mock.calls.filter(([key]) => key === WIDTH_STORAGE_KEY);
+  describe('Show/Hide UI', () => {
+    it('Cmd+\\ hides the Assets and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+      render(<Workbench file={makeFile()} layoutInvalid={false} />);
+      expect(screen.getByRole('complementary', { name: 'Assets' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+      expect(screen.getByTestId('save-state')).toBeInTheDocument();
+      expect(screen.getByTestId('artboard')).toBeInTheDocument();
 
-    await userEvent.click(presetButton('Tablet'));
-    await userEvent.click(presetButton('Mobile'));
-    expect(widthWrites()).toHaveLength(0);
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-    await waitFor(() => expect(widthWrites()).toHaveLength(1), { timeout: 1500 });
-    expect(widthWrites()[0]).toEqual([WIDTH_STORAGE_KEY, '375']);
-  });
+      expect(screen.queryByRole('complementary', { name: 'Assets' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
+      expect(screen.queryByTestId('save-state')).toBeNull();
+      expect(screen.getByTestId('artboard')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
-  it('flushes the debounced width save on unmount', async () => {
-    const { unmount } = render(<Workbench />);
-    await screen.findByText('This frame is empty');
-    await userEvent.click(presetButton('Mobile'));
-    expect(localStorage.getItem(WIDTH_STORAGE_KEY)).toBeNull();
-    unmount();
-    expect(localStorage.getItem(WIDTH_STORAGE_KEY)).toBe('375');
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+
+      expect(screen.getByRole('complementary', { name: 'Assets' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+      expect(screen.getByTestId('artboard')).toBeInTheDocument();
+    });
   });
 });

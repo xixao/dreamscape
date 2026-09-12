@@ -22,11 +22,21 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.closest(POPUP_SELECTOR) !== null;
 }
 
-export function useWorkbenchKeyboard(): void {
+export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}): void {
+  const { onToggleUi } = options;
   const { actions, query } = useEditor();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Figma's Show/Hide UI. Checked before the editable-target and popup
+      // guards below so the shortcut still works while a text field, select
+      // or dialog owns the interaction.
+      if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
+        event.preventDefault();
+        onToggleUi?.();
+        return;
+      }
+
       if (isEditableTarget(event.target)) return;
 
       const modifier = event.metaKey || event.ctrlKey;
@@ -61,5 +71,5 @@ export function useWorkbenchKeyboard(): void {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query]);
+  }, [actions, query, onToggleUi]);
 }
