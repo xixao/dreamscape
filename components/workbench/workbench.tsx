@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { PANEL } from './chrome';
 import { ComponentTray } from './component-tray';
+import { useWorkbenchKeyboard } from './keyboard';
 import { NodeIndicator } from './node-indicator';
 import { useZoneRedirect } from './selection';
 import { Stage } from './stage';
@@ -29,6 +30,7 @@ export function Workbench() {
 
 function WorkbenchShell({ initialLayout }: { initialLayout: string }) {
   useZoneRedirect();
+  useWorkbenchKeyboard();
 
   return (
     <div className="grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3">
