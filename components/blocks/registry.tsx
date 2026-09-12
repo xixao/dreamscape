@@ -18,6 +18,14 @@ import type { BlockSchema, BlockType } from './schema';
 
 export const resolver = { LayoutBox, Button, Input, Card, Dialog, CardContent, DialogContent };
 
+// Server-only code (API route handlers, and any server component that
+// reads a file's layout before mounting the Workbench) should import
+// KNOWN_TYPES and emptyLayoutJson from ./known-types instead of from
+// here: importing this module pulls in @craftjs/core, which breaks
+// outside a React render (see known-types.ts for detail). This copy is
+// re-derived from `resolver`, not imported from ./known-types, so the
+// client tree never needs ./known-types either; known-types.test.ts
+// keeps the two lists from drifting apart.
 export const KNOWN_TYPES: ReadonlySet<string> = new Set(Object.keys(resolver));
 
 export const ZONE_TYPES: ReadonlySet<string> = new Set(['CardContent', 'DialogContent']);
@@ -80,6 +88,8 @@ export function schemaFor(type: string): BlockSchema | null {
   return schemas[type] ?? null;
 }
 
+// Server-only code: import this from ./known-types instead (see the note
+// on KNOWN_TYPES above).
 export function emptyLayoutJson(): string {
   return JSON.stringify({
     ROOT: {

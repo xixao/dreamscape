@@ -2,7 +2,11 @@ import { desc, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Db } from '@/db/client';
 import { files } from '@/db/schema';
-import { KNOWN_TYPES, emptyLayoutJson } from '@/components/blocks/registry';
+// Imported from known-types.ts, not registry.tsx: registry.tsx pulls in
+// @craftjs/core and the block components, which breaks when this
+// repository is loaded from a plain server module such as a files API
+// route handler (see known-types.ts for the full explanation).
+import { KNOWN_TYPES, emptyLayoutJson } from '@/components/blocks/known-types';
 import { clampWidth } from '@/lib/stage';
 import { validateLayout } from './validate';
 
