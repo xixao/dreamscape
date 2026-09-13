@@ -131,6 +131,45 @@ describe('validateScreens', () => {
     expect(result.screens[0].stageHeight).toBe(1);
   });
 
+  it('leaves layoutGrid undefined when the screen has none', () => {
+    const result = validateScreens([screen()], knownTypes);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.screens[0].layoutGrid).toBeUndefined();
+  });
+
+  it('passes a valid layoutGrid through unchanged', () => {
+    const layoutGrid = { columns: 12, gutter: 24, margin: 32, visible: false };
+    const result = validateScreens([screen({ layoutGrid })], knownTypes);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.screens[0].layoutGrid).toEqual(layoutGrid);
+  });
+
+  it('rejects a layoutGrid with a non-integer or out-of-range columns/gutter/margin', () => {
+    expect(
+      validateScreens([screen({ layoutGrid: { columns: 0, gutter: 24, margin: 32, visible: false } })], knownTypes),
+    ).toEqual({ ok: false, reason: expect.any(String) });
+    expect(
+      validateScreens([screen({ layoutGrid: { columns: 12.5, gutter: 24, margin: 32, visible: false } })], knownTypes),
+    ).toEqual({ ok: false, reason: expect.any(String) });
+    expect(
+      validateScreens([screen({ layoutGrid: { columns: 12, gutter: -1, margin: 32, visible: false } })], knownTypes),
+    ).toEqual({ ok: false, reason: expect.any(String) });
+    expect(
+      validateScreens([screen({ layoutGrid: { columns: 12, gutter: 24, margin: -1, visible: false } })], knownTypes),
+    ).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects a layoutGrid whose visible is not a boolean', () => {
+    const result = validateScreens(
+      // @ts-expect-error - deliberately wrong shape to exercise the runtime check.
+      [screen({ layoutGrid: { columns: 12, gutter: 24, margin: 32, visible: 'yes' } })],
+      knownTypes,
+    );
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
   it('rejects a deviceName longer than 80 characters', () => {
     const result = validateScreens([screen({ deviceName: 'x'.repeat(81) })], knownTypes);
     expect(result).toEqual({ ok: false, reason: expect.any(String) });

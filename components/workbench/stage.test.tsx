@@ -99,6 +99,50 @@ describe('Stage', () => {
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
   });
 
+  // Review fix wave item 8: relays this frame's real, current height up to
+  // canvas.tsx's measuredHeights map, so an auto-height frame's actual
+  // content height (not just ARTBOARD_MIN_HEIGHT) reaches snapping, the
+  // frame alignment row, distribute and the marquee's hit test.
+  describe('onMeasuredHeight (review fix wave item 8)', () => {
+    it('reports the initial (unmeasured) height for an auto-height screen', async () => {
+      const onMeasuredHeight = vi.fn();
+      renderInEditor(<Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} onMeasuredHeight={onMeasuredHeight} />);
+      await frameBody();
+      await waitFor(() => expect(onMeasuredHeight).toHaveBeenCalledWith(SCREEN_1.id, ARTBOARD_MIN_HEIGHT));
+    });
+
+    it('reports the fixed height instead, once a device sets one (same fixed-height source as the artboard itself)', async () => {
+      // Stage's own fixed height comes from useStage() (a device, or the
+      // height resize handle), NOT from screen.stageHeight directly - only
+      // FramePreview reads that straight off the screen, via its own
+      // per-preview StageProvider (see the FramePreview describe block
+      // below). DeviceSetter is the same helper "gives the frame a fixed
+      // height once a device sets one" (above) already uses.
+      const onMeasuredHeight = vi.fn();
+      renderInEditor(
+        <DeviceSetter>
+          <Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} onMeasuredHeight={onMeasuredHeight} />
+        </DeviceSetter>,
+      );
+      await frameBody();
+      await waitFor(() => expect(onMeasuredHeight).toHaveBeenCalledWith(SCREEN_1.id, 874));
+    });
+  });
+
+  it('renders the layout grid overlay inside the iframe when the screen has one visible', async () => {
+    const withGrid: Screen = { ...SCREEN_1, layoutGrid: { columns: 6, gutter: 16, margin: 24, visible: true } };
+    renderInEditor(<Stage screen={withGrid} viewport={IDENTITY_VIEWPORT} />);
+    const body = await frameBody();
+    const overlay = within(body).getByTestId('layout-grid');
+    expect(overlay.children).toHaveLength(6);
+  });
+
+  it('renders no layout grid overlay when the screen has none (defaults to hidden)', async () => {
+    renderInEditor(<Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} />);
+    const body = await frameBody();
+    expect(within(body).queryByTestId('layout-grid')).toBeNull();
+  });
+
   it('sizes the artboard in plain unscaled px regardless of the current zoom (the ancestor canvas layer scales it)', () => {
     renderInEditor(
       <>
@@ -420,11 +464,43 @@ describe('FramePreview', () => {
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
   });
 
+  it('also renders the layout grid overlay when the screen has one visible', async () => {
+    const withGrid: Screen = { ...SCREEN_1, layoutGrid: { columns: 4, gutter: 8, margin: 16, visible: true } };
+    renderInEditor(<FramePreview screen={withGrid} onFocusScreen={vi.fn()} {...noPanProps()} />);
+    const body = await previewFrameBody();
+    expect(within(body).getByTestId('layout-grid').children).toHaveLength(4);
+  });
+
   it('sizes to the screen\'s own stageHeight when set, else ARTBOARD_MIN_HEIGHT', () => {
     renderInEditor(
       <FramePreview screen={{ ...SCREEN_1, stageHeight: 900 }} onFocusScreen={vi.fn()} {...noPanProps()} />,
     );
     expect(screen.getByTestId('artboard-preview')).toHaveStyle({ height: '900px' });
+  });
+
+  // Review fix wave item 8: a non-focused, auto-height frame had no
+  // content-height tracking of its own at all before this - its wrapper's
+  // own height was always the static ARTBOARD_MIN_HEIGHT, and nothing
+  // reached canvas.tsx's measuredHeights map for it.
+  describe('onMeasuredHeight (review fix wave item 8)', () => {
+    it('reports the initial (unmeasured) height for an auto-height screen', async () => {
+      const onMeasuredHeight = vi.fn();
+      renderInEditor(
+        <FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} onMeasuredHeight={onMeasuredHeight} />,
+      );
+      await previewFrameBody();
+      await waitFor(() => expect(onMeasuredHeight).toHaveBeenCalledWith(SCREEN_1.id, ARTBOARD_MIN_HEIGHT));
+    });
+
+    it('reports the fixed stageHeight instead, for a screen with one', async () => {
+      const fixedHeightScreen: Screen = { ...SCREEN_1, stageHeight: 900 };
+      const onMeasuredHeight = vi.fn();
+      renderInEditor(
+        <FramePreview screen={fixedHeightScreen} onFocusScreen={vi.fn()} {...noPanProps()} onMeasuredHeight={onMeasuredHeight} />,
+      );
+      await previewFrameBody();
+      await waitFor(() => expect(onMeasuredHeight).toHaveBeenCalledWith(fixedHeightScreen.id, 900));
+    });
   });
 
   it('does not report into the shared StageContext canvasDocument slot (that stays scoped to the focused frame)', async () => {

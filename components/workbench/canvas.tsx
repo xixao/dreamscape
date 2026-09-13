@@ -16,10 +16,21 @@ import {
 } from 'react';
 import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
-import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
+import {
+  fitAll,
+  frameRect,
+  panBy,
+  snapBoxFor,
+  toCanvasPoint,
+  toWindowPoint,
+  zoomAround,
+  type FrameRect,
+  type Size,
+  type Viewport,
+} from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
+import type { SnapDistance, SnapGuide } from '@/lib/canvas/snap';
 import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
-import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
@@ -27,6 +38,7 @@ import type { StageCommentsProps } from './comments/comment-layer';
 import { DiagramLayer, POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import { FrameTitle } from './frame-title';
 import { isEditableTarget } from './keyboard';
+import { SnapGuides } from './snap-guides';
 import { FramePreview, Stage } from './stage';
 import { useStage } from './stage-context';
 
@@ -39,6 +51,15 @@ import { useStage } from './stage-context';
 const DEFAULT_DIAGRAM_STATE: DiagramState = createInitialDiagramState();
 function noopDiagramDispatch(): void {}
 function noop(): void {}
+function noopIds(): void {}
+// Canvas.test.tsx (and any harness predating multi-select) never passes a
+// frame selection - an empty, stable set keeps every such render exactly as
+// selection-free as before (see DEFAULT_DIAGRAM_STATE's own comment above
+// for the identical "keep old callers working" precedent).
+const DEFAULT_FRAME_SELECTION: ReadonlySet<string> = new Set();
+// Same precedent, for callers predating item 8's measured-height plumbing.
+const DEFAULT_MEASURED_HEIGHTS: ReadonlyMap<string, number> = new Map();
+function noopMeasuredHeight(): void {}
 
 export type ViewportSize = Size;
 
@@ -86,17 +107,13 @@ export function useCanvasViewport(): CanvasViewportContextValue {
   return context;
 }
 
-export function frameRect(screen: Screen): FrameRect {
-  return {
-    x: screen.x ?? 0,
-    y: screen.y ?? 0,
-    width: screen.stageWidth,
-    // The real height of an auto-height frame is not known until it
-    // renders and measures its own content - ARTBOARD_MIN_HEIGHT is the
-    // same starting estimate the artboard itself uses, good enough for
-    // "roughly fit everything," which is all a default viewport needs to be.
-    height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
-  };
+// frameRect/snapBoxFor moved to lib/canvas/viewport.ts (review fix wave nit
+// 15, beside the FrameRect shape they return) - imported above, alongside
+// this file's other viewport helpers, rather than defined here.
+
+/** Whether two canvas-space boxes overlap at all - the marquee's own hit test (spec section 3: "selects every frame whose box intersects the marquee"). */
+function rectsIntersect(a: FrameRect, b: FrameRect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
 
 /**
@@ -283,8 +300,13 @@ export function useCanvasViewportController({
 const GRID_FADE_ZOOM = 0.25;
 const GRID_SPACING = 8;
 
-function dotGridStyle(viewport: Viewport): CSSProperties {
-  if (viewport.zoom < GRID_FADE_ZOOM) return {};
+// `visible` is the pixel grid's own per-browser toggle (spec docs/
+// superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section 5,
+// Cmd+', lib/canvas/pixel-grid-store.ts) - defaults to true so every
+// existing caller/test that predates the toggle keeps seeing exactly what
+// the canvas always showed.
+function dotGridStyle(viewport: Viewport, visible: boolean): CSSProperties {
+  if (!visible || viewport.zoom < GRID_FADE_ZOOM) return {};
   const spacing = GRID_SPACING * viewport.zoom;
   return {
     backgroundImage: 'radial-gradient(circle, var(--line-soft) 1px, transparent 0)',
@@ -349,6 +371,7 @@ export function Canvas({
   onFocusScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens = noopIds,
   comments,
   rootRef,
   diagram = DEFAULT_DIAGRAM_STATE,
@@ -356,12 +379,23 @@ export function Canvas({
   diagramTool = POINTER_TOOL,
   onDiagramToolConsumed = noop,
   onDeselectDiagram = noop,
+  selectedFrameIds = DEFAULT_FRAME_SELECTION,
+  onToggleFrameSelection = noop,
+  onSetFrameSelection = noopIds,
+  onClearFrameSelection = noop,
+  pixelGridVisible = true,
+  measuredHeights = DEFAULT_MEASURED_HEIGHTS,
+  onMeasuredHeight = noopMeasuredHeight,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  // A multi-frame drag (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 3: "saves every moved x, y in one
+  // patch") - every selected frame's new position, applied together.
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   comments: StageCommentsProps;
   rootRef: RefObject<HTMLDivElement | null>;
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
@@ -376,11 +410,91 @@ export function Canvas({
   // empty canvas clears the selection") - called from the same branch,
   // below, that already calls actions.selectNode().
   onDeselectDiagram?: () => void;
+  // The canvas-level selection of frames (spec section 3), independent of
+  // Craft's own node selection inside a frame - owned by WorkbenchShell so
+  // the Design panel's alignment row (inspector.tsx) can read it too.
+  selectedFrameIds?: ReadonlySet<string>;
+  // Shift+click a frame title (spec: "adds to the selection" - toggles, so
+  // shift-clicking an already-selected title removes it).
+  onToggleFrameSelection?: (id: string) => void;
+  // A marquee drag's result, or Shift+marquee's union with the existing
+  // selection - canvas.tsx itself computes which frames intersect, this is
+  // just where the resulting id list lands.
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
+  // The canvas's own pixel grid (spec section 5, Cmd+', lib/canvas/pixel-
+  // grid-store.ts) - a per-browser toggle owned by WorkbenchShell, not
+  // canvas.tsx itself, the same split every other per-browser UI flag here
+  // already has (chatOpen, panelMode, ...).
+  pixelGridVisible?: boolean;
+  // Review fix wave item 8: an auto-height frame's real, current height -
+  // owned by WorkbenchShell (Inspector needs the same map for alignment/
+  // distribute), fed here purely to resolve frameRect/snapBoxFor's own
+  // fallback for snapping and the marquee's hit test.
+  measuredHeights?: ReadonlyMap<string, number>;
+  // CanvasFrame's own ResizeObserver-backed content measurement, relayed
+  // up through Stage/FramePreview (below) to WorkbenchShell's map above.
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { actions } = useEditor();
   const setStageZoom = useStage().setZoom;
   const focusedCanvasDocument = useCanvasDocument();
   const { viewport, setViewport } = useCanvasViewport();
+
+  // The guides/distances a frame's own drag last reported (spec docs/
+  // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section
+  // 2), keyed by which frame is being dragged so the SnapGuides overlay
+  // below can anchor its distance chips to that frame's own (already
+  // resolved) box. FrameTitle itself reports empty arrays right before its
+  // own onDragEnd (see frame-title.tsx's endDrag), so this needs no
+  // separate "drag ended" handling of its own to clear the overlay.
+  const [snapResult, setSnapResult] = useState<{ frameId: string; guides: SnapGuide[]; distances: SnapDistance[] } | null>(
+    null,
+  );
+
+  // Every selected frame's own x/y at the start of the CURRENT drag gesture
+  // (spec section 3: "dragging any selected title moves all selected
+  // frames together"), snapshotted lazily on that drag's first move (see
+  // handleFrameMove below) and cleared on FrameTitle's own onDragEnd - a
+  // plain ref, not state, since writing it must never itself trigger a
+  // render (the same reasoning panRef/marqueeRef above are refs, not state).
+  const multiDragStartRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+
+  // Routes one frame's drag: a solo drag (the dragged frame is not part of
+  // a 2+ frame selection) saves through the existing single-screen path
+  // unchanged; dragging a frame that IS part of a multi-selection instead
+  // applies the SAME delta to every other selected frame's own drag-start
+  // position and saves the whole batch in one patch (onMoveScreens) -
+  // `delta` already reflects wherever resolveSnap put the dragged frame
+  // (frame-title.tsx), so the rest of the selection moves in lockstep with
+  // it, snap included, rather than being snapped independently themselves.
+  function handleFrameMove(id: string, position: { x: number; y: number }, delta: { dx: number; dy: number }): void {
+    if (selectedFrameIds.size > 1 && selectedFrameIds.has(id)) {
+      if (!multiDragStartRef.current) {
+        multiDragStartRef.current = new Map(
+          screens
+            .filter((screen) => selectedFrameIds.has(screen.id))
+            .map((screen) => [screen.id, { x: screen.x ?? 0, y: screen.y ?? 0 }]),
+        );
+      }
+      const startPositions = multiDragStartRef.current;
+      // Review fix wave item 2 (blocker): an id with no recorded start
+      // position (e.g. a stale selection entry for a screen that is no
+      // longer on this page, or was deleted mid-drag) must be left out of
+      // the batch entirely - defaulting it to {x:0,y:0} above used to send
+      // that frame flying to the canvas origin the instant any OTHER
+      // selected frame moved.
+      const updates = Array.from(selectedFrameIds).flatMap((selectedId) => {
+        if (selectedId === id) return [{ id: selectedId, x: position.x, y: position.y }];
+        const start = startPositions.get(selectedId);
+        if (!start) return [];
+        return [{ id: selectedId, x: start.x + delta.dx, y: start.y + delta.dy }];
+      });
+      onMoveScreens(updates);
+      return;
+    }
+    onMoveScreen(id, position);
+  }
   // Read from event handlers and listener callbacks only (applyPanDelta,
   // onFrameWheel) - never during render, so synced through an effect rather
   // than assigned directly in the render body.
@@ -426,6 +540,46 @@ export function Canvas({
   } | null>(null);
   const [panning, setPanning] = useState(false);
 
+  // The active marquee-selection gesture, if any (spec docs/superpowers/
+  // specs/2026-09-13-grid-snapping-alignment-design.md section 3): a plain
+  // (non-Space, non-middle-mouse) press that starts on empty canvas.
+  // rootLeft/rootTop are cached once at pointerdown (same reasoning
+  // frameWheel's own iframe-rect read documents) purely to convert a raw
+  // clientX/Y into a root-relative screen point at each subsequent event.
+  //
+  // startX/Y and currentX/Y are CANVAS-space (review fix wave nit 16),
+  // converted via toCanvasPoint the moment each point is captured
+  // (pointerdown for start, each pointermove for current) using the
+  // viewport THEN current - not deferred to pointerup, which used to
+  // reinterpret both corners through whatever viewport happened to be
+  // current at release time. A wheel-pan mid-drag changes what canvas-space
+  // point a given screen pixel corresponds to; converting late meant the
+  // start corner (captured under the OLD viewport) got silently
+  // re-mapped to the wrong canvas location by the time endMarquee ran.
+  //
+  // start/currentScreenX/Y are the same two points kept in root-relative
+  // SCREEN px instead, purely for MARQUEE_CLICK_THRESHOLD's "was this
+  // really just a click" check below - that threshold is a fixed physical
+  // mouse-movement amount and must stay zoom-independent, unlike the
+  // canvas-space pair above.
+  const marqueeRef = useRef<{
+    pointerId: number;
+    shiftKey: boolean;
+    rootLeft: number;
+    rootTop: number;
+    startScreenX: number;
+    startScreenY: number;
+    currentScreenX: number;
+    currentScreenY: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  );
+
   // Every function below that touches panRef.current is a deliberately
   // plain, freshly-defined-per-render function (never useCallback) - see
   // useStableCallback's own doc comment above for why mixing that ref with
@@ -451,9 +605,21 @@ export function Canvas({
     setPanning(false);
   }
 
+  // Review fix wave nit 12: Escape cancels an in-progress marquee (a plain
+  // discard, no selection change) - the pointer button may still be
+  // physically down when this fires, but marqueeRef going null makes every
+  // later pointermove/pointerup for this gesture a no-op via their own
+  // existing guards, so no further cleanup is needed here.
+  function cancelMarquee(): void {
+    if (!marqueeRef.current) return;
+    marqueeRef.current = null;
+    setMarqueeBox(null);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code === 'Space' && !isEditableTarget(event.target)) setSpaceDown(true);
+      if (event.key === 'Escape') cancelMarquee();
     }
     function onKeyUp(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
@@ -480,11 +646,15 @@ export function Canvas({
   // otherwise leave panRef stuck "active" forever and (per the one-owner
   // guards above) silently swallowing every pan gesture after it. A blur of
   // the top-level window catches this regardless of whether the gesture is
-  // currently owned by the root or by some frame.
+  // currently owned by the root or by some frame. A marquee (review fix
+  // wave nit 12) is exactly the same kind of gesture-with-no-guaranteed-end
+  // and gets the identical treatment - discarded, not turned into a
+  // selection, the same as Escape above.
   useEffect(() => {
     function onBlur() {
       panRef.current = null;
       setPanning(false);
+      cancelMarquee();
     }
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
@@ -500,6 +670,42 @@ export function Canvas({
       if (event.target === event.currentTarget) {
         actions.selectNode();
         onDeselectDiagram();
+        // Shift held keeps whatever frame selection already exists (this
+        // is the start of a Shift+marquee, which UNIONS with it instead -
+        // see endMarquee below) - a plain click/marquee start clears it
+        // immediately, matching the deselect above, so a click with no
+        // drag at all still clears with no further action needed.
+        if (!event.shiftKey) onClearFrameSelection();
+        // Review fix wave nit 12: only a primary (left) button press starts
+        // a marquee - a right-click or other button on empty canvas still
+        // deselects (above) but must not begin tracking a drag gesture.
+        if (event.button === 0) {
+          capturePointer(event.currentTarget, event.pointerId);
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          // Canvas-space from the very start (review fix wave nit 16) - see
+          // marqueeRef's own doc comment above.
+          const canvasPoint = toCanvasPoint({ x, y }, viewport);
+          marqueeRef.current = {
+            pointerId: event.pointerId,
+            shiftKey: event.shiftKey,
+            rootLeft: rect.left,
+            rootTop: rect.top,
+            startScreenX: x,
+            startScreenY: y,
+            currentScreenX: x,
+            currentScreenY: y,
+            startX: canvasPoint.x,
+            startY: canvasPoint.y,
+            currentX: canvasPoint.x,
+            currentY: canvasPoint.y,
+          };
+          // Review re-review R4: the box itself is not painted until a
+          // pointermove actually crosses MARQUEE_CLICK_THRESHOLD (below) -
+          // setting it here unconditionally used to flash a visible 1px-
+          // bordered 0x0 box under the cursor on every plain click.
+        }
       }
       return;
     }
@@ -521,6 +727,45 @@ export function Canvas({
   }
 
   function handleRootPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const marquee = marqueeRef.current;
+    if (marquee && marquee.pointerId === event.pointerId) {
+      const x = event.clientX - marquee.rootLeft;
+      const y = event.clientY - marquee.rootTop;
+      marquee.currentScreenX = x;
+      marquee.currentScreenY = y;
+      // Canvas-space, converted now under the CURRENT viewport (review fix
+      // wave nit 16) - see marqueeRef's own doc comment above.
+      const canvasPoint = toCanvasPoint({ x, y }, viewport);
+      marquee.currentX = canvasPoint.x;
+      marquee.currentY = canvasPoint.y;
+      // Review re-review R4: the box paints only once the gesture has
+      // actually moved past the click threshold - the same screen-space
+      // dx/dy check endMarquee itself uses to decide "was this really just
+      // a click." Painting an immediate 0x0 box at pointerdown used to
+      // flash a visible 1px-bordered dot under the cursor on every plain
+      // click, gone again by pointerup.
+      const dx = Math.abs(marquee.currentScreenX - marquee.startScreenX);
+      const dy = Math.abs(marquee.currentScreenY - marquee.startScreenY);
+      if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) {
+        // Also clears a box painted earlier in the same gesture, so a drag
+        // that wanders back under the threshold does not freeze a stale box.
+        setMarqueeBox(null);
+        return;
+      }
+      // The visual box stays screen-space (drawn outside the transformed
+      // canvas-layer) - the start corner is re-projected through the
+      // CURRENT viewport every move, so a pan since pointerdown still
+      // renders it in the right place; the current corner is simply this
+      // move's own already-screen-space point, no round trip needed.
+      const startScreen = toWindowPoint({ x: marquee.startX, y: marquee.startY }, viewport);
+      setMarqueeBox({
+        left: Math.min(startScreen.x, x),
+        top: Math.min(startScreen.y, y),
+        width: Math.abs(x - startScreen.x),
+        height: Math.abs(y - startScreen.y),
+      });
+      return;
+    }
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     // No `inFrame` check here, deliberately: a pan that started inside a
@@ -532,6 +777,44 @@ export function Canvas({
     applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
     pan.lastScreenX = event.screenX;
     pan.lastScreenY = event.screenY;
+  }
+
+  // Screen-px movement below which a marquee gesture is really just a plain
+  // click - matches diagram-layer.tsx's own PLACEMENT_CLICK_THRESHOLD
+  // precedent. Below this, handleRootPointerDown's own immediate clear
+  // already stands as the final state; at or above it, this replaces (or,
+  // Shift held, unions with) the selection using whichever frames the
+  // marquee box actually intersects.
+  const MARQUEE_CLICK_THRESHOLD = 4;
+
+  function endMarquee(event: { pointerId: number }): void {
+    const marquee = marqueeRef.current;
+    if (!marquee || marquee.pointerId !== event.pointerId) return;
+    marqueeRef.current = null;
+    setMarqueeBox(null);
+
+    // Screen-space threshold check (review fix wave nit 16): stays
+    // zoom-independent, unlike the canvas-space pair below.
+    const dx = Math.abs(marquee.currentScreenX - marquee.startScreenX);
+    const dy = Math.abs(marquee.currentScreenY - marquee.startScreenY);
+    if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) return;
+
+    // Already canvas-space, resolved incrementally as each point was
+    // captured (review fix wave nit 16) - no toCanvasPoint call here
+    // anymore, and critically, nothing left to re-interpret through
+    // whatever viewport happens to be current now (a wheel-pan mid-drag
+    // used to silently shift the resulting rectangle by reconverting both
+    // corners through the SAME, now-stale-for-one-of-them viewport).
+    const marqueeCanvasRect: FrameRect = {
+      x: Math.min(marquee.startX, marquee.currentX),
+      y: Math.min(marquee.startY, marquee.currentY),
+      width: Math.abs(marquee.currentX - marquee.startX),
+      height: Math.abs(marquee.currentY - marquee.startY),
+    };
+    const matchedIds = screens
+      .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
+      .map((candidate) => candidate.id);
+    onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedIds])) : matchedIds);
   }
 
   // Starts a pan gesture that began inside a frame's own document - the
@@ -624,6 +907,12 @@ export function Canvas({
   const stableMoveFramePan = useStableCallback(moveFramePan);
   const stableEndFramePan = useStableCallback(endFramePan);
   const stableFrameWheel = useStableCallback(frameWheel);
+  // Review fix wave item 8: wrapped the same way as the pan/wheel callbacks
+  // above - onMeasuredHeight is a plain prop this component received (not
+  // necessarily already stable the way onFocusScreen's own WorkbenchShell
+  // origin already is), and Stage/FramePreview need a stable reference to
+  // stay memoized across a pure viewport re-render.
+  const stableOnMeasuredHeight = useStableCallback(onMeasuredHeight);
 
   // The focused frame's own iframe is a separate document: neither the root
   // pointer handlers above nor a plain wheel listener on the root element
@@ -697,6 +986,11 @@ export function Canvas({
     return () => root.removeEventListener('wheel', onWheel);
   }, [rootRef, setViewport]);
 
+  // The frame snapResult last reported for, resolved against the current
+  // screens prop so SnapGuides always anchors its distance chips to that
+  // frame's own up-to-date box (see snapResult's own doc comment above).
+  const snappingScreen = snapResult ? screens.find((screen) => screen.id === snapResult.frameId) : undefined;
+
   return (
     <div
       ref={rootRef}
@@ -706,16 +1000,31 @@ export function Canvas({
         spaceDown && !panning && 'cursor-grab',
         panning && 'cursor-grabbing',
       )}
-      style={dotGridStyle(viewport)}
+      style={dotGridStyle(viewport, pixelGridVisible)}
       onPointerDown={handleRootPointerDown}
       onPointerMove={handleRootPointerMove}
       onPointerUp={(event) => {
-        if (panRef.current?.pointerId === event.pointerId) endPan();
+        if (panRef.current?.pointerId === event.pointerId) {
+          endPan();
+          return;
+        }
+        endMarquee(event);
       }}
       onPointerCancel={(event) => {
-        if (panRef.current?.pointerId === event.pointerId) endPan();
+        if (panRef.current?.pointerId === event.pointerId) {
+          endPan();
+          return;
+        }
+        endMarquee(event);
       }}
     >
+      {marqueeBox && (
+        <div
+          data-testid="marquee-selection"
+          className="pointer-events-none absolute border border-acc bg-acc/10"
+          style={{ left: marqueeBox.left, top: marqueeBox.top, width: marqueeBox.width, height: marqueeBox.height }}
+        />
+      )}
       <div
         data-testid="canvas-layer"
         style={{
@@ -728,22 +1037,49 @@ export function Canvas({
       >
         {screens.map((screen) => {
           const focused = screen.id === focusedScreenId;
+          const selected = selectedFrameIds.has(screen.id);
+          // Every OTHER frame on this page, to snap against - excludes this
+          // frame itself, and, when it is part of a multi-selection, every
+          // co-selected frame too, so a selection never snaps against its
+          // own members while moving together (spec section 3).
+          const otherFrames = screens
+            .filter((candidate) => candidate.id !== screen.id && !(selected && selectedFrameIds.has(candidate.id)))
+            .map((candidate) => snapBoxFor(candidate, measuredHeights));
           return (
             <div
               key={screen.id}
               data-frame
               data-testid={`frame-${screen.id}`}
+              data-selected={selected || undefined}
+              className={cn(selected && 'outline-2 outline-acc outline-offset-2')}
               style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
             >
               <FrameTitle
                 screen={screen}
                 focused={focused}
                 zoom={viewport.zoom}
+                // Review re-review R1: the same measured-height-aware box
+                // otherFrames (above) is already built from, so the DRAGGED
+                // frame's own snap box for an auto-height screen matches
+                // every other frame's instead of lagging a step behind.
+                height={frameRect(screen, measuredHeights).height}
                 onRename={(name) => onRenameScreen(screen.id, name)}
-                onMove={(position) => onMoveScreen(screen.id, position)}
+                onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
+                onShiftSelect={() => {
+                  // One selection model at a time (review re-review R9): a
+                  // frame joining the selection drops any diagram selection,
+                  // the same way the empty-canvas press does.
+                  onDeselectDiagram();
+                  onToggleFrameSelection(screen.id);
+                }}
+                otherFrames={otherFrames}
+                onSnapGuides={(result) => setSnapResult({ frameId: screen.id, ...result })}
+                onDragEnd={() => {
+                  multiDragStartRef.current = null;
+                }}
               />
               {focused ? (
-                <Stage screen={screen} viewport={viewport} comments={comments} />
+                <Stage screen={screen} viewport={viewport} comments={comments} onMeasuredHeight={stableOnMeasuredHeight} />
               ) : (
                 <FramePreview
                   screen={screen}
@@ -753,13 +1089,18 @@ export function Canvas({
                   // WorkbenchShell/Workbench, neither of which re-renders
                   // just because THIS component's viewport context does),
                   // so no per-screen wrapping is needed here - FramePreview
-                  // calls it with its own screen.id itself.
+                  // calls it with its own screen.id itself. onMeasuredHeight
+                  // (review fix wave item 8) is the same shape and gets the
+                  // same treatment, just wrapped in useStableCallback below
+                  // since it originates as a plain prop THIS component
+                  // received, not necessarily already stable itself.
                   onFocusScreen={onFocusScreen}
                   shouldStartPan={stableShouldStartPan}
                   onPanPointerDown={stableStartFramePan}
                   onPanPointerMove={stableMoveFramePan}
                   onPanPointerUp={stableEndFramePan}
                   onFrameWheel={stableFrameWheel}
+                  onMeasuredHeight={stableOnMeasuredHeight}
                 />
               )}
             </div>
@@ -777,10 +1118,16 @@ export function Canvas({
         <DiagramLayer
           diagram={diagram}
           dispatch={onDiagramAction}
-          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen) }))}
+          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen, measuredHeights) }))}
           viewport={viewport}
           tool={diagramTool}
           onToolConsumed={onDiagramToolConsumed}
+        />
+        <SnapGuides
+          guides={snapResult?.guides ?? []}
+          distances={snapResult?.distances ?? []}
+          movingFrame={snappingScreen ? snapBoxFor(snappingScreen, measuredHeights) : null}
+          zoom={viewport.zoom}
         />
       </div>
     </div>

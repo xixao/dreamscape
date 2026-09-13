@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { loadViewport } from '@/lib/canvas/viewport-store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -700,6 +701,149 @@ describe('Workbench', () => {
       // Drains this screen's own extra save traffic - see the identical
       // comment on "New screen adds a screen..." above.
       await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('dragging one of several selected frames moves them all and saves every position in one patch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      // Shift+click both titles into the selection, then drag the first one.
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title1, { pointerId: 1, clientX: 20, clientY: 0 });
+      fireEvent.pointerUp(title1, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      const byId = Object.fromEntries(body.screens.map((entry) => [entry.id, entry]));
+      // Raw (0+20)=20 grid-snaps to 24 for the dragged frame; SCREEN_2 (not
+      // itself dragged) gets the same +24 delta applied to its own starting
+      // x, in the SAME patch as SCREEN_1's.
+      expect(byId[SCREEN_1.id]).toMatchObject({ x: 24, y: 0 });
+      expect(byId[SCREEN_2.id]).toMatchObject({ x: SCREEN_1.stageWidth + 200 + 24, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    // One of the review's named missing tests (task-grid-review.md):
+    // arrow-nudging two selected frames must save both in one patch, the
+    // same way a dragged multi-selection already does above.
+    it('arrow-nudge of two selected frames lands in one patch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      const byId = Object.fromEntries(body.screens.map((entry) => [entry.id, entry]));
+      // Plain ArrowRight nudges by NUDGE_PX (1), applied to both frames'
+      // already-resolved starting positions (0 and stageWidth+200).
+      expect(byId[SCREEN_1.id]).toMatchObject({ x: 1, y: 0 });
+      expect(byId[SCREEN_2.id]).toMatchObject({ x: SCREEN_1.stageWidth + 200 + 1, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+  });
+
+  // Review fix wave item 6: selecting something else entirely must drop
+  // whatever frame selection is active, the same way Figma clears a frame
+  // selection the instant you select a layer or a shape - otherwise the
+  // Align row (and arrow-key nudge) kept acting on frames the user's own
+  // next click had already moved on from.
+  describe('frame selection is cleared by other selections (review fix wave item 6)', () => {
+    async function selectTwoFrames(): Promise<void> {
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      expect(screen.getByRole('button', { name: 'Align left' })).toBeInTheDocument();
+    }
+
+    it('selecting a layer clears an active frame selection', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await selectTwoFrames();
+
+      // A leaf Button block, not the root LayoutBox: the root is itself an
+      // Auto layout container, and selecting one renders its OWN "Align
+      // left" icon (LayoutAlignmentFields' align-items row, a wholly
+      // different, legitimate control) - asserting the frame row is gone
+      // by that same label would be a false pass/fail either way. Button
+      // has no such row, so "Align left" can only mean the frame row here.
+      const signIn = frameBody().querySelector('[data-block="Button"]');
+      if (!signIn) throw new Error('Sign in Button block not found');
+      fireEvent.mouseDown(signIn);
+
+      // Craft's own selection change propagates through its connectors
+      // asynchronously (changeRootLayoutMode, above, relies on the same
+      // thing by awaiting a follow-up interaction before checking
+      // anything) - waitFor gives it room to land before this asserts.
+      await waitFor(() => expect(screen.getByText('Variant')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+    });
+
+    it('selecting a diagram shape clears an active frame selection', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await selectTwoFrames();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+      const surface = screen.getByTestId('diagram-placement-surface');
+      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 500, clientY: 500 });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 500, clientY: 500 });
+
+      expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+    });
+  });
+
+  describe('layout grid / pixel grid', () => {
+    it('Shift+G toggles the focused screen\'s layout grid on and saves it', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.keyDown(window, { key: 'g', shiftKey: true });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as {
+        screens: Array<{ layoutGrid?: { columns: number; gutter: number; margin: number; visible: boolean } }>;
+      };
+      // Defaults (12/24/32) apply the first time a screen's grid is toggled.
+      expect(body.screens[0].layoutGrid).toEqual({ columns: 12, gutter: 24, margin: 32, visible: true });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Shift+G is ignored while typing', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name' }), { key: 'g', shiftKey: true });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('Cmd+\' hides the canvas pixel grid without saving anything, and shows it again', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      expect(root.style.backgroundImage).toContain('radial-gradient');
+
+      fireEvent.keyDown(window, { key: "'", metaKey: true });
+      expect(root.style.backgroundImage).toBeFalsy();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "'", metaKey: true });
+      expect(root.style.backgroundImage).toContain('radial-gradient');
     });
   });
 
@@ -1637,6 +1781,141 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByTestId('file-name'));
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: ']', metaKey: true, shiftKey: true });
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
+    });
+
+    // Review fix wave item 2 (blocker): a canvas frame selection used to be
+    // one flat Set<string> with no notion of which page it belonged to -
+    // switching pages left it untouched, so the Align row (and arrow-key
+    // nudge) kept acting on frames the user could no longer even see, and a
+    // multi-drag could fan its delta out to those invisible frames too.
+    describe('frame selection is page-scoped (review fix wave item 2)', () => {
+      function twoScreenTwoPageFile(): FileRecord {
+        return makeFile({
+          pages: [
+            { id: PAGE_ID, name: 'Page 1' },
+            { id: PAGE_2_ID, name: 'v2' },
+          ],
+          // Two screens on page 1 (so there is something to multi-select),
+          // one on page 2.
+          screens: [SCREEN_1, SCREEN_2, SCREEN_4],
+        });
+      }
+
+      it('switching pages clears a multi-frame selection: the Align row disappears and arrow keys do nothing', async () => {
+        render(<Workbench file={twoScreenTwoPageFile()} />);
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+        const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+        fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+        fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+        expect(screen.getByRole('button', { name: 'Align left' })).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
+        await within(frameBody()).findByText('Dashboard');
+
+        expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+
+        fetchMock.mockClear();
+        fireEvent.keyDown(window, { key: 'ArrowRight' });
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('a selection made on one page does not resurface after navigating away and back to it', async () => {
+        render(<Workbench file={twoScreenTwoPageFile()} />);
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+        fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+        await openPagesMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+        await within(frameBody()).findByText('Dashboard');
+
+        await openPagesMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 1' }));
+        expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+        // A single selected frame never shows the (2+) Align row on its
+        // own, so this also doubles as confirming no stray second id
+        // (e.g. from page 2) is silently union'd back in.
+        expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+      });
+    });
+  });
+
+  // Review re-review R6: zoom-to-fit/zoom-to-selection used to always fall
+  // back to ARTBOARD_MIN_HEIGHT for an auto-height frame, even after item 8
+  // taught snapping/alignment/marquee about its real, measured height -
+  // fit-all could crop a tall frame that everything else already treated
+  // correctly.
+  describe('zoom-to-fit uses a fed measured height (review re-review R6)', () => {
+    // Mirrors canvas-frame.test.tsx's own installFakeResizeObserver: the
+    // global ResizeObserverStub (vitest.setup.ts) never actually calls
+    // back, so a real content-height change needs a fake that can be
+    // triggered on demand. Must be installed before the frame mounts.
+    // Unlike canvas-frame.test.tsx's single-observer fake, this keeps EVERY
+    // callback: the workbench mounts several observers at once (CanvasFrame's
+    // own auto-height one, Stage's content-height one, and more), and only
+    // Stage's feeds onMeasuredHeight, so triggering just the last one
+    // constructed measured nothing the fit could see.
+    function installFakeResizeObserver(): { trigger: () => void } {
+      const callbacks: ResizeObserverCallback[] = [];
+      class FakeResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          callbacks.push(cb);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+      return {
+        trigger: () => {
+          for (const cb of callbacks) cb([], {} as ResizeObserver);
+        },
+      };
+    }
+
+    it('fits a tall auto-height frame around its real content height once measured, not ARTBOARD_MIN_HEIGHT', async () => {
+      // jsdom gives every element a zeroed getBoundingClientRect, so the
+      // canvas's own measured viewportSize is effectively 0x0 here - fitAll
+      // clamps zoom to MIN_ZOOM (10%) regardless of the frame's height,
+      // making the zoom READOUT identical in both cases below. The centre
+      // it fits AROUND still depends on the frame's own height even at a
+      // pinned zoom, so this reads the persisted viewport's own y (every
+      // change is saved per file/page, canvas.tsx's useCanvasViewportController)
+      // instead of the readout.
+      const resizeObserver = installFakeResizeObserver();
+      render(<Workbench file={makeFile({ screens: [SCREEN_1] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      // Fit at the unmeasured default (ARTBOARD_MIN_HEIGHT = 640, centre y = 320).
+      fireEvent.keyDown(window, { key: '!', code: 'Digit1', shiftKey: true });
+      const before = loadViewport(window.localStorage, 'file0000ab', PAGE_ID);
+      expect(before).not.toBeNull();
+
+      // Feed a much taller measured height (centre y = 2000) and re-fit.
+      Object.defineProperty(frameBody(), 'scrollHeight', { value: 4000, configurable: true });
+      act(() => resizeObserver.trigger());
+      // Waits for Stage's own contentHeight (and so its onMeasuredHeight
+      // report) to actually land before re-fitting - the height resize
+      // handle already reads directly off it (stage.tsx's effectiveHeight).
+      await waitFor(() => expect(screen.getByTestId('resize-handle-height')).toHaveAttribute('aria-valuenow', '4000'));
+      fireEvent.keyDown(window, { key: '!', code: 'Digit1', shiftKey: true });
+      const after = loadViewport(window.localStorage, 'file0000ab', PAGE_ID);
+      expect(after).not.toBeNull();
+
+      // y = viewportSize.height/2 - centreY*zoom: at the same (clamped)
+      // zoom, fitting around a centre more than 6x further down must move
+      // the viewport measurably further too. The old, un-fixed code would
+      // fit around the same 640px-tall box both times (identical y)
+      // regardless of what scrollHeight reports.
+      expect(after!.zoom).toBe(before!.zoom);
+      expect(Math.abs(after!.y)).toBeGreaterThan(Math.abs(before!.y) * 2);
+
+      vi.unstubAllGlobals();
     });
   });
 

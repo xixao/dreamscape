@@ -74,6 +74,14 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'zoom-reset', area: 'Canvas', keys: ['Mod', '0'], label: 'Zoom to 100%', always: true },
   { id: 'zoom-to-fit', area: 'Canvas', keys: ['Shift', '1'], label: 'Zoom to fit' },
   { id: 'zoom-to-selection', area: 'Canvas', keys: ['Shift', '2'], label: 'Zoom to selection' },
+  // Layout grid / pixel grid (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 5). Shift+G is a bare Shift+letter
+  // chord, guarded like every other one (tool-comment, screen-new, ...) -
+  // ignored while typing. Cmd+' is a Mod chord with no browser shortcut to
+  // fight, but marked `always` anyway for the same reason panel-collapse/
+  // toggle-ui are: a global display toggle should work regardless of focus.
+  { id: 'layout-grid-toggle', area: 'Canvas', keys: ['Shift', 'G'], label: 'Toggle the layout grid' },
+  { id: 'pixel-grid-toggle', area: 'Canvas', keys: ['Mod', "'"], label: 'Toggle the pixel grid', always: true },
   { id: 'screen-new', area: 'Screens', keys: ['Shift', 'N'], label: 'New screen' },
   { id: 'page-next', area: 'Screens', keys: ['Mod', 'Shift', ']'], label: 'Next page' },
   { id: 'page-prev', area: 'Screens', keys: ['Mod', 'Shift', '['], label: 'Previous page' },
@@ -85,25 +93,52 @@ export const SHORTCUTS: Shortcut[] = [
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  { id: 'diagram-context-menu', area: 'Edit', keys: ['Shift', 'F10'], label: 'Open the menu for the diagram selection' },
+  // Nudges whichever selection is active - a diagram element, or (spec
+  // docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
+  // section 4) one or more selected frames when no diagram element is
+  // selected; keyboard.tsx's own dispatch decides which (diagram wins when
+  // both exist). 1 px plain, 8 px with Shift - the same two rows below,
+  // split by modifier since they now move by different amounts.
   { id: 'diagram-nudge-up',
     area: 'Canvas',
     keys: ['↑'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-down',
     area: 'Canvas',
     keys: ['↓'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-left',
     area: 'Canvas',
     keys: ['←'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-right',
     area: 'Canvas',
     keys: ['→'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
+  },
+  { id: 'diagram-nudge-up-shift',
+    area: 'Canvas',
+    keys: ['Shift', '↑'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-down-shift',
+    area: 'Canvas',
+    keys: ['Shift', '↓'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-left-shift',
+    area: 'Canvas',
+    keys: ['Shift', '←'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-right-shift',
+    area: 'Canvas',
+    keys: ['Shift', '→'],
+    label: 'Nudge the selection 8 px',
   },
   { id: 'escape', area: 'Edit', keys: ['Escape'], label: 'Deselect, leave a tool, close a menu' },
   // Labelled "Shortcuts dialog" rather than "Keyboard shortcuts" (the
@@ -217,6 +252,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // when one exists) - checked before the generic `if (mod) return null`
   // below, `!shift` so Cmd+Shift+D (unused here) does not also match it.
   if (mod && !shift && key === 'd') return 'diagram-duplicate';
+  if (mod && event.key === "'") return 'pixel-grid-toggle';
   if (mod) return null;
 
   // Shift-only chords (checked by `code` where digits are involved, not
@@ -228,16 +264,17 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && key === 'n') return 'screen-new';
   if (shift && key === 'c') return 'tool-comment';
   if (shift && key === 'd') return 'tool-diagram';
+  if (shift && key === 'g') return 'layout-grid-toggle';
   if (shift && event.key === '?') return 'shortcuts-help';
-  // Arrow keys nudge the diagram selection (keyboard.tsx only acts on this
-  // when one exists) - matched both with and without Shift (Shift is a
-  // bigger nudge, decided by keyboard.tsx from event.shiftKey directly, not
-  // a different id), so these four checks sit on both sides of the
-  // `if (shift) return null` gate just below.
-  if (shift && event.key === 'ArrowUp') return 'diagram-nudge-up';
-  if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down';
-  if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left';
-  if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right';
+  // Arrow keys nudge the diagram selection or, when none is active, a
+  // selected frame (keyboard.tsx decides which) - matched both with and
+  // without Shift, as distinct ids now that they move by a different
+  // amount (1 px plain, 8 px with Shift), so these four checks sit on both
+  // sides of the `if (shift) return null` gate just below.
+  if (shift && event.key === 'ArrowUp') return 'diagram-nudge-up-shift';
+  if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down-shift';
+  if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left-shift';
+  if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right-shift';
   if (shift) return null;
 
   if (key === 'd') return 'panel-design';

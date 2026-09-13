@@ -3,19 +3,17 @@
 import { ROOT_NODE, useEditor } from '@craftjs/core';
 import { useEffect } from 'react';
 import { ZONE_TYPES } from '@/components/blocks/registry';
-import { isElementLike } from '@/lib/dom';
+import { isEditableTarget, isElementLike } from '@/lib/dom';
+export { isEditableTarget };
 import { matchShortcut, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
 import type { PanelMode } from '@/lib/workbench/panel-store';
 import { useCanvasDocument } from './canvas-frame';
 import { selectedIdFrom } from './selection';
 
-const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 // A popup or dialog owns the interaction while it is open: Delete/Backspace should
 // remove text or a list item inside it, not the selected block behind it, and
 // Escape/undo should be free to close the popup instead of touching the stage.
-const POPUP_SELECTOR =
-  '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
 
 // isElementLike (lib/dom.ts) is duck-typed rather than `target instanceof
 // HTMLElement`: with the frame now sometimes living in an iframe
@@ -25,14 +23,6 @@ const POPUP_SELECTOR =
 // it even though it plainly is one (typing Delete into a text block inside
 // the frame would fall through to deleting the block).
 
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!isElementLike(target)) return false;
-  if (EDITABLE_TAGS.has(target.tagName)) return true;
-  if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null) {
-    return true;
-  }
-  return target.closest(POPUP_SELECTOR) !== null;
-}
 
 // stage.tsx's resize handles (role="separator") handle their own arrow-key
 // stepping and stop that keydown from bubbling here at all (see the comment
@@ -89,9 +79,24 @@ export function useWorkbenchKeyboard(
     // falling through to actions.selectNode().
     diagramSelectionActive?: boolean;
     onDeselectDiagram?: () => void;
+    // Whether one or more frames are selected on the canvas (spec docs/
+    // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
+    // section 3/4: "Escape clears the selection") - checked after
+    // diagramSelectionActive and before the plain actions.selectNode()
+    // fallback, the same precedence position every other "leave this state
+    // instead of the default deselect" check above already occupies.
+    frameSelectionActive?: boolean;
+    onClearFrameSelection?: () => void;
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
+    // `big` is Shift held: 1 px plain, 8 px with Shift (Matt, 2026-09-13:
+    // dropped the earlier 8/64 px split in favour of matching the canvas's
+    // own 8 px grid). The four arrow keys nudge whichever selection is
+    // active - the diagram (onDiagramNudge) when diagramSelectionActive, a
+    // canvas frame selection (onFrameNudge) otherwise when
+    // frameSelectionActive - diagram wins when both are somehow true.
     onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
+    onFrameNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
     onDiagramUndo?: () => void;
     onDiagramRedo?: () => void;
     // Canvas zoom (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
@@ -138,6 +143,13 @@ export function useWorkbenchKeyboard(
     // overlay.tsx), the same action the top bar's ⌘ button and its overflow
     // menu item perform.
     onOpenShortcuts?: () => void;
+    // Shift+G / Cmd+' (spec docs/superpowers/specs/2026-09-13-grid-
+    // snapping-alignment-design.md section 5): toggles the focused screen's
+    // own layout grid, or the canvas's per-browser pixel grid - guarded
+    // like every other bare-letter/Mod-chord shortcut of its own kind (see
+    // each id's own `always` in lib/shortcuts.ts).
+    onToggleLayoutGrid?: () => void;
+    onTogglePixelGrid?: () => void;
   } = {},
 ): void {
   const {
@@ -152,9 +164,12 @@ export function useWorkbenchKeyboard(
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
+    onFrameNudge,
     onDiagramUndo,
     onDiagramRedo,
     onZoomIn,
@@ -169,6 +184,8 @@ export function useWorkbenchKeyboard(
     onPageNext,
     onPagePrev,
     onOpenShortcuts,
+    onToggleLayoutGrid,
+    onTogglePixelGrid,
   } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
@@ -267,13 +284,25 @@ export function useWorkbenchKeyboard(
         case 'diagram-nudge-down':
         case 'diagram-nudge-left':
         case 'diagram-nudge-right':
-          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
-          event.preventDefault();
-          onDiagramNudge?.(
-            id.slice('diagram-nudge-'.length) as 'up' | 'down' | 'left' | 'right',
-            event.shiftKey,
-          );
+        case 'diagram-nudge-up-shift':
+        case 'diagram-nudge-down-shift':
+        case 'diagram-nudge-left-shift':
+        case 'diagram-nudge-right-shift': {
+          if (isSeparatorTarget(event.target)) return;
+          const direction = id.replace(/^diagram-nudge-/, '').replace(/-shift$/, '') as 'up' | 'down' | 'left' | 'right';
+          const big = id.endsWith('-shift');
+          if (diagramSelectionActive) {
+            event.preventDefault();
+            onDiagramNudge?.(direction, big);
+            return;
+          }
+          if (frameSelectionActive) {
+            event.preventDefault();
+            onFrameNudge?.(direction, big);
+            return;
+          }
           return;
+        }
 
         case 'tool-comment':
           event.preventDefault();
@@ -325,6 +354,15 @@ export function useWorkbenchKeyboard(
           onOpenShortcuts?.();
           return;
 
+        case 'layout-grid-toggle':
+          onToggleLayoutGrid?.();
+          return;
+
+        case 'pixel-grid-toggle':
+          event.preventDefault();
+          onTogglePixelGrid?.();
+          return;
+
         case 'escape':
           if (commentMode) {
             onExitCommentMode?.();
@@ -336,6 +374,10 @@ export function useWorkbenchKeyboard(
           }
           if (diagramSelectionActive) {
             onDeselectDiagram?.();
+            return;
+          }
+          if (frameSelectionActive) {
+            onClearFrameSelection?.();
             return;
           }
           actions.selectNode();
@@ -391,9 +433,12 @@ export function useWorkbenchKeyboard(
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
+    onFrameNudge,
     onDiagramUndo,
     onDiagramRedo,
     onZoomIn,
@@ -408,6 +453,8 @@ export function useWorkbenchKeyboard(
     onPageNext,
     onPagePrev,
     onOpenShortcuts,
+    onToggleLayoutGrid,
+    onTogglePixelGrid,
     canvasDocument,
   ]);
 }

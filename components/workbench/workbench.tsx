@@ -5,13 +5,21 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
-import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
+import { fitAll, frameRect, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
+import { loadPixelGridVisible, savePixelGridVisible } from '@/lib/canvas/pixel-grid-store';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
-import { createInitialDiagramState, diagramReducer, duplicatePairs, pruneEdgesForScreen, type DiagramData, cloneDiagram } from '@/lib/diagram/store';
+import {
+  createInitialDiagramState,
+  diagramReducer,
+  duplicatePairs,
+  pruneEdgesForScreen,
+  type DiagramData,
+  cloneDiagram,
+} from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
-import type { FileRecord, Page, Screen } from '@/lib/files/repository';
+import type { FileRecord, LayoutGrid, Page, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
@@ -22,7 +30,7 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
-import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
+import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP } from './chrome';
@@ -31,9 +39,11 @@ import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
 import { useDropPlaceholder } from './drop-placeholder';
+import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspector/alignment-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
+import { DEFAULT_LAYOUT_GRID, resolveLayoutGrid } from './layout-grid';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
@@ -172,6 +182,36 @@ function sanitizeDiagram(diagram: DiagramData, validScreenIds: ReadonlySet<strin
   }
   return sanitized;
 }
+
+// Shared by onDiagramNudge and onFrameNudge below (spec docs/superpowers/
+// specs/2026-09-13-grid-snapping-alignment-design.md section 4, updated
+// 2026-09-13: 1 px plain, 8 px with Shift - dropped the earlier 8/64 px
+// split so a nudge always lands on the canvas's own 8 px grid).
+const NUDGE_PX = 1;
+const NUDGE_PX_SHIFT = 8;
+
+function nudgeDelta(direction: 'up' | 'down' | 'left' | 'right', big: boolean): [number, number] {
+  const amount = big ? NUDGE_PX_SHIFT : NUDGE_PX;
+  switch (direction) {
+    case 'up':
+      return [0, -amount];
+    case 'down':
+      return [0, amount];
+    case 'left':
+      return [-amount, 0];
+    case 'right':
+      return [amount, 0];
+  }
+}
+
+// Diagram align({ids, mode}) / distribute({ids, axis}) (Matt, 2026-09-13:
+// "i also need alignment options when selecting multiple shapes") are being
+// added to lib/diagram/store.ts's own DiagramAction union on a separate
+// branch (diagram-followups) - this branch does not own that file, so
+// these two shapes are dispatched through a narrow, explicitly-typed
+// adapter instead of widening DiagramAction here. When the branches merge,
+// only this cast needs reconciling with whatever the real action types
+// turn out to be, not every call site.
 
 type MinimalQuery = { serialize: () => string };
 
@@ -613,7 +653,49 @@ export function Workbench({
   // 12-infinite-canvas-design.md section 6: "saves x, y through the existing
   // save path"), debounced exactly like every other screen edit.
   function moveScreen(id: string, position: { x: number; y: number }): void {
-    const next = screens.map((screen) => (screen.id === id ? { ...screen, x: position.x, y: position.y } : screen));
+    // Review fix wave item 1 (blocker): validateScreens rejects a
+    // non-integer x/y with a 400 that lib/persistence.ts never retries, so
+    // this is a defensive second Math.round on top of resolveSnap's own -
+    // a caller that skips snap.ts entirely (or a future one) still can't
+    // wedge autosave with a fractional position.
+    const next = screens.map((screen) =>
+      screen.id === id ? { ...screen, x: Math.round(position.x), y: Math.round(position.y) } : screen,
+    );
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  // The multi-frame counterpart to moveScreen above (spec docs/superpowers/
+  // specs/2026-09-13-grid-snapping-alignment-design.md section 3: "saves
+  // every moved x, y in one patch") - a dragged multi-selection
+  // (canvas.tsx) and the alignment/distribute/tidy up actions (the
+  // inspector's alignment fields) both move several frames at once and
+  // must land in one save, not one per frame.
+  function moveScreens(updates: { id: string; x: number; y: number }[]): void {
+    // Same defensive rounding as moveScreen above (review fix wave item 1).
+    const byId = new Map(updates.map((update) => [update.id, { x: Math.round(update.x), y: Math.round(update.y) }]));
+    const next = screens.map((screen) => {
+      const update = byId.get(screen.id);
+      return update ? { ...screen, x: update.x, y: update.y } : screen;
+    });
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  // The Design panel's Frame section (columns/gutter/margin fields and the
+  // "Show layout grid" switch, inspector.tsx) and Shift+G (onToggleLayoutGrid,
+  // below) both merge a partial change into whichever layoutGrid the target
+  // screen already has - defaulting to DEFAULT_LAYOUT_GRID (12/24/32/false)
+  // first, same as components/workbench/layout-grid.tsx's own
+  // resolveLayoutGrid, so toggling visibility on a screen that has never
+  // been customized still produces a complete, valid LayoutGrid rather than
+  // a half-filled patch.
+  function updateLayoutGrid(id: string, patch: Partial<LayoutGrid>): void {
+    const next = screens.map((screen) =>
+      screen.id === id ? { ...screen, layoutGrid: { ...DEFAULT_LAYOUT_GRID, ...screen.layoutGrid, ...patch } } : screen,
+    );
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -852,6 +934,8 @@ export function Workbench({
           onAddScreen={addScreen}
           onRenameScreen={renameScreen}
           onMoveScreen={moveScreen}
+          onMoveScreens={moveScreens}
+          onUpdateLayoutGrid={updateLayoutGrid}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
           onMoveScreenToPage={moveScreenToPage}
@@ -884,6 +968,8 @@ function WorkbenchShell({
   onAddScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens,
+  onUpdateLayoutGrid,
   onDuplicateScreen,
   onDeleteScreen,
   onMoveScreenToPage,
@@ -915,12 +1001,50 @@ function WorkbenchShell({
   onAddScreen: () => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
+  onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage: (id: string, pageId: string) => void;
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
+  // The canvas-level selection of frames (spec docs/superpowers/specs/2026-
+  // 09-13-grid-snapping-alignment-design.md section 3), independent of
+  // Craft's own node selection inside a frame - shared with Canvas (marquee/
+  // Shift+click/outline/multi-drag) and, once it exists, the Design panel's
+  // alignment row (inspector.tsx), the same way diagram selection already
+  // lives here for both Canvas and Inspector to read.
+  const [selectedFrameIds, setSelectedFrameIds] = useState<ReadonlySet<string>>(new Set());
+  function toggleFrameSelection(id: string): void {
+    setSelectedFrameIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  // Review fix wave item 8: an auto-height frame's real height is not known
+  // until it renders and measures its own content - snapping, the frame
+  // alignment row, distribute and the marquee's hit test all used to fall
+  // back to the same static ARTBOARD_MIN_HEIGHT estimate every such frame
+  // starts at, which is wrong the moment its actual content is taller or
+  // shorter. Fed by Stage/FramePreview (through Canvas's onMeasuredHeight,
+  // itself CanvasFrame's own ResizeObserver-backed content measurement) and
+  // read by both Canvas (snapping, marquee) and Inspector (alignment,
+  // distribute) - lives here, not in Canvas, since both are siblings that
+  // need the same map. Keyed by screen id, which stays unique across pages,
+  // so a stale entry for a screen on a page you have since left is
+  // harmless: nothing queries it while that page is not showing.
+  const [measuredHeights, setMeasuredHeights] = useState<ReadonlyMap<string, number>>(new Map());
+  const handleMeasuredHeight = useCallback((id: string, height: number) => {
+    setMeasuredHeights((current) => {
+      if (current.get(id) === height) return current;
+      const next = new Map(current);
+      next.set(id, height);
+      return next;
+    });
+  }, []);
   // Per browser, not per file - same lazy-useState-plus-effect pattern as
   // chatOpen just below (and see lib/chat/store.ts for the precedent this
   // mirrors: lib/workbench/panel-store.ts's loadPanelMode/savePanelMode).
@@ -942,6 +1066,13 @@ function WorkbenchShell({
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
+  // The canvas's pixel grid (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 5, Cmd+') - per browser, same
+  // lazy-useState-plus-effect pattern as chatOpen above.
+  const [pixelGridVisible, setPixelGridVisible] = useState(() => loadPixelGridVisible(window.localStorage));
+  useEffect(() => {
+    savePixelGridVisible(window.localStorage, pixelGridVisible);
+  }, [pixelGridVisible]);
   const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
@@ -986,7 +1117,21 @@ function WorkbenchShell({
       type: 'load',
       data: sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
     });
+    // Review fix wave item 2 (blocker): a frame selection is a canvas-level
+    // concept scoped to whatever page is showing - left alone across a page
+    // switch, the Align row kept showing (and writing) another page's
+    // frames the user could no longer see, and a multi-drag would fan its
+    // delta out to those invisible frames too (see pageFrameSelection and
+    // canvas.tsx's own skip-if-unknown fix below).
+    setSelectedFrameIds(new Set());
   }
+
+  // The page-scoped view of selectedFrameIds every consumer below actually
+  // gets (Canvas, Inspector, frameSelectionActive) - defensive, on top of
+  // the clear above, so a selection can never act on a frame that is not
+  // part of the page currently showing even if some future path leaves a
+  // stale id behind.
+  const pageFrameSelection = new Set([...selectedFrameIds].filter((id) => pageScreenIds.has(id)));
 
   // Persists a real edit (onDiagramChange, ultimately queuePatch) without
   // ever saving the load a page switch/first mount itself just performed -
@@ -1026,6 +1171,23 @@ function WorkbenchShell({
     return edge ? { type: 'edge', edge } : null;
   }
 
+  // The Design panel's alignment row for a diagram selection of two or
+  // more SHAPES (Matt, 2026-09-13: "i also need alignment options when
+  // selecting multiple shapes") - edges are excluded, aligning a connector
+  // has no meaning. Takes priority over selectedDiagramFields() above in
+  // inspector.tsx's own render order, since that would otherwise still
+  // point at only the first of the several selected shapes.
+  const selectedDiagramNodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+  const diagramAlignmentContext: DiagramAlignmentContext | null =
+    selectedDiagramNodeIds.length >= 2
+      ? {
+          type: 'diagram',
+          count: selectedDiagramNodeIds.length,
+          onAlign: (mode: AlignMode) => dispatchDiagram({ type: 'align', ids: selectedDiagramNodeIds, mode }),
+          onDistribute: (axis: DistributeAxis) => dispatchDiagram({ type: 'distribute', ids: selectedDiagramNodeIds, axis }),
+        }
+      : null;
+
   // The diagram tool/palette (diagram-palette.tsx, diagram-layer.tsx):
   // `diagramPaletteOpen` is the floating bar's own visibility, toggled by
   // Shift+D or the top bar's Diagram tool button and closed by its own
@@ -1055,8 +1217,12 @@ function WorkbenchShell({
   // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
   // diagram bounds") - folds the current page's diagram nodes' bounding box
   // in alongside every frame's own, when the diagram has any.
+  // measuredHeights (review re-review R6): a tall auto-height frame's
+  // preview now renders at its real, measured height (item 8), so fitting
+  // "every frame" without the same map could crop exactly the frame this
+  // is meant to fit.
   function zoomToFitTargets(): FrameRect[] {
-    const targets: FrameRect[] = pageScreens.map(frameRect);
+    const targets: FrameRect[] = pageScreens.map((screen) => frameRect(screen, measuredHeights));
     const diagramBox = diagramBounds(diagram.nodes);
     if (diagramBox) targets.push(diagramBox);
     return targets;
@@ -1065,7 +1231,7 @@ function WorkbenchShell({
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId: currentPageId,
-    frames: pageScreens.map(frameRect),
+    frames: pageScreens.map((screen) => frameRect(screen, measuredHeights)),
   });
 
   // Clicking a screens tab still switches the focused screen (onSelectScreen,
@@ -1079,7 +1245,7 @@ function WorkbenchShell({
   function handleSelectScreenTab(id: string): void {
     onSelectScreen(id);
     const target = pageScreens.find((screen) => screen.id === id);
-    if (target) animateTo(zoomToRect(frameRect(target), viewportSize, SELECTION_ZOOM_PADDING));
+    if (target) animateTo(zoomToRect(frameRect(target, measuredHeights), viewportSize, SELECTION_ZOOM_PADDING));
   }
 
   // Shift+2: zooms to the selected layer's own bounds when something is
@@ -1099,7 +1265,7 @@ function WorkbenchShell({
       const local = dom.getBoundingClientRect();
       target = { x: (focused.x ?? 0) + local.left, y: (focused.y ?? 0) + local.top, width: local.width, height: local.height };
     } else {
-      target = frameRect(focused);
+      target = frameRect(focused, measuredHeights);
     }
     setViewport(zoomToRect(target, viewportSize, SELECTION_ZOOM_PADDING));
   }
@@ -1123,6 +1289,27 @@ function WorkbenchShell({
     if (selectedNodeId && panelMode === 'components') {
       setPanelMode('design');
     }
+    // Review fix wave item 6: selecting a real layer must drop whatever
+    // frame selection is active, the same way Figma clears a frame
+    // selection the moment you select something else entirely (spec
+    // section 3 already established the reverse - clicking empty canvas
+    // clears the frame selection). Left alone, the Align row and
+    // arrow-key nudge kept acting on frames the user's own click had
+    // already moved on from.
+    if (selectedNodeId) setSelectedFrameIds(new Set());
+  }
+
+  // The diagram-selection counterpart to the Craft layer check just above -
+  // diagram.selection is a wholly separate piece of state from Craft's own
+  // node selection, so it needs its own "did this just change" tracker
+  // (the same lastSelectedNodeId pattern) rather than piggybacking on one
+  // that only ever mirrors Craft. Only the empty-to-non-empty transition
+  // matters here (clicking empty canvas already clears the diagram
+  // selection on its own path; that must not also fight this one).
+  const [lastDiagramSelectionActive, setLastDiagramSelectionActive] = useState(diagramSelectionActive);
+  if (diagramSelectionActive !== lastDiagramSelectionActive) {
+    setLastDiagramSelectionActive(diagramSelectionActive);
+    if (diagramSelectionActive) setSelectedFrameIds(new Set());
   }
 
   // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
@@ -1203,6 +1390,8 @@ function WorkbenchShell({
     onExitDiagramTool: closeDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
+    frameSelectionActive: pageFrameSelection.size > 0,
+    onClearFrameSelection: () => setSelectedFrameIds(new Set()),
     onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
     onDiagramDuplicate: () => {
       // Also copies a connector whose both endpoints are themselves being
@@ -1222,16 +1411,21 @@ function WorkbenchShell({
       // Mouse drags still land on the 8px grid (the layer snaps the drag's
       // own delta before dispatching move), so the grid only ever governs
       // drags, not keyboard nudges.
-      const amount = big ? 8 : 1;
-      const [dx, dy] =
-        direction === 'up'
-          ? [0, -amount]
-          : direction === 'down'
-            ? [0, amount]
-            : direction === 'left'
-              ? [-amount, 0]
-              : [amount, 0];
+      const [dx, dy] = nudgeDelta(direction, big);
       dispatchDiagram({ type: 'move', ids, dx, dy });
+    },
+    // The frame-selection counterpart to onDiagramNudge above, firing
+    // instead of it once no diagram element is selected (keyboard.tsx's own
+    // dispatch decides which) - moves every selected frame by the same
+    // delta and saves them together, the same "one patch" treatment a
+    // dragged multi-selection already gets (canvas.tsx's onMoveScreens).
+    onFrameNudge: (direction, big) => {
+      if (pageFrameSelection.size === 0) return;
+      const [dx, dy] = nudgeDelta(direction, big);
+      const updates = pageScreens
+        .filter((screen) => pageFrameSelection.has(screen.id))
+        .map((screen) => ({ id: screen.id, x: (screen.x ?? 0) + dx, y: (screen.y ?? 0) + dy }));
+      if (updates.length > 0) onMoveScreens(updates);
     },
     onDiagramUndo: () => dispatchDiagram({ type: 'undo' }),
     onDiagramRedo: () => dispatchDiagram({ type: 'redo' }),
@@ -1251,6 +1445,15 @@ function WorkbenchShell({
     onPageNext: () => onSwitchToAdjacentPage('next'),
     onPagePrev: () => onSwitchToAdjacentPage('previous'),
     onOpenShortcuts: () => setShortcutsOpen(true),
+    // Shift+G toggles the FOCUSED screen's own layout grid (spec section 5) -
+    // resolveLayoutGrid supplies the 12/24/32/false default for a screen
+    // that has never been customized, the same fallback the overlay itself
+    // renders with.
+    onToggleLayoutGrid: () => {
+      const focused = screens.find((screen) => screen.id === currentScreenId);
+      onUpdateLayoutGrid(currentScreenId, { visible: !resolveLayoutGrid(focused?.layoutGrid).visible });
+    },
+    onTogglePixelGrid: () => setPixelGridVisible((visible) => !visible),
   });
 
   // Make-room drag placeholder (docs/superpowers/specs/2026-09-12-drop-
@@ -1391,6 +1594,7 @@ function WorkbenchShell({
                 onFocusScreen={onSelectScreen}
                 onRenameScreen={onRenameScreen}
                 onMoveScreen={onMoveScreen}
+                onMoveScreens={onMoveScreens}
                 comments={commentsProps}
                 rootRef={rootRef}
                 diagram={diagram}
@@ -1398,6 +1602,13 @@ function WorkbenchShell({
                 diagramTool={diagramTool}
                 onDiagramToolConsumed={onDiagramToolConsumed}
                 onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
+                selectedFrameIds={pageFrameSelection}
+                onToggleFrameSelection={toggleFrameSelection}
+                onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
+                onClearFrameSelection={() => setSelectedFrameIds(new Set())}
+                pixelGridVisible={pixelGridVisible}
+                measuredHeights={measuredHeights}
+                onMeasuredHeight={handleMeasuredHeight}
               />
               {!uiHidden && (
                 <DiagramPalette
@@ -1451,6 +1662,11 @@ function WorkbenchShell({
                 onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
                 diagramSelection={selectedDiagramFields()}
                 onDiagramAction={dispatchDiagram}
+                selectedFrameIds={pageFrameSelection}
+                onAlignFrames={onMoveScreens}
+                diagramAlignment={diagramAlignmentContext}
+                onUpdateLayoutGrid={onUpdateLayoutGrid}
+                measuredHeights={measuredHeights}
               />
             )}
             {!uiHidden && chatOpen && (

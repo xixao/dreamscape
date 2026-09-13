@@ -87,6 +87,8 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ⌘0 | Zoom to 100% |
 | Canvas | ⇧1 | Zoom to fit |
 | Canvas | ⇧2 | Zoom to selection |
+| Canvas | ⇧G | Toggle the layout grid |
+| Canvas | ⌘' | Toggle the pixel grid |
 | Screens | ⇧N | New screen |
 | Screens | ⌘⇧] | Next page |
 | Screens | ⌘⇧[ | Previous page |
@@ -94,7 +96,9 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Edit | ⇧⌘Z | Redo |
 | Edit | Delete | Delete the selected layer |
 | Edit | ⌘D | Duplicate the diagram selection |
-| Canvas | ↑ or ↓ or ← or → | Nudge the selection, Shift for 64 px |
+| Edit | ⇧F10 | Open the menu for the diagram selection |
+| Canvas | ↑ or ↓ or ← or → | Nudge the selection 1 px |
+| Canvas | ⇧↑ or ⇧↓ or ⇧← or ⇧→ | Nudge the selection 8 px |
 | Edit | Escape | Deselect, leave a tool, close a menu |
 | Help | ? | Shortcuts dialog |
 

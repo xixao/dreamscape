@@ -154,6 +154,16 @@ function makeFile({ screen1StageHeight }: { screen1StageHeight?: number } = {}):
 }
 
 describe('Player', () => {
+  it('ignores a screen\'s layoutGrid - Play never shows the layout grid overlay', async () => {
+    const file = makeFile();
+    file.screens![0].layoutGrid = { columns: 12, gutter: 24, margin: 32, visible: true };
+    render(<Player file={file} initialScreenId="screen1" />);
+
+    await screen.findByRole('button', { name: 'Go to second screen' });
+
+    expect(screen.queryByTestId('layout-grid')).toBeNull();
+  });
+
   it('navigates to screen 2 when the wired button is clicked', async () => {
     const user = userEvent.setup();
     render(<Player file={makeFile()} initialScreenId="screen1" />);

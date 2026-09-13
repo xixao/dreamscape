@@ -14,6 +14,8 @@ import {
   SPACING_OPTIONS,
   type LayoutBoxProps,
   blockClasses,
+  distributeGapPx,
+  distributeGapPxFromMeasurements,
   layoutBoxClasses,
   normalizeSpacing,
   snapToSpacing,
@@ -198,6 +200,66 @@ describe('GAP_PX_CLASSES and PADDING_PX_CLASSES', () => {
       expect(typeof GAP_PX_CLASSES[step]).toBe('string');
       expect(typeof PADDING_PX_CLASSES[step]).toBe('string');
     }
+  });
+});
+
+describe('distributeGapPx', () => {
+  it('computes the gap that spreads children evenly across the remaining space, snapped to the 8 px scale', () => {
+    // 100 - (20+20+20) = 40 available over 2 gaps = 20 each -> snaps to 24.
+    expect(distributeGapPx(100, [20, 20, 20])).toBe(24);
+  });
+
+  it('returns an already-on-scale gap unchanged', () => {
+    // 100 - (30+30) = 40 available over 1 gap = 40, already on the scale.
+    expect(distributeGapPx(100, [30, 30])).toBe(40);
+  });
+
+  it('floors at 0 when the children already fill or overflow the container', () => {
+    expect(distributeGapPx(50, [30, 30])).toBe(0);
+  });
+
+  it('clamps to the 64 px maximum', () => {
+    expect(distributeGapPx(1000, [10, 10])).toBe(64);
+  });
+
+  it('returns null with fewer than two children - nothing to distribute', () => {
+    expect(distributeGapPx(100, [50])).toBeNull();
+    expect(distributeGapPx(100, [])).toBeNull();
+  });
+});
+
+// Review fix wave re-review R5: measureDistributeGapPx (inspector.tsx) reads
+// a container's real getBoundingClientRect, the BORDER box (padding
+// included) - jsdom has no real layout engine to exercise that DOM read
+// itself, so this pins the pure math it feeds into instead.
+describe('distributeGapPxFromMeasurements', () => {
+  function child(size: number, growing = false) {
+    return { size, growing };
+  }
+
+  it('subtracts the container\'s own padding before distributing, matching the un-padded case', () => {
+    // 116 border-box - 8 - 8 padding = 100 content-box, same as
+    // distributeGapPx(100, [20,20,20])'s own 24 above.
+    const result = distributeGapPxFromMeasurements(116, 8, 8, [child(20), child(20), child(20)]);
+    expect(result).toBe(24);
+  });
+
+  it('sums asymmetric start/end padding', () => {
+    const result = distributeGapPxFromMeasurements(116, 4, 12, [child(20), child(20), child(20)]);
+    expect(result).toBe(24);
+  });
+
+  it('is unavailable (null) when any child grows, since that child\'s size depends on the gap itself', () => {
+    expect(distributeGapPxFromMeasurements(600, 0, 0, [child(100), child(0, true), child(100)])).toBeNull();
+  });
+
+  it('floors at 0 when padding and children already fill or overflow the container', () => {
+    const result = distributeGapPxFromMeasurements(50, 10, 10, [child(30), child(30)]);
+    expect(result).toBe(0);
+  });
+
+  it('is unavailable (null) when every child grows', () => {
+    expect(distributeGapPxFromMeasurements(600, 0, 0, [child(0, true), child(0, true)])).toBeNull();
   });
 });
 

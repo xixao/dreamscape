@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import type { Screen } from '@/lib/files/repository';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
   ZOOM_STEPS,
   clampZoom,
   fitAll,
+  frameRect,
   nextZoomStep,
   panBy,
+  snapBoxFor,
   stepZoom,
   toCanvasPoint,
   toWindowPoint,
@@ -232,5 +236,42 @@ describe('stepZoom', () => {
   it('stops at the top/bottom step, matching nextZoomStep', () => {
     expect(stepZoom({ x: 0, y: 0, zoom: MAX_ZOOM }, { x: 0, y: 0 }, 'in').zoom).toBe(MAX_ZOOM);
     expect(stepZoom({ x: 0, y: 0, zoom: MIN_ZOOM }, { x: 0, y: 0 }, 'out').zoom).toBe(MIN_ZOOM);
+  });
+});
+
+// Review fix wave nit 15 (moved here from components/workbench/canvas.tsx)
+// and item 8 (the new measuredHeights parameter).
+describe('frameRect / snapBoxFor', () => {
+  const AUTO_HEIGHT_SCREEN: Screen = { id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 400, x: 10, y: 20 };
+  const FIXED_HEIGHT_SCREEN: Screen = { id: 's2', name: 'Frame 2', layout: '{}', stageWidth: 400, stageHeight: 250, x: 0, y: 0 };
+
+  it('falls back to ARTBOARD_MIN_HEIGHT for an auto-height screen with no measuredHeights given at all', () => {
+    expect(frameRect(AUTO_HEIGHT_SCREEN)).toEqual({ x: 10, y: 20, width: 400, height: ARTBOARD_MIN_HEIGHT });
+  });
+
+  it('falls back to ARTBOARD_MIN_HEIGHT when measuredHeights has no entry for this screen yet', () => {
+    const measuredHeights = new Map([['some-other-screen', 900]]);
+    expect(frameRect(AUTO_HEIGHT_SCREEN, measuredHeights).height).toBe(ARTBOARD_MIN_HEIGHT);
+  });
+
+  it('uses a fed measured height for an auto-height screen', () => {
+    const measuredHeights = new Map([[AUTO_HEIGHT_SCREEN.id, 612]]);
+    expect(frameRect(AUTO_HEIGHT_SCREEN, measuredHeights)).toEqual({ x: 10, y: 20, width: 400, height: 612 });
+  });
+
+  it('a fixed stageHeight always wins over a fed measured height', () => {
+    const measuredHeights = new Map([[FIXED_HEIGHT_SCREEN.id, 999]]);
+    expect(frameRect(FIXED_HEIGHT_SCREEN, measuredHeights).height).toBe(250);
+  });
+
+  it('snapBoxFor carries the id alongside the same measured-height-aware rect', () => {
+    const measuredHeights = new Map([[AUTO_HEIGHT_SCREEN.id, 612]]);
+    expect(snapBoxFor(AUTO_HEIGHT_SCREEN, measuredHeights)).toEqual({
+      id: 's1',
+      x: 10,
+      y: 20,
+      width: 400,
+      height: 612,
+    });
   });
 });

@@ -19,6 +19,8 @@ type KeysOptions = {
   onExitDiagramTool?: () => void;
   diagramSelectionActive?: boolean;
   onDeselectDiagram?: () => void;
+  frameSelectionActive?: boolean;
+  onClearFrameSelection?: () => void;
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
   onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
@@ -34,6 +36,8 @@ type KeysOptions = {
   onPresent?: () => void;
   onAddScreen?: () => void;
   onOpenShortcuts?: () => void;
+  onToggleLayoutGrid?: () => void;
+  onTogglePixelGrid?: () => void;
 };
 
 function Keys({
@@ -48,6 +52,8 @@ function Keys({
   onExitDiagramTool,
   diagramSelectionActive,
   onDeselectDiagram,
+  frameSelectionActive,
+  onClearFrameSelection,
   onDiagramDelete,
   onDiagramDuplicate,
   onDiagramNudge,
@@ -63,6 +69,8 @@ function Keys({
   onPresent,
   onAddScreen,
   onOpenShortcuts,
+  onToggleLayoutGrid,
+  onTogglePixelGrid,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -76,6 +84,8 @@ function Keys({
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
@@ -91,6 +101,8 @@ function Keys({
     onPresent,
     onAddScreen,
     onOpenShortcuts,
+  onToggleLayoutGrid,
+  onTogglePixelGrid,
   });
   return (
     <>
@@ -502,6 +514,35 @@ describe('useWorkbenchKeyboard diagram selection routing', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape clears the diagram selection before the frame selection when both are active', async () => {
+    const onDeselectDiagram = vi.fn();
+    const onClearFrameSelection = vi.fn();
+    mount({ diagramSelectionActive: true, onDeselectDiagram, frameSelectionActive: true, onClearFrameSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+    expect(onClearFrameSelection).not.toHaveBeenCalled();
+  });
+
+  it('Escape clears the frame selection when nothing else is active', async () => {
+    const onClearFrameSelection = vi.fn();
+    const { editor } = mount({ frameSelectionActive: true, onClearFrameSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+    // Escape's frame-selection branch takes over from the plain Craft
+    // deselect (spec: "Escape clears the selection") - the button stays
+    // selected, same as the diagram-selection branch above leaves it.
+    expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true);
   });
 
   it('Delete calls onDiagramDelete instead of deleting the Craft selection', async () => {
@@ -1106,5 +1147,37 @@ describe('useWorkbenchKeyboard onOpenShortcuts', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: '?', shiftKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard layout grid / pixel grid toggles', () => {
+  it('calls onToggleLayoutGrid for Shift+G', async () => {
+    const onToggleLayoutGrid = vi.fn();
+    mount({ onToggleLayoutGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'g', shiftKey: true });
+    expect(onToggleLayoutGrid).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores Shift+G while typing', async () => {
+    const onToggleLayoutGrid = vi.fn();
+    mount({ onToggleLayoutGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'g', shiftKey: true });
+    expect(onToggleLayoutGrid).not.toHaveBeenCalled();
+  });
+
+  it('calls onTogglePixelGrid for Cmd+\' or Ctrl+\', even while typing', async () => {
+    const onTogglePixelGrid = vi.fn();
+    mount({ onTogglePixelGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: "'", metaKey: true });
+    expect(onTogglePixelGrid).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: "'", ctrlKey: true });
+    expect(onTogglePixelGrid).toHaveBeenCalledTimes(2);
   });
 });

@@ -2,26 +2,34 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Screen } from '@/lib/files/repository';
+import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { NAME_MAX, RenameInput } from './screens-strip';
 
-// Frame drag snaps to this many canvas px on each axis (spec docs/
-// superpowers/specs/2026-09-12-infinite-canvas-design.md section 6).
-const SNAP_PX = 8;
-
-function snap(value: number): number {
-  return Math.round(value / SNAP_PX) * SNAP_PX;
+export interface FrameSnapResult {
+  guides: SnapGuide[];
+  distances: SnapDistance[];
 }
+
+const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
 
 /**
  * A frame's title, drawn above its top-left corner in canvas space (spec
- * section 6): mono, `text-t2` when the frame is focused and `text-t4`
- * otherwise. Doubles as the drag handle that moves the whole frame (8px
- * snapping, pointer capture, deltas divided by the current zoom so a screen-
- * pixel drag always moves the frame by the same amount regardless of how
- * zoomed in or out the canvas is) and, on double-click, an inline rename
- * reusing the screens strip's own input and Enter/Escape rules.
+ * docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 6):
+ * mono, `text-t2` when the frame is focused and `text-t4` otherwise.
+ * Doubles as the drag handle that moves the whole frame - pointer capture,
+ * deltas divided by the current zoom so a screen-pixel drag always moves the
+ * frame by the same amount regardless of how zoomed in or out the canvas
+ * is, and the position resolved through lib/canvas/snap.ts's resolveSnap
+ * against `otherFrames` (spec docs/superpowers/specs/2026-09-13-grid-
+ * snapping-alignment-design.md section 3): Cmd/Ctrl held disables snapping,
+ * Alt held reports distances to the nearest neighbours even without a snap.
+ * `onSnapGuides` fires on every move with the current guides/distances, and
+ * again with both empty right before `onDragEnd` - so a caller drawing them
+ * in the canvas overlay never has to guess when to clear them - and, on
+ * double-click, an inline rename reusing the screens strip's own input and
+ * Enter/Escape rules.
  *
  * Rendered by components/workbench/canvas.tsx as a sibling of each frame's
  * Stage/FramePreview, inside that same absolutely-positioned (at the
@@ -33,14 +41,47 @@ export function FrameTitle({
   screen,
   focused,
   zoom,
+  height,
   onRename,
   onMove,
+  otherFrames = [],
+  onSnapGuides,
+  onDragEnd,
+  onShiftSelect,
 }: {
   screen: Screen;
   focused: boolean;
   zoom: number;
+  // The frame's real, current height (review re-review R1) - the caller
+  // (canvas.tsx) always resolves this through lib/canvas/viewport.ts's
+  // frameRect/snapBoxFor (screen.stageHeight, else a fed measured height,
+  // else ARTBOARD_MIN_HEIGHT as a last resort), the same box `otherFrames`
+  // below is already built from. Required, not defaulted here: computing
+  // that fallback chain is frameRect's one job, not this component's - a
+  // second, ad hoc `?? ARTBOARD_MIN_HEIGHT` here previously left the
+  // DRAGGED frame's own box a step behind every other frame's for an
+  // auto-height screen taller than the ARTBOARD_MIN_HEIGHT estimate,
+  // corrupting its own bottom/middle snaps and Alt distances.
+  height: number;
   onRename: (name: string) => void;
-  onMove: (position: { x: number; y: number }) => void;
+  // `delta` is the drag's total movement so far (canvas px, already
+  // snapped) from this frame's own position at pointerdown - how
+  // components/workbench/canvas.tsx fans a multi-frame drag out to every
+  // other selected frame (spec section 3: "dragging any selected title
+  // moves all selected frames together").
+  onMove: (position: { x: number; y: number }, delta: { dx: number; dy: number }) => void;
+  // Every OTHER frame to snap against - the caller (canvas.tsx) excludes
+  // this frame and, for a multi-select drag, every co-selected frame too
+  // (a selection does not snap against its own members).
+  otherFrames?: SnapBox[];
+  onSnapGuides?: (result: FrameSnapResult) => void;
+  onDragEnd?: () => void;
+  // Shift+click (spec docs/superpowers/specs/2026-09-13-grid-snapping-
+  // alignment-design.md section 3: "Shift+click a frame title adds to the
+  // selection") - a pure selection toggle, not a drag: pointerdown returns
+  // immediately below without starting the usual drag tracking, so a
+  // Shift+click never also moves the frame.
+  onShiftSelect?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +102,10 @@ export function FrameTitle({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (event.shiftKey) {
+      onShiftSelect?.();
+      return;
+    }
     capturePointer(event.currentTarget, event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -76,11 +121,29 @@ export function FrameTitle({
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = (event.clientX - drag.startClientX) / zoom;
     const dy = (event.clientY - drag.startClientY) / zoom;
-    onMove({ x: snap(drag.startX + dx), y: snap(drag.startY + dy) });
+    const moving: SnapBox = {
+      id: screen.id,
+      x: drag.startX + dx,
+      y: drag.startY + dy,
+      width: screen.stageWidth,
+      height,
+    };
+    const resolved = resolveSnap(moving, otherFrames, zoom, {
+      disabled: event.metaKey || event.ctrlKey,
+      showDistances: event.altKey,
+    });
+    onSnapGuides?.({ guides: resolved.guides, distances: resolved.distances });
+    onMove(resolved.position, {
+      dx: resolved.position.x - drag.startX,
+      dy: resolved.position.y - drag.startY,
+    });
   }
 
   function endDrag(event: ReactPointerEvent<HTMLButtonElement>): void {
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    onSnapGuides?.(NO_SNAP_RESULT);
+    onDragEnd?.();
   }
 
   if (renaming) {

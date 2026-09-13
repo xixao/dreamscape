@@ -3,12 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
-import { toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
+import { frameRect, toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
-import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewport, useCanvasViewportController } from './canvas';
+import { Canvas, CanvasViewportProvider, useCanvasViewport, useCanvasViewportController } from './canvas';
 
 const SCREEN_1: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 300, x: 0, y: 0 };
 const SCREEN_2: Screen = {
@@ -32,25 +32,41 @@ function Harness({
   onFocusScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens,
   fileId,
   pageId = 'page1',
   extra,
   onDeselectDiagram,
+  selectedFrameIds,
+  onToggleFrameSelection,
+  onSetFrameSelection,
+  onClearFrameSelection,
+  pixelGridVisible,
+  measuredHeights,
+  onMeasuredHeight,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   fileId: string;
   pageId?: string;
   extra?: ReactNode;
   onDeselectDiagram?: () => void;
+  selectedFrameIds?: ReadonlySet<string>;
+  onToggleFrameSelection?: (id: string) => void;
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
+  pixelGridVisible?: boolean;
+  measuredHeights?: ReadonlyMap<string, number>;
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId,
-    frames: screens.map(frameRect),
+    frames: screens.map((screen) => frameRect(screen)),
   });
   return (
     <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
@@ -60,9 +76,17 @@ function Harness({
         onFocusScreen={onFocusScreen}
         onRenameScreen={onRenameScreen}
         onMoveScreen={onMoveScreen}
+        onMoveScreens={onMoveScreens}
         comments={DEFAULT_STAGE_COMMENTS}
         rootRef={rootRef}
         onDeselectDiagram={onDeselectDiagram}
+        selectedFrameIds={selectedFrameIds}
+        onToggleFrameSelection={onToggleFrameSelection}
+        onSetFrameSelection={onSetFrameSelection}
+        onClearFrameSelection={onClearFrameSelection}
+        pixelGridVisible={pixelGridVisible}
+        measuredHeights={measuredHeights}
+        onMeasuredHeight={onMeasuredHeight}
       />
       {extra}
     </CanvasViewportProvider>
@@ -75,20 +99,36 @@ function renderCanvas({
   onFocusScreen = vi.fn(),
   onRenameScreen = vi.fn(),
   onMoveScreen = vi.fn(),
+  onMoveScreens,
   fileId = 'file1',
   pageId = 'page1',
   extra,
   onDeselectDiagram,
+  selectedFrameIds,
+  onToggleFrameSelection,
+  onSetFrameSelection,
+  onClearFrameSelection,
+  pixelGridVisible,
+  measuredHeights,
+  onMeasuredHeight,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
   onFocusScreen?: (id: string) => void;
   onRenameScreen?: (id: string, name: string) => void;
   onMoveScreen?: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   fileId?: string;
   pageId?: string;
   extra?: ReactNode;
   onDeselectDiagram?: () => void;
+  selectedFrameIds?: ReadonlySet<string>;
+  onToggleFrameSelection?: (id: string) => void;
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
+  pixelGridVisible?: boolean;
+  measuredHeights?: ReadonlyMap<string, number>;
+  onMeasuredHeight?: (id: string, height: number) => void;
 } = {}) {
   return renderInEditor(
     <Harness
@@ -97,10 +137,18 @@ function renderCanvas({
       onFocusScreen={onFocusScreen}
       onRenameScreen={onRenameScreen}
       onMoveScreen={onMoveScreen}
+      onMoveScreens={onMoveScreens}
       fileId={fileId}
       pageId={pageId}
       extra={extra}
       onDeselectDiagram={onDeselectDiagram}
+      selectedFrameIds={selectedFrameIds}
+      onToggleFrameSelection={onToggleFrameSelection}
+      onSetFrameSelection={onSetFrameSelection}
+      onClearFrameSelection={onClearFrameSelection}
+      pixelGridVisible={pixelGridVisible}
+      measuredHeights={measuredHeights}
+      onMeasuredHeight={onMeasuredHeight}
     />,
   );
 }
@@ -246,6 +294,422 @@ describe('Canvas', () => {
       fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(onRenameScreen).toHaveBeenCalledWith(SCREEN_1.id, 'Renamed frame');
+    });
+
+    it('snaps a drag to another frame\'s edge, nearer than the grid, and draws a guide that clears on pointerup', async () => {
+      saveViewport(window.localStorage, 'snaptest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      const other: Screen = { ...SCREEN_2, x: 803 };
+      renderCanvas({ screens: [SCREEN_1, other], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'snaptest' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      // Dragged right edge (0+404+400=804) sits 1px from the other frame's
+      // left edge (803) - nearer than the grid's own line at 408 (4px away).
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 404, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 403, y: 0 });
+      expect(screen.getAllByTestId('snap-guide-line').length).toBeGreaterThan(0);
+
+      fireEvent.pointerUp(title, { pointerId: 1, clientX: 404, clientY: 0 });
+      expect(screen.queryAllByTestId('snap-guide-line')).toHaveLength(0);
+    });
+
+    it('Cmd held while dragging a title moves it freely, ignoring the grid and other frames', async () => {
+      saveViewport(window.localStorage, 'snaptest2', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      const other: Screen = { ...SCREEN_2, x: 803 };
+      renderCanvas({ screens: [SCREEN_1, other], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'snaptest2' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 404, clientY: 0, metaKey: true });
+
+      expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 404, y: 0 });
+    });
+
+    // One of the review's named missing tests (task-grid-review.md):
+    // frame-title.test.tsx already proves Alt reports nearest-neighbour
+    // distances in isolation - this confirms they actually reach the
+    // screen as rendered snap-chip elements through the real Canvas ->
+    // SnapGuides wiring, not just through FrameTitle's own onSnapGuides
+    // callback.
+    it('Alt held while dragging renders a nearest-neighbour distance chip through the full Canvas', async () => {
+      saveViewport(window.localStorage, 'altchip', 'page1', { x: 0, y: 0, zoom: 1 });
+      const far: Screen = { ...SCREEN_2, id: 'far', x: 2000 };
+      renderCanvas({ screens: [SCREEN_1, far], focusedScreenId: SCREEN_1.id, fileId: 'altchip' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      // Raw (0+4)=4 grid-snaps to 8 (the only candidate within tolerance -
+      // 'far' is much too distant to be an edge match). SCREEN_1's right
+      // edge lands at 8+400=408; the gap to `far`'s left edge (2000) is
+      // 1592, reported on its right side (no left/top/bottom neighbour).
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 4, clientY: 0, altKey: true });
+
+      const chips = screen.getAllByTestId('snap-chip');
+      expect(chips).toHaveLength(1);
+      expect(chips[0]).toHaveTextContent('1592');
+    });
+  });
+
+  describe('multi-select of frames', () => {
+    it('Shift+click a frame title clears the diagram selection first (review re-review R9)', async () => {
+      const onToggleFrameSelection = vi.fn();
+      const onDeselectDiagram = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onToggleFrameSelection, onDeselectDiagram });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      fireEvent.pointerDown(screen.getByText(SCREEN_1.name), { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+      expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+      expect(onToggleFrameSelection).toHaveBeenCalledWith(SCREEN_1.id);
+    });
+
+    it('Shift+click a frame title toggles it into the selection without starting a drag', async () => {
+      const onToggleFrameSelection = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onToggleFrameSelection, onMoveScreen });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 100, clientY: 0 });
+
+      expect(onToggleFrameSelection).toHaveBeenCalledWith(SCREEN_1.id);
+      expect(onMoveScreen).not.toHaveBeenCalled();
+    });
+
+    it('renders a thin accent outline on every selected frame', async () => {
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], selectedFrameIds: new Set([SCREEN_1.id]) });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveClass('outline-acc');
+      expect(screen.getByTestId(`frame-${SCREEN_2.id}`)).not.toHaveAttribute('data-selected');
+    });
+
+    it('a marquee drag on empty canvas selects every frame it intersects', async () => {
+      saveViewport(window.localStorage, 'marqueetest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        onSetFrameSelection,
+        fileId: 'marqueetest',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      // A box from (50,50) to (450,450): overlaps SCREEN_1 (0,0,400,300) but
+      // not SCREEN_2 (800,0,400,300).
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+      expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+
+      expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+    });
+
+    // Review fix wave item 8: the marquee's own hit test (frameRect, via
+    // rectsIntersect) used to always fall back to the static
+    // ARTBOARD_MIN_HEIGHT (640) for an auto-height frame, regardless of how
+    // tall its content actually is.
+    it('hit-tests an auto-height frame against its fed measured height, not just ARTBOARD_MIN_HEIGHT', async () => {
+      saveViewport(window.localStorage, 'marqueeheight', 'page1', { x: 0, y: 0, zoom: 1 });
+      const autoHeightScreen: Screen = { id: 'auto1', name: 'Auto Frame', layout: emptyLayoutJson(), stageWidth: 400, x: 0, y: 0 };
+      const onSetFrameSelection = vi.fn();
+      const { rerenderUi } = renderCanvas({
+        screens: [autoHeightScreen],
+        onSetFrameSelection,
+        fileId: 'marqueeheight',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      const root = screen.getByTestId('canvas-root');
+      // A box from (0,700) to (400,900) - below the frame's own unmeasured
+      // ARTBOARD_MIN_HEIGHT (640) bottom edge entirely, but well within its
+      // fed measured height of 1000.
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith([]);
+
+      onSetFrameSelection.mockClear();
+      rerenderUi(
+        <Harness
+          screens={[autoHeightScreen]}
+          focusedScreenId={autoHeightScreen.id}
+          onFocusScreen={vi.fn()}
+          onRenameScreen={vi.fn()}
+          onMoveScreen={vi.fn()}
+          onSetFrameSelection={onSetFrameSelection}
+          fileId="marqueeheight"
+          measuredHeights={new Map([[autoHeightScreen.id, 1000]])}
+        />,
+      );
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith([autoHeightScreen.id]);
+    });
+
+    it('a drag that comes back under the click threshold clears the painted marquee box (review re-review R4)', async () => {
+      saveViewport(window.localStorage, 'backtest', 'page1', { x: 0, y: 0, zoom: 1 });
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], fileId: 'backtest' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 90, clientY: 80 });
+      expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 52, clientY: 51 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 52, clientY: 51 });
+    });
+
+    it('a plain click (no drag) on empty canvas does not treat it as a marquee', async () => {
+      saveViewport(window.localStorage, 'clicktest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        onSetFrameSelection,
+        onClearFrameSelection,
+        fileId: 'clicktest',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      // Review re-review R4: pointerdown alone must never paint the box - it
+      // used to set an immediate 0x0 marqueeBox, flashing a visible
+      // 1px-bordered dot under the cursor on every plain click.
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 51, clientY: 50 });
+
+      expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+      expect(onSetFrameSelection).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+    });
+
+    it('clicking empty canvas clears the frame selection', async () => {
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({ screens: [SCREEN_1], onClearFrameSelection });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.pointerDown(screen.getByTestId('canvas-root'));
+
+      expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('Shift+marquee unions with the existing selection instead of replacing it', async () => {
+      saveViewport(window.localStorage, 'shiftmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        selectedFrameIds: new Set([SCREEN_2.id]),
+        onSetFrameSelection,
+        onClearFrameSelection,
+        fileId: 'shiftmarquee',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, shiftKey: true });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
+
+      expect(onClearFrameSelection).not.toHaveBeenCalled();
+      expect(onSetFrameSelection).toHaveBeenCalledWith(
+        expect.arrayContaining([SCREEN_1.id, SCREEN_2.id]),
+      );
+    });
+
+    it('dragging one selected title moves every selected frame by the same delta and saves them together', async () => {
+      saveViewport(window.localStorage, 'multidrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        onMoveScreen,
+        selectedFrameIds: new Set([SCREEN_1.id, SCREEN_2.id]),
+        fileId: 'multidrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      // Raw (20,0) grid-snaps to (24,0) - the same +24/+0 delta is applied
+      // to SCREEN_2's own starting position (800,0) unresolved a second time.
+      expect(onMoveScreens).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          { id: SCREEN_1.id, x: 24, y: 0 },
+          { id: SCREEN_2.id, x: 824, y: 0 },
+        ]),
+      );
+      expect(onMoveScreen).not.toHaveBeenCalled();
+    });
+
+    it('skips a selected id with no known start position instead of teleporting it to the origin (review fix wave item 2)', async () => {
+      // 'ghost' is not in `screens` at all - the sort of stale id that used
+      // to slip in before frame selection was made page-scoped (an id left
+      // over from a page the user has since switched away from, still
+      // present in selectedFrameIds because nothing had cleared it yet).
+      // startPositions.get('ghost') is undefined, and the old code's
+      // `?? { x: 0, y: 0 }` fallback sent it flying to the canvas origin
+      // the instant SCREEN_1 moved.
+      saveViewport(window.localStorage, 'ghostdrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        selectedFrameIds: new Set([SCREEN_1.id, SCREEN_2.id, 'ghost']),
+        fileId: 'ghostdrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      const updates = onMoveScreens.mock.calls.at(-1)?.[0] as Array<{ id: string; x: number; y: number }>;
+      expect(updates).toHaveLength(2);
+      expect(updates.find((update) => update.id === 'ghost')).toBeUndefined();
+      expect(updates).toEqual(
+        expect.arrayContaining([
+          { id: SCREEN_1.id, x: 24, y: 0 },
+          { id: SCREEN_2.id, x: 824, y: 0 },
+        ]),
+      );
+    });
+
+    it('a solo drag of a frame outside the selection still uses the single-screen path', async () => {
+      saveViewport(window.localStorage, 'solodrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        onMoveScreen,
+        selectedFrameIds: new Set([SCREEN_2.id]),
+        fileId: 'solodrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_1.id, { x: 24, y: 0 });
+      expect(onMoveScreens).not.toHaveBeenCalled();
+    });
+
+    // Review fix wave nit 16: the marquee's start/current corners are
+    // resolved to canvas space the moment each is captured (pointerdown for
+    // start, each pointermove for current), instead of deferring both
+    // conversions to pointerup through whatever viewport happens to be
+    // current by then.
+    it('anchors the marquee in canvas space, so a wheel-pan mid-drag does not shift the resulting selection', async () => {
+      saveViewport(window.localStorage, 'wheelmidmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+      const target: Screen = { id: 'target', name: 'Target', layout: emptyLayoutJson(), stageWidth: 100, stageHeight: 300, x: 250, y: 0 };
+      const onSetFrameSelection = vi.fn();
+      renderCanvas({ screens: [target], onSetFrameSelection, fileId: 'wheelmidmarquee' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      const root = screen.getByTestId('canvas-root');
+      // Marquee starts at screen x=500 while the viewport is still at x=0 -
+      // canvas-space start = 500 (right of `target`, which spans canvas x
+      // 250-350).
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 500, clientY: 0 });
+
+      // A wheel-pan mid-drag shifts the viewport's x by +300 (panBy negates
+      // deltaX) - screen x=500 now corresponds to a different canvas point
+      // than it did at pointerdown.
+      fireEvent.wheel(root, { deltaX: -300, deltaY: 0 });
+
+      // Ends the drag with a further move to screen x=520 - under the
+      // now-panned viewport, canvas x = 520-300 = 220, just left of
+      // target's own left edge (250).
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 520, clientY: 300 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 520, clientY: 300 });
+
+      // Fixed canvas-space rect: [min(500,220), max(500,220)] = [220,500] on
+      // x - overlaps target (250-350). The old, late-conversion code
+      // reinterpreted the START corner (500) through the POST-pan viewport
+      // too (500-300=200), producing [200,220] on x - entirely left of
+      // target, missing it.
+      expect(onSetFrameSelection).toHaveBeenCalledWith(['target']);
+    });
+
+    // Review fix wave nit 12.
+    describe('marquee robustness (review fix wave nit 12)', () => {
+      it('only a primary (left) button press starts a marquee', async () => {
+        saveViewport(window.localStorage, 'rightclickmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'rightclickmarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, button: 2 });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
+
+      it('clears on window blur, discarding the gesture instead of turning it into a selection', async () => {
+        saveViewport(window.localStorage, 'blurmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'blurmarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+        fireEvent.blur(window);
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        // The mouse button may physically still be down - a later pointerup
+        // for the same gesture must be a no-op, not a late selection.
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
+
+      it('Escape cancels an in-progress marquee without selecting anything', async () => {
+        saveViewport(window.localStorage, 'escapemarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'escapemarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -463,6 +927,27 @@ describe('Canvas', () => {
 
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
       expect(root).not.toHaveClass('cursor-grabbing');
+    });
+
+    // One of the review's named missing tests (task-grid-review.md): Space
+    // held on empty canvas must take the pan path, never the marquee one -
+    // shouldStartPan(button) gates handleRootPointerDown's own branch
+    // between the two, and this is the one thing that existing "Space +
+    // drag pans" test above never actually checked.
+    it('Space held on empty canvas pans, never starting a marquee', async () => {
+      renderWithReadout();
+      const root = screen.getByTestId('canvas-root');
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toBeInTheDocument());
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, screenX: 100, screenY: 100, button: 0 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
     });
 
     it('releasing Space mid-drag ends the pan (a later move does nothing)', async () => {
@@ -852,6 +1337,12 @@ describe('Canvas', () => {
       saveViewport(window.localStorage, 'zoomedout', 'page1', { x: 0, y: 0, zoom: 0.1 });
       renderCanvas({ fileId: 'zoomedout' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      expect(root.style.backgroundImage).toBeFalsy();
+    });
+
+    it('is hidden when pixelGridVisible is false, regardless of zoom', () => {
+      renderCanvas({ pixelGridVisible: false });
       const root = screen.getByTestId('canvas-root');
       expect(root.style.backgroundImage).toBeFalsy();
     });

@@ -18,6 +18,11 @@ function WidthProbe() {
 
 const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 1440 }];
 
+const TWO_FRAMES: Screen[] = [
+  { id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 400, stageHeight: 300, x: 0, y: 0 },
+  { id: 's2', name: 'Frame 2', layout: '{}', stageWidth: 400, stageHeight: 300, x: 800, y: 0 },
+];
+
 function mount(
   width = 1440,
   {
@@ -27,6 +32,11 @@ function mount(
     onToggleCollapsed = vi.fn(),
     diagramSelection,
     onDiagramAction,
+    screens = ONE_SCREEN,
+    selectedFrameIds,
+    onAlignFrames,
+    onUpdateLayoutGrid,
+    measuredHeights,
   }: {
     panelMode?: PanelMode;
     onPanelModeChange?: (mode: PanelMode) => void;
@@ -34,6 +44,11 @@ function mount(
     onToggleCollapsed?: () => void;
     diagramSelection?: DiagramFieldsSelection | null;
     onDiagramAction?: (action: DiagramAction) => void;
+    screens?: Screen[];
+    selectedFrameIds?: ReadonlySet<string>;
+    onAlignFrames?: (positions: { id: string; x: number; y: number }[]) => void;
+    onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
+    measuredHeights?: ReadonlyMap<string, number>;
   } = {},
 ) {
   return renderInEditor(
@@ -45,14 +60,18 @@ function mount(
         </Element>
       </Frame>
       <Inspector
-        screens={ONE_SCREEN}
-        currentScreenId="s1"
+        screens={screens}
+        currentScreenId={screens[0]?.id ?? 's1'}
         panelMode={panelMode}
         onPanelModeChange={onPanelModeChange}
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
         diagramSelection={diagramSelection}
         onDiagramAction={onDiagramAction}
+        selectedFrameIds={selectedFrameIds}
+        onAlignFrames={onAlignFrames}
+        onUpdateLayoutGrid={onUpdateLayoutGrid}
+        measuredHeights={measuredHeights}
       />
       <WidthProbe />
     </>,
@@ -132,6 +151,247 @@ describe('Inspector', () => {
       await screen.findByText('Billing');
       const panel = screen.getByRole('complementary', { name: 'Design' });
       expect(within(panel).getByRole('heading', { name: 'Connector' })).toBeInTheDocument();
+    });
+  });
+
+  describe('a canvas selection of two or more frames', () => {
+    it('shows the alignment row instead of the usual empty state, even with nothing selected in Craft', async () => {
+      mount(1440, { screens: TWO_FRAMES, selectedFrameIds: new Set(['s1', 's2']) });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).getByTestId('alignment-fields')).toBeInTheDocument();
+      expect(within(panel).queryByText('Nothing selected')).not.toBeInTheDocument();
+    });
+
+    it('Align left calls onAlignFrames with every selected frame moved to the leftmost edge', async () => {
+      const onAlignFrames = vi.fn();
+      mount(1440, { screens: TWO_FRAMES, selectedFrameIds: new Set(['s1', 's2']), onAlignFrames });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Align left' }));
+
+      expect(onAlignFrames).toHaveBeenCalledWith([
+        { id: 's1', x: 0, y: 0 },
+        { id: 's2', x: 0, y: 0 },
+      ]);
+    });
+
+    it('does not show with fewer than two frames selected', async () => {
+      mount(1440, { screens: TWO_FRAMES, selectedFrameIds: new Set(['s1']) });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+    });
+
+    // Review fix wave item 8: alignment/distribute used to fall back to the
+    // static ARTBOARD_MIN_HEIGHT for any selected frame with no fixed
+    // stageHeight of its own, regardless of how tall its content actually
+    // is.
+    it('Align bottom uses a fed measured height for an auto-height frame, not ARTBOARD_MIN_HEIGHT', async () => {
+      const autoHeightFrames: Screen[] = [
+        { id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 400, stageHeight: 300, x: 0, y: 0 },
+        // s2 has no stageHeight of its own - only its fed measured height
+        // (1000) should determine where "bottom" ends up.
+        { id: 's2', name: 'Frame 2', layout: '{}', stageWidth: 400, x: 800, y: 0 },
+      ];
+      const onAlignFrames = vi.fn();
+      mount(1440, {
+        screens: autoHeightFrames,
+        selectedFrameIds: new Set(['s1', 's2']),
+        onAlignFrames,
+        measuredHeights: new Map([['s2', 1000]]),
+      });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Align bottom' }));
+
+      // bounds.bottom = max(0+300, 0+1000) = 1000; s1 -> 1000-300=700, s2 (already at the bottom) -> 1000-1000=0.
+      expect(onAlignFrames).toHaveBeenCalledWith([
+        { id: 's1', x: 0, y: 700 },
+        { id: 's2', x: 800, y: 0 },
+      ]);
+    });
+  });
+
+  describe('a layer inside Auto layout', () => {
+    it('shows the alignment row for the container itself, mapped onto its own align/justify', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const alignmentRow = within(panel).getByTestId('alignment-fields');
+
+      // The root LayoutBox resolves to row direction at desktop width
+      // (LAYOUT_BOX_DEFAULTS.direction.desktop) - horizontal icons map to
+      // justify, written only for the current (desktop) breakpoint, same as
+      // the existing Distribution select field already does.
+      await userEvent.click(within(alignmentRow).getByRole('button', { name: 'Align horizontal centers' }));
+      expect(editor().query.node(ROOT_NODE).get().data.props.justify).toEqual({ mobile: 'start', desktop: 'center' });
+    });
+
+    it('shows the alignment row for a child, writing to the PARENT container instead of the child', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      const buttonId = await select(editor, 'button');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const alignmentRow = within(panel).getByTestId('alignment-fields');
+
+      await userEvent.click(within(alignmentRow).getByRole('button', { name: 'Align top' }));
+
+      // Row direction: the vertical icon (top) maps to align, not justify -
+      // written only for the current (desktop) breakpoint; mobile keeps its
+      // default ('stretch').
+      expect(editor().query.node(ROOT_NODE).get().data.props.align).toEqual({ mobile: 'stretch', desktop: 'start' });
+      // The button's own props are untouched.
+      expect(editor().query.node(buttonId).get().data.props.align).toBeUndefined();
+    });
+
+    it('enables only the on-axis distribute button for the container\'s current direction', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const alignmentRow = within(panel).getByTestId('alignment-fields');
+
+      // Row direction (desktop default): horizontal is the main axis.
+      expect(within(alignmentRow).getByRole('button', { name: 'Distribute horizontal spacing' })).not.toBeDisabled();
+      expect(within(alignmentRow).getByRole('button', { name: 'Distribute vertical spacing' })).toBeDisabled();
+    });
+
+    // Review fix wave nit 13: the real DOM measurement behind Distribute
+    // (getBoundingClientRect, on the container and every child) must run
+    // only when the button is actually clicked - not on every Inspector
+    // render, which used to force a needless layout reflow each time
+    // (rendering the panel, selecting a different node, or re-selecting the
+    // same one, all included).
+    it('measures the DOM only on an actual Distribute click, not on every render', async () => {
+      const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect');
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const horizontal = within(panel).getByRole('button', { name: 'Distribute horizontal spacing' });
+      expect(horizontal).not.toBeDisabled();
+
+      // Re-selecting the same node re-renders the alignment row with no
+      // click involved - must not measure anything on its own.
+      rectSpy.mockClear();
+      await select(editor, 'root');
+      expect(rectSpy).not.toHaveBeenCalled();
+
+      await userEvent.click(horizontal);
+      expect(rectSpy).toHaveBeenCalled();
+
+      rectSpy.mockRestore();
+    });
+
+    it('does not show the alignment row when nothing is selected', async () => {
+      mount();
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+    });
+
+    // Review fix wave item 7: the icon row above already writes align/
+    // justify for a flex container, so its own plain Alignment/Distribution
+    // selects further down the SAME panel are now a redundant second
+    // control for the identical two props - hidden at the render site
+    // (inspector.tsx), not by touching layout-box.tsx's own schema.
+    it('hides the flex LayoutBox\'s own Alignment and Distribution selects once the icon row covers them', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).getByTestId('alignment-fields')).toBeInTheDocument();
+      expect(within(panel).queryByText('Alignment')).not.toBeInTheDocument();
+      expect(within(panel).queryByText('Distribution')).not.toBeInTheDocument();
+    });
+
+    it('still shows the plain Alignment select (and no icon row) for a grid LayoutBox', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      act(() => {
+        editor().actions.setProp(ROOT_NODE, (draft: { mode?: string }) => {
+          draft.mode = 'grid';
+        });
+      });
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+      expect(within(panel).getByText('Alignment')).toBeInTheDocument();
+      // Distribution was already grid-hidden before this fix wave (showWhen: isFlex).
+      expect(within(panel).queryByText('Distribution')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the Frame section (root only)', () => {
+    it('shows Columns/Gutter/Margin/Show layout grid, defaulting to 12/24/32/false', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const frameSection = within(panel).getByTestId('frame-section');
+
+      expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('12');
+      expect(within(frameSection).getByLabelText('Gutter')).toHaveTextContent('24 px');
+      expect(within(frameSection).getByLabelText('Margin')).toHaveTextContent('32 px');
+      expect(within(frameSection).getByLabelText('Show layout grid')).not.toBeChecked();
+    });
+
+    it('does not show for a non-root selection', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'button');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('frame-section')).not.toBeInTheDocument();
+    });
+
+    it('does not show when nothing is selected', async () => {
+      mount();
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('frame-section')).not.toBeInTheDocument();
+    });
+
+    it('toggling "Show layout grid" calls onUpdateLayoutGrid with the current screen id', async () => {
+      const onUpdateLayoutGrid = vi.fn();
+      const { editor } = mount(1440, { onUpdateLayoutGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Show layout grid'));
+
+      expect(onUpdateLayoutGrid).toHaveBeenCalledWith('s1', { visible: true });
+    });
+
+    it('changing Columns calls onUpdateLayoutGrid with the picked number', async () => {
+      const onUpdateLayoutGrid = vi.fn();
+      const { editor } = mount(1440, { onUpdateLayoutGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Columns'));
+      await userEvent.click(await screen.findByRole('option', { name: '6' }));
+
+      expect(onUpdateLayoutGrid).toHaveBeenCalledWith('s1', { columns: 6 });
+    });
+
+    it('reflects an already-saved layoutGrid instead of the defaults', async () => {
+      const screensWithGrid: Screen[] = [
+        { ...ONE_SCREEN[0], layoutGrid: { columns: 4, gutter: 8, margin: 16, visible: true } },
+      ];
+      const { editor } = mount(1440, { screens: screensWithGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const frameSection = within(panel).getByTestId('frame-section');
+
+      expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('4');
+      expect(within(frameSection).getByLabelText('Show layout grid')).toBeChecked();
     });
   });
 

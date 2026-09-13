@@ -12,6 +12,7 @@ import {
   validateDiagramReferences,
   validatePages,
   validateScreens,
+  type LayoutGrid,
   type OverlayPresentation,
   type Page,
   type Screen,
@@ -25,6 +26,7 @@ import {
 // (validateScreens/validatePages return Screen[]/Page[] and repository.ts
 // calls them).
 export type {
+  LayoutGrid,
   OverlayPresentation,
   OverlaySide,
   Page,
@@ -143,6 +145,7 @@ type StoredScreen = {
   // overlays existed are untouched.
   kind?: ScreenKind;
   presentation?: OverlayPresentation;
+  layoutGrid?: LayoutGrid;
 };
 
 // The two overlay keys, carried across the storage boundary only when the
@@ -166,6 +169,7 @@ function toApiScreens(raw: unknown): Screen[] {
     y: screen.y ?? null,
     pageId: screen.pageId,
     ...overlayFields(screen),
+    layoutGrid: screen.layoutGrid,
   }));
 }
 
@@ -187,6 +191,7 @@ function toStoredScreen(screen: Screen): StoredScreen {
     // rather than silently writing a literal "undefined" into storage.
     pageId: screen.pageId!,
     ...overlayFields(screen),
+    layoutGrid: screen.layoutGrid,
   };
 }
 

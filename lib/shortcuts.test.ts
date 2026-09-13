@@ -145,7 +145,9 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
   // (shortcuts-overlay.tsx's hold detection for the Cmd-hold row,
   // canvas.tsx's shouldStartPan/panRef for the two pan rows) and
   // matchShortcut never returns any of these ids.
-  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse']);
+  // diagram-context-menu is a window listener owned by the diagram layer (it opens a Radix menu for the
+  // selection), so matchShortcut never returns it either.
+  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse', 'diagram-context-menu']);
 
   it('resolves every matchable registry entry back to its own id from its own keys', () => {
     for (const shortcut of SHORTCUTS) {
@@ -173,12 +175,15 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'd', metaKey: true, shiftKey: true }))).toBeNull();
   });
 
-  it('matches the four arrow keys for the diagram nudge, with or without Shift', () => {
+  it('matches the four arrow keys for the nudge, as distinct ids with and without Shift', () => {
     expect(matchShortcut(key({ key: 'ArrowUp' }))).toBe('diagram-nudge-up');
     expect(matchShortcut(key({ key: 'ArrowDown' }))).toBe('diagram-nudge-down');
     expect(matchShortcut(key({ key: 'ArrowLeft' }))).toBe('diagram-nudge-left');
     expect(matchShortcut(key({ key: 'ArrowRight' }))).toBe('diagram-nudge-right');
-    expect(matchShortcut(key({ key: 'ArrowUp', shiftKey: true }))).toBe('diagram-nudge-up');
+    expect(matchShortcut(key({ key: 'ArrowUp', shiftKey: true }))).toBe('diagram-nudge-up-shift');
+    expect(matchShortcut(key({ key: 'ArrowDown', shiftKey: true }))).toBe('diagram-nudge-down-shift');
+    expect(matchShortcut(key({ key: 'ArrowLeft', shiftKey: true }))).toBe('diagram-nudge-left-shift');
+    expect(matchShortcut(key({ key: 'ArrowRight', shiftKey: true }))).toBe('diagram-nudge-right-shift');
     expect(matchShortcut(key({ key: 'ArrowUp', metaKey: true }))).toBeNull();
   });
 
@@ -203,6 +208,16 @@ describe('matchShortcut', () => {
   it('matches Shift+N for a new screen', () => {
     expect(matchShortcut(key({ key: 'n', shiftKey: true }))).toBe('screen-new');
     expect(matchShortcut(key({ key: 'n' }))).toBeNull();
+  });
+
+  it('matches Shift+G for the layout grid toggle, distinct from bare G', () => {
+    expect(matchShortcut(key({ key: 'g', shiftKey: true }))).toBe('layout-grid-toggle');
+    expect(matchShortcut(key({ key: 'g' }))).toBeNull();
+  });
+
+  it('matches Cmd+\' and Ctrl+\' for the pixel grid toggle', () => {
+    expect(matchShortcut(key({ key: "'", metaKey: true }))).toBe('pixel-grid-toggle');
+    expect(matchShortcut(key({ key: "'", ctrlKey: true }))).toBe('pixel-grid-toggle');
   });
 
   it('matches Cmd+J and Ctrl+J for the chat toggle', () => {
@@ -339,7 +354,9 @@ describe('README shortcut table', () => {
   it('merges entries that share a label into one row with every key combination', () => {
     const chat = displayRows().find((row) => row.label === 'Open or close the chat panel');
     expect(chat?.keys).toHaveLength(2);
-    const nudge = displayRows().find((row) => row.label.startsWith('Nudge the selection'));
+    const nudge = displayRows().find((row) => row.label === 'Nudge the selection 1 px');
     expect(nudge?.keys.map((keys) => keys.join(' '))).toEqual(['↑', '↓', '←', '→']);
+    const nudgeShift = displayRows().find((row) => row.label === 'Nudge the selection 8 px');
+    expect(nudgeShift?.keys.map((keys) => keys.join(' '))).toEqual(['Shift ↑', 'Shift ↓', 'Shift ←', 'Shift →']);
   });
 });

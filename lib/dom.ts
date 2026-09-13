@@ -109,3 +109,17 @@ export function canScrollInDirection(target: EventTarget | null, deltaX: number,
   }
   return false;
 }
+
+// Moved from components/workbench/keyboard.tsx so the diagram layer (and any
+// other module) can use it without pulling the keyboard handler and Craft in.
+const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+const POPUP_SELECTOR =
+  '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!isElementLike(target)) return false;
+  if (EDITABLE_TAGS.has(target.tagName)) return true;
+  if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null) {
+    return true;
+  }
+  return target.closest(POPUP_SELECTOR) !== null;
+}

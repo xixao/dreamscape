@@ -66,7 +66,7 @@ import { cn } from '@/lib/utils';
 import { CHIP, MENU_HINT, MENU_POPOVER, MENU_ROW } from '../chrome';
 // Read-only import (review finding 3) - keyboard.tsx/lib/shortcuts.ts
 // themselves belong to a different branch and are not touched here.
-import { isEditableTarget } from '../keyboard';
+import { isEditableTarget } from '@/lib/dom';
 import { ARROW_LABELS, CONNECTOR_LABELS, COLOR_LABELS, KIND_LABELS } from './diagram-fields';
 
 // Build step 3's Align submenu (Left, Center, Right, Top, Middle, Bottom) -
