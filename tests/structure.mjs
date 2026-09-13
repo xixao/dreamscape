@@ -125,6 +125,66 @@ async function moduleAt(file) {
   );
 }
 const { sessionFacts, eventLabels } = await moduleAt("lib/results.ts");
+const { summarizeResults } = await moduleAt("lib/results.ts");
+const emptySummary = summarizeResults([]);
+assert.equal(emptySummary.total, 0);
+assert.equal(emptySummary.average, null);
+assert.equal(emptySummary.findings.length, 0);
+const summarySession = {
+  id: "summary-1",
+  outcome: "complete",
+  interactions: [],
+  rating: null,
+  feedback: "",
+  events: [],
+};
+const summaryCases = [
+  { ...summarySession, rating: 4 },
+  {
+    ...summarySession,
+    id: "summary-2",
+    outcome: "gave_up",
+    rating: 5,
+    interactions: Array.from({ length: 5 }, () => ({
+      target: "retry",
+      state: "failed",
+      available: false,
+    })),
+  },
+  {
+    ...summarySession,
+    id: "summary-3",
+    outcome: "started",
+    interactions: [{ target: "upload", state: "ready", available: false }],
+  },
+  {
+    ...summarySession,
+    id: "summary-4",
+    outcome: "started",
+    interactions: [{ target: "non_action", state: "ready", available: false }],
+  },
+];
+const summary = summarizeResults(summaryCases);
+assert.equal(summary.total, 4);
+assert.equal(summary.complete, 1);
+assert.equal(summary.abandoned, 1);
+assert.equal(summary.open, 2);
+assert.equal(summary.blocked, 2, "Count sessions rather than repeated clicks");
+assert.equal(summary.ratingCount, 2);
+assert.equal(summary.average, "4.5");
+assert.deepEqual(
+  summary.findings.map((f) => [f.id, f.sessions.map((s) => s.id)]),
+  [
+    ["repeated", ["summary-2"]],
+    ["blocked", ["summary-3"]],
+    ["abandoned", ["summary-2"]],
+  ],
+);
+assert.equal(
+  summarizeResults([summaryCases[3]]).findings.length,
+  0,
+  "Open sessions and non-action clicks alone are not failure findings",
+);
 const sample = { outcome: "started", interactions: [] };
 assert.equal(sessionFacts(sample).attention, false);
 assert.equal(sessionFacts(sample).finding, "No final outcome recorded");
@@ -263,7 +323,9 @@ assert.equal(handoff.inspectedDesign.status, "unsaved-draft");
 assert.equal(handoff.savedRevision.config.retryEnabled, false);
 assert.equal(handoff.inspectedDesign.config.retryEnabled, true);
 assert.equal(handoff.commentsApplyTo, "savedRevision");
-const { createDocumentUploaderCode } = await moduleAt("lib/demo/document-uploader-code.ts");
+const { createDocumentUploaderCode } = await moduleAt(
+  "lib/demo/document-uploader-code.ts",
+);
 for (const config of [
   baseline,
   draft,

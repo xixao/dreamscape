@@ -29,6 +29,7 @@
 | AnchoredComments | Positions supplied comments against stable component anchors; uses CommentReactions. |
 | CommentReactions | Shared persisted like/dislike/Fuego actions. |
 | ReviewResults | Revision-filtered participant evidence and session selection. |
+| ResultsSummary | Scoped outcome metrics and grouped observations. Links directly to matching sessions; full evidence stays in ReviewResults. |
 | SessionSignals | Interaction timeline and observations from the shared `sessionFacts` helper. |
 | EvidenceTrail | Links a recorded session to feedback and a subsequent saved revision. Uses the same `sessionFacts` calculations as results. |
 | POReview | Presentation-ready update, experience, findings and decisions. Shared links reuse this view without granting owner data access. |

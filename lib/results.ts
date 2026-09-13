@@ -43,3 +43,56 @@ export function sessionFacts(session: Session) {
           : "No final outcome is recorded. Do not count this as a failure or infer abandonment.",
   };
 }
+export function summarizeResults(sessions: Session[]) {
+  const blocked = sessions.filter(
+    (s) => sessionFacts(s).unavailable.length > 0,
+  );
+  const repeated = blocked.filter((s) => sessionFacts(s).repeated.length > 0);
+  const otherBlocked = blocked.filter((s) => !sessionFacts(s).repeated.length);
+  const abandoned = sessions.filter((s) => s.outcome === "gave_up");
+  const ratings = sessions.filter((s) => s.rating !== null);
+  const findings = [
+    {
+      id: "repeated",
+      title: "Repeated clicks on unavailable controls",
+      observation:
+        "Five or more clicks on the same unavailable control were recorded within a session.",
+      sessions: repeated,
+    },
+    {
+      id: "blocked",
+      title: "Unavailable actions need a closer look",
+      observation:
+        "Clicks on unavailable controls were recorded. The reason for clicking is not known.",
+      sessions: otherBlocked,
+    },
+    {
+      id: "abandoned",
+      title: "Leaving early needs follow-up",
+      observation:
+        "These sessions were explicitly abandoned before completion. The reason is not yet confirmed.",
+      sessions: abandoned,
+    },
+  ].filter((finding) => finding.sessions.length > 0);
+  return {
+    total: sessions.length,
+    complete: sessions.filter((s) => s.outcome === "complete").length,
+    open: sessions.filter((s) => s.outcome === "started").length,
+    abandoned: abandoned.length,
+    blocked: blocked.length,
+    ratingCount: ratings.length,
+    average: ratings.length
+      ? (
+          ratings.reduce((sum, s) => sum + (s.rating ?? 0), 0) / ratings.length
+        ).toFixed(1)
+      : null,
+    findings,
+    next: !sessions.length
+      ? "Run a participant test to gather evidence."
+      : blocked.length
+        ? "Check control availability and feedback, then run another test."
+        : abandoned.length
+          ? "Review the final actions and ask what participants expected before changing the design."
+          : "Review written feedback alongside completed and still-open sessions. Completion alone does not establish ease of use.",
+  };
+}
