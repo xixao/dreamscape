@@ -50,12 +50,13 @@ import { useCanvasDocument } from './canvas-frame';
 //   measurement of the hovered container's children (review finding 2).
 const PLACEHOLDER_ATTR = 'data-drop-placeholder';
 
-// component-tray.tsx stamps this on the exact <li> its connectors.create
-// ref lives on, so a raw dragstart on it (or a descendant) identifies which
-// TrayItem is being dragged - the only way to learn that, since a "new"
-// DragTarget's tree/component is private to Craft's own DefaultEventHandlers
-// instance and never reaches `state` at all (unlike an "existing" drag,
-// which state.events.dragged exposes directly).
+// component-tray.tsx stamps this on the exact element (each row's drag
+// surface) its connectors.create ref lives on, so a raw dragstart on it (or
+// a descendant) identifies which TrayItem is being dragged - the only way to
+// learn that, since a "new" DragTarget's tree/component is private to
+// Craft's own DefaultEventHandlers instance and never reaches `state` at
+// all (unlike an "existing" drag, which state.events.dragged exposes
+// directly).
 const TRAY_ITEM_ATTR = 'data-tray-item';
 
 /** `getComputedStyle`'s `display`/`flexDirection` of a container, reduced to what placeholderSize needs. Exported for a focused, DOM-free test. */
