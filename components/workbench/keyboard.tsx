@@ -23,6 +23,18 @@ const POPUP_SELECTOR =
 // it even though it plainly is one (typing Delete into a text block inside
 // the frame would fall through to deleting the block).
 
+// Cmd+=/Cmd+- (spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
+// section 3): `event.key` alone already covers a numpad Add/Subtract press
+// (neither has a distinct shifted variant, so their `key` is always '+'/'-'
+// regardless of Shift) but `event.code` is checked too, for a keyboard/OS
+// combination that reports something unexpected for `key`. `=`/`+` share one
+// physical key on a US layout (Shift changes which character is produced,
+// not which shortcut the user meant), same for `-`/`_`.
+const ZOOM_IN_KEYS = new Set(['=', '+']);
+const ZOOM_OUT_KEYS = new Set(['-', '_']);
+const ZOOM_IN_CODES = new Set(['Equal', 'NumpadAdd']);
+const ZOOM_OUT_CODES = new Set(['Minus', 'NumpadSubtract']);
+
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!isElementLike(target)) return false;
   if (EDITABLE_TAGS.has(target.tagName)) return true;
@@ -50,10 +62,36 @@ export function useWorkbenchKeyboard(
     onToggleCommentMode?: () => void;
     commentMode?: boolean;
     onExitCommentMode?: () => void;
+    // Canvas zoom (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
+    // design.md section 3). onZoomIn/onZoomOut/onZoomReset are Cmd/Ctrl
+    // chords that double as the browser's own page-zoom shortcut, so - like
+    // onToggleUi/onToggleChat/onTogglePanelCollapsed above - they fire and
+    // preventDefault even while a text field, select or dialog owns the
+    // interaction (the browser must never zoom the page instead).
+    // onZoomToFit/onZoomToSelection are plain Shift+digit chords with no
+    // such conflict, and every digit already types a real character while
+    // typing (Shift+1 is "!"), so those two stay after the editable-target
+    // guard like every other plain-key shortcut.
+    onZoomIn?: () => void;
+    onZoomOut?: () => void;
+    onZoomReset?: () => void;
+    onZoomToFit?: () => void;
+    onZoomToSelection?: () => void;
   } = {},
 ): void {
-  const { onToggleUi, onToggleChat, onTogglePanelCollapsed, onToggleCommentMode, commentMode, onExitCommentMode } =
-    options;
+  const {
+    onToggleUi,
+    onToggleChat,
+    onTogglePanelCollapsed,
+    onToggleCommentMode,
+    commentMode,
+    onExitCommentMode,
+    onZoomIn,
+    onZoomOut,
+    onZoomReset,
+    onZoomToFit,
+    onZoomToSelection,
+  } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
   // (canvas-frame.tsx); a keydown while focus is inside it never reaches the
@@ -90,7 +128,42 @@ export function useWorkbenchKeyboard(
         return;
       }
 
+      // Canvas zoom step in/out and reset - same precedence as above (these
+      // double as the browser's own page-zoom shortcut, which must never
+      // fire instead).
+      if ((event.metaKey || event.ctrlKey) && (ZOOM_IN_KEYS.has(event.key) || ZOOM_IN_CODES.has(event.code))) {
+        event.preventDefault();
+        onZoomIn?.();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && (ZOOM_OUT_KEYS.has(event.key) || ZOOM_OUT_CODES.has(event.code))) {
+        event.preventDefault();
+        onZoomOut?.();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === '0') {
+        event.preventDefault();
+        onZoomReset?.();
+        return;
+      }
+
       if (isEditableTarget(event.target)) return;
+
+      // Zoom to fit / zoom to selection: plain Shift+digit chords, checked
+      // by `code` (not `key`, which reports "!"/"@" once Shift changes the
+      // produced character) so they are not layout- or shift-state-fragile.
+      // After the editable-target guard, unlike the zoom shortcuts above:
+      // both digits still type a real character in a text field.
+      if (event.shiftKey && event.code === 'Digit1') {
+        event.preventDefault();
+        onZoomToFit?.();
+        return;
+      }
+      if (event.shiftKey && event.code === 'Digit2') {
+        event.preventDefault();
+        onZoomToSelection?.();
+        return;
+      }
 
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === 'z') {
@@ -148,6 +221,11 @@ export function useWorkbenchKeyboard(
     onToggleCommentMode,
     commentMode,
     onExitCommentMode,
+    onZoomIn,
+    onZoomOut,
+    onZoomReset,
+    onZoomToFit,
+    onZoomToSelection,
     canvasDocument,
   ]);
 }

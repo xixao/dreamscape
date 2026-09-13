@@ -7,9 +7,11 @@ import {
   fitAll,
   nextZoomStep,
   panBy,
+  stepZoom,
   toCanvasPoint,
   toWindowPoint,
   zoomAround,
+  zoomTo,
   zoomToRect,
 } from './viewport';
 
@@ -184,5 +186,51 @@ describe('nextZoomStep', () => {
     const zoom = ZOOM_STEPS[4]; // 1
     expect(nextZoomStep(zoom, 'in')).toBe(ZOOM_STEPS[5]);
     expect(nextZoomStep(zoom, 'out')).toBe(ZOOM_STEPS[3]);
+  });
+});
+
+describe('zoomTo', () => {
+  it('sets the exact target zoom, keeping the given point fixed', () => {
+    const viewport = { x: 30, y: -10, zoom: 0.75 };
+    const pointer = { x: 200, y: 150 };
+    const before = toCanvasPoint(pointer, viewport);
+
+    const next = zoomTo(viewport, pointer, 1);
+
+    expect(next.zoom).toBe(1);
+    const after = toCanvasPoint(pointer, next);
+    expect(after.x).toBeCloseTo(before.x, 10);
+    expect(after.y).toBeCloseTo(before.y, 10);
+  });
+
+  it('is a no-op when already at the target zoom', () => {
+    const viewport = { x: 30, y: -10, zoom: 1 };
+    expect(zoomTo(viewport, { x: 0, y: 0 }, 1)).toEqual(viewport);
+  });
+});
+
+describe('stepZoom', () => {
+  it('zooms in to the next step, keeping the point fixed', () => {
+    const viewport = { x: 0, y: 0, zoom: 1 };
+    const pointer = { x: 300, y: 200 };
+    const before = toCanvasPoint(pointer, viewport);
+
+    const next = stepZoom(viewport, pointer, 'in');
+
+    expect(next.zoom).toBe(1.25);
+    const after = toCanvasPoint(pointer, next);
+    expect(after.x).toBeCloseTo(before.x, 10);
+    expect(after.y).toBeCloseTo(before.y, 10);
+  });
+
+  it('zooms out to the next step, keeping the point fixed', () => {
+    const viewport = { x: 0, y: 0, zoom: 1 };
+    const next = stepZoom(viewport, { x: 300, y: 200 }, 'out');
+    expect(next.zoom).toBe(0.75);
+  });
+
+  it('stops at the top/bottom step, matching nextZoomStep', () => {
+    expect(stepZoom({ x: 0, y: 0, zoom: MAX_ZOOM }, { x: 0, y: 0 }, 'in').zoom).toBe(MAX_ZOOM);
+    expect(stepZoom({ x: 0, y: 0, zoom: MIN_ZOOM }, { x: 0, y: 0 }, 'out').zoom).toBe(MIN_ZOOM);
   });
 });

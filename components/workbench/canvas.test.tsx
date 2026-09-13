@@ -7,7 +7,7 @@ import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
-import { Canvas, CanvasViewportProvider, useCanvasViewport } from './canvas';
+import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewport, useCanvasViewportController } from './canvas';
 
 const SCREEN_1: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 300, x: 0, y: 0 };
 const SCREEN_2: Screen = {
@@ -20,28 +20,57 @@ const SCREEN_2: Screen = {
   y: 0,
 };
 
+// Canvas is a controlled component now (viewport/setViewport/viewportSize
+// come from context, owned by useCanvasViewportController) - this harness
+// plays the role WorkbenchShell does in the real app: call the controller
+// once, wrap Canvas (and, for a couple of tests, an extra sibling that also
+// needs the same context) in one CanvasViewportProvider.
+function Harness({
+  screens,
+  focusedScreenId,
+  onFocusScreen,
+  fileId,
+  extra,
+}: {
+  screens: Screen[];
+  focusedScreenId: string;
+  onFocusScreen: (id: string) => void;
+  fileId: string;
+  extra?: ReactNode;
+}) {
+  const { viewport, setViewport, viewportSize, rootRef } = useCanvasViewportController({
+    fileId,
+    frames: screens.map(frameRect),
+  });
+  return (
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+      <Canvas
+        screens={screens}
+        focusedScreenId={focusedScreenId}
+        onFocusScreen={onFocusScreen}
+        comments={DEFAULT_STAGE_COMMENTS}
+        rootRef={rootRef}
+      />
+      {extra}
+    </CanvasViewportProvider>
+  );
+}
+
 function renderCanvas({
   screens = [SCREEN_1],
   focusedScreenId = SCREEN_1.id,
   onFocusScreen = vi.fn(),
   fileId = 'file1',
-  overlays,
+  extra,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
   onFocusScreen?: (id: string) => void;
   fileId?: string;
-  overlays?: ReactNode;
+  extra?: ReactNode;
 } = {}) {
   return renderInEditor(
-    <Canvas
-      fileId={fileId}
-      screens={screens}
-      focusedScreenId={focusedScreenId}
-      onFocusScreen={onFocusScreen}
-      comments={DEFAULT_STAGE_COMMENTS}
-      overlays={overlays}
-    />,
+    <Harness screens={screens} focusedScreenId={focusedScreenId} onFocusScreen={onFocusScreen} fileId={fileId} extra={extra} />,
   );
 }
 
@@ -176,7 +205,7 @@ describe('Canvas', () => {
     }
 
     function renderWithReadout(overrides: Parameters<typeof renderCanvas>[0] = {}) {
-      return renderCanvas({ ...overrides, overlays: <Readout /> });
+      return renderCanvas({ ...overrides, extra: <Readout /> });
     }
 
     it('plain wheel pans the canvas and prevents the default (page) scroll', async () => {

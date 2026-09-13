@@ -14,6 +14,11 @@ type KeysOptions = {
   onToggleCommentMode?: () => void;
   commentMode?: boolean;
   onExitCommentMode?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomReset?: () => void;
+  onZoomToFit?: () => void;
+  onZoomToSelection?: () => void;
 };
 
 function Keys({
@@ -23,6 +28,11 @@ function Keys({
   onToggleCommentMode,
   commentMode,
   onExitCommentMode,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
+  onZoomToFit,
+  onZoomToSelection,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -31,6 +41,11 @@ function Keys({
     onToggleCommentMode,
     commentMode,
     onExitCommentMode,
+    onZoomIn,
+    onZoomOut,
+    onZoomReset,
+    onZoomToFit,
+    onZoomToSelection,
   });
   return (
     <>
@@ -508,5 +523,132 @@ describe('useWorkbenchKeyboard onTogglePanelCollapsed', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: '.', metaKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard zoom shortcuts', () => {
+  it('calls onZoomIn and prevents default for Cmd+=', async () => {
+    const onZoomIn = vi.fn();
+    mount({ onZoomIn });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: '=', code: 'Equal', metaKey: true });
+    expect(onZoomIn).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onZoomIn for Ctrl+= and for the shifted "+" key', async () => {
+    const onZoomIn = vi.fn();
+    mount({ onZoomIn });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '=', code: 'Equal', ctrlKey: true });
+    fireEvent.keyDown(window, { key: '+', code: 'Equal', metaKey: true, shiftKey: true });
+    expect(onZoomIn).toHaveBeenCalledTimes(2);
+  });
+
+  it('calls onZoomIn for the numpad Add key', async () => {
+    const onZoomIn = vi.fn();
+    mount({ onZoomIn });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '+', code: 'NumpadAdd', metaKey: true });
+    expect(onZoomIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onZoomIn even when the target is an input (the browser must never zoom the page instead)', async () => {
+    const onZoomIn = vi.fn();
+    mount({ onZoomIn });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: '=', code: 'Equal', metaKey: true });
+    expect(onZoomIn).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onZoomOut and prevents default for Cmd+-, Cmd+_ and the numpad Subtract key', async () => {
+    const onZoomOut = vi.fn();
+    mount({ onZoomOut });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: '-', code: 'Minus', metaKey: true });
+    fireEvent.keyDown(window, { key: '_', code: 'Minus', metaKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: '-', code: 'NumpadSubtract', metaKey: true });
+    expect(onZoomOut).toHaveBeenCalledTimes(3);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onZoomReset and prevents default for Cmd+0, even from an input', async () => {
+    const onZoomReset = vi.fn();
+    mount({ onZoomReset });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: '0', metaKey: true });
+    expect(onZoomReset).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: '0', ctrlKey: true });
+    expect(onZoomReset).toHaveBeenCalledTimes(2);
+  });
+
+  it('calls onZoomToFit and prevents default for Shift+1', async () => {
+    const onZoomToFit = vi.fn();
+    mount({ onZoomToFit });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { code: 'Digit1', shiftKey: true });
+    expect(onZoomToFit).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onZoomToSelection and prevents default for Shift+2', async () => {
+    const onZoomToSelection = vi.fn();
+    mount({ onZoomToSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { code: 'Digit2', shiftKey: true });
+    expect(onZoomToSelection).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('ignores Shift+1/Shift+2 while typing in a field (so "!" and "@" still type normally)', async () => {
+    const onZoomToFit = vi.fn();
+    const onZoomToSelection = vi.fn();
+    mount({ onZoomToFit, onZoomToSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { code: 'Digit1', shiftKey: true });
+    fireEvent.keyDown(screen.getByLabelText('typing'), { code: 'Digit2', shiftKey: true });
+    expect(onZoomToFit).not.toHaveBeenCalled();
+    expect(onZoomToSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not call any zoom callback for an unrelated key', async () => {
+    const onZoomIn = vi.fn();
+    const onZoomOut = vi.fn();
+    const onZoomReset = vi.fn();
+    const onZoomToFit = vi.fn();
+    const onZoomToSelection = vi.fn();
+    mount({ onZoomIn, onZoomOut, onZoomReset, onZoomToFit, onZoomToSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'a', metaKey: true });
+    fireEvent.keyDown(window, { key: '1', shiftKey: false });
+    expect(onZoomIn).not.toHaveBeenCalled();
+    expect(onZoomOut).not.toHaveBeenCalled();
+    expect(onZoomReset).not.toHaveBeenCalled();
+    expect(onZoomToFit).not.toHaveBeenCalled();
+    expect(onZoomToSelection).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when no zoom callback is provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => {
+      fireEvent.keyDown(window, { key: '=', code: 'Equal', metaKey: true });
+      fireEvent.keyDown(window, { key: '-', code: 'Minus', metaKey: true });
+      fireEvent.keyDown(window, { key: '0', metaKey: true });
+      fireEvent.keyDown(window, { code: 'Digit1', shiftKey: true });
+      fireEvent.keyDown(window, { code: 'Digit2', shiftKey: true });
+    }).not.toThrow();
   });
 });

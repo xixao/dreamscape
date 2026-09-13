@@ -106,6 +106,25 @@ export function zoomAround(viewport: Viewport, point: Point, factor: number): Vi
 }
 
 /**
+ * Sets the viewport to an exact target zoom (rather than a multiplicative
+ * factor - see zoomAround), keeping `point` fixed. The shared engine behind
+ * Cmd+0 (target 1), the zoom menu's fixed percentages, and stepZoom below.
+ */
+export function zoomTo(viewport: Viewport, point: Point, targetZoom: number): Viewport {
+  return zoomAround(viewport, point, targetZoom / viewport.zoom);
+}
+
+/**
+ * Moves the viewport's zoom to the next step in ZOOM_STEPS (Cmd+=/Cmd+-),
+ * keeping `point` fixed - typically the viewport centre for a keyboard
+ * shortcut, since there is no pointer position to anchor to the way a wheel
+ * gesture has one.
+ */
+export function stepZoom(viewport: Viewport, point: Point, direction: ZoomDirection): Viewport {
+  return zoomTo(viewport, point, nextZoomStep(viewport.zoom, direction));
+}
+
+/**
  * The viewport that centers `rect` (canvas-space) within `viewportSize`
  * (the visible window/canvas area, in screen px) with `padding` screen px of
  * breathing room on every side, at the largest zoom that still fits both

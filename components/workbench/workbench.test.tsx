@@ -926,4 +926,48 @@ describe('Workbench', () => {
       expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument();
     });
   });
+
+  // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+  // 4 (Matt, 2026-09-12): "when the chat panel is opened, the canvas that
+  // holds the frames (pages) should not scale up or down." Opening/closing
+  // any panel, minimizing it, or Cmd+\ must never touch the viewport - only
+  // the user zooming (or Fit/a screen tab) may.
+  describe('opening/closing panels never changes the canvas viewport', () => {
+    function transform(): string {
+      return screen.getByTestId('canvas-layer').style.transform;
+    }
+
+    it('is untouched by opening and closing the chat panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(transform()).toBe(before);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(transform()).toBe(before);
+    });
+
+    it('is untouched by minimizing and expanding the right panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      expect(transform()).toBe(before);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
+      expect(transform()).toBe(before);
+    });
+
+    it('is untouched by Cmd+\\ (Show/Hide UI)', () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(transform()).toBe(before);
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(transform()).toBe(before);
+    });
+  });
 });

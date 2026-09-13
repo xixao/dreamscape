@@ -11,6 +11,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
@@ -36,11 +37,14 @@ const CanvasViewportContext = createContext<CanvasViewportContextValue | null>(n
 
 /**
  * Exposes the canvas's `{ viewport, setViewport, viewportSize }` to anything
- * that needs to convert canvas-space coordinates to window coordinates
- * without measuring the DOM itself - frame titles, the zoom menu, and any
+ * that needs to convert canvas-space coordinates to window coordinates, or
+ * change the viewport, without measuring the DOM itself - the top bar's zoom
+ * menu, keyboard shortcuts, frame titles, the layer stack menu, and any
  * future overlay (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
- * design.md section 5). `Canvas` below is the one real owner of this state;
- * this provider is a thin, independently testable wrapper around it.
+ * design.md section 5). `useCanvasViewportController` below is the one real
+ * owner of this state; WorkbenchShell calls it once and wraps this provider
+ * around Canvas and every sibling that needs the same context, so all of
+ * them share one instance rather than each computing their own.
  */
 export function CanvasViewportProvider({
   viewport,
@@ -61,22 +65,7 @@ export function useCanvasViewport(): CanvasViewportContextValue {
   return context;
 }
 
-// The dot grid fades out below this zoom (spec section 3) - dots that close
-// together are visual noise, not a useful reference, once zoomed out this far.
-const GRID_FADE_ZOOM = 0.25;
-const GRID_SPACING = 8;
-
-function dotGridStyle(viewport: Viewport): CSSProperties {
-  if (viewport.zoom < GRID_FADE_ZOOM) return {};
-  const spacing = GRID_SPACING * viewport.zoom;
-  return {
-    backgroundImage: 'radial-gradient(circle, var(--line-soft) 1px, transparent 0)',
-    backgroundSize: `${spacing}px ${spacing}px`,
-    backgroundPosition: `${viewport.x}px ${viewport.y}px`,
-  };
-}
-
-function frameRect(screen: Screen): FrameRect {
+export function frameRect(screen: Screen): FrameRect {
   return {
     x: screen.x ?? 0,
     y: screen.y ?? 0,
@@ -89,66 +78,51 @@ function frameRect(screen: Screen): FrameRect {
   };
 }
 
-const MIDDLE_MOUSE_BUTTON = 1;
-// Wheel-to-zoom sensitivity: exp() keeps repeated small deltaY ticks
-// (trackpad pinch, mostly) composing multiplicatively rather than linearly,
-// which is what keeps the point under the pointer exactly fixed regardless
-// of how many ticks a single gesture is split into.
-const WHEEL_ZOOM_SENSITIVITY = 0.01;
-
 /**
- * The infinite canvas (spec docs/superpowers/specs/2026-09-12-infinite-
- * canvas-design.md): a full-window pannable, zoomable surface with every
- * screen of the file rendered as an absolutely positioned frame inside one
- * transformed layer. The focused screen hosts the real, interactive Stage
- * (Craft's live editing session, the resize handles, comments); every other
- * screen is a read-only FramePreview that focuses itself on the first press
- * inside it.
+ * Owns the canvas viewport's state: per-file localStorage persistence
+ * (lib/canvas/viewport-store.ts), measuring the canvas's own on-screen size
+ * (`rootRef` - the caller attaches it to whatever element fills the window),
+ * and the one-time "fit every frame" default for a file with nothing saved
+ * yet (spec: "default: fit all frames"). Called once, by WorkbenchShell -
+ * not by Canvas itself - so the same viewport/setViewport/viewportSize can
+ * be shared, through CanvasViewportProvider, with everything that needs it:
+ * Canvas, the top bar's zoom menu, keyboard shortcuts and the layer stack
+ * menu alike.
  */
-export function Canvas({
+export function useCanvasViewportController({
   fileId,
-  screens,
-  focusedScreenId,
-  onFocusScreen,
-  comments,
-  overlays,
+  frames,
 }: {
   fileId: string;
-  screens: Screen[];
-  focusedScreenId: string;
-  onFocusScreen: (id: string) => void;
-  comments: StageCommentsProps;
-  // Chrome that needs useCanvasViewport() but is not itself a canvas-space
-  // frame - the layer stack menu popover and, later, the zoom menu and frame
-  // titles (spec section 7). Rendered inside the same CanvasViewportProvider
-  // as the canvas itself, but as a sibling of the pannable layer, not inside
-  // it, so it is positioned in plain window/screen space.
-  overlays?: ReactNode;
-}) {
-  const { actions } = useEditor();
-  const setStageZoom = useStage().setZoom;
-  const focusedCanvasDocument = useCanvasDocument();
+  frames: readonly FrameRect[];
+}): {
+  viewport: Viewport;
+  setViewport: (update: Viewport | ((current: Viewport) => Viewport)) => void;
+  viewportSize: ViewportSize;
+  rootRef: RefObject<HTMLDivElement | null>;
+} {
   const rootRef = useRef<HTMLDivElement>(null);
-
-  // Screens change constantly (a resize, a rename, a new frame) but the
+  // Frames change constantly (a resize, a rename, a new screen) but the
   // default-viewport computation below must only ever run once, the first
   // time this canvas learns its own on-screen size - re-running it on every
-  // screens change would silently reset a pan/zoom the user has already set.
-  // A ref sidesteps that without needing screens as an effect dependency.
-  const screensRef = useRef(screens);
-  screensRef.current = screens;
+  // frames change would silently reset a pan/zoom the user has already set.
+  // A ref sidesteps that without needing frames as an effect dependency.
+  // Synced through an effect, never written during render (refs are for
+  // event handlers and effects, not render - see the measurement effect
+  // below for why an effect here still races correctly against it).
+  const framesRef = useRef(frames);
+  useEffect(() => {
+    framesRef.current = frames;
+  }, [frames]);
 
   const [initialViewport] = useState(() => loadViewport(window.localStorage, fileId));
   const [viewport, setViewport] = useState<Viewport>(initialViewport ?? { x: 0, y: 0, zoom: 1 });
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 0, height: 0 });
   const hasFitRef = useRef(initialViewport !== null);
-  const viewportRef = useRef(viewport);
-  viewportRef.current = viewport;
 
-  // Measures this canvas's own size once (and on every resize); the very
-  // first measurement also supplies the default viewport (fit every frame)
-  // when nothing was saved for this file yet (spec: "default: fit all
-  // frames").
+  // Measures the root's own size once (and on every resize); the very first
+  // measurement also supplies the default viewport (fit every frame) when
+  // nothing was saved for this file yet.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -168,7 +142,7 @@ export function Canvas({
       // measure yet" case.
       if (!hasFitRef.current && size.width > 0 && size.height > 0) {
         hasFitRef.current = true;
-        setViewport(fitAll(screensRef.current.map(frameRect), size));
+        setViewport(fitAll(framesRef.current, size));
       }
     }
     update();
@@ -181,6 +155,69 @@ export function Canvas({
   useEffect(() => {
     saveViewport(window.localStorage, fileId, viewport);
   }, [fileId, viewport]);
+
+  return { viewport, setViewport, viewportSize, rootRef };
+}
+
+// The dot grid fades out below this zoom (spec section 3) - dots that close
+// together are visual noise, not a useful reference, once zoomed out this far.
+const GRID_FADE_ZOOM = 0.25;
+const GRID_SPACING = 8;
+
+function dotGridStyle(viewport: Viewport): CSSProperties {
+  if (viewport.zoom < GRID_FADE_ZOOM) return {};
+  const spacing = GRID_SPACING * viewport.zoom;
+  return {
+    backgroundImage: 'radial-gradient(circle, var(--line-soft) 1px, transparent 0)',
+    backgroundSize: `${spacing}px ${spacing}px`,
+    backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+  };
+}
+
+const MIDDLE_MOUSE_BUTTON = 1;
+// Wheel-to-zoom sensitivity: exp() keeps repeated small deltaY ticks
+// (trackpad pinch, mostly) composing multiplicatively rather than linearly,
+// which is what keeps the point under the pointer exactly fixed regardless
+// of how many ticks a single gesture is split into.
+const WHEEL_ZOOM_SENSITIVITY = 0.01;
+
+/**
+ * The infinite canvas (spec docs/superpowers/specs/2026-09-12-infinite-
+ * canvas-design.md): a full-window pannable, zoomable surface with every
+ * screen of the file rendered as an absolutely positioned frame inside one
+ * transformed layer. The focused screen hosts the real, interactive Stage
+ * (Craft's live editing session, the resize handles, comments); every other
+ * screen is a read-only FramePreview that focuses itself on the first press
+ * inside it. A controlled component: the viewport itself is owned by
+ * useCanvasViewportController above (called once, by WorkbenchShell) and
+ * read here through useCanvasViewport(), not computed locally - the same
+ * context the top bar's zoom menu, keyboard shortcuts and the layer stack
+ * menu all share.
+ */
+export function Canvas({
+  screens,
+  focusedScreenId,
+  onFocusScreen,
+  comments,
+  rootRef,
+}: {
+  screens: Screen[];
+  focusedScreenId: string;
+  onFocusScreen: (id: string) => void;
+  comments: StageCommentsProps;
+  rootRef: RefObject<HTMLDivElement | null>;
+}) {
+  const { actions } = useEditor();
+  const setStageZoom = useStage().setZoom;
+  const focusedCanvasDocument = useCanvasDocument();
+  const { viewport, setViewport } = useCanvasViewport();
+  // Read from event handlers and listener callbacks only (applyPanDelta,
+  // onFrameWheel) - never during render, so synced through an effect rather
+  // than assigned directly in the render body.
+  const viewportRef = useRef(viewport);
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
 
   // Keeps the focused Stage's own resize-handle math and the comment layer's
   // zoom-based positioning (both read useStage().zoom, unchanged from before
@@ -369,55 +406,52 @@ export function Canvas({
     }
     root.addEventListener('wheel', onWheel, { passive: false });
     return () => root.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [rootRef, setViewport]);
 
   return (
-    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+    <div
+      ref={rootRef}
+      data-testid="canvas-root"
+      className={cn(
+        'absolute inset-0 overflow-hidden bg-canvas',
+        spaceDown && !panning && 'cursor-grab',
+        panning && 'cursor-grabbing',
+      )}
+      style={dotGridStyle(viewport)}
+      onPointerDown={handleRootPointerDown}
+      onPointerMove={handleRootPointerMove}
+      onPointerUp={(event) => {
+        if (panRef.current?.pointerId === event.pointerId) endPan();
+      }}
+      onPointerCancel={(event) => {
+        if (panRef.current?.pointerId === event.pointerId) endPan();
+      }}
+    >
       <div
-        ref={rootRef}
-        data-testid="canvas-root"
-        className={cn(
-          'absolute inset-0 overflow-hidden bg-canvas',
-          spaceDown && !panning && 'cursor-grab',
-          panning && 'cursor-grabbing',
-        )}
-        style={dotGridStyle(viewport)}
-        onPointerDown={handleRootPointerDown}
-        onPointerMove={handleRootPointerMove}
-        onPointerUp={(event) => {
-          if (panRef.current?.pointerId === event.pointerId) endPan();
-        }}
-        onPointerCancel={(event) => {
-          if (panRef.current?.pointerId === event.pointerId) endPan();
+        data-testid="canvas-layer"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+          transformOrigin: '0 0',
         }}
       >
-        <div
-          data-testid="canvas-layer"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-            transformOrigin: '0 0',
-          }}
-        >
-          {screens.map((screen) => (
-            <div
-              key={screen.id}
-              data-frame
-              data-testid={`frame-${screen.id}`}
-              style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
-            >
-              {screen.id === focusedScreenId ? (
-                <Stage screen={screen} viewport={viewport} comments={comments} />
-              ) : (
-                <FramePreview screen={screen} onFocus={() => onFocusScreen(screen.id)} />
-              )}
-            </div>
-          ))}
-        </div>
+        {screens.map((screen) => (
+          <div
+            key={screen.id}
+            data-frame
+            data-testid={`frame-${screen.id}`}
+            style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
+          >
+            {screen.id === focusedScreenId ? (
+              <Stage screen={screen} viewport={viewport} comments={comments} />
+            ) : (
+              <FramePreview screen={screen} onFocus={() => onFocusScreen(screen.id)} />
+            )}
+          </div>
+        ))}
       </div>
-      {overlays}
-    </CanvasViewportProvider>
+    </div>
   );
 }

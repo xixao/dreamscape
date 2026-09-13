@@ -32,12 +32,14 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { zoomTo } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
 import { STAGE_PRESETS, STAGE_PRESET_ORDER, type StagePreset } from '@/lib/stage';
 import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
 import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
-import { CHIP, CHIP_INPUT, LABEL, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { useCanvasViewport } from './canvas';
+import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
 import { useStage } from './stage-context';
 
 const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
@@ -225,6 +227,85 @@ function DevicePresetMenu({
   );
 }
 
+// Fixed zoom percentages the menu jumps straight to, alongside the stepped
+// Zoom in/out and the Zoom to fit/selection items that call back up to
+// whoever built those (WorkbenchShell shares the same callbacks with the
+// keyboard shortcuts - spec docs/superpowers/specs/2026-09-12-infinite-
+// canvas-design.md section 3).
+const FIXED_ZOOM_ITEMS: { label: string; target: number }[] = [
+  { label: 'Zoom to 50%', target: 0.5 },
+  { label: 'Zoom to 100%', target: 1 },
+  { label: 'Zoom to 200%', target: 2 },
+];
+
+/**
+ * The stage readout (`iPhone 16 & 17 Pro · 402 × 874 · 82%`) doubles as the
+ * zoom menu's trigger. Reads/writes the canvas viewport directly for the
+ * fixed percentages (pure math, no other context needed); Zoom in/out/to
+ * fit/to selection call back into the same handlers the keyboard shortcuts
+ * use, so the two never drift apart.
+ */
+function ZoomMenu({
+  readoutText,
+  onZoomIn,
+  onZoomOut,
+  onZoomToFit,
+  onZoomToSelection,
+}: {
+  readoutText: string;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomToFit: () => void;
+  onZoomToSelection: () => void;
+}) {
+  const { setViewport, viewportSize } = useCanvasViewport();
+
+  function zoomToPercent(target: number): void {
+    const center = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+    setViewport((current) => zoomTo(current, center, target));
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-testid="stage-readout"
+          aria-label="Zoom"
+          aria-haspopup="menu"
+          className="font-mono text-[11px] text-muted-foreground tabular-nums hover:text-foreground"
+        >
+          {readoutText}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className={MENU_POPOVER}>
+        <DropdownMenuItem className={MENU_ROW} onSelect={onZoomIn}>
+          <span className="flex-1">Zoom in</span>
+          <span className={LABEL}>⌘=</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className={MENU_ROW} onSelect={onZoomOut}>
+          <span className="flex-1">Zoom out</span>
+          <span className={LABEL}>⌘-</span>
+        </DropdownMenuItem>
+        {FIXED_ZOOM_ITEMS.map(({ label, target }) => (
+          <DropdownMenuItem key={label} className={MENU_ROW} onSelect={() => zoomToPercent(target)}>
+            <span className="flex-1">{label}</span>
+            {target === 1 && <span className={LABEL}>⌘0</span>}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem className={MENU_ROW} onSelect={onZoomToFit}>
+          <span className="flex-1">Zoom to fit</span>
+          <span className={LABEL}>⇧1</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className={MENU_ROW} onSelect={onZoomToSelection}>
+          <span className="flex-1">Zoom to selection</span>
+          <span className={LABEL}>⇧2</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function Topbar({
   fileName,
   onRename,
@@ -239,6 +320,10 @@ export function Topbar({
   commentCount = 0,
   chatOpen,
   onToggleChat,
+  onZoomIn,
+  onZoomOut,
+  onZoomToFit,
+  onZoomToSelection,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -253,6 +338,10 @@ export function Topbar({
   commentCount?: number;
   chatOpen: boolean;
   onToggleChat: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomToFit: () => void;
+  onZoomToSelection: () => void;
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -311,12 +400,13 @@ export function Topbar({
           })}
         </ToggleGroup>
         <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />
-        <span
-          data-testid="stage-readout"
-          className="font-mono text-[11px] text-muted-foreground tabular-nums"
-        >
-          {readoutFor({ width, height, deviceName, zoom })}
-        </span>
+        <ZoomMenu
+          readoutText={readoutFor({ width, height, deviceName, zoom })}
+          onZoomIn={onZoomIn}
+          onZoomOut={onZoomOut}
+          onZoomToFit={onZoomToFit}
+          onZoomToSelection={onZoomToSelection}
+        />
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
         <IconAction

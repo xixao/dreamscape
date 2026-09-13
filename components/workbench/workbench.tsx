@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout } from '@/lib/files/validate';
@@ -18,7 +19,7 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
-import { Canvas } from './canvas';
+import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
@@ -29,10 +30,17 @@ import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
 import { ScreensStrip } from './screens-strip';
-import { useSelectedNode, useZoneRedirect } from './selection';
+import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
 import { Topbar } from './topbar';
+
+// Screen-px padding Shift+2 (zoom to selection/focused frame) leaves around
+// the target rect - the same idea as lib/canvas/viewport.ts's own
+// FIT_ALL_PADDING for Shift+1, kept as a separate, smaller constant here
+// since zooming to one layer or frame should not breathe as much as fitting
+// the whole file.
+const SELECTION_ZOOM_PADDING = 48;
 
 // Shown in the topbar's save-state slot for a screen whose saved layout
 // failed validation and was silently started empty (see the invalidScreenIds
@@ -483,9 +491,41 @@ function WorkbenchShell({
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
-  const { actions } = useEditor();
+  const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // The canvas viewport (spec docs/superpowers/specs/2026-09-12-infinite-
+  // canvas-design.md): owned here, one level above Canvas itself, so the
+  // same instance can be shared - through CanvasViewportProvider, below -
+  // with the top bar's zoom menu and the keyboard shortcuts wired just
+  // after this, neither of which is a descendant of Canvas.
+  const { viewport, setViewport, viewportSize, rootRef } = useCanvasViewportController({
+    fileId,
+    frames: screens.map(frameRect),
+  });
+
+  // Shift+2: zooms to the selected layer's own bounds when something is
+  // selected, else the focused frame's bounds - the DOM node's
+  // getBoundingClientRect() is already in canvas-space-compatible unscaled
+  // px (it lives inside the focused frame's own iframe, whose internal
+  // layout is untouched by the canvas's ancestor pan/zoom transform - see
+  // canvas.tsx's own comments on this), so only the frame's own x/y needs
+  // adding to place it in canvas space.
+  function zoomToSelectionOrFocusedFrame(): void {
+    const focused = screens.find((screen) => screen.id === currentScreenId);
+    if (!focused) return;
+    const selectedId = selectedIdFrom(query.getState());
+    const dom = selectedId ? query.getState().nodes[selectedId]?.dom : null;
+    let target: FrameRect;
+    if (dom) {
+      const local = dom.getBoundingClientRect();
+      target = { x: (focused.x ?? 0) + local.left, y: (focused.y ?? 0) + local.top, width: local.width, height: local.height };
+    } else {
+      target = frameRect(focused);
+    }
+    setViewport(zoomToRect(target, viewportSize, SELECTION_ZOOM_PADDING));
+  }
 
   // Figma's own behaviour: picking a layer on the canvas while the
   // Components tab is showing jumps the panel to Design, the same way
@@ -543,6 +583,12 @@ function WorkbenchShell({
     }
   }
 
+  // The viewport centre (screen space, relative to the canvas's own origin -
+  // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
+  // position for a keyboard shortcut to anchor to the way a wheel gesture
+  // has one.
+  const viewportCenter = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
@@ -550,6 +596,11 @@ function WorkbenchShell({
     onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
+    onZoomIn: () => setViewport((current) => stepZoom(current, viewportCenter, 'in')),
+    onZoomOut: () => setViewport((current) => stepZoom(current, viewportCenter, 'out')),
+    onZoomReset: () => setViewport((current) => zoomTo(current, viewportCenter, 1)),
+    onZoomToFit: () => setViewport(fitAll(screens.map(frameRect), viewportSize)),
+    onZoomToSelection: zoomToSelectionOrFocusedFrame,
   });
 
   const commentsProps: StageCommentsProps = {
@@ -641,83 +692,87 @@ function WorkbenchShell({
   return (
     <ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
-        <div data-testid="workbench-shell" className={gridClass}>
-          {!uiHidden && (
-            <Topbar
-              key="topbar"
-              fileName={fileName}
-              onRename={onRename}
-              saveState={saveState}
-              notice={notice}
-              onNew={() => setNewOpen(true)}
-              fileId={fileId}
-              folderId={folderId}
-              currentScreenId={currentScreenId}
-              chatOpen={chatOpen}
-              onToggleChat={() => setChatOpen((open) => !open)}
-              commentMode={commentMode}
-              onToggleCommentMode={toggleCommentMode}
-              commentCount={threads.length}
+        <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+          <div data-testid="workbench-shell" className={gridClass}>
+            {!uiHidden && (
+              <Topbar
+                key="topbar"
+                fileName={fileName}
+                onRename={onRename}
+                saveState={saveState}
+                notice={notice}
+                onNew={() => setNewOpen(true)}
+                fileId={fileId}
+                folderId={folderId}
+                currentScreenId={currentScreenId}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen((open) => !open)}
+                commentMode={commentMode}
+                onToggleCommentMode={toggleCommentMode}
+                commentCount={threads.length}
+                onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
+                onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
+                onZoomToFit={() => setViewport(fitAll(screens.map(frameRect), viewportSize))}
+                onZoomToSelection={zoomToSelectionOrFocusedFrame}
+              />
+            )}
+            <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
+              <Canvas
+                screens={screens}
+                focusedScreenId={currentScreenId}
+                onFocusScreen={onSelectScreen}
+                comments={commentsProps}
+                rootRef={rootRef}
+              />
+              {/*
+                Not yet the floating chip row the spec describes (section 5 -
+                that lands with the rest of the floating chrome); for now this
+                sits at the top of Canvas's own grid cell, the same visual
+                area Stage used to render it in, so screen switching keeps
+                working unchanged while the surrounding layout is still a
+                grid.
+              */}
+              <div className="pointer-events-none absolute inset-0">
+                <div className="pointer-events-auto absolute top-2 left-2 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
+                  <ScreensStrip
+                    screens={screens}
+                    currentScreenId={currentScreenId}
+                    onSelect={onSelectScreen}
+                    onAdd={onAddScreen}
+                    onRename={onRenameScreen}
+                    onDuplicate={onDuplicateScreen}
+                    onDelete={onDeleteScreen}
+                  />
+                </div>
+              </div>
+              <LayerStackMenu />
+            </StageErrorBoundary>
+            {!uiHidden && (
+              <Inspector
+                key="inspector"
+                screens={screens}
+                currentScreenId={currentScreenId}
+                panelMode={panelMode}
+                onPanelModeChange={setPanelMode}
+                collapsed={panelCollapsed}
+                onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
+              />
+            )}
+            {!uiHidden && chatOpen && (
+              <ChatPanel key="chat-panel" fileId={fileId} onClose={() => setChatOpen(false)} />
+            )}
+            <NewLayoutDialog
+              key="new-dialog"
+              open={newOpen}
+              onOpenChange={setNewOpen}
+              onConfirm={() => {
+                actions.selectNode();
+                actions.deserialize(emptyLayoutJson());
+                actions.history.clear();
+              }}
             />
-          )}
-          <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
-            <Canvas
-              fileId={fileId}
-              screens={screens}
-              focusedScreenId={currentScreenId}
-              onFocusScreen={onSelectScreen}
-              comments={commentsProps}
-              overlays={
-                <>
-                  {/*
-                    Not yet the floating chip row the spec describes (section
-                    4 - that lands with the rest of the floating chrome); for
-                    now this sits at the top of Canvas's own grid cell, the
-                    same visual area Stage used to render it in, so screen
-                    switching keeps working unchanged while the surrounding
-                    layout is still a grid.
-                  */}
-                  <div className="absolute top-2 left-2 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
-                    <ScreensStrip
-                      screens={screens}
-                      currentScreenId={currentScreenId}
-                      onSelect={onSelectScreen}
-                      onAdd={onAddScreen}
-                      onRename={onRenameScreen}
-                      onDuplicate={onDuplicateScreen}
-                      onDelete={onDeleteScreen}
-                    />
-                  </div>
-                  <LayerStackMenu />
-                </>
-              }
-            />
-          </StageErrorBoundary>
-          {!uiHidden && (
-            <Inspector
-              key="inspector"
-              screens={screens}
-              currentScreenId={currentScreenId}
-              panelMode={panelMode}
-              onPanelModeChange={setPanelMode}
-              collapsed={panelCollapsed}
-              onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
-            />
-          )}
-          {!uiHidden && chatOpen && (
-            <ChatPanel key="chat-panel" fileId={fileId} onClose={() => setChatOpen(false)} />
-          )}
-          <NewLayoutDialog
-            key="new-dialog"
-            open={newOpen}
-            onOpenChange={setNewOpen}
-            onConfirm={() => {
-              actions.selectNode();
-              actions.deserialize(emptyLayoutJson());
-              actions.history.clear();
-            }}
-          />
-        </div>
+          </div>
+        </CanvasViewportProvider>
       </PrototypeProvider>
     </ChatTransportProvider>
   );
