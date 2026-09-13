@@ -728,6 +728,57 @@ describe('Workbench', () => {
     });
   });
 
+  // Review fix wave item 6: selecting something else entirely must drop
+  // whatever frame selection is active, the same way Figma clears a frame
+  // selection the instant you select a layer or a shape - otherwise the
+  // Align row (and arrow-key nudge) kept acting on frames the user's own
+  // next click had already moved on from.
+  describe('frame selection is cleared by other selections (review fix wave item 6)', () => {
+    async function selectTwoFrames(): Promise<void> {
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      expect(screen.getByRole('button', { name: 'Align left' })).toBeInTheDocument();
+    }
+
+    it('selecting a layer clears an active frame selection', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await selectTwoFrames();
+
+      // A leaf Button block, not the root LayoutBox: the root is itself an
+      // Auto layout container, and selecting one renders its OWN "Align
+      // left" icon (LayoutAlignmentFields' align-items row, a wholly
+      // different, legitimate control) - asserting the frame row is gone
+      // by that same label would be a false pass/fail either way. Button
+      // has no such row, so "Align left" can only mean the frame row here.
+      const signIn = frameBody().querySelector('[data-block="Button"]');
+      if (!signIn) throw new Error('Sign in Button block not found');
+      fireEvent.mouseDown(signIn);
+
+      // Craft's own selection change propagates through its connectors
+      // asynchronously (changeRootLayoutMode, above, relies on the same
+      // thing by awaiting a follow-up interaction before checking
+      // anything) - waitFor gives it room to land before this asserts.
+      await waitFor(() => expect(screen.getByText('Variant')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+    });
+
+    it('selecting a diagram shape clears an active frame selection', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await selectTwoFrames();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+      const surface = screen.getByTestId('diagram-placement-surface');
+      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 500, clientY: 500 });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 500, clientY: 500 });
+
+      expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+    });
+  });
+
   describe('layout grid / pixel grid', () => {
     it('Shift+G toggles the focused screen\'s layout grid on and saves it', async () => {
       render(<Workbench file={makeFile()} />);

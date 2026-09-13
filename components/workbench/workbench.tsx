@@ -1276,6 +1276,27 @@ function WorkbenchShell({
     if (selectedNodeId && panelMode === 'components') {
       setPanelMode('design');
     }
+    // Review fix wave item 6: selecting a real layer must drop whatever
+    // frame selection is active, the same way Figma clears a frame
+    // selection the moment you select something else entirely (spec
+    // section 3 already established the reverse - clicking empty canvas
+    // clears the frame selection). Left alone, the Align row and
+    // arrow-key nudge kept acting on frames the user's own click had
+    // already moved on from.
+    if (selectedNodeId) setSelectedFrameIds(new Set());
+  }
+
+  // The diagram-selection counterpart to the Craft layer check just above -
+  // diagram.selection is a wholly separate piece of state from Craft's own
+  // node selection, so it needs its own "did this just change" tracker
+  // (the same lastSelectedNodeId pattern) rather than piggybacking on one
+  // that only ever mirrors Craft. Only the empty-to-non-empty transition
+  // matters here (clicking empty canvas already clears the diagram
+  // selection on its own path; that must not also fight this one).
+  const [lastDiagramSelectionActive, setLastDiagramSelectionActive] = useState(diagramSelectionActive);
+  if (diagramSelectionActive !== lastDiagramSelectionActive) {
+    setLastDiagramSelectionActive(diagramSelectionActive);
+    if (diagramSelectionActive) setSelectedFrameIds(new Set());
   }
 
   // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
