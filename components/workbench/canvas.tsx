@@ -19,7 +19,7 @@ import type { Screen } from '@/lib/files/repository';
 import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
-import { canScrollInDirection, capturePointer } from '@/lib/dom';
+import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import type { StageCommentsProps } from './comments/comment-layer';
@@ -332,15 +332,24 @@ export function Canvas({
   const [spaceDown, setSpaceDown] = useState(false);
 
   // The active pan gesture, if any: which pointer started it, the last
-  // point seen (in whichever document the gesture started - a drag never
-  // crosses from one document to another), whether that document is the
-  // focused iframe (whose local px must be scaled by the current zoom to get
-  // a parent-space delta - see moveFramePan below), and whether Space
-  // (rather than the middle mouse button) is what started it - releasing
-  // Space only ends a pan it started itself (see the keyup handler below).
-  const panRef = useRef<{ pointerId: number; lastX: number; lastY: number; inFrame: boolean; viaSpace: boolean } | null>(
-    null,
-  );
+  // point seen IN SCREEN SPACE (event.screenX/screenY - anchored to the
+  // physical display, so it stays correct even while the frame the pan
+  // started in is itself moving on screen under a pointer that hasn't
+  // moved, and stays consistent if the gesture later hands off from a
+  // frame's document to the parent or vice versa - see applyPanDelta
+  // below), whether the gesture started inside a frame (moveFramePan/
+  // startFramePan below ignore events for a pan that did not start in a
+  // frame, and vice versa - one gesture has exactly one owner for its whole
+  // duration), and whether Space (rather than the middle mouse button) is
+  // what started it - releasing Space only ends a pan it started itself
+  // (see the keyup handler below).
+  const panRef = useRef<{
+    pointerId: number;
+    lastScreenX: number;
+    lastScreenY: number;
+    inFrame: boolean;
+    viaSpace: boolean;
+  } | null>(null);
   const [panning, setPanning] = useState(false);
 
   // Every function below that touches panRef.current is a deliberately
@@ -351,9 +360,16 @@ export function Canvas({
     return spaceDown || button === MIDDLE_MOUSE_BUTTON;
   }
 
-  function applyPanDelta(dxLocal: number, dyLocal: number, inFrame: boolean): void {
-    const scale = inFrame ? viewportRef.current.zoom : 1;
-    setViewport((current) => panBy(current, dxLocal * scale, dyLocal * scale));
+  // dx/dy are always a screen-space delta (event.screenX/screenY, diffed
+  // against the pan's own last reading - see panRef's doc comment above),
+  // which maps 1:1 onto the root canvas's own unscaled translation
+  // regardless of which document produced it or how zoomed in the canvas
+  // is. Unlike the old clientX/Y-based math this replaces, no zoom scaling
+  // is needed here: that scaling existed only to correct for clientX/Y
+  // being read inside a zoomed iframe's own internal coordinate space, a
+  // problem screen space never has.
+  function applyPanDelta(dx: number, dy: number): void {
+    setViewport((current) => panBy(current, dx, dy));
   }
 
   function endPan(): void {
@@ -385,6 +401,21 @@ export function Canvas({
     };
   }, [focusedCanvasDocument]);
 
+  // A pointerup can be lost entirely if the window loses focus mid-drag -
+  // the user alt-tabs away, or a native dialog steals focus - which would
+  // otherwise leave panRef stuck "active" forever and (per the one-owner
+  // guards above) silently swallowing every pan gesture after it. A blur of
+  // the top-level window catches this regardless of whether the gesture is
+  // currently owned by the root or by some frame.
+  useEffect(() => {
+    function onBlur() {
+      panRef.current = null;
+      setPanning(false);
+    }
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, []);
+
   function handleRootPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!shouldStartPan(event.button)) {
       // Clicking empty canvas (not a frame, not while starting a pan)
@@ -396,11 +427,16 @@ export function Canvas({
       return;
     }
     event.preventDefault();
+    // One gesture has one owner: a pan already in progress - started here
+    // or, per startFramePan below, inside some frame - keeps exclusive
+    // control of panRef until it ends; a second pointer must never hijack
+    // it out from under the first.
+    if (panRef.current) return;
     capturePointer(event.currentTarget, event.pointerId);
     panRef.current = {
       pointerId: event.pointerId,
-      lastX: event.clientX,
-      lastY: event.clientY,
+      lastScreenX: event.screenX,
+      lastScreenY: event.screenY,
       inFrame: false,
       viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
     };
@@ -410,9 +446,15 @@ export function Canvas({
   function handleRootPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
-    applyPanDelta(event.clientX - pan.lastX, event.clientY - pan.lastY, pan.inFrame);
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
+    // No `inFrame` check here, deliberately: a pan that started inside a
+    // frame (startFramePan below) is just as free to keep being driven from
+    // this root handler once the pointer's physical position moves past the
+    // frame's edge into the parent document - the screen-space delta below
+    // is exactly as valid coming from here as from moveFramePan, so the
+    // gesture keeps tracking the pointer with no jump at the handoff.
+    applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
+    pan.lastScreenX = event.screenX;
+    pan.lastScreenY = event.screenY;
   }
 
   // Starts a pan gesture that began inside a frame's own document - the
@@ -423,10 +465,21 @@ export function Canvas({
   function startFramePan(event: PointerEvent): void {
     if (!shouldStartPan(event.button)) return;
     event.preventDefault();
+    // One gesture has one owner - see handleRootPointerDown's identical
+    // guard above.
+    if (panRef.current) return;
+    // Captures on the pressed element itself (duck-typed via isElementLike,
+    // since it lives in the frame's own realm) rather than some fixed
+    // ancestor: keeps pointermove/pointerup arriving at this frame's own
+    // document for the rest of the gesture even once the physical pointer
+    // strays outside the frame's on-screen box - over the floating chrome,
+    // say - the same reason handleRootPointerDown above captures on the
+    // canvas root.
+    if (isElementLike(event.target)) capturePointer(event.target, event.pointerId);
     panRef.current = {
       pointerId: event.pointerId,
-      lastX: event.clientX,
-      lastY: event.clientY,
+      lastScreenX: event.screenX,
+      lastScreenY: event.screenY,
       inFrame: true,
       viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
     };
@@ -435,10 +488,15 @@ export function Canvas({
 
   function moveFramePan(event: PointerEvent): void {
     const pan = panRef.current;
+    // `!pan.inFrame` matters here, unlike handleRootPointerMove above: a
+    // pan owned by the root (not started in any frame) must never be
+    // touched by a frame's own move handler, even if a stray event for the
+    // same pointerId reaches it (see "a pan started on the root ignores
+    // frame events for its duration").
     if (!pan || pan.pointerId !== event.pointerId || !pan.inFrame) return;
-    applyPanDelta(event.clientX - pan.lastX, event.clientY - pan.lastY, true);
-    pan.lastX = event.clientX;
-    pan.lastY = event.clientY;
+    applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
+    pan.lastScreenX = event.screenX;
+    pan.lastScreenY = event.screenY;
   }
 
   function endFramePan(event: PointerEvent): void {

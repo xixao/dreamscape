@@ -40,8 +40,17 @@ function isNotFoundError(error: unknown): boolean {
  * real browser throws when `pointerId` does not identify an active pointer -
  * a synthetic test event with a made-up id, or a real pointer already
  * released/cancelled by the time this runs. Every other error still throws.
+ *
+ * Also a no-op when `setPointerCapture` is not even a function on `element` -
+ * every real browser has it on every element in every document/realm, but
+ * this repo's jsdom test setup (vitest.setup.ts) only polyfills it onto the
+ * PARENT document's own `Element.prototype`; an element from a frame's own
+ * `contentDocument` (components/workbench/canvas-frame.tsx) is a fresh realm
+ * that patch never reaches, so it genuinely lacks the method there. A real
+ * browser never takes this branch.
  */
 export function capturePointer(element: PointerCaptureTarget, pointerId: number): void {
+  if (typeof element.setPointerCapture !== 'function') return;
   try {
     element.setPointerCapture(pointerId);
   } catch (error) {
@@ -51,6 +60,7 @@ export function capturePointer(element: PointerCaptureTarget, pointerId: number)
 
 /** The `releasePointerCapture` counterpart to `capturePointer` above. */
 export function releasePointer(element: PointerReleaseTarget, pointerId: number): void {
+  if (typeof element.releasePointerCapture !== 'function') return;
   try {
     element.releasePointerCapture(pointerId);
   } catch (error) {

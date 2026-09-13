@@ -351,10 +351,10 @@ describe('Canvas', () => {
       const before = screen.getByTestId('viewport-readout').textContent;
 
       fireEvent.keyDown(window, { code: 'Space' });
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, screenX: 100, screenY: 100, button: 0 });
       expect(root).toHaveClass('cursor-grabbing');
-      fireEvent.pointerMove(root, { pointerId: 1, clientX: 150, clientY: 130 });
-      fireEvent.pointerUp(root, { pointerId: 1, clientX: 150, clientY: 130 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
 
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
       expect(root).not.toHaveClass('cursor-grabbing');
@@ -381,9 +381,9 @@ describe('Canvas', () => {
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).toBeInTheDocument());
       const before = screen.getByTestId('viewport-readout').textContent;
 
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, button: 1 });
-      fireEvent.pointerMove(root, { pointerId: 1, clientX: 160, clientY: 120 });
-      fireEvent.pointerUp(root, { pointerId: 1, clientX: 160, clientY: 120 });
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, screenX: 100, screenY: 100, button: 1 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 160, clientY: 120, screenX: 160, screenY: 120 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 160, clientY: 120, screenX: 160, screenY: 120 });
 
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
     });
@@ -482,9 +482,9 @@ describe('Canvas', () => {
       const before = screen.getByTestId('viewport-readout').textContent;
 
       fireEvent.keyDown(window, { code: 'Space' });
-      fireEvent.pointerDown(body, { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
-      fireEvent.pointerMove(body, { pointerId: 1, clientX: 150, clientY: 130 });
-      fireEvent.pointerUp(body, { pointerId: 1, clientX: 150, clientY: 130 });
+      fireEvent.pointerDown(body, { pointerId: 1, clientX: 100, clientY: 100, screenX: 100, screenY: 100, button: 0 });
+      fireEvent.pointerMove(body, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      fireEvent.pointerUp(body, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
 
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
       expect(onFocusScreen).not.toHaveBeenCalled();
@@ -498,6 +498,142 @@ describe('Canvas', () => {
       fireEvent.pointerDown(previewFrameBody(), { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
 
       expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_2.id);
+    });
+  });
+
+  describe('screen-coordinate pan tracking (single pointer owner)', () => {
+    // The focused frame's own iframe - a pan that starts here is driven by
+    // startFramePan/moveFramePan (canvas.tsx), same as "wheel over the
+    // focused frame..." above.
+    function frameIframe(): HTMLIFrameElement {
+      const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+        | HTMLIFrameElement
+        | null;
+      if (!iframe) throw new Error('focused frame iframe not ready');
+      return iframe;
+    }
+
+    function frameBody(): HTMLElement {
+      const body = frameIframe().contentDocument?.body;
+      if (!body) throw new Error('focused frame body not ready');
+      return body;
+    }
+
+    it('tracks three consecutive in-frame moves by their cumulative screen delta, even while the frame\'s own bounding rect is mocked to move with the pan', async () => {
+      saveViewport(window.localStorage, 'screenpan-cumulative', { x: 0, y: 0, zoom: 1 });
+      renderWithReadout({ fileId: 'screenpan-cumulative' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const body = frameBody();
+
+      // A naive implementation that re-derives a window point from
+      // clientX/Y plus the frame's current rect (rather than trusting
+      // screenX/Y outright) would see this rect "chase" the pointer by
+      // exactly the amount each tick pans by, reproducing the stall this
+      // fix removes - clientX/Y are held constant throughout to make that
+      // trap obvious: only screenX/Y ever change below, and a correct
+      // implementation never has to look at the rect at all.
+      let rectLeft = 0;
+      vi.spyOn(frameIframe(), 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            left: rectLeft,
+            top: 0,
+            width: 400,
+            height: 300,
+            right: rectLeft + 400,
+            bottom: 300,
+            x: rectLeft,
+            y: 0,
+            toJSON: () => ({}),
+          }) as DOMRect,
+      );
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(body, { pointerId: 1, screenX: 100, screenY: 100, clientX: 50, clientY: 50, button: 0 });
+      rectLeft = 30;
+      fireEvent.pointerMove(body, { pointerId: 1, screenX: 130, screenY: 100, clientX: 50, clientY: 50 });
+      rectLeft = 60;
+      fireEvent.pointerMove(body, { pointerId: 1, screenX: 160, screenY: 100, clientX: 50, clientY: 50 });
+      rectLeft = 90;
+      fireEvent.pointerMove(body, { pointerId: 1, screenX: 190, screenY: 100, clientX: 50, clientY: 50 });
+      fireEvent.pointerUp(body, { pointerId: 1, screenX: 190, screenY: 100 });
+
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toHaveTextContent('90,0,1.000'));
+    });
+
+    it('keeps panning with no jump when a move continues in the parent document after leaving the frame', async () => {
+      saveViewport(window.localStorage, 'screenpan-handoff', { x: 0, y: 0, zoom: 1 });
+      renderWithReadout({ fileId: 'screenpan-handoff' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const body = frameBody();
+      const root = screen.getByTestId('canvas-root');
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(body, { pointerId: 1, screenX: 100, screenY: 100, clientX: 50, clientY: 50, button: 0 });
+      fireEvent.pointerMove(body, { pointerId: 1, screenX: 130, screenY: 100, clientX: 80, clientY: 50 });
+      // The gesture "leaves the frame": the next move for the same pointer
+      // arrives at the root instead, with a clientX/Y in a totally
+      // different (parent-document) range than the frame-local values
+      // above - the old bug compared this raw against frame-local
+      // lastX/lastY and jumped; screenX/Y never cares which document an
+      // event came from.
+      fireEvent.pointerMove(root, { pointerId: 1, screenX: 160, screenY: 100, clientX: 500, clientY: 500 });
+      fireEvent.pointerUp(root, { pointerId: 1, screenX: 160, screenY: 100 });
+
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toHaveTextContent('60,0,1.000'));
+    });
+
+    it('a pan started on the root ignores frame events for its duration', async () => {
+      saveViewport(window.localStorage, 'screenpan-root-owns', { x: 0, y: 0, zoom: 1 });
+      renderWithReadout({ fileId: 'screenpan-root-owns' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      const body = frameBody();
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(root, { pointerId: 1, screenX: 100, screenY: 100, clientX: 100, clientY: 100, button: 0 });
+      fireEvent.pointerMove(root, { pointerId: 1, screenX: 130, screenY: 100, clientX: 130, clientY: 100 });
+
+      // A stray frame pointerdown for a different pointer must not hijack
+      // the already-active root pan...
+      fireEvent.pointerDown(body, { pointerId: 2, screenX: 500, screenY: 500, clientX: 10, clientY: 10, button: 0 });
+      // ...nor does a frame move for the SAME pointer get to touch it: the
+      // active pan is not "inFrame", so moveFramePan's own guard must
+      // ignore this regardless of pointerId matching.
+      fireEvent.pointerMove(body, { pointerId: 1, screenX: 999, screenY: 999, clientX: 10, clientY: 10 });
+
+      fireEvent.pointerMove(root, { pointerId: 1, screenX: 160, screenY: 100, clientX: 160, clientY: 100 });
+      fireEvent.pointerUp(root, { pointerId: 1, screenX: 160, screenY: 100 });
+
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toHaveTextContent('60,0,1.000'));
+    });
+
+    it('ends an in-progress pan on window blur, so a later move does nothing', async () => {
+      renderWithReadout();
+      const root = screen.getByTestId('canvas-root');
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toBeInTheDocument());
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(root, { pointerId: 1, screenX: 100, screenY: 100, clientX: 100, clientY: 100, button: 0 });
+      fireEvent.pointerMove(root, { pointerId: 1, screenX: 130, screenY: 100, clientX: 130, clientY: 100 });
+      const midway = screen.getByTestId('viewport-readout').textContent;
+      expect(midway).not.toBe(before);
+
+      fireEvent.blur(window);
+      fireEvent.pointerMove(root, { pointerId: 1, screenX: 400, screenY: 400, clientX: 400, clientY: 400 });
+
+      expect(screen.getByTestId('viewport-readout')).toHaveTextContent(midway!);
+    });
+
+    it('removes the window blur listener on unmount', async () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+      const { unmount } = renderWithReadout();
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toBeInTheDocument());
+
+      unmount();
+
+      expect(removeSpy).toHaveBeenCalledWith('blur', expect.any(Function));
     });
   });
 

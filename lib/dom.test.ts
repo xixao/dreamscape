@@ -69,6 +69,16 @@ describe('capturePointer', () => {
     };
     expect(() => capturePointer(el, 5)).toThrow('boom');
   });
+
+  it('does nothing when the element has no setPointerCapture function at all', () => {
+    // A frame's own contentDocument is a realm this repo's jsdom test setup
+    // (vitest.setup.ts) never polyfills setPointerCapture onto - unlike the
+    // parent document's Element.prototype - so an element from it genuinely
+    // lacks the method, unlike a real browser's. Modeled here as a plain
+    // object with no such property at all.
+    const el = {} as Parameters<typeof capturePointer>[0];
+    expect(() => capturePointer(el, 5)).not.toThrow();
+  });
 });
 
 describe('releasePointer', () => {
@@ -94,6 +104,11 @@ describe('releasePointer', () => {
       }),
     };
     expect(() => releasePointer(el, 5)).toThrow('boom');
+  });
+
+  it('does nothing when the element has no releasePointerCapture function at all', () => {
+    const el = {} as Parameters<typeof releasePointer>[0];
+    expect(() => releasePointer(el, 5)).not.toThrow();
   });
 });
 
