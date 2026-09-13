@@ -18,6 +18,13 @@ export const folders = pgTable('folders', {
 export const files = pgTable('files', {
   id: text('id').primaryKey(),
   name: text('name').notNull().default('Untitled'),
+  // A file holds several pages (migration 0003), each an ordered
+  // `{ id, name }` (see Page in lib/files/validate.ts) - its own infinite
+  // canvas with its own frames, viewport and comment pins. Every screen in
+  // `screens` below carries a `pageId` naming one of these. Stored directly
+  // as plain objects (no nested layout, so no parse/stringify conversion is
+  // needed the way screens' `layout` gets from toStoredScreen/toApiScreens).
+  pages: jsonb('pages').notNull().default('[]'),
   // A file holds several screens (migration 0002 replaced the old single
   // `layout`/`stage_width` columns with this array); see Screen in
   // lib/files/validate.ts for the per-screen shape. Stored as an array of
