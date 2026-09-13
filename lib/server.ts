@@ -105,7 +105,11 @@ export async function getComments(
 ) {
   const result = await db()
     .prepare(
-      `SELECT c.*, (SELECT COUNT(*) FROM reactions r WHERE r.comment_id=c.id) AS likes, EXISTS(SELECT 1 FROM reactions r WHERE r.comment_id=c.id AND r.actor=?) AS liked FROM comments c WHERE c.owner=? ${revisionId ? "AND c.revision_id=?" : ""} ORDER BY c.created_at`,
+      `SELECT c.*, (SELECT COUNT(*) FROM reactions r WHERE r.comment_id=c.id AND r.kind='like') AS likes,
+      (SELECT COUNT(*) FROM reactions r WHERE r.comment_id=c.id AND r.kind='dislike') AS dislikes,
+      (SELECT COUNT(*) FROM reactions r WHERE r.comment_id=c.id AND r.kind='fuego') AS fuegos,
+      (SELECT kind FROM reactions r WHERE r.comment_id=c.id AND r.actor=?) AS reaction
+      FROM comments c WHERE c.owner=? ${revisionId ? "AND c.revision_id=?" : ""} ORDER BY c.created_at`,
     )
     .bind(...(revisionId ? [actor, owner, revisionId] : [actor, owner]))
     .all();
@@ -121,7 +125,10 @@ export async function getComments(
     resolved: !!r.resolved,
     assignee: r.assignee,
     likes: r.likes,
-    liked: !!r.liked,
+    liked: r.reaction === "like",
+    dislikes: r.dislikes,
+    fuegos: r.fuegos,
+    reaction: r.reaction ?? null,
     createdAt: r.created_at,
   }));
 }
@@ -170,6 +177,7 @@ export async function react(
   id: string,
   liked: boolean,
   allowedRevision?: string,
+  kind: "like" | "dislike" | "fuego" = "like",
 ) {
   const c = await db()
     .prepare("SELECT revision_id FROM comments WHERE id=? AND owner=?")
@@ -180,11 +188,13 @@ export async function react(
   await (
     liked
       ? db().prepare(
-          "INSERT OR IGNORE INTO reactions (comment_id,actor) VALUES (?,?)",
+          "INSERT INTO reactions (comment_id,actor,kind) VALUES (?,?,?) ON CONFLICT(comment_id,actor) DO UPDATE SET kind=excluded.kind",
         )
-      : db().prepare("DELETE FROM reactions WHERE comment_id=? AND actor=?")
+      : db().prepare(
+          "DELETE FROM reactions WHERE comment_id=? AND actor=? AND kind=?",
+        )
   )
-    .bind(id, actor)
+    .bind(id, actor, kind)
     .run();
   return { ok: true };
 }

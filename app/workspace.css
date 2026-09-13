@@ -8,6 +8,130 @@
   --error-border: #ebc6b9;
   --error-text: #a13e31;
 }
+.studio .pan-canvas {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+  scrollbar-gutter: auto;
+  user-select: none;
+}
+.studio .pan-canvas.is-dragging {
+  cursor: grabbing;
+}
+.pan-canvas .canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.canvas-world .device-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+.canvas-world .review-device {
+  margin-right: 260px;
+}
+.canvas-world .mobile-wrap {
+  flex: 0 0 340px;
+}
+.anchored-comments {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 20px);
+  width: 240px;
+}
+.placed-comment {
+  position: absolute;
+  width: 240px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 10px;
+  box-shadow: 0 3px 12px #00000014;
+  cursor: auto;
+  user-select: text;
+}
+.placed-comment header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.placed-comment header strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.placed-comment p {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 8px 0;
+  max-height: 122px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+.placed-comment footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.placed-comment footer > button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+}
+.placed-comment footer > button:hover {
+  background: var(--accent);
+}
+.comment-connector {
+  position: absolute;
+  left: -22px;
+  color: var(--primary);
+  pointer-events: none;
+  overflow: visible;
+}
+.comment-reactions {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.comment-reactions button {
+  min-width: 42px;
+  padding: 0 6px;
+  gap: 4px;
+}
+.comment-reactions button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.magic-fire {
+  display: inline-block;
+  font-size: 24px;
+  animation: magic-pop 0.4s ease-out;
+}
+@keyframes magic-pop {
+  from {
+    transform: scale(0.5);
+  }
+  60% {
+    transform: scale(1.3);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .magic-fire {
+    animation: none;
+  }
+}
 .dark {
   color-scheme: dark;
   --background: #222827;

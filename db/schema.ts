@@ -42,6 +42,7 @@ export const reactions = sqliteTable(
   {
     commentId: text("comment_id").notNull(),
     actor: text("actor").notNull(),
+    kind: text("kind").notNull().default("like"),
   },
   (t) => [primaryKey({ columns: [t.commentId, t.actor] })],
 );

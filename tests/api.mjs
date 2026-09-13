@@ -76,6 +76,45 @@ assert.equal(w2.comments.length, 2);
 assert.equal(w2.comments[0].likes, 1);
 assert.equal(w2.comments[0].resolved, true);
 assert.equal(w2.comments[0].assignee, "Engineer");
+for (const kind of ["dislike", "fuego"]) {
+  await api("/api/workspace", {
+    action: "reaction",
+    id: added.id,
+    liked: true,
+    kind,
+  });
+  await api("/api/workspace", {
+    action: "reaction",
+    id: added.id,
+    liked: true,
+    kind,
+  });
+  const reaction = (await api("/api/workspace")).comments.find(
+    (c) => c.id === added.id,
+  );
+  assert.equal(reaction.reaction, kind);
+  assert.equal(reaction.likes, 0);
+  assert.equal(reaction.dislikes, kind === "dislike" ? 1 : 0);
+  assert.equal(reaction.fuegos, kind === "fuego" ? 1 : 0);
+}
+await api("/api/workspace", {
+  action: "reaction",
+  id: added.id,
+  liked: false,
+  kind: "fuego",
+});
+assert.equal(
+  (await api("/api/workspace")).comments.find((c) => c.id === added.id)
+    .reaction,
+  null,
+);
+await api(
+  "/api/workspace",
+  { action: "reaction", id: added.id, liked: true, kind: "invalid" },
+  headers,
+  400,
+);
+await api("/api/workspace", { action: "reaction", id: added.id, liked: true });
 const fixed = await api("/api/workspace", {
   action: "revision",
   baseId: first.id,

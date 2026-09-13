@@ -94,6 +94,8 @@ export async function POST(request: Request) {
           owner,
           z.string().uuid().parse(data.id),
           z.boolean().parse(data.liked),
+          undefined,
+          z.enum(["like", "dislike", "fuego"]).default("like").parse(data.kind),
         );
       case "resolve":
       case "assign": {

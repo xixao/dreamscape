@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { Check, MessageSquare, Send, ThumbsUp } from "lucide-react";
+import { Check, MessageSquare, Send } from "lucide-react";
+import CommentReactions from "./comment-reactions";
 import { Button } from "@/components/ui/button";
 import { Empty } from "@/components/ui/empty";
 import { Textarea } from "@/components/ui/textarea";
@@ -124,19 +125,7 @@ export default function Feedback({
           </button>
           <p>{c.text}</p>
           <div className="comment-actions">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              aria-label={c.liked ? "Unlike comment" : "Like comment"}
-              aria-pressed={c.liked}
-              onClick={() =>
-                void onAction({ action: "reaction", id: c.id, liked: !c.liked })
-              }
-            >
-              <ThumbsUp size={13} />
-              {c.likes}
-            </Button>
+            <CommentReactions comment={c} busy={busy} onAction={onAction} />
             <Button
               variant="ghost"
               size="sm"
@@ -192,23 +181,7 @@ export default function Feedback({
               <div className="reply" key={r.id}>
                 <strong>{r.author}</strong>
                 <p>{r.text}</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  aria-label={r.liked ? "Unlike reply" : "Like reply"}
-                  aria-pressed={r.liked}
-                  onClick={() =>
-                    void onAction({
-                      action: "reaction",
-                      id: r.id,
-                      liked: !r.liked,
-                    })
-                  }
-                >
-                  <ThumbsUp size={12} />
-                  {r.likes}
-                </Button>
+                <CommentReactions comment={r} busy={busy} onAction={onAction} />
               </div>
             ))}
           {reply === c.id && (

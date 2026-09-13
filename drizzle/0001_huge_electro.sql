@@ -1,0 +1,1 @@
+ALTER TABLE `reactions` ADD `kind` text DEFAULT 'like' NOT NULL;

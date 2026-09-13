@@ -16,9 +16,11 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## What is real
 
-- A window-filling, non-draggable workspace with scrollable preview and feedback regions.
-- Light/dark theme switching, fit/50-200% zoom, page/component/error focus, and presentation mode with optional browser fullscreen.
-- On-screen feedback that can be hidden, with saved comment/reply text, author, state, and viewport. It polls every ten seconds while enabled and the tab is visible. New signed-in reviewer comments use their supplied display name (email fallback); old generic author labels are preserved.
+- A window-filling workspace with fixed surrounding controls. Drag the canvas background or non-interactive parts of the prototype to pan. Two-finger scrolling pans; Mac trackpad pinch zooms only the canvas. Fit recenters it. Arrow keys pan a focused canvas.
+- Light/dark theme switching, fit/15-300% canvas zoom, page/component/error focus, and presentation mode with optional browser fullscreen.
+- Toggleable compact comment cards alongside their saved component anchors, filtered to the current version, state, and viewport. Cards move with the canvas and stack to avoid overlapping each other. Open the thread to reply. Existing comments use semantic component anchors, not arbitrary saved pixel coordinates.
+- Like, dislike, and Fuego reactions persist, with one active reaction per person per comment. Adding Fuego displays a fire emoji and a "Magic" toast; removing it does not replay the celebration. Existing likes are preserved by the additive database migration.
+- Feedback polls every ten seconds while enabled and the tab is visible. New signed-in reviewer comments use their supplied display name (email fallback); old generic author labels are preserved.
 
 - The upload component, editable text, three states, retry action, and responsive layout.
 - Server-saved versions, contextual comments, replies, reactions, assignments, resolutions, link revocation, and notification preferences.
@@ -47,6 +49,6 @@ The central contract lives in `lib/model.ts`; the demonstrator lives in `app/upl
 
 Build the app and apply the generated local migration, then start the built Worker with `npm start -- --port 5186`. Run the focused API checks with `node tests/api.mjs http://localhost:5186`. They use a dedicated local test identity and do not seed demo feedback into the owner's workspace. The development server intentionally strips injected identity headers, so run these tests against the built Worker only.
 
-40 API requests and their payload assertions passed, including access checks, persistence, named reviewer attribution, reactions, revision pinning, consent, event sequencing, and link revocation. TypeScript and the production build passed. Browser interaction testing was not performed in this build pass.
+50 API requests and their payload assertions passed, including access checks, persistence, named reviewer attribution, reaction switching/removal/idempotence, revision pinning, consent, event sequencing, and link revocation. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
 
 WebMCP preview-state tools are feature-detected. Unsupported browsers ignore them. This is optional integration groundwork, not a requirement to use the prototype. No supported WebMCP execution context was available for contract validation, so those tools are not yet verified.

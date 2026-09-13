@@ -67,7 +67,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
   baseline,
@@ -83,7 +82,7 @@ import { download, request } from "@/lib/client";
 import Uploader from "./uploader";
 import Feedback from "./feedback";
 import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
-import FeedbackNotifications from "./feedback-notifications";
+import AnchoredComments from "./anchored-comments";
 
 type Data = Workspace & {
   links: {
@@ -160,6 +159,7 @@ export default function FlowReview() {
   const [fullscreen, setFullscreen] = useState(false);
   const [focus, setFocus] = useState<PreviewFocus>("page");
   const [zoom, setZoom] = useState<number | "fit">("fit");
+  const [canvasReset, setCanvasReset] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
   const studioRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<Data>(initial);
@@ -482,7 +482,6 @@ export default function FlowReview() {
         className={`studio ${presentation ? "is-presenting" : ""}`}
         ref={studioRef}
       >
-        <Toaster position="bottom-right" />
         <header className="studio-header">
           <span className="studio-brand">
             <Layers3 />
@@ -713,10 +712,10 @@ export default function FlowReview() {
                   <div className="zoom-controls">
                     <IconButton
                       label="Zoom out"
-                      disabled={zoom !== "fit" && zoom <= 0.5}
+                      disabled={zoom !== "fit" && zoom <= 0.15}
                       onClick={() =>
                         setZoom(
-                          Math.max(0.5, (zoom === "fit" ? 1 : zoom) - 0.25),
+                          Math.max(0.15, (zoom === "fit" ? 1 : zoom) - 0.25),
                         )
                       }
                     >
@@ -724,34 +723,44 @@ export default function FlowReview() {
                     </IconButton>
                     <Select
                       value={String(zoom)}
-                      onValueChange={(value) =>
-                        setZoom(value === "fit" ? "fit" : Number(value))
-                      }
+                      onValueChange={(value) => {
+                        setZoom(value === "fit" ? "fit" : Number(value));
+                        if (value === "fit") setCanvasReset((n) => n + 1);
+                      }}
                     >
                       <SelectTrigger aria-label="Preview zoom">
-                        <SelectValue />
+                        <SelectValue>
+                          {zoom === "fit"
+                            ? "Fit"
+                            : `${Math.round(zoom * 100)}%`}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="fit">Fit</SelectItem>
-                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((z) => (
-                          <SelectItem value={String(z)} key={z}>
-                            {Math.round(z * 100)}%
-                          </SelectItem>
-                        ))}
+                        {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3].map(
+                          (z) => (
+                            <SelectItem value={String(z)} key={z}>
+                              {Math.round(z * 100)}%
+                            </SelectItem>
+                          ),
+                        )}
                       </SelectContent>
                     </Select>
                     <IconButton
                       label="Zoom in"
-                      disabled={zoom !== "fit" && zoom >= 2}
+                      disabled={zoom !== "fit" && zoom >= 3}
                       onClick={() =>
-                        setZoom(Math.min(2, (zoom === "fit" ? 1 : zoom) + 0.25))
+                        setZoom(Math.min(3, (zoom === "fit" ? 1 : zoom) + 0.25))
                       }
                     >
                       <ZoomIn size={17} />
                     </IconButton>
                     <IconButton
                       label="Fit preview"
-                      onClick={() => setZoom("fit")}
+                      onClick={() => {
+                        setZoom("fit");
+                        setCanvasReset((n) => n + 1);
+                      }}
                     >
                       <Scan size={17} />
                     </IconButton>
@@ -780,6 +789,9 @@ export default function FlowReview() {
                 >
                   <PreviewCanvas
                     zoom={zoom}
+                    onZoom={setZoom}
+                    resetKey={canvasReset}
+                    feedback={feedbackVisible}
                     viewport={viewport}
                     paired={viewport === "both" || (compare && !participant)}
                     focus={focus}
@@ -799,7 +811,7 @@ export default function FlowReview() {
                       </div>
                     )}
                     <div
-                      className={`device-wrap ${viewport === "mobile" ? "mobile-wrap" : ""}`}
+                      className={`device-wrap ${feedbackVisible ? "review-device" : ""} ${viewport === "mobile" ? "mobile-wrap" : ""}`}
                     >
                       <div className="device-label">
                         {viewport === "mobile" ? "Mobile · 340" : "Desktop"}
@@ -819,9 +831,34 @@ export default function FlowReview() {
                           setView("review");
                         }}
                       />
+                      {feedbackVisible && (
+                        <AnchoredComments
+                          comments={data.comments.filter(
+                            (c) =>
+                              !c.parentId &&
+                              c.revisionId === revision.id &&
+                              c.state === state &&
+                              (c.viewport === "both" ||
+                                c.viewport ===
+                                  (viewport === "mobile"
+                                    ? "mobile"
+                                    : "desktop")),
+                          )}
+                          busy={busy}
+                          onAction={action}
+                          onOpen={(c) => {
+                            setAnchor(c.anchor);
+                            setPanel("feedback");
+                            setView("review");
+                            if (presentation) exitPresentation();
+                          }}
+                        />
+                      )}
                     </div>
                     {viewport === "both" && !compare && (
-                      <div className="device-wrap mobile-wrap">
+                      <div
+                        className={`device-wrap mobile-wrap ${feedbackVisible ? "review-device" : ""}`}
+                      >
                         <div className="device-label">
                           Mobile · 340 <span>Same state</span>
                         </div>
@@ -832,29 +869,37 @@ export default function FlowReview() {
                           playing={playing}
                           onState={changeState}
                           compact
-                          annotate={!participant && annotations && !presentation}
+                          annotate={
+                            !participant && annotations && !presentation
+                          }
                           onAnchor={(a) => {
                             setAnchor(a);
                             setPanel("feedback");
                           }}
                         />
+                        {feedbackVisible && (
+                          <AnchoredComments
+                            comments={data.comments.filter(
+                              (c) =>
+                                !c.parentId &&
+                                c.revisionId === revision.id &&
+                                c.state === state &&
+                                (c.viewport === "both" ||
+                                  c.viewport === "mobile"),
+                            )}
+                            busy={busy}
+                            onAction={action}
+                            onOpen={(c) => {
+                              setAnchor(c.anchor);
+                              setPanel("feedback");
+                              setView("review");
+                              if (presentation) exitPresentation();
+                            }}
+                          />
+                        )}
                       </div>
                     )}
                   </PreviewCanvas>
-                  {feedbackVisible && (
-                    <FeedbackNotifications
-                      comments={data.comments}
-                      revision={revision}
-                      onClose={() => setShowFeedback(false)}
-                      onOpen={(comment) => {
-                        setState(comment.state);
-                        setAnchor(comment.anchor);
-                        setPanel("feedback");
-                        setView("review");
-                        if (presentation) exitPresentation();
-                      }}
-                    />
-                  )}
                 </div>
                 {!participant && (
                   <div className="state-strip">

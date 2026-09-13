@@ -64,6 +64,7 @@ export async function POST(request: Request, context: Context) {
           z.string().uuid().parse(data.id),
           z.boolean().parse(data.liked),
           link.revision_id,
+          z.enum(["like", "dislike", "fuego"]).default("like").parse(data.kind),
         );
       fail("Review links cannot change the design", 403);
     }

@@ -42,6 +42,9 @@ export type Comment = {
   assignee: string;
   likes: number;
   liked: boolean;
+  dislikes: number;
+  fuegos: number;
+  reaction: "like" | "dislike" | "fuego" | null;
   createdAt: string;
 };
 export type Session = {
