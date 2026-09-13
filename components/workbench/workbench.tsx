@@ -945,9 +945,8 @@ function WorkbenchShell({
   const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
-  // "?" and the top bar's overflow menu item both open the shortcuts sheet
-  // as a dialog (spec section 3); the Cmd-hold presentation lives entirely
-  // inside ShortcutsOverlay's own listener and never touches this state.
+  // "?", the top bar's ⌘ button and its overflow menu item all open the
+  // shortcuts dialog (spec section 3) through this one piece of state.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // The canvas viewport (spec docs/superpowers/specs/2026-09-12-infinite-
@@ -1468,8 +1467,8 @@ function WorkbenchShell({
               Never inside an !uiHidden branch (spec docs/superpowers/specs/
               2026-09-12-shortcuts-overlay-design.md section 2: "Shown in the
               workbench only ..., including when the UI is hidden with
-              Cmd+\") - the Cmd-hold presentation must keep working even with
-              every other panel gone.
+              Cmd+\") - the dialog must still open with every other panel
+              gone.
             */}
             <ShortcutsOverlay key="shortcuts-overlay" open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           </div>

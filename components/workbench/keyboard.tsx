@@ -134,9 +134,9 @@ export function useWorkbenchKeyboard(
     // select or dialog.
     onPageNext?: () => void;
     onPagePrev?: () => void;
-    // "?": opens the shortcuts sheet as a dialog, same content the Cmd-hold
-    // overlay shows (components/workbench/shortcuts-overlay.tsx) and the
-    // same action the top bar's overflow menu item performs.
+    // "?": opens the shortcuts dialog (components/workbench/shortcuts-
+    // overlay.tsx), the same action the top bar's ⌘ button and its overflow
+    // menu item perform.
     onOpenShortcuts?: () => void;
   } = {},
 ): void {
