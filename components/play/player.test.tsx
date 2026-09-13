@@ -466,7 +466,7 @@ const LOGIN_TREE = tree({
   goSecond: button('Go to second screen', navigate('screen2')),
   showAlert: button('Show alert', openOverlay('alertOverlay')),
   openForm: button('Open form', openOverlay('formOverlay')),
-  goBackLogin: button('Back on login', BACK),
+  openPanel: button('Open panel', openOverlay('panelOverlay')),
 });
 
 const SECOND_TREE = tree({
@@ -488,7 +488,6 @@ const DIALOG_TREE = tree(
     openConfirmAgain: button('Open confirm again', openOverlay('dialogOverlay')),
     showToastFromDialog: button('Show toast from dialog', openOverlay('toastOverlay')),
     backFromDialog: button('Back from dialog', BACK),
-    goLogin: button('Go to login', navigate('screen1')),
   },
   { direction: { mobile: 'column', desktop: 'row' } },
 );
@@ -500,6 +499,7 @@ const SHEET_TREE = tree({
 });
 
 const BOTTOM_SHEET_TREE = tree({ bottomText: text('Bottom sheet content') });
+const PANEL_TREE = tree({ panelText: text('Panel content') });
 const TOAST_TREE = tree({
   savedText: text('Changes saved'),
   goSecondFromToast: button('Go to second from toast', navigate('screen2')),
@@ -602,6 +602,15 @@ function overlayScreens(): Screen[] {
       stageWidth: 512,
       kind: 'overlay',
       presentation: { type: 'dialog', dismissible: true },
+      pageId: 'page1',
+    },
+    {
+      id: 'panelOverlay',
+      name: 'Panel',
+      layout: JSON.stringify(PANEL_TREE),
+      stageWidth: 400,
+      kind: 'overlay',
+      presentation: { type: 'sheet', side: 'right', dismissible: true },
       pageId: 'page1',
     },
   ];
@@ -991,25 +1000,67 @@ describe('Player overlays', () => {
     expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
   });
 
-  it('keeps the Play chip above every overlay: a top-right toast sits below it, and a locked dialog leaves it clickable', async () => {
+  // The chip and every overlay's own X share the viewport's top-right
+  // corner (a sheet's or toast's close button is `absolute top-3 right-3`
+  // inside a surface pinned to that corner). Two states, then: under a
+  // dismissible overlay the chip keeps its plain z-50 so the overlay - and
+  // its X - paint over it; only under a NON-dismissible one, which shows no
+  // X at all, does the chip rise above everything and opt back into pointer
+  // events, so its Close link is the way out of Play.
+  it('keeps the Play chip under a dismissible overlay, so a right sheet\'s or a top-right toast\'s close button stays on top', async () => {
     const user = await renderOnLogin();
+    expect(playChip()).toHaveClass('fixed', 'top-3', 'right-3', 'z-50');
+    expect(playChip()).not.toHaveClass('pointer-events-auto');
+
+    await user.click(screen.getByRole('button', { name: 'Open panel' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Panel' });
+    expect(sheet).toHaveAttribute('data-side', 'right');
+    const sheetClose = within(sheet).getByRole('button', { name: 'Close' });
+    expect(sheetClose).toHaveClass('absolute', 'top-3', 'right-3');
+
+    // Same z-index, and the portalled sheet comes later in the DOM, so it
+    // (and the X inside it) paints over the chip.
+    const chip = playChip();
+    expect(chip).toHaveClass('z-50');
+    expect(chip).not.toHaveClass('pointer-events-auto');
+    expect(zIndexClass(sheet)).toBe(zIndexClass(chip));
+    expect(chip.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(sheetClose);
+    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+
     await user.click(screen.getByRole('button', { name: 'Show alert' }));
     const toast = await screen.findByRole('status', { name: 'Alert' });
     expect(toast).toHaveClass('top-4', 'right-4');
+    expect(zIndexClass(toast)).toBeGreaterThan(zIndexClass(playChip()));
+    expect(playChip()).not.toHaveClass('pointer-events-auto');
+    expect(within(toast).getByRole('button', { name: 'Close overlay' })).toBeInTheDocument();
+  });
 
-    const chip = playChip();
-    expect(chip).toHaveClass('fixed', 'top-3', 'right-3', 'pointer-events-auto');
-    expect(zIndexClass(chip)).toBeGreaterThan(zIndexClass(toast));
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
-
-    await user.click(within(toast).getByRole('button', { name: 'Close overlay' }));
+  it('raises the Play chip above a non-dismissible overlay and keeps it clickable, so its Close link is a way out', async () => {
+    const user = await renderOnLogin();
     await user.click(screen.getByRole('button', { name: 'Open locked' }));
-    await screen.findByRole('dialog', { name: 'Locked' });
+    const locked = await screen.findByRole('dialog', { name: 'Locked' });
+    expect(within(locked).queryByRole('button', { name: 'Close' })).toBeNull();
 
     // Radix puts pointer-events: none on <body> behind a modal; the chip
-    // opts back in so the Close link stays a way out of Play.
-    expect(playChip()).toHaveClass('pointer-events-auto');
+    // opts back in and rises above the dialog (z-50) and any toast (z-[60]).
+    const chip = playChip();
+    expect(zIndexClass(chip)).toBe(70);
+    expect(zIndexClass(chip)).toBeGreaterThan(zIndexClass(locked));
+    expect(chip).toHaveClass('pointer-events-auto');
     expect(screen.getByRole('link', { hidden: true })).toHaveAttribute('href', '/f/file1#s=screen1');
+
+    // A dismissible sheet on top of the locked dialog is the top overlay
+    // again: the chip drops back under it.
+    await user.click(within(locked).getByRole('button', { name: 'Open filters from locked' }));
+    await screen.findByRole('dialog', { name: 'Filters' });
+    expect(playChip()).toHaveClass('z-50');
+    expect(playChip()).not.toHaveClass('pointer-events-auto');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(1));
+    expect(playChip()).toHaveClass('z-[70]', 'pointer-events-auto');
   });
 
   it('a legacy inline Dialog block inside an overlay: Escape closes it first, then the overlay, and only then exits Play', async () => {
@@ -1062,19 +1113,23 @@ describe('Player overlays', () => {
 
   it('navigate to the current screen from inside an overlay closes it without adding history', async () => {
     const user = await renderOnLogin();
-    await user.click(screen.getByRole('button', { name: 'Open confirm' }));
+    await user.click(screen.getByRole('button', { name: 'Go to second screen' }));
+    await screen.findByText('Hello world');
+    await user.click(screen.getByRole('button', { name: 'Open confirm from second' }));
     const dialog = await screen.findByRole('dialog', { name: 'Confirm delete' });
 
-    await user.click(within(dialog).getByRole('button', { name: 'Go to login' }));
+    // "Confirm and go" navigates to screen2 - the screen Play is already on.
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm and go' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
-    expect(screen.getByText('Login')).toBeInTheDocument();
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+    expect(screen.getByText('Hello world')).toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
 
-    // Nothing was pushed: a screen-level back has nowhere to go.
-    await user.click(screen.getByRole('button', { name: 'Back on login' }));
-    expect(screen.getByRole('button', { name: 'Open confirm' })).toBeInTheDocument();
-    expect(screen.getByText('Login')).toBeInTheDocument();
+    // History is still just [Login]: one back reaches it. Had the same-
+    // screen navigate wrongly pushed screen2, back would stay on Second.
+    await user.click(screen.getByRole('button', { name: 'Go back' }));
+    expect(await screen.findByRole('button', { name: 'Open confirm' })).toBeInTheDocument();
+    expect(screen.queryByText('Hello world')).toBeNull();
     expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
   });
 

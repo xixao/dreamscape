@@ -22,9 +22,14 @@ export type OverlayScreen = Screen & { kind: 'overlay'; presentation: OverlayPre
 
 /**
  * True for a screen that is an overlay frame, narrowing it to OverlayScreen;
- * absent `kind` means a plain screen. Checks the presentation is really
- * there too, so the narrowing never lies about unvalidated data (a bare
- * `{ kind: 'overlay' }` is not an overlay frame).
+ * absent `kind` means a plain screen. Deliberately requires the
+ * presentation as well as the kind, so the narrowing never lies about
+ * unvalidated data: a bare `{ kind: 'overlay' }` with no presentation -
+ * unreachable through validateScreens, which rejects it - is NOT an
+ * overlay frame and counts as a plain screen everywhere this is used (the
+ * Player's own screen list included). Keep it that way; loosening it to
+ * `kind` alone would hand every caller an OverlayScreen whose
+ * `presentation` can be undefined.
  */
 export function isOverlay(screen: Pick<Screen, 'kind' | 'presentation'>): screen is OverlayScreen {
   return screen.kind === 'overlay' && screen.presentation !== undefined;

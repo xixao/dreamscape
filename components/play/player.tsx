@@ -163,6 +163,13 @@ function isInsideToastOverlay(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[data-overlay-toast]') !== null;
 }
 
+// Compile-time exhaustiveness for OverlayHost's presentation switch: a
+// fourth presentation type added to the union must get its own wrapper
+// before this file compiles again, rather than silently rendering nothing.
+function assertNever(value: never): never {
+  throw new Error(`Unhandled overlay presentation: ${JSON.stringify(value)}`);
+}
+
 /**
  * Runs a file's screens full-window with Craft disabled and every block's
  * real (non-design-mode) behavior live: the wired Button navigates, dialogs
@@ -248,6 +255,19 @@ export function Player({
 
   const currentScreen = baseScreens.find((screen) => screen.id === state.currentScreenId) ?? baseScreens[0];
   const closeHref = `/f/${file.id}#s=${state.currentScreenId}`;
+
+  // The Play chip and every overlay's own X share the viewport's top-right
+  // corner (a sheet's or toast's close button is `absolute top-3 right-3`
+  // inside a surface pinned there), so the chip only rises above the
+  // overlays - and opts back into pointer events, behind a modal's
+  // `pointer-events: none` on <body> - when the top overlay is not
+  // dismissible: the one case where it is the way out of Play, and the one
+  // case where the overlay shows no X for it to cover. Otherwise it keeps
+  // its plain z-50 and the overlays paint over it (portalled dialogs and
+  // sheets by DOM order, toasts by their z-[60]).
+  const topOverlay =
+    state.overlayStack.length > 0 ? overlaysById.get(state.overlayStack[state.overlayStack.length - 1]) : undefined;
+  const chipAboveOverlays = topOverlay !== undefined && !isDismissible(topOverlay.presentation);
 
   // Read by the Escape handler below instead of closing over
   // state.openDialogIds / state.overlayStack directly: that effect is only
@@ -366,11 +386,12 @@ export function Player({
             />
           ) : null;
         })}
-        {/* Above every overlay (toasts are z-[60]) and clickable behind a
-            modal (Radix puts pointer-events: none on <body>), so the Close
-            link is always a way out of Play - a non-dismissible dialog
-            included. */}
-        <div className="pointer-events-auto fixed top-3 right-3 z-[70] flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg">
+        <div
+          className={cn(
+            'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
+            chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
+          )}
+        >
           <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
           <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
           <a href={closeHref} className="text-t2 underline hover:no-underline">
@@ -538,6 +559,8 @@ function OverlayHost({
       );
       break;
     }
+    default:
+      content = assertNever(presentation);
   }
 
   return <PlayProvider value={boundPlay}>{content}</PlayProvider>;
