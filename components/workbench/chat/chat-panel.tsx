@@ -82,7 +82,21 @@ function ThinkingIndicator() {
   );
 }
 
-export function ChatPanel({ fileId, onClose }: { fileId: string; onClose: () => void }) {
+export function ChatPanel({
+  fileId,
+  onClose,
+  className,
+}: {
+  fileId: string;
+  onClose: () => void;
+  // The floating position (spec docs/superpowers/specs/2026-09-12-infinite-
+  // canvas-design.md section 4): right-[336px] beside the expanded right
+  // panel, right-[56px] beside its 40px rail. WorkbenchShell computes and
+  // passes this (it is the one that knows whether the panel is collapsed),
+  // the same literal-class-per-branch approach its own floating classes
+  // already use, so the build's class scanner can see every one.
+  className?: string;
+}) {
   const transport = useChatTransport();
   // Lazy useState, not useMemo, so the store is created exactly once per
   // mount - the same reasoning as the file saver in workbench.tsx.
@@ -165,7 +179,7 @@ export function ChatPanel({ fileId, onClose }: { fileId: string; onClose: () => 
   }
 
   return (
-    <aside aria-label="Chat" className={cn(PANEL, 'flex min-h-0 flex-col')}>
+    <aside aria-label="Chat" className={cn(PANEL, 'absolute top-[76px] bottom-3 z-10 flex w-[360px] min-h-0 flex-col', className)}>
       <div className={PANEL_HEADER}>
         <span className={PANEL_TITLE}>Chat</span>
         <div className="flex-1" />

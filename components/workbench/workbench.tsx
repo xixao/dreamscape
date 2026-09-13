@@ -672,28 +672,24 @@ function WorkbenchShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 
-  // The left column (the Components tray) is gone - the right panel now
-  // covers Design, Prototype and Components as tabs of one column, which
-  // narrows to a 40px rail instead of disappearing when minimized (see
-  // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md sections 1
-  // and 2). Every branch below is a complete, literal Tailwind class list
-  // (not built by interpolating a variable into the arbitrary-value bracket)
-  // so the build's class scanner can see each one.
-  const gridClass = uiHidden
-    ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
-    : panelCollapsed
-      ? chatOpen
-        ? 'grid h-screen grid-cols-[1fr_40px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-        : 'grid h-screen grid-cols-[1fr_40px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-      : chatOpen
-        ? 'grid h-screen grid-cols-[1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-        : 'grid h-screen grid-cols-[1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
+  // The chat panel floats immediately to the right of the right panel,
+  // whichever width that panel currently is (spec docs/superpowers/specs/
+  // 2026-09-12-infinite-canvas-design.md section 4) - a complete, literal
+  // Tailwind class per branch (not built by interpolating a variable into
+  // the arbitrary-value bracket) so the build's class scanner can see both.
+  const chatPositionClass = panelCollapsed ? 'right-[56px]' : 'right-[336px]';
 
   return (
     <ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
-          <div data-testid="workbench-shell" className={gridClass}>
+          {/*
+            No longer a grid (spec section 4): the canvas fills the window
+            and every other piece of chrome floats above it, positioned by
+            its own absolute classes - this shell just needs to be the
+            positioning context they float relative to.
+          */}
+          <div data-testid="workbench-shell" className="relative h-screen w-screen overflow-hidden bg-background">
             {!uiHidden && (
               <Topbar
                 key="topbar"
@@ -724,16 +720,8 @@ function WorkbenchShell({
                 comments={commentsProps}
                 rootRef={rootRef}
               />
-              {/*
-                Not yet the floating chip row the spec describes (section 5 -
-                that lands with the rest of the floating chrome); for now this
-                sits at the top of Canvas's own grid cell, the same visual
-                area Stage used to render it in, so screen switching keeps
-                working unchanged while the surrounding layout is still a
-                grid.
-              */}
-              <div className="pointer-events-none absolute inset-0">
-                <div className="pointer-events-auto absolute top-2 left-2 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
+              {!uiHidden && (
+                <div className="absolute top-[76px] left-3 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
                   <ScreensStrip
                     screens={screens}
                     currentScreenId={currentScreenId}
@@ -744,7 +732,7 @@ function WorkbenchShell({
                     onDelete={onDeleteScreen}
                   />
                 </div>
-              </div>
+              )}
               <LayerStackMenu />
             </StageErrorBoundary>
             {!uiHidden && (
@@ -759,7 +747,12 @@ function WorkbenchShell({
               />
             )}
             {!uiHidden && chatOpen && (
-              <ChatPanel key="chat-panel" fileId={fileId} onClose={() => setChatOpen(false)} />
+              <ChatPanel
+                key="chat-panel"
+                fileId={fileId}
+                onClose={() => setChatOpen(false)}
+                className={chatPositionClass}
+              />
             )}
             <NewLayoutDialog
               key="new-dialog"

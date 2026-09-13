@@ -314,22 +314,31 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the right panel and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the right panel, the top bar and the screens strip, keeping the canvas; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
+      // The screens strip hides too now (spec docs/superpowers/specs/
+      // 2026-09-12-infinite-canvas-design.md section 4: "Cmd+\ hides all
+      // chrome and leaves the canvas") - unlike the old single-frame model,
+      // switching screens while hidden no longer needs it (see the
+      // "editor UI state persists" test, which switches by clicking the
+      // other frame directly on the canvas instead).
+      expect(screen.queryByRole('tablist', { name: 'Screens' })).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
       expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
   });
@@ -680,13 +689,16 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       // Hiding the UI and switching again must not bring it back by itself.
-      // The screens strip stays visible even with the rest of the UI
-      // hidden (see the "Show/Hide UI" tests above), so switching is still
-      // possible without it.
+      // The screens strip hides along with everything else now (spec
+      // docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+      // 4: "Cmd+\ hides all chrome and leaves the canvas") - switching while
+      // hidden means clicking the other frame directly on the canvas
+      // (components/workbench/stage.tsx's FramePreview), same as a sighted
+      // user would with nothing but the canvas on screen.
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
@@ -760,23 +772,25 @@ describe('Workbench', () => {
       localStorage.clear();
     });
 
-    it('is closed by default; the topbar button opens it as a third column, reflected in aria-pressed', async () => {
+    it('is closed by default; the topbar button opens it floating beside the right panel, reflected in aria-pressed', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       const chatButton = screen.getByRole('button', { name: 'Chat' });
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
 
       await userEvent.click(chatButton);
 
       expect(chatButton).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      const chat = screen.getByRole('complementary', { name: 'Chat' });
+      expect(chat).toHaveClass('w-[360px]');
+      // Floats immediately left of the (expanded, 320px) right panel.
+      expect(chat).toHaveClass('right-[336px]');
 
       await userEvent.click(chatButton);
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
     });
 
     it('Cmd+J toggles the chat panel open and closed', () => {
@@ -831,13 +845,13 @@ describe('Workbench', () => {
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
     });
 
-    it('the grid has no left column; the chat column still appends', async () => {
+    it('there is no left column (Components lives in the right panel); the chat panel still floats in when opened', async () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
       expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
 
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
     });
 
     it('selecting a layer while on Components switches to Design', async () => {
@@ -877,32 +891,32 @@ describe('Workbench', () => {
   });
 
   describe('Minimize panel', () => {
-    it('the minimize button collapses the panel to a rail and the expand button restores it', async () => {
+    it('the minimize button collapses the panel to a 40px rail and the expand button restores it to 320px', async () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
 
       await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
 
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
       const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(panel).toHaveClass('w-10');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
     });
 
-    it('Cmd+. toggles the panel collapsed, with the chat column still appending when collapsed', async () => {
+    it('Cmd+. toggles the panel collapsed, with the chat panel following it to stay flush beside it', async () => {
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[56px]');
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
     });
 
     it('clicking a rail icon expands the panel on that tab', async () => {
@@ -912,7 +926,7 @@ describe('Workbench', () => {
 
       await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
 
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
       expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
     });
 
@@ -922,7 +936,7 @@ describe('Workbench', () => {
       unmount();
 
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-10');
       expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument();
     });
   });
@@ -968,6 +982,51 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(transform()).toBe(before);
+    });
+  });
+
+  // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+  // 4: the shell is no longer a grid - the canvas fills the window and
+  // every other piece of chrome floats above it at a fixed position.
+  describe('floating chrome', () => {
+    it('the shell is a plain positioning context, not a grid', () => {
+      render(<Workbench file={makeFile()} />);
+      const shell = screen.getByTestId('workbench-shell');
+      expect(shell.className).not.toMatch(/\bgrid\b/);
+      expect(shell).toHaveClass('relative');
+    });
+
+    it('the canvas fills the window', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('canvas-root')).toHaveClass('absolute', 'inset-0');
+    });
+
+    it('the top bar floats full width at the top', () => {
+      render(<Workbench file={makeFile()} />);
+      const header = screen.getByTestId('save-state').closest('header');
+      expect(header).toHaveClass('absolute', 'top-3', 'left-3', 'right-3', 'shadow-panel-lg');
+    });
+
+    it('the right panel floats at the right, below the top bar', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass(
+        'absolute',
+        'top-[76px]',
+        'right-3',
+        'bottom-3',
+      );
+    });
+
+    it('the screens strip floats at the top-left of the canvas, beneath the top bar', () => {
+      render(<Workbench file={makeFile()} />);
+      const strip = screen.getByRole('tablist', { name: 'Screens' }).closest('[class*="absolute"]');
+      expect(strip).toHaveClass('absolute', 'top-[76px]', 'left-3');
+    });
+
+    it('the chat panel floats below the top bar too, at the same height as the right panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('absolute', 'top-[76px]', 'bottom-3');
     });
   });
 });

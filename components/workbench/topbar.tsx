@@ -354,12 +354,7 @@ export function Topbar({
   return (
     <TooltipProvider delayDuration={0}>
       <header
-        className={cn(
-          PANEL,
-          'shadow-panel',
-          chatOpen ? 'col-span-3' : 'col-span-2',
-          'flex h-[54px] items-center gap-2 px-3.5',
-        )}
+        className={cn(PANEL, 'shadow-panel-lg', 'absolute top-3 left-3 right-3 z-10', 'flex h-[54px] items-center gap-2 px-3.5')}
       >
         <Tooltip>
           <TooltipTrigger asChild>

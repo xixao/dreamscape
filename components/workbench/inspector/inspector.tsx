@@ -149,7 +149,10 @@ export function Inspector({
   if (collapsed) {
     return (
       <TooltipProvider delayDuration={0}>
-        <aside aria-label={PANEL_LABEL[panelMode]} className={cn(PANEL, 'flex w-10 flex-col items-center gap-1 py-2')}>
+        <aside
+          aria-label={PANEL_LABEL[panelMode]}
+          className={cn(PANEL, 'absolute top-[76px] right-3 bottom-3 z-10 flex w-10 flex-col items-center gap-1 py-2')}
+        >
           <MinimizeButton collapsed onClick={onToggleCollapsed} />
           <div className="my-1 h-px w-6 bg-border" aria-hidden />
           {RAIL_ITEMS.map(({ mode, label, icon }) => (
@@ -171,7 +174,10 @@ export function Inspector({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <aside aria-label={PANEL_LABEL[panelMode]} className={cn(PANEL, 'flex min-h-0 flex-col')}>
+      <aside
+        aria-label={PANEL_LABEL[panelMode]}
+        className={cn(PANEL, 'absolute top-[76px] right-3 bottom-3 z-10 flex w-80 min-h-0 flex-col')}
+      >
         <div className={PANEL_HEADER}>
           <ToggleGroup
             type="single"
