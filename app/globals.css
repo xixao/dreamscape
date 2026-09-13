@@ -98,14 +98,26 @@
 .journey-grip:active {
   cursor: grabbing;
 }
-.journey-number {
-  background: var(--secondary);
-  width: 28px;
-  height: 28px;
+.journey-number,
+.studio .state-strip button > span {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: 2px solid var(--primary);
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+.journey-step.selected .journey-number,
+.studio .state-strip button.selected > span {
+  box-shadow:
+    0 0 0 3px var(--background),
+    0 0 0 5px var(--primary);
 }
 .journey-step-select {
   padding: 4px 16px 12px;
@@ -1034,22 +1046,9 @@ a:focus-visible {
   font-size: 10px;
   color: #82918f;
 }
-.state-strip button > span {
-  font-size: 9px;
-  border: 1px solid #dce3e0;
-  width: 17px;
-  height: 17px;
-  text-align: center;
-  border-radius: 50%;
-}
 .state-strip button.selected {
   background: #eaf3ef;
   color: #146a53;
-}
-.state-strip button.selected > span {
-  background: #168366;
-  color: #fff;
-  border-color: #168366;
 }
 .scenario-caption {
   display: flex;
@@ -1882,10 +1881,6 @@ a:focus-visible {
     font-size: 9px;
     padding: 3px;
   }
-  .state-strip button > span {
-    width: 15px;
-    height: 15px;
-  }
   .stage-toolbar .status-dot {
     display: none;
   }
@@ -2602,9 +2597,6 @@ body {
 .dark .state-strip button {
   color: #b1c0b7;
 }
-.dark .state-strip button > span {
-  border-color: #5f7265;
-}
 .dark .anchor-pin {
   border-color: #26332a;
 }
@@ -2824,9 +2816,6 @@ body {
   .studio .state-strip button {
     font-size: 11px;
     gap: 3px;
-  }
-  .studio .state-strip button > span {
-    display: none;
   }
   .presentation-name {
     font-size: 13px;
