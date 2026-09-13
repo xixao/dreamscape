@@ -1,6 +1,6 @@
 "use client";
 import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
-import { DEMO_IDS } from "@/lib/demo/registry";
+import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
 import GuidedPrompt from "./demo/guided-prompt";
 import { reviewPrompts } from "@/lib/demo/prompts";
@@ -105,6 +105,7 @@ import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
 import ReviewResults from "./review-results";
+import JourneyView from "./journey-view";
 import UploadCaseStudy, { buildCaseStudy } from "./demo/upload-case-study";
 import UploadProperties from "./demo/upload-properties";
 import TestSetupEditor from "./test-setup-editor";
@@ -222,6 +223,7 @@ export default function FlowReview() {
   const [participantRevision, setParticipantRevision] =
     useState<Revision | null>(null);
   const [view, setView] = useState("review");
+  const [journeyDirty, setJourneyDirty] = useState(false);
   const [panel, setPanel] = useState("assistant");
   const [anchor, setAnchor] = useState("document-uploader");
   const [commentViewport, setCommentViewport] = useState("desktop");
@@ -602,7 +604,19 @@ export default function FlowReview() {
     <TooltipProvider delayDuration={250}>
       <div className={`studio ${presentation ? "is-presenting" : ""}`}>
         <header className="studio-header">
-          <Button variant="ghost" onClick={() => setWorkspaceMode("design")}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (journeyDirty) {
+                setView("journey");
+                toast.error(
+                  "Save or discard your journey changes before leaving.",
+                );
+                return;
+              }
+              setWorkspaceMode("design");
+            }}
+          >
             <ArrowRight size={16} className="rotate-180" />
             Back to design
           </Button>
@@ -740,9 +754,9 @@ export default function FlowReview() {
               value={audience}
               onValueChange={async (v) => {
                 if (v === "participant") {
-                  if (dirty || mutationPending.current) {
+                  if (dirty || journeyDirty || mutationPending.current) {
                     toast.error(
-                      "Save or discard the draft before starting a test.",
+                      "Save or discard component and journey changes before starting a test.",
                     );
                     return;
                   }
@@ -829,6 +843,12 @@ export default function FlowReview() {
                 <MousePointer2 />
                 Review
               </TabsTrigger>
+              {isDesigner && (
+                <TabsTrigger value="journey">
+                  <GitCompareArrows />
+                  Journey
+                </TabsTrigger>
+              )}
               {isDesigner && (
                 <TabsTrigger value="build">
                   <Settings2 />
@@ -1587,6 +1607,54 @@ export default function FlowReview() {
               ))}
           </main>
         )}
+        {loaded && !participant && (
+          <div
+            hidden={view !== "journey" || presentation}
+            className="journey-host"
+          >
+            <JourneyView
+              data={data}
+              revision={revision}
+              editable={isDesigner}
+              onDirty={setJourneyDirty}
+              onReview={(state) => {
+                if (dirty || busy) {
+                  toast.error(
+                    "Save or discard the component draft before reviewing the linked version.",
+                  );
+                  return;
+                }
+                setState(state);
+                setView("review");
+                setFocus("component");
+                setZoom("fit");
+                setAnchor(
+                  state === "failed"
+                    ? UPLOAD_ANCHORS.error
+                    : UPLOAD_ANCHORS.component,
+                );
+              }}
+              onTest={(step) => {
+                setTestSetup({
+                  ...defaultTestSetup,
+                  title: `Test: ${step.title}`.slice(0, 100),
+                  task: step.action || defaultTestSetup.task,
+                  instructions: step.goal || defaultTestSetup.instructions,
+                  focus: "component",
+                  scenario:
+                    step.link === "failed" && revision.config.retryEnabled
+                      ? "recovery"
+                      : "success",
+                });
+                setShareRole("participant");
+                setShareUrl("");
+                setReadyTest(null);
+                setDialog("share");
+              }}
+              onResults={() => setView("results")}
+            />
+          </div>
+        )}
         {view === "results" && !participant && (
           <ReviewResults
             data={data}
@@ -1719,6 +1787,14 @@ export default function FlowReview() {
                     </span>
                     <Button
                       onClick={() => {
+                        if (journeyDirty) {
+                          setDialog(null);
+                          setView("journey");
+                          toast.error(
+                            "Save or discard your journey changes before starting the test.",
+                          );
+                          return;
+                        }
                         setActiveTestSetup(readyTest.setup);
                         setParticipantRevision(readyTest.revision);
                         setParticipantToken(readyTest.token);

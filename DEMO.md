@@ -1,6 +1,22 @@
 # Flow Review: A five-minute demo
 
-## Presentation focus
+## Journey demo
+
+Open **Journey** beside Review. Drag a step using its grip, or use the earlier/later
+arrows. Select a step to edit its name, goal, expected action, connected uploader
+state, and open questions. Add and delete steps in the draft, then **Save journey**.
+**Discard changes** restores the saved plan. Changes persist to the signed-in
+owner's workspace; concurrent saves are rejected instead of silently overwriting.
+
+**Review step** opens the connected state. **Set up step test** fills an editable
+test draft from the step. Recovery tests require a saved component with Retry.
+**Recorded test path** shows existing session events, separately from the planned
+sequence. These events cover the uploader only, not unbuilt application pages.
+The sample plan is in `lib/demo/journey.ts`; its IDs begin with `demo-`. The journey
+editor and storage contract are independent of that fixture. Connections currently
+follow the selected saved component version, not an arbitrary external design.
+
+## Review demo
 
 Keep the mock designer introduction brief. Flow Review's contribution is the
 connection between a version, an observed test session, feedback, and a proposed

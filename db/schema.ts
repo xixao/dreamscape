@@ -50,6 +50,11 @@ export const preferences = sqliteTable("preferences", {
   owner: text("owner").primaryKey(),
   value: text("value").notNull(),
 });
+export const journeys = sqliteTable("journeys", {
+  owner: text("owner").primaryKey(),
+  value: text("value").notNull(),
+  version: integer("version").notNull().default(1),
+});
 export const shares = sqliteTable(
   "shares",
   {

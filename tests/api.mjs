@@ -26,6 +26,51 @@ async function api(path, payload, auth = headers, expected = 200) {
   return data;
 }
 const w = await api("/api/workspace");
+const journey = await api("/api/journey");
+assert.equal(journey.version, 0);
+assert.equal(journey.journey.steps.length, 5);
+await api("/api/journey", null, {}, 401);
+const reordered = {
+  ...journey.journey,
+  title: "Rehearsal journey",
+  steps: [...journey.journey.steps].reverse(),
+};
+const savedJourney = await api("/api/journey", {
+  journey: reordered,
+  version: 0,
+});
+assert.equal(savedJourney.version, 1);
+assert.deepEqual((await api("/api/journey")).journey, reordered);
+await api("/api/journey", { journey: reordered, version: 0 }, headers, 409);
+await api(
+  "/api/journey",
+  { journey: { ...reordered, steps: [] }, version: 1 },
+  headers,
+  400,
+);
+await api(
+  "/api/journey",
+  {
+    journey: { ...reordered, steps: [reordered.steps[0], reordered.steps[0]] },
+    version: 1,
+  },
+  headers,
+  400,
+);
+const otherJourney = await api("/api/journey", null, {
+  ...headers,
+  "oai-authenticated-user-id": `${owner}-other`,
+});
+assert.equal(otherJourney.version, 0);
+const editedJourney = {
+  ...reordered,
+  steps: reordered.steps.map((s, i) =>
+    i === 0 ? { ...s, goal: "New goal", link: "ready" } : s,
+  ),
+};
+await api("/api/journey", { journey: editedJourney, version: 1 });
+assert.deepEqual((await api("/api/journey")).journey, editedJourney);
+await api("/api/journey", { journey: reordered, version: 1 }, headers, 409);
 assert.equal(w.revisions.length, 1);
 const first = w.revisions[0];
 assert.equal(first.config.retryEnabled, false);
