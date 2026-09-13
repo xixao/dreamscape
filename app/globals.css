@@ -1078,8 +1078,6 @@
   background: transparent;
   color: var(--foreground);
   border-color: var(--input);
-  height: 104px;
-  min-height: 104px;
   field-sizing: fixed;
   resize: none;
   box-shadow: none;
@@ -1090,6 +1088,16 @@
   pointer-events: none;
   overflow: hidden;
   color: var(--muted-foreground);
+}
+.guided-input textarea,
+.design-agent-composer textarea {
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  box-sizing: border-box;
+  resize: none;
+  field-sizing: fixed;
+  overflow-y: auto;
 }
 .prompt-ghost > span {
   color: transparent;
@@ -3844,12 +3852,13 @@ body {
   font-size: 13px;
 }
 .design-agent-composer {
+  margin-top: auto;
+  background: var(--background);
   padding: 12px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 .design-agent-composer textarea {
-  min-height: 75px;
   font-size: 14px;
 }
 .design-agent-composer > div {
@@ -3982,15 +3991,29 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  max-height: 65dvh;
+  overflow: hidden;
+}
+.test-setup-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
 }
 .test-setup-editor label {
   font-size: 14px;
   font-weight: 600;
 }
 .setup-ai {
-  padding-bottom: 16px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 4px 4px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  flex-shrink: 0;
   display: grid;
   gap: 10px;
 }
@@ -4000,6 +4023,16 @@ body {
 }
 .setup-ai p {
   font-size: 13px;
+}
+@media (max-height: 650px) {
+  .test-setup-editor {
+    max-height: none;
+    overflow: visible;
+  }
+  .test-setup-fields {
+    max-height: 40dvh;
+    flex-shrink: 0;
+  }
 }
 .setup-options {
   display: grid;
@@ -4269,6 +4302,7 @@ body {
   overscroll-behavior: contain;
 }
 .assistant-composer {
+  margin-top: auto;
   flex-shrink: 0;
   padding: 12px 18px;
   border-top: 1px solid var(--border);
@@ -4276,10 +4310,6 @@ body {
 }
 .assistant-composer .assistant-prompt {
   margin-top: 0;
-}
-.assistant-composer .guided-input textarea {
-  height: 72px;
-  min-height: 72px;
 }
 .assistant-tab .panel-section {
   padding: 16px 18px;
