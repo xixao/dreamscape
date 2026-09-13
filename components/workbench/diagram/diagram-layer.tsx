@@ -497,7 +497,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           <ContextMenuSubContent className={MENU_POPOVER}>
             <ContextMenuRadioGroup
               value={node.color}
-              onValueChange={(value) => dispatch({ type: 'setColor', id: node.id, color: value as DiagramColor })}
+              onValueChange={(value) => dispatch({ type: 'setColor', ids: [node.id], color: value as DiagramColor })}
             >
               {DIAGRAM_COLORS.map((color) => (
                 <ContextMenuRadioItem key={color} value={color} className={cn(MENU_ROW, 'pr-7')}>

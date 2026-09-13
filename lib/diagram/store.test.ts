@@ -180,8 +180,31 @@ describe('diagramReducer: setText', () => {
 describe('diagramReducer: setColor / setKind / setArrow', () => {
   it('sets a node color', () => {
     const state = stateWith({ nodes: [node()] });
-    const next = diagramReducer(state, { type: 'setColor', id: 'n1', color: 'blue' });
+    const next = diagramReducer(state, { type: 'setColor', ids: ['n1'], color: 'blue' });
     expect(next.nodes[0].color).toBe('blue');
+  });
+
+  // Matt's multi-selection follow-up: the Design panel recolours every
+  // selected shape in one history step.
+  it('sets the color on every given id, as one history step', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' }), node({ id: 'c' })] });
+    const next = diagramReducer(state, { type: 'setColor', ids: ['a', 'b'], color: 'red' });
+    expect(next.nodes.find((n) => n.id === 'a')?.color).toBe('red');
+    expect(next.nodes.find((n) => n.id === 'b')?.color).toBe('red');
+    expect(next.nodes.find((n) => n.id === 'c')?.color).toBe('neutral');
+    expect(next.history.past).toHaveLength(state.history.past.length + 1);
+  });
+
+  it('is a no-op, with no history entry, when every given id already has that color', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', color: 'blue' }), node({ id: 'b', color: 'blue' })] });
+    const next = diagramReducer(state, { type: 'setColor', ids: ['a', 'b'], color: 'blue' });
+    expect(next).toBe(state);
+  });
+
+  it('ignores an unknown id without touching history', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' })] });
+    const next = diagramReducer(state, { type: 'setColor', ids: ['missing'], color: 'blue' });
+    expect(next).toBe(state);
   });
 
   it('sets a node shape kind', () => {

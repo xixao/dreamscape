@@ -66,7 +66,7 @@ describe('DiagramFields for a shape', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Color' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Blue' }));
 
-    expect(onAction).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'blue' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'setColor', ids: ['node000001'], color: 'blue' });
   });
 
   it('dispatches resize with the parsed width, keeping the current height', () => {

@@ -89,13 +89,8 @@ const NODE_KIND_FIELD: FieldSchema = {
   section: 'Style',
   options: NODE_KINDS.map((kind) => ({ value: kind, label: KIND_LABELS[kind] })),
 };
-const NODE_COLOR_FIELD: FieldSchema = {
-  prop: 'color',
-  label: 'Color',
-  kind: 'select',
-  section: 'Style',
-  options: DIAGRAM_COLORS.map((color) => ({ value: color, label: COLOR_LABELS[color] })),
-};
+// Color moved below, alongside the other Mixed-aware field builders (Matt's
+// multi-selection follow-up) - see the comment there.
 const NODE_TEXT_FIELD: FieldSchema = { prop: 'text', label: 'Text', kind: 'text', section: 'Content' };
 const NODE_WIDTH_FIELD: FieldSchema = { prop: 'width', label: 'Width', kind: 'text', section: 'Layout' };
 const NODE_HEIGHT_FIELD: FieldSchema = { prop: 'height', label: 'Height', kind: 'text', section: 'Layout' };
@@ -144,14 +139,29 @@ function valueOrMixed<T>(nodes: DiagramNode[], getValue: (node: DiagramNode) => 
   return rest.every((value) => value === first) ? first : MIXED;
 }
 
-// The three text-style fields are built per-render, not as plain module
-// constants like NODE_COLOR_FIELD etc. above, because their `options` gain
-// a synthetic "Mixed" entry exactly when the current selection disagrees -
-// which also happens to be the one thing that flips Field's own >3-options
-// Select-vs-ToggleGroup choice for Text size/Font (three real options) from
-// a segmented control (nothing shown pressed, while mixed - itself a
-// legible "mixed" state) to a dropdown that can show the word "Mixed", with
-// no change needed in field.tsx.
+// Color and the three text-style fields are built per-render, not as plain
+// module constants like NODE_KIND_FIELD above, because their `options`
+// gain a synthetic "Mixed" entry exactly when the current selection
+// disagrees (Matt's multi-selection follow-up: "the shape fields that
+// make sense for many shapes at once") - which also happens to be the one
+// thing that flips Field's own >3-options Select-vs-ToggleGroup choice for
+// Text size/Font (three real options) from a segmented control (nothing
+// shown pressed, while mixed - itself a legible "mixed" state) to a
+// dropdown that can show the word "Mixed", with no change needed in
+// field.tsx. Color already has more than three options, so it is always a
+// Select either way.
+function colorField(mixed: boolean): FieldSchema {
+  return {
+    prop: 'color',
+    label: 'Color',
+    kind: 'select',
+    section: 'Style',
+    options: [
+      ...DIAGRAM_COLORS.map((color) => ({ value: color, label: COLOR_LABELS[color] })),
+      ...(mixed ? [{ value: MIXED, label: 'Mixed' }] : []),
+    ],
+  };
+}
 function textSizeField(mixed: boolean): FieldSchema {
   return {
     prop: 'textSize',
@@ -208,40 +218,55 @@ export function DiagramFields({
 }) {
   if (selected.type === 'node') {
     const { node } = selected;
-    // Spec section 9 - see DiagramFieldsSelection's own comment above for
-    // why `nodes` is only ever `[node]` in the app today.
+    // Spec section 9 / Matt's multi-selection follow-up - see
+    // DiagramFieldsSelection's own comment above: `nodes` is every
+    // co-selected shape, `multi` gates the single-shape-only fields (Text,
+    // Shape, Width, Height - none of them has one sensible value across
+    // several differently-sized, differently-worded shapes) off entirely,
+    // "make sense for many shapes at once" being the operative phrase for
+    // which fields survive: Color and the three text-style fields still
+    // show, Mixed when the selection disagrees.
     const nodes = selected.nodes && selected.nodes.length > 0 ? selected.nodes : [node];
+    const multi = nodes.length > 1;
     const nodeIds = nodes.map((n) => n.id);
+    const colorValue = valueOrMixed(nodes, (n) => n.color);
     const textSizeValue = valueOrMixed(nodes, (n) => n.textSize ?? 'medium');
     const textFontValue = valueOrMixed(nodes, (n) => n.textFont ?? 'sans');
     const textColorValue = valueOrMixed(nodes, (n) => n.textColor ?? 'default');
     return (
       <>
-        <section className={SECTION}>
-          <h3 className={SECTION_TITLE}>Content</h3>
-          <div className="flex flex-col gap-3">
-            <Field
-              field={NODE_TEXT_FIELD}
-              value={node.text}
-              breakpoint="mobile"
-              onChange={(next) => onAction({ type: 'setText', id: node.id, text: String(next) })}
-            />
-          </div>
-        </section>
+        {!multi && (
+          <section className={SECTION}>
+            <h3 className={SECTION_TITLE}>Content</h3>
+            <div className="flex flex-col gap-3">
+              <Field
+                field={NODE_TEXT_FIELD}
+                value={node.text}
+                breakpoint="mobile"
+                onChange={(next) => onAction({ type: 'setText', id: node.id, text: String(next) })}
+              />
+            </div>
+          </section>
+        )}
         <section className={SECTION}>
           <h3 className={SECTION_TITLE}>Appearance</h3>
           <div className="flex flex-col gap-3">
+            {!multi && (
+              <Field
+                field={NODE_KIND_FIELD}
+                value={node.kind}
+                breakpoint="mobile"
+                onChange={(next) => onAction({ type: 'setKind', id: node.id, kind: next as DiagramNodeKind })}
+              />
+            )}
             <Field
-              field={NODE_KIND_FIELD}
-              value={node.kind}
+              field={colorField(colorValue === MIXED)}
+              value={colorValue}
               breakpoint="mobile"
-              onChange={(next) => onAction({ type: 'setKind', id: node.id, kind: next as DiagramNodeKind })}
-            />
-            <Field
-              field={NODE_COLOR_FIELD}
-              value={node.color}
-              breakpoint="mobile"
-              onChange={(next) => onAction({ type: 'setColor', id: node.id, color: next as DiagramColor })}
+              onChange={(next) => {
+                if (next === MIXED) return;
+                onAction({ type: 'setColor', ids: nodeIds, color: next as DiagramColor });
+              }}
             />
             <Field
               field={textSizeField(textSizeValue === MIXED)}
@@ -272,29 +297,31 @@ export function DiagramFields({
             />
           </div>
         </section>
-        <section className={SECTION}>
-          <h3 className={SECTION_TITLE}>Size</h3>
-          <div className="flex flex-col gap-3">
-            <Field
-              field={NODE_WIDTH_FIELD}
-              value={node.width}
-              breakpoint="mobile"
-              onChange={(next) => {
-                const width = parsedNumber(next);
-                if (width !== null) onAction({ type: 'resize', id: node.id, width, height: node.height });
-              }}
-            />
-            <Field
-              field={NODE_HEIGHT_FIELD}
-              value={node.height}
-              breakpoint="mobile"
-              onChange={(next) => {
-                const height = parsedNumber(next);
-                if (height !== null) onAction({ type: 'resize', id: node.id, width: node.width, height });
-              }}
-            />
-          </div>
-        </section>
+        {!multi && (
+          <section className={SECTION}>
+            <h3 className={SECTION_TITLE}>Size</h3>
+            <div className="flex flex-col gap-3">
+              <Field
+                field={NODE_WIDTH_FIELD}
+                value={node.width}
+                breakpoint="mobile"
+                onChange={(next) => {
+                  const width = parsedNumber(next);
+                  if (width !== null) onAction({ type: 'resize', id: node.id, width, height: node.height });
+                }}
+              />
+              <Field
+                field={NODE_HEIGHT_FIELD}
+                value={node.height}
+                breakpoint="mobile"
+                onChange={(next) => {
+                  const height = parsedNumber(next);
+                  if (height !== null) onAction({ type: 'resize', id: node.id, width: node.width, height });
+                }}
+              />
+            </div>
+          </section>
+        )}
       </>
     );
   }

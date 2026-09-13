@@ -15,6 +15,7 @@ import {
   duplicatePairs,
   pruneEdgesForScreen,
   type DiagramData,
+  type DiagramNode,
   cloneDiagram,
 } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
@@ -1209,6 +1210,16 @@ function WorkbenchShell({
         }
       : null;
 
+  // Matt's multi-selection follow-up: the actual DiagramNode objects behind
+  // diagramAlignmentContext's own `count`, for inspector.tsx's DiagramFields
+  // (Color/Text size/Font/Text color, Mixed-aware) to render beneath the
+  // alignment row - same >= 2 guard, so the two are always both null or
+  // both populated together.
+  const diagramMultiSelection: DiagramNode[] | null =
+    selectedDiagramNodeIds.length >= 2
+      ? diagram.nodes.filter((n) => selectedDiagramNodeIds.includes(n.id))
+      : null;
+
   // The diagram tool/palette (diagram-palette.tsx, diagram-layer.tsx):
   // `diagramPaletteOpen` is the floating bar's own visibility, toggled by
   // Shift+D or the top bar's Diagram tool button and closed by its own
@@ -1707,6 +1718,7 @@ function WorkbenchShell({
                 selectedFrameIds={pageFrameSelection}
                 onAlignFrames={onMoveScreens}
                 diagramAlignment={diagramAlignmentContext}
+                diagramMultiSelection={diagramMultiSelection}
                 onUpdateLayoutGrid={onUpdateLayoutGrid}
                 measuredHeights={measuredHeights}
               />

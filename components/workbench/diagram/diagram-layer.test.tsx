@@ -1623,7 +1623,7 @@ describe('DiagramLayer context menu (shape)', () => {
     expect(screen.getByRole('menuitemradio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true');
 
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'Green' }));
-    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'green' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', ids: ['node000001'], color: 'green' });
   });
 
   // Spec section 9: "the right-click menu gets a 'Text' submenu with the

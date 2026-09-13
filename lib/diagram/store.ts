@@ -156,12 +156,18 @@ export type DiagramAction =
   // all - see diagram-layer.tsx's endResize.
   | { type: 'resize'; id: string; width: number; height: number; x?: number; y?: number }
   | { type: 'setText'; id: string; text: string }
-  | { type: 'setColor'; id: string; color: DiagramColor }
+  // `ids` (not a single `id`, unlike setKind/setArrow below) - Matt's
+  // multi-selection follow-up needs the Design panel to recolour every
+  // selected shape in one history step, the same "several shapes, one
+  // step" rule setTextStyle below already established; the right-click
+  // menu's own single-shape "Color" submenu just passes a one-element
+  // array.
+  | { type: 'setColor'; ids: string[]; color: DiagramColor }
   | { type: 'setKind'; id: string; kind: DiagramNodeKind | ConnectorKind }
   | { type: 'setArrow'; id: string; arrow: ArrowKind }
   // Spec section 9: the Design panel's three text-style selects and the
   // right-click menu's "Text" submenu both dispatch this - `ids` rather
-  // than a single `id` (unlike setColor/setKind/setArrow above) so a
+  // than a single `id` (unlike setKind/setArrow above) so a
   // multi-shape selection applies in one history step, the same
   // "several shapes, one step" rule align/distribute already established
   // for a diagram multi-selection. Only the keys actually given are
@@ -343,11 +349,19 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return state;
     }
 
+    // Matt's multi-selection follow-up: `ids` rather than a single `id`
+    // (see the DiagramAction comment above) - the same "changed" no-op
+    // guard as move/reorder/setTextStyle above, so recolouring a selection
+    // to the colour it already has does not push a dead history entry.
     case 'setColor': {
-      const index = state.nodes.findIndex((n) => n.id === action.id);
-      if (index === -1) return state;
-      const nodes = [...state.nodes];
-      nodes[index] = { ...nodes[index], color: action.color };
+      const ids = new Set(action.ids);
+      let changed = false;
+      const nodes = state.nodes.map((n) => {
+        if (!ids.has(n.id) || n.color === action.color) return n;
+        changed = true;
+        return { ...n, color: action.color };
+      });
+      if (!changed) return state;
       return commit(state, { nodes, edges: state.edges });
     }
 
