@@ -24,7 +24,7 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return items;
   return items.filter((item) =>
-    [item.label, item.type].some((field) => field.toLowerCase().includes(trimmed)),
+    [item.label, item.type, ...(item.keywords ?? [])].some((field) => field.toLowerCase().includes(trimmed)),
   );
 }
 
