@@ -1168,6 +1168,106 @@ describe('DiagramLayer quick-add circles', () => {
     expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
   });
 
+  // Bug fix (Matt): "when i mouse over a diagram shape, i see the + icons.
+  // however, i can't reach them when i mouse over to them. they disappear
+  // because i'm not 'over' the shape anymore." The pointer travelling from
+  // the box toward a circle crosses a screen-space gap that used to be
+  // inside neither the box (boxContains) nor any circle's own disc (the old
+  // isOverQuickAddCircle check) - hiding the circles mid-crossing, before
+  // the cursor could ever reach one.
+  it('stays visible while the pointer crosses the gap between the box edge and a quick-add circle', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // Past the box's right edge (100) but short of the right circle's own
+    // disc (centered at 120, radius 10, so its near edge is at 110) -
+    // squarely in the gap a naive box-or-circle check leaves uncovered.
+    hoverAt(105, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+  });
+
+  it('stays visible over the circle itself, where a click still adds a shape', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    hoverAt(105, 25);
+    // Dead center of the right circle (box edge at 100, plus the 20px gap).
+    hoverAt(120, 25);
+
+    const circle = screen.getByTestId('diagram-quick-add-node000001-right');
+    expect(circle).toBeInTheDocument();
+    fireEvent.click(circle);
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }));
+  });
+
+  it('hides once the pointer moves beyond the halo', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // The halo reaches QUICK_ADD_GAP_SCREEN (20) + the circle's diameter
+    // (20) + a few px of slack past the box's edge at x=100 - comfortably
+    // past the circle itself (centered at 120), but 150 clears even the
+    // most generous reading of that margin.
+    hoverAt(150, 25);
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  // The gap/halo constants (QUICK_ADD_GAP_SCREEN etc.) are screen px,
+  // converted to canvas units by DIVIDING by zoom (the same reasoning
+  // review item 12, above, already applies to the circle's own radius/icon
+  // size) - a pointer offset by a fixed number of CLIENT (screen) px from
+  // the box's own edge should land in the same place relative to the gap
+  // and halo at any zoom, since client = canvas * zoom cancels the zoom
+  // this test's own point deliberately divides out.
+  it('scales the halo down, in canvas units, at zoom 2, so the gap-crossing fix still holds there', () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }),
+      viewport: { x: 0, y: 0, zoom: 2 },
+    });
+    // clientToCanvas divides by zoom: client (100, 50) -> canvas (50, 25),
+    // the box's own center. The box's own right edge (canvas x=100) is at
+    // client x=200 here.
+    hoverAt(100, 50);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // 5 CLIENT px past the box's right edge (200 + 5 = 205): inside the
+    // gap at any zoom (canvas x = 100 + 5/2 = 102.5, short of the circle's
+    // own near edge at 100 + 10/2 = 105) - the same bug as the base gap
+    // test above, re-shown at a different zoom.
+    hoverAt(205, 50);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // 60 CLIENT px past the same edge (260): beyond the zoom-2 halo (margin
+    // 44 / 2 = 22 canvas units, i.e. 44 client px, reaching only to client
+    // x=244).
+    hoverAt(260, 50);
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('scales the halo up, in canvas units, at zoom 0.5, so the gap-crossing fix still holds there', () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }),
+      viewport: { x: 0, y: 0, zoom: 0.5 },
+    });
+    // clientToCanvas divides by zoom: client (50, 12.5) -> canvas (100, 25),
+    // the box's own right edge - client (25, 12.5) is its own center.
+    hoverAt(25, 12.5);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // 5 CLIENT px past the box's right edge (50 + 5 = 55): inside the gap
+    // at any zoom (canvas x = 100 + 5/0.5 = 110, short of the circle's own
+    // near edge at 100 + 10/0.5 = 120).
+    hoverAt(55, 12.5);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    // 60 CLIENT px past the same edge (110): beyond the zoom-0.5 halo
+    // (margin 44 / 0.5 = 88 canvas units, i.e. 44 client px, reaching only
+    // to client x=94).
+    hoverAt(110, 12.5);
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
   it('hide during a drag', () => {
     renderLayer({
       diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })], selection: [{ type: 'node', id: 'node000001' }] }),
@@ -1447,6 +1547,8 @@ describe('DiagramLayer context menu (shape)', () => {
       'Duplicate',
       'Bring to front',
       'Send to back',
+      'Export as PNG',
+      'Export as SVG',
       'Delete',
     ]) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
@@ -1548,6 +1650,28 @@ describe('DiagramLayer context menu (shape)', () => {
     renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
     fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
     expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('"Export as PNG" calls onExport with format "png"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as PNG' }));
+    expect(onExport).toHaveBeenCalledWith('png');
+  });
+
+  it('"Export as SVG" calls onExport with format "svg"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as SVG' }));
+    expect(onExport).toHaveBeenCalledWith('svg');
   });
 
   it('the Menu key opens the same menu for a selected shape', async () => {
@@ -1765,6 +1889,28 @@ describe('DiagramLayer context menu (connector)', () => {
     renderLayer({ diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }) });
     fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
     expect(await screen.findByRole('menuitem', { name: 'Edit label' })).toBeInTheDocument();
+  });
+
+  it('"Export as PNG" calls onExport with format "png"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as PNG' }));
+    expect(onExport).toHaveBeenCalledWith('png');
+  });
+
+  it('"Export as SVG" calls onExport with format "svg"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as SVG' }));
+    expect(onExport).toHaveBeenCalledWith('svg');
   });
 });
 

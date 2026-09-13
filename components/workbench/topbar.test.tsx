@@ -536,5 +536,13 @@ describe('Topbar', () => {
         userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' })),
       ).resolves.not.toThrow();
     });
+
+    it('has a Download source item linking to the zipped source with the download attribute', async () => {
+      renderTopbar();
+      await userEvent.click(screen.getByRole('button', { name: 'More' }));
+      const item = screen.getByRole('menuitem', { name: 'Download source' });
+      expect(item).toHaveAttribute('href', '/dreamscape-source.zip');
+      expect(item).toHaveAttribute('download');
+    });
   });
 });

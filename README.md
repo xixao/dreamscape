@@ -4,7 +4,7 @@ Formerly "Assembly Workbench"; the Vercel project, package name and browser-stor
 
 An internal proof of concept of a Figma-like page builder built on shadcn/ui. Present (top bar) opens the current file in Play mode, where wired buttons navigate between screens and open dialogs. Designers drag components onto a responsive frame, tune them in a Design panel for the mobile and desktop breakpoints, add screens, organize them into pages (a file's own separate infinite canvases, for keeping versions like v1/v2 apart), wire buttons to other screens in the Prototype panel, and present the result in Play mode. Files live in a shared Neon Postgres database on Vercel, so a link can be passed around without sign-in (the app is meant for an internal network).
 
-Production: https://shadcn-assembly-workbench.vercel.app
+Production: https://dreamscape-design.vercel.app (also https://shadcn-assembly-workbench.vercel.app)
 
 ## Run it locally
 
@@ -18,7 +18,7 @@ The app needs a `DATABASE_URL`. Pull the one Vercel manages (you must be signed 
 npx vercel env pull .env.local
 ```
 
-Any other Postgres connection string works too; put it in `.env.local` as `DATABASE_URL=...`. Then:
+Any other Postgres connection string works too; put it in `.env.local` as `DATABASE_URL=...`. For local work without a database at all (a coworker on a work computer, say), leave `DATABASE_URL` unset: the app then runs on an in-memory database that starts empty and resets whenever the server restarts. Then:
 
 ```bash
 npm run dev
@@ -27,6 +27,10 @@ npm run dev
 Open http://localhost:3000. The Files page lists every file and folder; open one to edit it.
 
 `.env.local` and `.vercel/` are git-ignored. Never commit them and never paste the connection string into a chat or a commit.
+
+## Download the product
+
+The download icon next to "Dreamscape" on the Files page (and "Download source" in the editor's More menu) links straight to `/dreamscape-source.zip`, a full copy of this repository's source. It is rebuilt from the deployed sources on every `npm run build` - including every Vercel build - by `scripts/pack-source.mjs`, so production always serves the archive for what's actually live. The build excludes `node_modules`, `.next`, `.git`, `.vercel`, every `.env*` file and anything else that could carry a secret, so the ZIP never contains one. After unzipping, `npm install` then `npm run dev` runs it with no database, exactly as described above.
 
 ## Checks
 
@@ -96,6 +100,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Edit | ⇧⌘Z | Redo |
 | Edit | Delete | Delete the selected layer |
 | Edit | ⌘D | Duplicate the diagram selection |
+| Edit | ⌘A | Select all diagram elements |
 | Edit | ⇧F10 | Open the menu for the diagram selection |
 | Canvas | ↑ or ↓ or ← or → | Nudge the selection 1 px |
 | Canvas | ⇧↑ or ⇧↓ or ⇧← or ⇧→ | Nudge the selection 8 px |

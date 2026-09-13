@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import Link from 'next/link';
+import { Download } from 'lucide-react';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,6 +11,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { buttonVariants } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PANEL } from '@/components/workbench/chrome';
 import type { FileSummary, FolderSummary } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
@@ -57,6 +60,21 @@ export function FilesPage({
         className={cn(PANEL, 'shadow-panel', 'h-[54px] px-3.5 flex items-center gap-2 sticky top-3 z-30')}
       >
         <span className="text-[13px] font-semibold">Dreamscape</span>
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="/dreamscape-source.zip"
+                download
+                aria-label="Download Dreamscape source"
+                className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+              >
+                <Download className="size-4" aria-hidden />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>Download Dreamscape source</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </header>
       <div className="pt-[26px] px-1 pb-10">
         <Breadcrumb className="mb-1.5">

@@ -325,9 +325,12 @@ function ZoomMenu({
 }
 
 // The top bar's overflow menu (spec docs/superpowers/specs/2026-09-13-
-// shortcuts-and-elements-design.md section 3): today this is only "Keyboard
-// shortcuts", which opens the shortcuts dialog (shortcuts-overlay.tsx), the
-// same one the ⌘ button next to this menu opens.
+// shortcuts-and-elements-design.md section 3): "Keyboard shortcuts" opens
+// the shortcuts dialog (shortcuts-overlay.tsx), the same one the ⌘ button
+// next to this menu opens. "Download source" is a plain link to the same
+// zipped-source route as the files page's own header link
+// (components/files/files-page.tsx) - public/dreamscape-source.zip,
+// rebuilt by scripts/pack-source.mjs on every build.
 function MoreMenu({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
   return (
     <DropdownMenu>
@@ -339,6 +342,11 @@ function MoreMenu({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
       <DropdownMenuContent align="end" className={MENU_POPOVER}>
         <DropdownMenuItem className={MENU_ROW} onSelect={() => onOpenShortcuts?.()}>
           Keyboard shortcuts
+        </DropdownMenuItem>
+        <DropdownMenuItem className={MENU_ROW} asChild>
+          <a href="/dreamscape-source.zip" download>
+            Download source
+          </a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

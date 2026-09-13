@@ -143,3 +143,13 @@ describe('FilesPage - actions wiring', () => {
     expect(within(rows[1]).getByText('A file')).toBeInTheDocument();
   });
 });
+
+describe('FilesPage - source download', () => {
+  it('has a header link next to the Dreamscape name that downloads the zipped source', () => {
+    render(<FilesPage path={[]} folders={[]} files={[]} folderId={null} />);
+
+    const link = screen.getByRole('link', { name: 'Download Dreamscape source' });
+    expect(link).toHaveAttribute('href', '/dreamscape-source.zip');
+    expect(link).toHaveAttribute('download');
+  });
+});
