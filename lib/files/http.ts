@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getDb } from '@/db/client';
 import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS } from '@/lib/diagram/store';
 import { createFilesRepository } from './repository';
+import { OVERLAY_SIDES, SCREEN_KINDS, TOAST_POSITIONS } from './validate';
 
 export async function getRepository() {
   return createFilesRepository(await getDb());
@@ -68,6 +69,19 @@ const pageField = z.object({
 
 const pagesField = z.array(pageField).min(1).max(50);
 
+// Shape only, for an overlay frame's presentation (spec docs/superpowers/
+// specs/2026-09-13-overlay-frames-design.md section 2): the known enum for
+// each key, every key but `type` optional. Which keys a given `type`
+// requires - and which it must not carry - is validatePresentation's
+// content rule (lib/files/validate.ts), called from validateScreens, the
+// same split as everything else in this module.
+const overlayPresentationField = z.object({
+  type: z.enum(['dialog', 'sheet', 'toast']),
+  dismissible: z.boolean().optional(),
+  side: z.enum(OVERLAY_SIDES).optional(),
+  position: z.enum(TOAST_POSITIONS).optional(),
+});
+
 // Shape only: id/name/layout/stageWidth types, nothing about content. The
 // content rules (name trimmed to 1..80, width clamped to [120, 3840], ids
 // unique and exactly 10 characters, layout valid against the known block
@@ -82,6 +96,11 @@ const screenField = z.object({
   stageWidth: z.number().int(),
   stageHeight: z.number().int().nullable().optional(),
   deviceName: z.string().nullable().optional(),
+  // Overlay frames (spec section 2): `kind` absent means a plain screen.
+  // Shape only again - "a presentation exactly when kind is 'overlay'"
+  // lives in validateScreens (lib/files/validate.ts).
+  kind: z.enum(SCREEN_KINDS).optional(),
+  presentation: overlayPresentationField.optional(),
   // The frame's canvas position (spec docs/superpowers/specs/2026-09-12-
   // infinite-canvas-design.md section 5): shape only here (an optional,
   // nullable integer, same as stageHeight above) - the "both or neither"

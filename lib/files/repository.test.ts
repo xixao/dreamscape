@@ -89,6 +89,41 @@ describe('files repository', () => {
       expect(fetched?.screens?.[0]).toMatchObject({ x: 640, y: -120 });
     });
 
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+    // design.md section 2): kind/presentation round-trip through the jsonb
+    // column untouched, and a plain screen never grows either key.
+    it('round-trips an overlay screen (kind and presentation), leaving a plain screen with neither', async () => {
+      const created = await repo.create({
+        screens: [
+          screen({ name: 'Login' }),
+          screen({
+            name: 'Filters',
+            stageWidth: 400,
+            kind: 'overlay',
+            presentation: { type: 'sheet', side: 'left', dismissible: false },
+          }),
+        ],
+      });
+
+      const fetched = await repo.get(created.id);
+
+      expect(fetched?.screens?.[0]).not.toHaveProperty('kind');
+      expect(fetched?.screens?.[0]).not.toHaveProperty('presentation');
+      expect(fetched?.screens?.[1]).toMatchObject({
+        name: 'Filters',
+        stageWidth: 400,
+        kind: 'overlay',
+        presentation: { type: 'sheet', side: 'left', dismissible: false },
+      });
+    });
+
+    it('refuses to create a file with an overlay that has no presentation, or a presentation on a plain screen', async () => {
+      await expect(repo.create({ screens: [screen({ kind: 'overlay' })] })).rejects.toThrow();
+      await expect(
+        repo.create({ screens: [screen({ presentation: { type: 'dialog', dismissible: true } })] }),
+      ).rejects.toThrow();
+    });
+
     it('clamps every screen stage width to the valid range', async () => {
       const file = await repo.create({ screens: [screen({ stageWidth: 10 }), screen({ stageWidth: 5000 })] });
 
@@ -425,6 +460,33 @@ describe('files repository', () => {
       expect(cleared?.screens?.[0]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
     });
 
+    it('saves an overlay screen through save(), and rejects one without a presentation, changing nothing', async () => {
+      const created = await repo.create();
+      const base = created.screens![0];
+      const overlay: Screen = {
+        id: 'ovrly00001',
+        name: 'Saved',
+        layout: emptyLayoutJson(),
+        stageWidth: 360,
+        pageId: base.pageId,
+        kind: 'overlay',
+        presentation: { type: 'toast', position: 'top-right' },
+      };
+
+      const saved = await repo.save(created.id, { screens: [base, overlay] });
+      expect(saved.ok).toBe(true);
+      const withOverlay = await repo.get(created.id);
+      expect(withOverlay?.screens?.[1]).toMatchObject({
+        id: 'ovrly00001',
+        kind: 'overlay',
+        presentation: { type: 'toast', position: 'top-right' },
+      });
+
+      const rejected = await repo.save(created.id, { screens: [base, { ...overlay, presentation: undefined }] });
+      expect(rejected).toEqual({ ok: false, invalid: expect.any(String) });
+      expect(await repo.get(created.id)).toEqual(withOverlay);
+    });
+
     it('clamps stage width to the valid range, per screen', async () => {
       const created = await repo.create();
 
@@ -682,6 +744,24 @@ describe('files repository', () => {
       const copy = await repo.duplicate(created.id);
 
       expect(copy?.screens?.[0]).toMatchObject({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' });
+    });
+
+    it('keeps each screen\'s kind and presentation on the copy', async () => {
+      const created = await repo.create({
+        screens: [
+          screen(),
+          screen({ name: 'Confirm', kind: 'overlay', presentation: { type: 'dialog', dismissible: false } }),
+        ],
+      });
+
+      const copy = await repo.duplicate(created.id);
+
+      expect(copy?.screens?.[0]).not.toHaveProperty('kind');
+      expect(copy?.screens?.[1]).toMatchObject({
+        name: 'Confirm',
+        kind: 'overlay',
+        presentation: { type: 'dialog', dismissible: false },
+      });
     });
 
     it('keeps the same folder as the original', async () => {

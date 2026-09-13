@@ -12,8 +12,11 @@ import {
   validateDiagramReferences,
   validatePages,
   validateScreens,
+  type OverlayPresentation,
   type Page,
   type Screen,
+  type ScreenInput,
+  type ScreenKind,
 } from './validate';
 
 // Re-exported so callers only need to know about lib/files/repository.ts,
@@ -21,7 +24,15 @@ import {
 // purely to avoid a repository.ts <-> validate.ts import cycle
 // (validateScreens/validatePages return Screen[]/Page[] and repository.ts
 // calls them).
-export type { Page, Screen } from './validate';
+export type {
+  OverlayPresentation,
+  OverlaySide,
+  Page,
+  Screen,
+  ScreenInput,
+  ScreenKind,
+  ToastPosition,
+} from './validate';
 
 export type FileSummary = {
   id: string;
@@ -49,9 +60,16 @@ export type FileRecord = FileSummary & {
   // with no pages. Real repository code always populates it.
   pages?: Page[];
 };
+// `screens` is ScreenInput[], not Screen[]: save() (like create() below)
+// validates and normalizes whatever it is given through validateScreens,
+// and an API caller's screens (zod's shape-checked output, lib/files/
+// http.ts) are exactly that pre-validation shape - an overlay frame's
+// presentation in particular is only known to match the union once
+// validateScreens has said so. A Screen is a ScreenInput, so every caller
+// that already holds validated screens is unaffected.
 export type SaveInput = {
   name?: string;
-  screens?: Screen[];
+  screens?: ScreenInput[];
   pages?: Page[];
   baseUpdatedAt?: string;
   folderId?: string | null;
@@ -116,7 +134,22 @@ type StoredScreen = {
   x?: number | null;
   y?: number | null;
   pageId: string;
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 2): stored exactly as validated, and only when
+  // present - a plain screen keeps neither key, so rows saved before
+  // overlays existed are untouched.
+  kind?: ScreenKind;
+  presentation?: OverlayPresentation;
 };
+
+// The two overlay keys, carried across the storage boundary only when the
+// screen actually has them (never written as an explicit undefined).
+function overlayFields(screen: Pick<Screen, 'kind' | 'presentation'>): Pick<Screen, 'kind' | 'presentation'> {
+  return {
+    ...(screen.kind !== undefined ? { kind: screen.kind } : {}),
+    ...(screen.presentation !== undefined ? { presentation: screen.presentation } : {}),
+  };
+}
 
 function toApiScreens(raw: unknown): Screen[] {
   return (raw as StoredScreen[]).map((screen) => ({
@@ -129,6 +162,7 @@ function toApiScreens(raw: unknown): Screen[] {
     x: screen.x ?? null,
     y: screen.y ?? null,
     pageId: screen.pageId,
+    ...overlayFields(screen),
   }));
 }
 
@@ -149,6 +183,7 @@ function toStoredScreen(screen: Screen): StoredScreen {
     // optional type - the non-null assertion documents that invariant
     // rather than silently writing a literal "undefined" into storage.
     pageId: screen.pageId!,
+    ...overlayFields(screen),
   };
 }
 
@@ -187,7 +222,7 @@ function defaultPage(): Page {
 // exactly as it did before pages existed, while validateScreens itself
 // stays strict (no silent defaulting inside validation, matching how it
 // never silently fixes any other field either).
-function stampMissingPageId(screens: Screen[], defaultPageId: string): Screen[] {
+function stampMissingPageId(screens: ScreenInput[], defaultPageId: string): ScreenInput[] {
   return screens.map((screen) => (screen.pageId ? screen : { ...screen, pageId: defaultPageId }));
 }
 
@@ -245,8 +280,10 @@ export function createFilesRepository(db: Db) {
     return row ? toRecord(row) : null;
   }
 
+  // `screens` is ScreenInput[] for the same reason SaveInput's is (see the
+  // comment on SaveInput above).
   async function create(
-    input: { name?: string; screens?: Screen[]; pages?: Page[]; folderId?: string | null } = {},
+    input: { name?: string; screens?: ScreenInput[]; pages?: Page[]; folderId?: string | null } = {},
   ): Promise<FileRecord> {
     const pagesInput = input.pages ?? [defaultPage()];
     const validatedPages = validatePages(pagesInput);

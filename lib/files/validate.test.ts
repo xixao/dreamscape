@@ -282,6 +282,108 @@ describe('validateScreens', () => {
       expect(result).toEqual({ ok: false, reason: expect.any(String) });
     });
   });
+
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 2): `kind` absent means a plain screen, and a
+  // `presentation` is required exactly when kind is 'overlay' - never on a
+  // plain screen, and matching the OverlayPresentation union exactly.
+  describe('kind and presentation (overlay frames)', () => {
+    it('leaves kind and presentation absent on a plain screen that never had them', () => {
+      const result = validateScreens([screen()], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect('kind' in result.screens[0]).toBe(false);
+      expect('presentation' in result.screens[0]).toBe(false);
+    });
+
+    it('passes an explicit kind of "screen" through, still with no presentation', () => {
+      const result = validateScreens([screen({ kind: 'screen' })], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0].kind).toBe('screen');
+      expect('presentation' in result.screens[0]).toBe(false);
+    });
+
+    it.each([
+      { type: 'dialog', dismissible: true },
+      { type: 'dialog', dismissible: false },
+      { type: 'sheet', side: 'left', dismissible: true },
+      { type: 'sheet', side: 'right', dismissible: false },
+      { type: 'sheet', side: 'top', dismissible: true },
+      { type: 'sheet', side: 'bottom', dismissible: true },
+      { type: 'toast', position: 'top-left' },
+      { type: 'toast', position: 'top-center' },
+      { type: 'toast', position: 'top-right' },
+      { type: 'toast', position: 'bottom-left' },
+      { type: 'toast', position: 'bottom-center' },
+      { type: 'toast', position: 'bottom-right' },
+    ])('accepts an overlay with the presentation %j and passes it through untouched', (presentation) => {
+      const result = validateScreens([screen({ kind: 'overlay', presentation })], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0].kind).toBe('overlay');
+      expect(result.screens[0].presentation).toEqual(presentation);
+    });
+
+    it('rejects a kind that is neither "screen" nor "overlay"', () => {
+      expect(validateScreens([screen({ kind: 'modal' })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+    });
+
+    it('rejects an overlay with no presentation at all', () => {
+      expect(validateScreens([screen({ kind: 'overlay' })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+    });
+
+    it('rejects a presentation on a plain screen, whether kind is absent or "screen"', () => {
+      const presentation = { type: 'dialog', dismissible: true };
+      expect(validateScreens([screen({ presentation })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+      expect(validateScreens([screen({ kind: 'screen', presentation })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+    });
+
+    it.each([
+      { type: 'popover', dismissible: true },
+      { type: 'dialog' },
+      { type: 'dialog', dismissible: 'yes' },
+      { type: 'dialog', dismissible: true, side: 'left' },
+      { type: 'dialog', dismissible: true, position: 'top-left' },
+      { type: 'sheet', dismissible: true },
+      { type: 'sheet', side: 'middle', dismissible: true },
+      { type: 'sheet', side: 'left' },
+      { type: 'sheet', side: 'left', dismissible: true, position: 'top-left' },
+      { type: 'toast' },
+      { type: 'toast', position: 'center' },
+      { type: 'toast', position: 'top-left', dismissible: true },
+      { type: 'toast', position: 'top-left', side: 'left' },
+      { type: 'dialog', dismissible: true, extra: 1 },
+    ])('rejects an overlay whose presentation does not match the union exactly: %j', (presentation) => {
+      const result = validateScreens([screen({ kind: 'overlay', presentation })], knownTypes);
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('rejects a presentation that is not an object at all', () => {
+      const result = validateScreens(
+        [screen({ kind: 'overlay', presentation: 'dialog' as unknown as ScreenInput['presentation'] })],
+        knownTypes,
+      );
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('names the screen in the rejection reason', () => {
+      const result = validateScreens([screen({ name: 'Confirm', kind: 'overlay' })], knownTypes);
+      expect(result).toEqual({ ok: false, reason: expect.stringContaining('Confirm') });
+    });
+  });
 });
 
 describe('validatePages', () => {
