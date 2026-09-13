@@ -3,6 +3,7 @@
 import { ROOT_NODE, useEditor } from '@craftjs/core';
 import { useEffect } from 'react';
 import { ZONE_TYPES } from '@/components/blocks/registry';
+import { isElementLike } from '@/lib/dom';
 import { useCanvasDocument } from './canvas-frame';
 import { selectedIdFrom } from './selection';
 
@@ -14,16 +15,13 @@ const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const POPUP_SELECTOR =
   '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
 
-// Duck-typed rather than `target instanceof HTMLElement`: with the frame now
-// sometimes living in an iframe (canvas-frame.tsx), a keydown's target can be
-// an element from that document's own realm, which has its own `HTMLElement`
-// constructor - `instanceof` against the parent window's would silently
-// return false for it even though it plainly is one (typing Delete into a
-// text block inside the frame would fall through to deleting the block).
-// Every DOM element, from any realm, has these same own/inherited members.
-function isElementLike(target: EventTarget | null): target is HTMLElement {
-  return !!target && typeof target === 'object' && 'tagName' in target && 'closest' in target;
-}
+// isElementLike (lib/dom.ts) is duck-typed rather than `target instanceof
+// HTMLElement`: with the frame now sometimes living in an iframe
+// (canvas-frame.tsx), a keydown's target can be an element from that
+// document's own realm, which has its own `HTMLElement` constructor -
+// `instanceof` against the parent window's would silently return false for
+// it even though it plainly is one (typing Delete into a text block inside
+// the frame would fall through to deleting the block).
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!isElementLike(target)) return false;

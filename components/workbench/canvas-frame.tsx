@@ -73,14 +73,38 @@ export function CanvasFrame({
 
     let stopStyleSync: (() => void) | undefined;
     let resizeObserver: ResizeObserver | undefined;
-    let prepared = false;
+    let stopFrameBridge: (() => void) | undefined;
+    // Keyed on the document INSTANCE, not a boolean: WebKit can replace an
+    // iframe's initial about:blank document with a fresh one after this
+    // effect already latched onto the first one synchronously, and the
+    // `load` event below is the only signal that ever happens - a boolean
+    // latch would make that later `load` a permanent no-op, leaving the
+    // portal rendering into the discarded document forever (a blank
+    // canvas). Every teardown below is scoped per-document so re-preparing
+    // a genuinely new document never leaves the previous one's observers
+    // running against it.
+    let preparedDoc: Document | null = null;
+
+    function teardown() {
+      stopStyleSync?.();
+      stopStyleSync = undefined;
+      resizeObserver?.disconnect();
+      resizeObserver = undefined;
+      stopFrameBridge?.();
+      stopFrameBridge = undefined;
+    }
 
     function prepare() {
-      if (prepared) return;
       const iframeDoc = iframe!.contentDocument;
       const iframeWin = iframe!.contentWindow;
       if (!iframeDoc || !iframeWin || !iframeDoc.body) return;
-      prepared = true;
+      // Idempotent: `load` can fire for the same document this effect
+      // already prepared (jsdom's synchronous path below, or a browser
+      // that fires `load` more than once) - redoing the setup below for a
+      // document already wired up would just recreate the same observers.
+      if (iframeDoc === preparedDoc) return;
+      teardown();
+      preparedDoc = iframeDoc;
 
       // The next/font variable classes (and any other class) the parent
       // html carries - this iframe is a separate document, so nothing about
@@ -93,7 +117,17 @@ export function CanvasFrame({
 
       copyStylesheets(iframeDoc);
       const styleObserver = new MutationObserver(() => copyStylesheets(iframeDoc));
-      styleObserver.observe(document.head, { childList: true, subtree: true });
+      // `attributes`/`characterData` alongside the original `childList`/
+      // `subtree`: HMR can rewrite an existing `<link href>` or a `<style>`
+      // text node in place (no node added or removed), which `childList`
+      // alone never sees.
+      styleObserver.observe(document.head, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['href', 'media'],
+        characterData: true,
+      });
       stopStyleSync = () => styleObserver.disconnect();
 
       resizeObserver = new ResizeObserver(() => {
@@ -101,19 +135,39 @@ export function CanvasFrame({
       });
       resizeObserver.observe(iframeDoc.body);
 
+      // Craft's vendored Positioner (drag-and-drop drop-target math)
+      // attaches its cache-invalidating capture-phase `scroll` listener,
+      // and a `dragover` preventDefault fallback that allows dropping
+      // anywhere, to the parent `window` only - it has no way to know this
+      // iframe's document exists. Bridge both: a scroll inside the frame
+      // still invalidates Craft's cache, and a drop anywhere inside the
+      // frame is still allowed, the same way it already is in the parent.
+      function onFrameScroll() {
+        window.dispatchEvent(new Event('scroll'));
+      }
+      function onFrameDragOver(event: Event) {
+        event.preventDefault();
+      }
+      iframeDoc.addEventListener('scroll', onFrameScroll, true);
+      iframeDoc.addEventListener('dragover', onFrameDragOver);
+      stopFrameBridge = () => {
+        iframeDoc.removeEventListener('scroll', onFrameScroll, true);
+        iframeDoc.removeEventListener('dragover', onFrameDragOver);
+      };
+
       setCanvasDoc({ document: iframeDoc, window: iframeWin });
     }
 
     // jsdom (and sometimes Chrome) has contentDocument ready synchronously
     // for a srcless iframe, before any load event fires; try immediately,
-    // and also listen for load in case the browser has not initialised it
-    // yet (real Chrome, occasionally).
+    // and also listen for load - both for a browser that has not
+    // initialised it yet (real Chrome, occasionally), and for WebKit
+    // replacing the document later (see `preparedDoc` above).
     prepare();
     iframe.addEventListener('load', prepare);
     return () => {
       iframe.removeEventListener('load', prepare);
-      stopStyleSync?.();
-      resizeObserver?.disconnect();
+      teardown();
       setCanvasDoc(null);
     };
     // Mount-once: the iframe element itself never changes identity across

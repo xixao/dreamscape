@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { trayItems } from '@/components/blocks/registry';
+import { isNodeLike } from '@/lib/dom';
 import {
   HOLD_MS,
   MOVE_TOLERANCE_PX,
@@ -434,7 +435,12 @@ export function LayerStackMenu() {
 
     function onDocumentClick(event: MouseEvent) {
       const menu = menuRef.current;
-      if (menu && event.target instanceof Node && menu.contains(event.target)) return;
+      // isNodeLike (lib/dom.ts), not `instanceof Node`: this listener is
+      // also attached to the iframe document below, so `event.target` can
+      // be a node from that document's own realm, which has its own `Node`
+      // constructor - `instanceof` against the parent window's would
+      // silently return false for it even though it plainly is one.
+      if (menu && isNodeLike(event.target) && menu.contains(event.target)) return;
       close();
     }
 
