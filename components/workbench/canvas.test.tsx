@@ -289,7 +289,7 @@ describe('Canvas', () => {
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
 
       fireEvent.doubleClick(screen.getByText(SCREEN_1.name));
-      const input = screen.getByRole('textbox', { name: 'Screen name' });
+      const input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.change(input, { target: { value: 'Renamed frame' } });
       fireEvent.keyDown(input, { key: 'Enter' });
 

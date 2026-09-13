@@ -278,7 +278,7 @@ describe('FrameTitle', () => {
       renderTitle();
       fireEvent.doubleClick(screen.getByText('Frame 1'));
 
-      const input = screen.getByRole('textbox', { name: 'Screen name' }) as HTMLInputElement;
+      const input = screen.getByRole('textbox', { name: 'Frame name' }) as HTMLInputElement;
       expect(input).toHaveValue('Frame 1');
       expect(input).toHaveFocus();
     });
@@ -287,24 +287,24 @@ describe('FrameTitle', () => {
       const { onRename } = renderTitle();
       fireEvent.doubleClick(screen.getByText('Frame 1'));
 
-      const input = screen.getByRole('textbox', { name: 'Screen name' });
+      const input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.change(input, { target: { value: '  Renamed  ' } });
       fireEvent.keyDown(input, { key: 'Enter' });
 
       expect(onRename).toHaveBeenCalledWith('Renamed');
-      expect(screen.queryByRole('textbox', { name: 'Screen name' })).toBeNull();
+      expect(screen.queryByRole('textbox', { name: 'Frame name' })).toBeNull();
     });
 
     it('cancels on Escape without calling onRename', () => {
       const { onRename } = renderTitle();
       fireEvent.doubleClick(screen.getByText('Frame 1'));
 
-      const input = screen.getByRole('textbox', { name: 'Screen name' });
+      const input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.change(input, { target: { value: 'Discarded' } });
       fireEvent.keyDown(input, { key: 'Escape' });
 
       expect(onRename).not.toHaveBeenCalled();
-      expect(screen.queryByRole('textbox', { name: 'Screen name' })).toBeNull();
+      expect(screen.queryByRole('textbox', { name: 'Frame name' })).toBeNull();
       expect(screen.getByText('Frame 1')).toBeInTheDocument();
     });
 
@@ -312,7 +312,7 @@ describe('FrameTitle', () => {
       const { onRename } = renderTitle();
       fireEvent.doubleClick(screen.getByText('Frame 1'));
 
-      const input = screen.getByRole('textbox', { name: 'Screen name' });
+      const input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.change(input, { target: { value: 'Ignored' } });
       fireEvent.blur(input);
 
@@ -322,12 +322,12 @@ describe('FrameTitle', () => {
     it('does not call onRename when the name is unchanged or emptied', () => {
       const { onRename } = renderTitle();
       fireEvent.doubleClick(screen.getByText('Frame 1'));
-      let input = screen.getByRole('textbox', { name: 'Screen name' });
+      let input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onRename).not.toHaveBeenCalled();
 
       fireEvent.doubleClick(screen.getByText('Frame 1'));
-      input = screen.getByRole('textbox', { name: 'Screen name' });
+      input = screen.getByRole('textbox', { name: 'Frame name' });
       fireEvent.change(input, { target: { value: '   ' } });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onRename).not.toHaveBeenCalled();
