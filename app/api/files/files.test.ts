@@ -269,6 +269,44 @@ describe('files API route handlers', () => {
       expect(body.file.screens[1]).toMatchObject({ x: null, y: null });
     });
 
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+    // design.md section 2): kind/presentation pass through create untouched,
+    // and a plain screen never grows either key.
+    it('round-trips an overlay screen (kind and presentation) and leaves a plain screen without them', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            { id: 'aaaaaaaaaa', name: 'Login', layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }), stageWidth: 1440 },
+            {
+              id: 'bbbbbbbbbb',
+              name: 'Confirm',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 512,
+              kind: 'overlay',
+              presentation: { type: 'dialog', dismissible: false },
+            },
+          ],
+        }),
+      );
+      const body = (await readBody(response)) as { file: { id: string; screens: Array<Record<string, unknown>> } };
+
+      expect(response.status).toBe(201);
+      expect(body.file.screens[0]).not.toHaveProperty('kind');
+      expect(body.file.screens[0]).not.toHaveProperty('presentation');
+      expect(body.file.screens[1]).toMatchObject({
+        kind: 'overlay',
+        presentation: { type: 'dialog', dismissible: false },
+        stageWidth: 512,
+      });
+
+      const fetched = await GET_FILE(new Request(`http://x/api/files/${body.file.id}`), withId(body.file.id));
+      const fetchedBody = (await readBody(fetched)) as { file: { screens: Array<Record<string, unknown>> } };
+      expect(fetchedBody.file.screens[1]).toMatchObject({
+        kind: 'overlay',
+        presentation: { type: 'dialog', dismissible: false },
+      });
+    });
+
     it('creates from the login example with the example name and layout when no name is given', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { example: 'login' }));
       const body = (await readBody(response)) as {
@@ -597,6 +635,95 @@ describe('files API route handlers', () => {
       );
       const cleared = await repository.get(file.id);
       expect(cleared?.screens?.[0]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
+    });
+
+    it('saves an overlay screen through PATCH, same as create', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const base = file.screens![0];
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [
+            base,
+            {
+              id: 'ovrly00001',
+              name: 'Filters',
+              layout: base.layout,
+              stageWidth: 400,
+              pageId: base.pageId,
+              kind: 'overlay',
+              presentation: { type: 'sheet', side: 'left', dismissible: true },
+            },
+          ],
+        }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      const stored = await repository.get(file.id);
+      expect(stored?.screens?.[1]).toMatchObject({
+        id: 'ovrly00001',
+        kind: 'overlay',
+        presentation: { type: 'sheet', side: 'left', dismissible: true },
+      });
+    });
+
+    it.each([
+      { name: 'an overlay without a presentation', overrides: { kind: 'overlay' } },
+      { name: 'a presentation on a plain screen', overrides: { presentation: { type: 'dialog', dismissible: true } } },
+      {
+        name: 'a presentation that does not match the union (a dialog with a side)',
+        overrides: { kind: 'overlay', presentation: { type: 'dialog', dismissible: true, side: 'left' } },
+      },
+      { name: 'an unknown kind', overrides: { kind: 'modal' } },
+    ])('returns 400 for $name, and changes nothing', async ({ overrides }) => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const base = file.screens![0];
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ id: base.id, name: 'Frame 1', layout: base.layout, stageWidth: 1440, ...overrides }],
+        }),
+        withId(file.id),
+      );
+      const body = (await readBody(response)) as { error: string };
+
+      expect(response.status).toBe(400);
+      expect(typeof body.error).toBe('string');
+
+      const stored = await repository.get(file.id);
+      expect(stored?.screens).toEqual(file.screens);
+    });
+
+    // At the wire, "exactly" means exactly: an unknown presentation key is
+    // rejected by the zod shape (z.strictObject), not stripped, matching
+    // what validateScreens does for the repository's own callers.
+    it('returns 400 for a presentation with an unknown key, on PATCH (changing nothing) and on POST alike', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const base = file.screens![0];
+      const presentation = { type: 'dialog', dismissible: true, extra: 1 };
+
+      const patched = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ id: base.id, name: 'Frame 1', layout: base.layout, stageWidth: 512, kind: 'overlay', presentation }],
+        }),
+        withId(file.id),
+      );
+      expect(patched.status).toBe(400);
+      expect(typeof ((await readBody(patched)) as { error: string }).error).toBe('string');
+      expect((await repository.get(file.id))?.screens).toEqual(file.screens);
+
+      const created = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            { id: 'aaaaaaaaaa', name: 'Confirm', layout: base.layout, stageWidth: 512, kind: 'overlay', presentation },
+          ],
+        }),
+      );
+      expect(created.status).toBe(400);
     });
 
     it('returns 400 for an invalid layout inside a screen', async () => {
