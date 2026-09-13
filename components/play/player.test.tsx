@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { FileRecord, Screen } from '@/lib/files/repository';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Player } from './player';
 
 // Hand-built Craft serialized trees (the JSON string shape `Screen.layout`
@@ -130,9 +131,15 @@ const SCREEN_2_TREE = {
   },
 };
 
-function makeFile(): FileRecord {
+function makeFile({ screen1StageHeight }: { screen1StageHeight?: number } = {}): FileRecord {
   const screens: Screen[] = [
-    { id: 'screen1', name: 'Login', layout: JSON.stringify(SCREEN_1_TREE), stageWidth: 1440 },
+    {
+      id: 'screen1',
+      name: 'Login',
+      layout: JSON.stringify(SCREEN_1_TREE),
+      stageWidth: 1440,
+      stageHeight: screen1StageHeight,
+    },
     { id: 'screen2', name: 'Second screen', layout: JSON.stringify(SCREEN_2_TREE), stageWidth: 1440 },
   ];
   return {
@@ -206,6 +213,26 @@ describe('Player', () => {
     expect(artboard).not.toBeNull();
     expect(artboard).toHaveClass('bg-background');
     expect(artboard).toHaveClass('text-foreground');
+  });
+
+  it('sizes the artboard with minHeight, not a fixed height, when the screen has no manual stageHeight', async () => {
+    render(<Player file={makeFile()} initialScreenId="screen1" />);
+    await screen.findByRole('button', { name: 'Go to second screen' });
+
+    const artboard = screen.getByTestId('artboard');
+    expect(artboard).toHaveStyle({ minHeight: `${ARTBOARD_MIN_HEIGHT}px` });
+    expect(artboard.style.height).toBe('');
+    expect(artboard).not.toHaveClass('overflow-auto');
+  });
+
+  it('sizes the artboard with an exact height and inner scrolling when the screen has a manual stageHeight', async () => {
+    render(<Player file={makeFile({ screen1StageHeight: 700 })} initialScreenId="screen1" />);
+    await screen.findByRole('button', { name: 'Go to second screen' });
+
+    const artboard = screen.getByTestId('artboard');
+    expect(artboard).toHaveStyle({ height: '700px' });
+    expect(artboard.style.minHeight).toBe('');
+    expect(artboard).toHaveClass('overflow-auto');
   });
 
   it('shows the screen name and a close link back to the editor in the overlay', async () => {
