@@ -55,7 +55,6 @@ const SCREEN_1: Screen = {
 // and its own screen, on EXAMPLES[1] (Dashboard) so its content is visibly
 // different from PAGE_ID's own screens (a "Save changes" button never
 // appears on it, the way it does not on SCREEN_1's Login example either).
-const PAGE_2_ID = 'page000002';
 
 const BASE_FILE: FileRecord = {
   id: 'file0000ab',
