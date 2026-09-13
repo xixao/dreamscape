@@ -186,17 +186,25 @@ function quickAddPosition(box: Box, side: Side, zoom: number): Point {
   }
 }
 
-// A quick-add circle sits just outside its shape's own box, so a naive
-// "am I over the shape's box" hover check would read the pointer moving
-// from the shape onto one of its own circles as having left it - hiding
-// them exactly when the user is trying to click one. Used only to keep an
-// ALREADY-hovered node's hover alive; never to start hovering fresh (a
-// circle only exists once its shape is already hovered).
-function isOverQuickAddCircle(box: Box, point: Point, zoom: number): boolean {
-  return SIDES.some((side) => {
-    const center = quickAddPosition(box, side, zoom);
-    return Math.hypot(point.x - center.x, point.y - center.y) <= QUICK_ADD_RADIUS / zoom;
-  });
+// A quick-add circle sits just outside its shape's own box, across a
+// screen-space gap - a naive "am I over the shape's box, or over one of its
+// four (small, individually-placed) circles" hover check leaves that gap,
+// and the far side of each circle, covered by neither: the pointer crossing
+// it reads as having left the shape, hiding the circles before the cursor
+// ever reaches one (the actual bug: reported as "I can't reach them, they
+// disappear because I'm not 'over' the shape anymore"). `quickAddHaloBox`
+// covers the whole gap-plus-circle zone, on all four sides at once, with a
+// single expanded rectangle - simpler than four individual circle
+// hit-tests, and deliberately generous rather than exact (it only ever
+// EXTENDS how long a hover survives past `box`'s own edge; the box hit-test
+// itself, above, is untouched and still wins immediately over any halo).
+const QUICK_ADD_HALO_SLACK_SCREEN = 4;
+const QUICK_ADD_HALO_MARGIN_SCREEN = QUICK_ADD_GAP_SCREEN + QUICK_ADD_RADIUS * 2 + QUICK_ADD_HALO_SLACK_SCREEN;
+
+/** `box` expanded by the quick-add halo margin on every side, in canvas units (screen px / zoom, like every other quick-add constant here). */
+function quickAddHaloBox(box: Box, zoom: number): Box {
+  const margin = QUICK_ADD_HALO_MARGIN_SCREEN / zoom;
+  return { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 };
 }
 
 type HoverTarget = { type: 'node' | 'frame'; id: string } | null;
@@ -641,13 +649,17 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         return;
       }
       // Quick-add circles (Build step 4) sit just outside their shape's own
-      // box - without this, the pointer moving from the shape onto one of
-      // its own circles would read as having left the shape and hide them
-      // before a click ever reaches them (spec: hide "when the pointer
-      // leaves the shape AND ITS CIRCLES", not before it even gets there).
-      if (hover?.type === 'node') {
-        const hoveredNode = diagram.nodes.find((n) => n.id === hover.id);
-        if (hoveredNode && isOverQuickAddCircle(hoveredNode, point, viewport.zoom)) return;
+      // box - without this, the pointer crossing the gap on its way to one
+      // of its own circles (or landing on the circle itself) would read as
+      // having left the shape and hide them before a click ever reaches
+      // them (spec: hide "when the pointer leaves the shape AND ITS
+      // CIRCLES", not before it even gets there). findLast, same as the box
+      // check above: the nearest (top-most by array order) node whose halo
+      // contains the point wins where two shapes' halos overlap.
+      const haloNode = diagram.nodes.findLast((n) => boxContains(quickAddHaloBox(n, viewport.zoom), point));
+      if (haloNode) {
+        setHover((current) => (current?.type === 'node' && current.id === haloNode.id ? current : { type: 'node', id: haloNode.id }));
+        return;
       }
       const frame = frames.find((f) => boxContains(f, point));
       if (frame) {
@@ -663,7 +675,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     // render is cheap and keeps them always current, the same trade-off
     // canvas.tsx's own root wheel effect makes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diagram.nodes, frames, viewport, drag, resize, connect, place, hover]);
+  }, [diagram.nodes, frames, viewport, drag, resize, connect, place]);
 
   // Escape/V (handled by keyboard.tsx, driving the `tool` prop this layer
   // only reads) can change the tool away from 'shape' while a rubber-band
