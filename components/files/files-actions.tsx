@@ -10,16 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from '@/components/workbench/chrome';
 import { EXAMPLES, type ExampleSlug } from '@/lib/examples';
-
-// SF2 §5 .btn look, reused verbatim from the plan for the Files-page
-// actions. h-auto overrides the shadcn Button's fixed h-8 so the literal
-// padding drives the box height, the same override CHIP_INPUT/SEARCH_INPUT/
-// SEG_ITEM already apply in chrome.ts when fully re-skinning a primitive.
-const SECONDARY_BUTTON =
-  'h-auto bg-muted border border-border rounded-[9px] px-3.5 py-2 text-[13px] font-medium text-foreground hover:bg-accent';
-const PRIMARY_BUTTON =
-  'h-auto text-[13px] bg-[image:var(--grad)] text-white font-semibold border-0 rounded-[9px] px-[15px] py-[9px] hover:brightness-[1.08] hover:text-white';
 
 export function FilesActions({
   folderId,

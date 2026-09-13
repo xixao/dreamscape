@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { CommentThread as CommentThreadRecord } from '@/lib/comments/store';
 import { relativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
+import { SECONDARY_BUTTON } from '../chrome';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -121,7 +123,7 @@ export function CommentThreadPopover({
           onKeyDown={handleReplyKeyDown}
           className="rounded-md border border-(color:--bevel-line) bg-(--chip) text-[13px] shadow-[var(--bevel-hi),var(--bevel-drop)] focus-visible:border-acc focus-visible:ring-0"
         />
-        <Button type="button" variant="ghost" size="sm" className="self-end" onClick={submitReply}>
+        <Button type="button" variant="ghost" className={cn(SECONDARY_BUTTON, 'self-end')} onClick={submitReply}>
           Reply
         </Button>
       </div>

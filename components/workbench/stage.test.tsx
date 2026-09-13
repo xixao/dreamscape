@@ -4,8 +4,10 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { CommentThread } from '@/lib/comments/store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
+import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
 import { Stage } from './stage';
 import { useStage } from './stage-context';
 
@@ -24,6 +26,20 @@ function screenProps(overrides: Partial<ComponentProps<typeof Stage>> = {}): Com
     onRenameScreen: vi.fn(),
     onDuplicateScreen: vi.fn(),
     onDeleteScreen: vi.fn(),
+    ...overrides,
+  };
+}
+
+function makeThread(overrides: Partial<CommentThread> = {}): CommentThread {
+  return {
+    id: 't1',
+    fileId: 'f1',
+    x: 100,
+    y: 50,
+    author: 'Matt',
+    text: 'hi',
+    createdAt: '2026-09-12T00:00:00.000Z',
+    replies: [],
     ...overrides,
   };
 }
@@ -195,5 +211,101 @@ describe('Stage', () => {
     );
     await waitFor(() => expect(screen.getByTestId('zoom')).toHaveTextContent('0.5'));
     spy.mockRestore();
+  });
+
+  it('measures the comment layer\'s artboard rect after the fit-to-width zoom has rendered, not before', async () => {
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
+    const staleRect = {
+      left: 0,
+      top: 0,
+      width: 1440,
+      height: 800,
+      right: 1440,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const freshRect = {
+      left: 40,
+      top: 20,
+      width: 720,
+      height: 400,
+      right: 760,
+      bottom: 420,
+      x: 40,
+      y: 20,
+      toJSON: () => ({}),
+    } as DOMRect;
+    // The artboard element's own inline `style.zoom` only reads "0.5" once
+    // the render triggered by this effect's setZoom(0.5) has actually
+    // committed to the DOM. A fix that reads getBoundingClientRect in the
+    // same tick as that setZoom call (the bug) can only ever observe the
+    // stale, pre-zoom rect below - never the fresh one.
+    const measureImpl = function (this: HTMLElement): DOMRect {
+      return this.style.zoom === '0.5' ? freshRect : staleRect;
+    };
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(measureImpl as unknown as () => DOMRect);
+
+    renderInEditor(
+      <Stage
+        {...screenProps({
+          comments: { ...DEFAULT_STAGE_COMMENTS, threads: [makeThread({ x: 100, y: 50 })] },
+        })}
+      />,
+      { width: 1440 },
+    );
+
+    const pin = await screen.findByRole('button', { name: 'Comment 1' });
+    // Post-zoom rect: left 40 + 100 * 0.5 = 90; top 20 + 50 * 0.5 - 24 = 21.
+    await waitFor(() => expect(pin).toHaveStyle({ left: '90px', top: '21px' }));
+
+    clientWidthSpy.mockRestore();
+    rectSpy.mockRestore();
+  });
+
+  it('re-measures the comment layer\'s artboard rect on a window resize', async () => {
+    const rectA = {
+      left: 0,
+      top: 0,
+      width: 1440,
+      height: 800,
+      right: 1440,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectB = {
+      left: 200,
+      top: 100,
+      width: 1440,
+      height: 800,
+      right: 1640,
+      bottom: 900,
+      x: 200,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rectA);
+
+    renderInEditor(
+      <Stage
+        {...screenProps({
+          comments: { ...DEFAULT_STAGE_COMMENTS, threads: [makeThread({ x: 0, y: 0 })] },
+        })}
+      />,
+    );
+
+    const pin = await screen.findByRole('button', { name: 'Comment 1' });
+    await waitFor(() => expect(pin).toHaveStyle({ left: '0px' }));
+
+    rectSpy.mockReturnValue(rectB);
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => expect(pin).toHaveStyle({ left: '200px' }));
+    rectSpy.mockRestore();
   });
 });

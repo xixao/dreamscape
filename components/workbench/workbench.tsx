@@ -465,10 +465,25 @@ function WorkbenchShell({
     setCommentMode(false);
   }
 
+  // Shared by the topbar's Comment tool button and the "c" key: turning
+  // comment mode ON is a plain toggle, but turning it OFF must also cancel a
+  // pending pin and close its composer, the same cleanup Escape and Cancel
+  // already do via cancelPendingAndExitCommentMode - otherwise a pin placed
+  // and then left mid-composer by toggling the tool off (rather than
+  // pressing Escape or Cancel) stays behind, orphaned, with no tool active
+  // to finish or discard it.
+  function toggleCommentMode(): void {
+    if (commentMode) {
+      cancelPendingAndExitCommentMode();
+    } else {
+      setCommentMode(true);
+    }
+  }
+
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
-    onToggleCommentMode: () => setCommentMode((mode) => !mode),
+    onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
   });
@@ -561,7 +576,7 @@ function WorkbenchShell({
               chatOpen={chatOpen}
               onToggleChat={() => setChatOpen((open) => !open)}
               commentMode={commentMode}
-              onToggleCommentMode={() => setCommentMode((mode) => !mode)}
+              onToggleCommentMode={toggleCommentMode}
               commentCount={threads.length}
             />
           )}

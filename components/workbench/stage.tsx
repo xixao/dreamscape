@@ -3,6 +3,7 @@
 import { Frame, useEditor, type EditorState } from '@craftjs/core';
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -138,27 +139,53 @@ export function Stage({
   useEffect(() => {
     const column = columnRef.current;
     if (!column) return;
-    const update = () => {
+    const updateZoom = () => {
       setZoom(computeZoom(column.clientWidth - STAGE_PADDING * 2, width));
-      // Feeds CommentLayer's pin/popover positioning (toScreenPoint) - see
-      // the comment on <CommentLayer> below for why that math uses real
-      // screen coordinates instead of inheriting this element's own CSS zoom.
+    };
+    updateZoom();
+    const observer = new ResizeObserver(updateZoom);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [width, setZoom]);
+
+  // Feeds CommentLayer's pin/popover positioning (toScreenPoint) - see the
+  // comment on <CommentLayer> below for why that math uses real screen
+  // coordinates instead of inheriting this element's own CSS zoom. Kept in
+  // its own layout effect, keyed on zoom/width/height, rather than measured
+  // inline inside the zoom-calc effect above: reading getBoundingClientRect
+  // in the same tick as the setZoom call that produces a new zoom races
+  // React's render, since the artboard's own `style={{ zoom }}` has not
+  // painted yet at that point - the rect measured there is always one zoom
+  // change stale (only corrected by a later, unrelated resize or scroll).
+  // A layout effect keyed on `zoom` itself always re-runs once the new zoom
+  // has actually committed to the DOM, so it measures the rect that matches
+  // what is on screen right now. The ResizeObserver on both the column and
+  // the artboard, plus the window/column scroll and window resize listeners,
+  // catch every other way the artboard's on-screen position can change
+  // without a width/height/zoom state change of its own (a sidebar
+  // resizing, the column scrolling, the browser window itself resizing).
+  useLayoutEffect(() => {
+    const column = columnRef.current;
+    const artboardEl = artboardRef.current;
+    if (!column || !artboardEl) return;
+    const update = () => {
       const rect = artboardRef.current?.getBoundingClientRect();
       if (rect) setArtboardRect(rect);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(column);
-    // The artboard can also move within the column without the column
-    // itself resizing (the column scrolls whenever the artboard is taller
-    // or wider than it) - re-measuring on scroll keeps pins from drifting
-    // away from the artboard as the user scrolls it.
+    observer.observe(artboardEl);
     column.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update);
     return () => {
       observer.disconnect();
       column.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update);
     };
-  }, [width, setZoom]);
+  }, [zoom, width, height]);
 
   // Comment mode (spec section 5): a press on the artboard places a pin
   // instead of letting Craft select whatever is underneath. Craft's own

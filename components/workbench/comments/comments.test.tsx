@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { getAuthorName } from '@/lib/comments/store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
+import { SECONDARY_BUTTON } from '../chrome';
 import { Workbench } from '../workbench';
 
 // The bundled Login screen example, not a hand-built or emptyLayoutJson()
@@ -241,5 +242,36 @@ describe('comments placeholder', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Resolve' }));
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the composer\'s Comment button and the thread\'s Reply button share the SF2 secondary button class', async () => {
+    render(<Workbench file={BASE_FILE} />);
+    await enableCommentMode();
+    clickArtboard(150, 120);
+    await screen.findByRole('dialog', { name: 'New comment' });
+    expect(screen.getByRole('button', { name: 'Comment' })).toHaveClass(SECONDARY_BUTTON);
+
+    await fillComposer({ name: 'Matt', text: 'Move this button up' });
+    await submitComposer();
+    await userEvent.click(screen.getByRole('button', { name: 'Comment 1' }));
+    await screen.findByRole('dialog', { name: 'Comment 1' });
+
+    expect(screen.getByRole('button', { name: 'Reply' })).toHaveClass(SECONDARY_BUTTON);
+  });
+
+  it('clicking the Comment tool button while a pin is pending cancels the pin and closes the composer', async () => {
+    render(<Workbench file={BASE_FILE} />);
+    await enableCommentMode();
+    clickArtboard(150, 120);
+    await screen.findByRole('dialog', { name: 'New comment' });
+
+    // Leaving comment mode via the toggle button must do the same cleanup
+    // Escape and Cancel already do, not just flip commentMode off.
+    await userEvent.click(screen.getByRole('button', { name: 'Comment tool' }));
+
+    expect(screen.queryByRole('dialog', { name: 'New comment' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'New comment' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Comment tool' })).toHaveAttribute('aria-pressed', 'false');
+    expect(storedThreads()).toHaveLength(0);
   });
 });
