@@ -20,11 +20,14 @@ import {
   type LayerStackNode,
 } from '@/lib/layer-stack';
 import { cn } from '@/lib/utils';
+import { useCanvasDocument } from './canvas-frame';
 import { MENU_HINT, MENU_POPOVER, MENU_ROW, MENU_SELECTED_CHIP } from './chrome';
 import { selectedIdFrom } from './selection';
+import { useStage } from './stage-context';
 
 const STAGE_COLUMN_SELECTOR = '[data-testid="stage-column"]';
 const ARTBOARD_SELECTOR = '[data-artboard]';
+const CANVAS_FRAME_SELECTOR = '[data-testid="canvas-frame"]';
 const MENU_OFFSET = 8;
 const MENU_MARGIN = 8;
 const HINT_TEXT = 'Hold on a layer to open this menu';
@@ -114,13 +117,24 @@ function flipToFit(
   return { x: Math.max(x, MENU_MARGIN), y: Math.max(y, MENU_MARGIN) };
 }
 
+// Converts a point to the anchor coordinates LayerStackMenu's popover (a
+// portal in the parent document) needs. Identity for a press that started in
+// the parent document (the column); for one that started inside the iframe,
+// the point is in the frame's own unscaled coordinates and must be mapped
+// onto the parent document as `iframeRect.left/top + point * zoom` (spec
+// docs/superpowers/specs/2026-09-12-responsive-canvas-design.md #4).
+type AnchorConverter = (x: number, y: number) => { x: number; y: number };
+const IDENTITY_ANCHOR: AnchorConverter = (x, y) => ({ x, y });
+
 /**
  * Detects the press-and-hold gesture on a layer inside the artboard and owns
  * the menu's `{ open, anchorX, anchorY, entries }` (spec
  * docs/superpowers/specs/2026-09-12-layer-stack-menu-design.md #4), plus the
  * currently-selected id and whether to show the first-opens hint. `anchorX`/
- * `anchorY` are the raw press point; `LayerStackMenu` derives the actual
- * rendered position from these plus the popover's measured size.
+ * `anchorY` are the raw press point (already converted to parent-document
+ * coordinates when the press started inside the iframe); `LayerStackMenu`
+ * derives the actual rendered position from these plus the popover's
+ * measured size.
  *
  * Must run inside Craft's `Editor` context (it calls `useEditor`); `LayerStackMenu`
  * calls it and is rendered inside `WorkbenchShell`'s `<Editor>`.
@@ -129,9 +143,22 @@ export function useLayerStack() {
   const { actions, query, store } = useEditor();
   const [state, setState] = useState<LayerStackState>(CLOSED_STATE);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressRef = useRef<{ x: number; y: number } | null>(null);
+  const pressRef = useRef<{ x: number; y: number; toAnchor: AnchorConverter } | null>(null);
   const swallowNextClickRef = useRef(false);
   const swallowTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The artboard now renders inside an iframe once Stage has a CanvasFrame
+  // (canvas-frame.tsx) - null in Play mode and in any test that renders a
+  // block tree without a Stage.
+  const canvasDocument = useCanvasDocument();
+  // Read live inside the event handlers below (never as an effect
+  // dependency): the effect this backs is deliberately mount-once (see its
+  // own comment further down) so a resize-driven zoom change never tears
+  // down and restarts these listeners mid-gesture.
+  const { zoom } = useStage();
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
   const close = useCallback(() => {
     store.actions.setNodeEvent('hovered', []);
@@ -165,23 +192,15 @@ export function useLayerStack() {
       }
     }
 
-    function onPointerDown(event: PointerEvent) {
-      // Every new press invalidates whatever the previous gesture armed.
-      // Without this, a hold whose trailing `click` never reaches the
-      // column (the release landed outside it, or nothing else consumed
-      // it) leaves `swallowNextClickRef` armed forever, and it would go on
-      // to eat the click from a later, completely unrelated gesture.
-      swallowNextClickRef.current = false;
-      clearSwallowTimeout();
-
-      if (event.button !== 0) return;
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest(ARTBOARD_SELECTOR)) return;
-
-      pressRef.current = { x: event.clientX, y: event.clientY };
+    // Shared by the column's own pointerdown and the iframe document's:
+    // arms the hold timer, and - once it fires - computes the stack under
+    // `target` and opens the menu at `toAnchor(clientX, clientY)`. `target`
+    // and the coordinates are captured at press time (not re-read from the
+    // event later, which has already been reused/cleared by the time this
+    // timer fires).
+    function beginHold(target: EventTarget | null, clientX: number, clientY: number, toAnchor: AnchorConverter) {
+      pressRef.current = { x: clientX, y: clientY, toAnchor };
       clearTimeout(timerRef.current ?? undefined);
-      const pressClientX = event.clientX;
-      const pressClientY = event.clientY;
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
         pressRef.current = null;
@@ -190,7 +209,7 @@ export function useLayerStack() {
         // can have moved on since the timer was scheduled 350 ms ago (same
         // reasoning as the live `query.getState()` read in keyboard.tsx).
         const liveState = query.getState();
-        const entries = stackUnder(flattenNodes(liveState.nodes), target);
+        const entries = stackUnder(flattenNodes(liveState.nodes), target as Node | null);
         if (entries.length === 0) return;
 
         swallowNextClickRef.current = true;
@@ -205,10 +224,11 @@ export function useLayerStack() {
           swallowTimeoutRef.current = null;
         }, 500);
         const opens = nextHintOpenCount();
+        const anchor = toAnchor(clientX, clientY);
         setState({
           open: true,
-          anchorX: pressClientX,
-          anchorY: pressClientY,
+          anchorX: anchor.x,
+          anchorY: anchor.y,
           entries,
           selectedId: selectedIdFrom(liveState),
           showHint: opens <= HINT_MAX_OPENS,
@@ -216,9 +236,44 @@ export function useLayerStack() {
       }, HOLD_MS);
     }
 
+    function onPointerDown(event: PointerEvent) {
+      // Every new press invalidates whatever the previous gesture armed.
+      // Without this, a hold whose trailing `click` never reaches the
+      // column (the release landed outside it, or nothing else consumed
+      // it) leaves `swallowNextClickRef` armed forever, and it would go on
+      // to eat the click from a later, completely unrelated gesture.
+      swallowNextClickRef.current = false;
+      clearSwallowTimeout();
+
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest(ARTBOARD_SELECTOR)) return;
+
+      beginHold(target, event.clientX, event.clientY, IDENTITY_ANCHOR);
+    }
+
+    // Every press inside the iframe is eligible: unlike the column, there is
+    // no "empty canvas margin" concept there - the whole document is the
+    // frame - and stackUnder already no-ops (empty entries) for a press that
+    // lands on nothing Craft rendered.
+    function onFramePointerDown(event: PointerEvent) {
+      swallowNextClickRef.current = false;
+      clearSwallowTimeout();
+      if (event.button !== 0) return;
+
+      const iframeRect = document.querySelector(CANVAS_FRAME_SELECTOR)?.getBoundingClientRect();
+      const toAnchor: AnchorConverter = iframeRect
+        ? (x, y) => ({ x: iframeRect.left + x * zoomRef.current, y: iframeRect.top + y * zoomRef.current })
+        : IDENTITY_ANCHOR;
+      beginHold(event.target, event.clientX, event.clientY, toAnchor);
+    }
+
     function onPointerMove(event: PointerEvent) {
       const press = pressRef.current;
       if (!press) return;
+      // Compared in the gesture's OWN coordinate space (parent or iframe,
+      // whichever this press started in) - a plain delta needs no
+      // conversion, only the final anchor does.
       const dx = event.clientX - press.x;
       const dy = event.clientY - press.y;
       if (Math.hypot(dx, dy) > MOVE_TOLERANCE_PX) clearHold();
@@ -258,6 +313,20 @@ export function useLayerStack() {
     column.addEventListener('dragstart', onHoldInterrupted);
     column.addEventListener('keydown', onKeyDown);
     column.addEventListener('click', onClickCapture, true);
+
+    // The iframe is a separate document: none of the column's own listeners
+    // above ever see an event that originates inside it (pointer/keyboard
+    // events do not cross document boundaries), so the whole gesture is
+    // duplicated here, targeting the frame document instead.
+    const frameDoc = canvasDocument?.document;
+    frameDoc?.addEventListener('pointerdown', onFramePointerDown);
+    frameDoc?.addEventListener('pointermove', onPointerMove);
+    frameDoc?.addEventListener('pointerup', onHoldInterrupted);
+    frameDoc?.addEventListener('pointercancel', onHoldInterrupted);
+    frameDoc?.addEventListener('dragstart', onHoldInterrupted);
+    frameDoc?.addEventListener('keydown', onKeyDown);
+    frameDoc?.addEventListener('click', onClickCapture, true);
+
     return () => {
       clearHold();
       clearSwallowTimeout();
@@ -268,16 +337,28 @@ export function useLayerStack() {
       column.removeEventListener('dragstart', onHoldInterrupted);
       column.removeEventListener('keydown', onKeyDown);
       column.removeEventListener('click', onClickCapture, true);
+      frameDoc?.removeEventListener('pointerdown', onFramePointerDown);
+      frameDoc?.removeEventListener('pointermove', onPointerMove);
+      frameDoc?.removeEventListener('pointerup', onHoldInterrupted);
+      frameDoc?.removeEventListener('pointercancel', onHoldInterrupted);
+      frameDoc?.removeEventListener('dragstart', onHoldInterrupted);
+      frameDoc?.removeEventListener('keydown', onKeyDown);
+      frameDoc?.removeEventListener('click', onClickCapture, true);
     };
-    // Deliberately mount-once: `query` reads Craft's live store no matter
-    // which render's reference is captured (same point keyboard.tsx makes
-    // about reading selection live), so nothing is gained by re-subscribing
-    // when it changes reference - and re-subscribing WOULD tear down and
-    // restart these listeners mid-gesture on any unrelated re-render of
-    // WorkbenchShell, silently cancelling a hold that happened to be
-    // pending at that moment.
+    // `canvasDocument` is the one deliberate exception to the mount-once
+    // rule this effect otherwise follows (`query` reads Craft's live store
+    // no matter which render's reference is captured, same point
+    // keyboard.tsx makes about reading selection live, so nothing else here
+    // is gained by re-subscribing when a dependency changes reference - and
+    // doing so WOULD tear down and restart these listeners mid-gesture on
+    // any unrelated re-render of WorkbenchShell, silently cancelling a hold
+    // that happened to be pending at that moment). `canvasDocument` starts
+    // null and resolves once, shortly after mount, when CanvasFrame's own
+    // iframe becomes ready - without it here, a press inside the frame
+    // would never be listened for at all in the (extremely common) case
+    // where that resolution happens after this effect's first run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canvasDocument]);
 
   return { ...state, close, select };
 }
@@ -336,7 +417,12 @@ export function LayerStackMenu() {
   // Close triggers that are not the gesture itself (spec #2): Escape,
   // Cmd/Ctrl+\ (the same Show/Hide UI chord), clicking outside the menu, or
   // scrolling the stage. Scoped to while the menu is open, and torn down the
-  // moment it closes.
+  // moment it closes. The menu itself is chrome (a portal in the parent
+  // document), but a click or scroll that closes it can originate inside the
+  // iframe too (picking a different layer directly, or scrolling an
+  // overflowing fixed-height frame) - registered on the frame document/
+  // window as well when one is available.
+  const canvasDocument = useCanvasDocument();
   useEffect(() => {
     if (!open) return;
 
@@ -360,12 +446,18 @@ export function LayerStackMenu() {
     window.addEventListener('keydown', onKeyDown);
     document.addEventListener('click', onDocumentClick);
     column?.addEventListener('scroll', onScroll);
+    canvasDocument?.window.addEventListener('keydown', onKeyDown);
+    canvasDocument?.document.addEventListener('click', onDocumentClick);
+    canvasDocument?.window.addEventListener('scroll', onScroll);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('click', onDocumentClick);
       column?.removeEventListener('scroll', onScroll);
+      canvasDocument?.window.removeEventListener('keydown', onKeyDown);
+      canvasDocument?.document.removeEventListener('click', onDocumentClick);
+      canvasDocument?.window.removeEventListener('scroll', onScroll);
     };
-  }, [open, close]);
+  }, [open, close, canvasDocument]);
 
   if (!open || typeof document === 'undefined') return null;
 

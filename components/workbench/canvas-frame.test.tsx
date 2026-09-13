@@ -165,6 +165,37 @@ describe('CanvasFrame', () => {
     resizeObserver.trigger();
     await waitFor(() => expect(iframe.style.height).toBe(`${ARTBOARD_MIN_HEIGHT}px`));
   });
+
+  it('reports the applied (unscaled) content height through onContentHeightChange, for a fixed height and for auto', async () => {
+    const resizeObserver = installFakeResizeObserver();
+    const onContentHeightChange = vi.fn();
+
+    function Wrapper({ height }: { height: number | null }) {
+      return (
+        <CanvasFrame width={800} height={height} zoom={1} onContentHeightChange={onContentHeightChange}>
+          <div>hi</div>
+        </CanvasFrame>
+      );
+    }
+    const { rerender } = render(
+      <StageProvider>
+        <Wrapper height={500} />
+      </StageProvider>,
+    );
+    await waitFor(() => expect(onContentHeightChange).toHaveBeenLastCalledWith(500));
+
+    rerender(
+      <StageProvider>
+        <Wrapper height={null} />
+      </StageProvider>,
+    );
+    await waitFor(() => expect(onContentHeightChange).toHaveBeenLastCalledWith(ARTBOARD_MIN_HEIGHT));
+
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    Object.defineProperty(iframe.contentDocument!.body, 'scrollHeight', { value: 900, configurable: true });
+    resizeObserver.trigger();
+    await waitFor(() => expect(onContentHeightChange).toHaveBeenLastCalledWith(900));
+  });
 });
 
 describe('useCanvasDocument', () => {

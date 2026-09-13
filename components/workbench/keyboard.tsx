@@ -3,6 +3,7 @@
 import { ROOT_NODE, useEditor } from '@craftjs/core';
 import { useEffect } from 'react';
 import { ZONE_TYPES } from '@/components/blocks/registry';
+import { useCanvasDocument } from './canvas-frame';
 import { selectedIdFrom } from './selection';
 
 const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
@@ -13,8 +14,19 @@ const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const POPUP_SELECTOR =
   '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
 
+// Duck-typed rather than `target instanceof HTMLElement`: with the frame now
+// sometimes living in an iframe (canvas-frame.tsx), a keydown's target can be
+// an element from that document's own realm, which has its own `HTMLElement`
+// constructor - `instanceof` against the parent window's would silently
+// return false for it even though it plainly is one (typing Delete into a
+// text block inside the frame would fall through to deleting the block).
+// Every DOM element, from any realm, has these same own/inherited members.
+function isElementLike(target: EventTarget | null): target is HTMLElement {
+  return !!target && typeof target === 'object' && 'tagName' in target && 'closest' in target;
+}
+
 export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
+  if (!isElementLike(target)) return false;
   if (EDITABLE_TAGS.has(target.tagName)) return true;
   if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null) {
     return true;
@@ -25,6 +37,13 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}): void {
   const { onToggleUi } = options;
   const { actions, query } = useEditor();
+  // The frame lives in its own document once Stage has a CanvasFrame
+  // (canvas-frame.tsx); a keydown while focus is inside it never reaches the
+  // parent window (keydown does not cross document boundaries), so the same
+  // handler is attached there too. Attaching it twice never double-handles a
+  // single keypress: each keydown is dispatched to exactly one window (the
+  // one that has focus), never both.
+  const canvasDocument = useCanvasDocument();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -70,6 +89,10 @@ export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}):
     };
 
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query, onToggleUi]);
+    canvasDocument?.window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      canvasDocument?.window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [actions, query, onToggleUi, canvasDocument]);
 }

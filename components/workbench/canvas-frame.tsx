@@ -38,12 +38,20 @@ export function CanvasFrame({
   height,
   zoom,
   title = 'Frame',
+  onContentHeightChange,
   children,
 }: {
   width: number;
   height: number | null;
   zoom: number;
   title?: string;
+  // The applied (unscaled) iframe height, whenever it changes - whether set
+  // directly by the `height` prop or, when `height` is null, measured from
+  // the content. stage.tsx uses this to reserve the right amount of space
+  // for the zoomed wrapper around this component and to seed a height/corner
+  // handle drag with a real starting value even when the frame has never had
+  // a manual height.
+  onContentHeightChange?: (height: number) => void;
   children: ReactNode;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -114,6 +122,15 @@ export function CanvasFrame({
   }, []);
 
   const appliedHeight = height ?? autoHeight;
+
+  useEffect(() => {
+    onContentHeightChange?.(appliedHeight);
+    // onContentHeightChange is deliberately not a dependency: a parent
+    // passing a fresh closure every render (the common case, e.g. an inline
+    // setState function reference is stable, but a wrapping arrow function
+    // often is not) must not re-fire this for the same height.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedHeight]);
 
   return (
     <>
