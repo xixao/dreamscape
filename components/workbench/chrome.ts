@@ -96,5 +96,8 @@ export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
 export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
 export const OVERLAY_GROUP_TITLE = 'mb-3 font-mono text-[12px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
 export const OVERLAY_ROW_LABEL = 'text-[15px] leading-6 whitespace-nowrap text-t2';
+// OVERLAY_ROW_LABEL for running text (the Element documentation dialog's
+// paragraphs and table cells): the same size and colour, allowed to wrap.
+export const OVERLAY_PARAGRAPH = 'text-[15px] leading-6 text-t2';
 export const OVERLAY_KEY_CAP =
   'rounded-sm border border-border bg-muted px-2 py-0.5 font-mono text-[13px] whitespace-nowrap shadow-[var(--bevel-hi),var(--bevel-drop)]';

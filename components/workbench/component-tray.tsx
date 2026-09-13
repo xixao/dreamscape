@@ -100,20 +100,17 @@ export function ComponentTray() {
                       <item.icon className="size-4 shrink-0 text-acc2" aria-hidden />
                       <span className="text-[13px] font-medium text-foreground">{item.label}</span>
                     </div>
+                    {/* The press bubbles like any other: the layer stack
+                    menu dismisses on a document click and Radix's non-modal
+                    layers detect outside presses the same way, so no
+                    stopPropagation here. Being outside the drag surface is
+                    what keeps it from starting a drag. */}
                     <button
                       type="button"
                       aria-label={`About ${item.label}`}
                       draggable={false}
                       className={INFO_BUTTON}
-                      // Nothing above the button sees the press: a future
-                      // row-level handler (click to insert, say) must not
-                      // fire for a request to read about the element.
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openDocs(item.type, event.currentTarget);
-                      }}
+                      onClick={(event) => openDocs(item.type, event.currentTarget)}
                     >
                       <Info className="size-3.5" aria-hidden />
                     </button>
@@ -127,6 +124,13 @@ export function ComponentTray() {
       {filteredItems.length === 0 && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No elements match.</p>
       )}
+      {/* Follow-up (after the grid merge, which owns workbench.tsx): hoist
+      this beside ShortcutsOverlay in WorkbenchShell, with the tray taking an
+      onShowDocs(type, opener) prop. Cmd+\ (toggle-ui, `always: true`) hides
+      every panel including this tray, so while the dialog is open it
+      unmounts mid-open: no exit animation, and focus lands on <body>
+      because the opener is detached. Radix's cleanups clear the modal
+      state, which component-tray.test.tsx pins. */}
       {docsType !== null && (
         <ElementDocsDialog type={docsType} open={docsOpen} onOpenChange={setDocsOpen} openerRef={docsOpenerRef} />
       )}

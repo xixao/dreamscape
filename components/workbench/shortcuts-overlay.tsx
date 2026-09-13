@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { detectPlatform, displayRows, formatKeys, type Platform, type ShortcutArea, type ShortcutRow } from '@/lib/shortcuts';
-import { OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, WIDE_DIALOG_CONTENT } from './chrome';
+import { OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, OVERLAY_TITLE, WIDE_DIALOG_CONTENT } from './chrome';
 
 // Display order for the grouped list - matches the Area column order in
 // docs/superpowers/specs/2026-09-13-shortcuts-and-elements-design.md
@@ -78,7 +78,9 @@ export function ShortcutsOverlay({
       size. */}
       <DialogContent className={WIDE_DIALOG_CONTENT}>
         <DialogHeader>
-          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          {/* OVERLAY_TITLE, the same 20px treatment as the Element
+          documentation dialog's title. */}
+          <DialogTitle className={OVERLAY_TITLE}>Keyboard shortcuts</DialogTitle>
         </DialogHeader>
         <ShortcutGroups platform={platform} />
       </DialogContent>

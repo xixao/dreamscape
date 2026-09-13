@@ -121,7 +121,6 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
       const button = screen.getByRole('button', { name: `About ${item.label}` });
       expect(button.closest('li')!.querySelector('[data-tray-item]')).toHaveAttribute('data-tray-item', item.type);
       expect(button).toHaveAttribute('type', 'button');
-      expect(button).not.toHaveAttribute('tabindex', '-1');
       expect(button).toHaveAttribute('draggable', 'false');
       const classes = button.className.split(/\s+/);
       for (const className of HIDDEN_UNTIL_HOVER_OR_FOCUS) {
@@ -146,30 +145,34 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
     }
   });
 
-  it('opens the docs dialog for that item without the press reaching the row, starting a drag, or inserting anything', async () => {
-    const onAncestorPress = vi.fn();
-    const { container, editor } = renderInEditor(
-      <div onPointerDown={onAncestorPress} onMouseDown={onAncestorPress} onClick={onAncestorPress}>
-        <ComponentTray />
-      </div>,
-    );
+  it('Tab from the search field reaches the first row\'s "About Frame" button', async () => {
+    renderInEditor(<ComponentTray />);
+    screen.getByLabelText('Search elements').focus();
+
+    await userEvent.tab();
+
+    expect(screen.getByRole('button', { name: 'About Frame' })).toHaveFocus();
+  });
+
+  it('opens the docs dialog for that item; the press bubbles to the document, starts no drag and inserts nothing', async () => {
+    const { container, editor } = renderInEditor(<ComponentTray />);
     const dragSurface = container.querySelector<HTMLElement>('[data-tray-item="Button"]')!;
     const row = dragSurface.closest('li')!;
     const onDragStart = vi.fn();
     dragSurface.addEventListener('dragstart', onDragStart);
+    // The layer stack menu (layer-stack-menu.tsx) dismisses on a bubbling
+    // document click, and Radix's non-modal layers detect outside presses
+    // the same way: the button must not stop the press from reaching them.
+    const onDocumentClick = vi.fn();
+    document.addEventListener('click', onDocumentClick);
     const nodesBefore = Object.keys(editor().query.getNodes()).length;
-
-    // Control: a press on the row's own label does reach the ancestor, so
-    // the "not called" assertion below can actually fail.
-    await userEvent.click(within(row).getByText('Button'));
-    expect(onAncestorPress).toHaveBeenCalled();
-    onAncestorPress.mockClear();
 
     const button = within(row).getByRole('button', { name: 'About Button' });
     await userEvent.click(button);
 
     expect(screen.getByRole('dialog', { name: 'Button' })).toBeInTheDocument();
-    expect(onAncestorPress).not.toHaveBeenCalled();
+    expect(onDocumentClick).toHaveBeenCalledTimes(1);
+    expect(onDocumentClick.mock.calls[0][0].target).toBe(button);
     expect(onDragStart).not.toHaveBeenCalled();
     // A drag event fired at the button (not possible in a browser, since
     // nothing draggable contains it) still never reaches Craft's handlers on
@@ -178,6 +181,66 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
     fireEvent.dragEnd(button);
     expect(onDragStart).not.toHaveBeenCalled();
     expect(Object.keys(editor().query.getNodes())).toHaveLength(nodesBefore);
+    document.removeEventListener('click', onDocumentClick);
+  });
+
+  it('a drag started on the row\'s label does reach the drag surface (positive control for the test above)', () => {
+    const { container, editor } = renderInEditor(<ComponentTray />);
+    const dragSurface = container.querySelector<HTMLElement>('[data-tray-item="Button"]')!;
+    const onDragStart = vi.fn();
+    dragSurface.addEventListener('dragstart', onDragStart);
+    const nodesBefore = Object.keys(editor().query.getNodes()).length;
+
+    // Craft's own dragstart handler on the surface calls
+    // dataTransfer.setDragImage, which jsdom's DragEvent does not carry.
+    const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(within(dragSurface.closest('li')!).getByText('Button'), { dataTransfer });
+    expect(onDragStart).toHaveBeenCalledTimes(1);
+
+    // Ends Craft's drag session; nothing was dropped on a canvas, so
+    // nothing is inserted.
+    fireEvent.dragEnd(dragSurface);
+    expect(Object.keys(editor().query.getNodes())).toHaveLength(nodesBefore);
+  });
+
+  it('opens from the keyboard: Enter on the focused button', async () => {
+    renderInEditor(<ComponentTray />);
+    screen.getByRole('button', { name: 'About Input' }).focus();
+
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByRole('dialog', { name: 'Input' })).toBeInTheDocument();
+  });
+
+  it('opens from the keyboard: Space on the focused button', async () => {
+    renderInEditor(<ComponentTray />);
+    screen.getByRole('button', { name: 'About Switch' }).focus();
+
+    await userEvent.keyboard('[Space]');
+
+    expect(screen.getByRole('dialog', { name: 'Switch' })).toBeInTheDocument();
+  });
+
+  // The dialog lives inside the tray, so hiding every panel (Cmd+\, which
+  // bypasses the dialog guard) while it is open unmounts it mid-open. The
+  // hoist to WorkbenchShell is a follow-up after the grid merge; until then
+  // this pins that the unmount is at least clean.
+  it('unmounting the tray while its dialog is open throws nothing and leaves no modal residue on the document', async () => {
+    const { rerenderUi } = renderInEditor(<ComponentTray />);
+    await userEvent.click(screen.getByRole('button', { name: 'About Button' }));
+    expect(screen.getByRole('dialog', { name: 'Button' })).toBeInTheDocument();
+    // What the open modal puts on the document, so the residue assertions
+    // below cannot pass vacuously.
+    expect(document.body.style.pointerEvents).toBe('none');
+    expect(document.body).toHaveAttribute('data-scroll-locked');
+    expect(document.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(0);
+
+    expect(() => rerenderUi(<div />)).not.toThrow();
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.body.style.pointerEvents).toBe('');
+    expect(document.body).not.toHaveAttribute('data-scroll-locked');
+    expect(document.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
   it('Escape closes the dialog and returns focus to the button that opened it', async () => {

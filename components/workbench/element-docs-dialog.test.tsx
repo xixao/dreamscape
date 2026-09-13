@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { BUTTON_DEFAULTS } from '@/components/blocks/button';
 import { getElementDoc } from '@/components/blocks/docs';
 import { schemaFor, trayItems } from '@/components/blocks/registry';
-import { WIDE_DIALOG_CONTENT } from './chrome';
-import { ElementDocsDialog, propertyRows } from './element-docs-dialog';
+import type { BlockSchema } from '@/components/blocks/schema';
+import { LABEL, OVERLAY_PARAGRAPH, WIDE_DIALOG_CONTENT } from './chrome';
+import { ElementDocsDialog, propertyRows, schemaRows } from './element-docs-dialog';
 
 function renderDialog(type: string, open = true) {
   const onOpenChange = vi.fn();
@@ -17,6 +19,10 @@ function renderDialog(type: string, open = true) {
 // Scoped because a group name can also be a field label (Frame's "Layout").
 function header(dialog: HTMLElement, name: string): HTMLElement {
   return within(dialog).getByRole('heading', { name }).parentElement!;
+}
+
+function classesOf(element: Element): string[] {
+  return (element.getAttribute('class') ?? '').split(/\s+/);
 }
 
 function propNames(table: HTMLElement): string[] {
@@ -53,17 +59,21 @@ describe('ElementDocsDialog', () => {
     expect(within(dialog).getByRole('heading', { name: 'Properties' })).toBeInTheDocument();
     const table = within(dialog).getByRole('table', { name: 'Properties' });
 
-    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
-      'Property',
-      'Type',
-      'Default',
-    ]);
+    const heads = within(table).getAllByRole('columnheader');
+    expect(heads.map((cell) => cell.textContent)).toEqual(['Property', 'Type', 'Default']);
+    // SF2 chrome only: the heads take the mono field label the tray's group
+    // headings use, the cells the shared overlay paragraph.
+    for (const head of heads) {
+      expect(classesOf(head)).toEqual(expect.arrayContaining(LABEL.split(' ')));
+    }
     expect(propNames(table)).toEqual(['label', 'variant', 'size', 'disabled', 'grow']);
 
     const variantRow = within(table).getByText('variant').closest('tr')!;
     const variantCells = within(variantRow).getAllByRole('cell');
     expect(variantCells[1]).toHaveTextContent('Default, Destructive, Outline, Secondary, Ghost, Link');
     expect(variantCells[2]).toHaveTextContent('Default');
+    expect(classesOf(variantCells[1])).toEqual(expect.arrayContaining(OVERLAY_PARAGRAPH.split(' ')));
+    expect(classesOf(variantCells[2])).toEqual(expect.arrayContaining(OVERLAY_PARAGRAPH.split(' ')));
 
     const labelRow = within(table).getByText('label').closest('tr')!;
     const labelCells = within(labelRow).getAllByRole('cell');
@@ -83,12 +93,39 @@ describe('ElementDocsDialog', () => {
     expect(within(table).queryByText('previewOpen')).toBeNull();
   });
 
+  it('sets the Summary and Usage paragraphs in the shared overlay paragraph style', () => {
+    renderDialog('Card');
+    const dialog = screen.getByRole('dialog', { name: 'Card' });
+    for (const text of [getElementDoc('Card').summary, getElementDoc('Card').usage]) {
+      expect(classesOf(within(dialog).getByText(text))).toEqual(expect.arrayContaining(OVERLAY_PARAGRAPH.split(' ')));
+    }
+  });
+
   it('uses the shared wide dialog width', () => {
     renderDialog('Card');
     const classes = screen.getByRole('dialog', { name: 'Card' }).className.split(/\s+/);
     for (const widthClass of WIDE_DIALOG_CONTENT.split(' ')) {
       expect(classes).toContain(widthClass);
     }
+  });
+
+  it('scrolls the two columns inside the dialog, never the dialog itself, so the close button stays put', () => {
+    renderDialog('LayoutBox');
+    const dialog = screen.getByRole('dialog', { name: 'Frame' });
+    // shadcn's close button is absolutely positioned inside DialogContent;
+    // were DialogContent the scroll container, the button would scroll away
+    // with the content.
+    expect(dialog.className.split(/\s+/)).not.toContain('overflow-y-auto');
+    expect(dialog.className).not.toMatch(/max-h-/);
+
+    const scroller = dialog.querySelector('.overflow-y-auto')!;
+    expect(scroller).not.toBeNull();
+    // 24px window margin each side (the dialog's own footprint) plus the
+    // DialogContent's 1rem padding top and bottom.
+    expect(classesOf(scroller)).toContain('max-h-[calc(100vh-48px-2rem)]');
+    expect(scroller.contains(within(dialog).getByRole('heading', { name: 'Summary' }))).toBe(true);
+    expect(scroller.contains(within(dialog).getByRole('table', { name: 'Properties' }))).toBe(true);
+    expect(scroller.contains(within(dialog).getByRole('button', { name: 'Close' }))).toBe(false);
   });
 
   it('Escape closes it through onOpenChange', async () => {
@@ -180,5 +217,34 @@ describe('propertyRows', () => {
 
   it('returns no rows for a type without a schema', () => {
     expect(propertyRows('Mystery')).toEqual([]);
+  });
+});
+
+describe('schemaRows', () => {
+  const schema: BlockSchema = {
+    type: 'Button',
+    fields: [
+      { prop: 'ghost', label: 'Ghost', kind: 'text', section: 'Content' },
+      { prop: 'shape', label: 'Shape', kind: 'text', section: 'Style' },
+      { prop: 'hidden', label: 'Hidden', kind: 'boolean', section: 'Editor', editorOnly: true },
+    ],
+  };
+
+  it('reads "None" for a prop the defaults do not cover', () => {
+    expect(schemaRows(schema, { shape: 'pill' })).toEqual([
+      { prop: 'ghost', label: 'Ghost', type: 'Text', defaultValue: 'None' },
+      { prop: 'shape', label: 'Shape', type: 'Text', defaultValue: 'pill' },
+    ]);
+  });
+
+  it('renders a non-responsive object default as JSON rather than [object Object]', () => {
+    const rows = schemaRows(schema, { shape: { corner: 8, sides: ['left'] } });
+    expect(rows[1].defaultValue).toBe('{"corner":8,"sides":["left"]}');
+  });
+
+  it('is what propertyRows uses for a real block', () => {
+    // Spread: ButtonBlockProps is an interface, which has no implicit index
+    // signature for the Record<string, unknown> parameter.
+    expect(propertyRows('Button')).toEqual(schemaRows(schemaFor('Button')!, { ...BUTTON_DEFAULTS }));
   });
 });

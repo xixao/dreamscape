@@ -30,6 +30,14 @@ describe('ELEMENT_DOCS', () => {
       }
     }
   });
+
+  it('keeps Figma vocabulary: never "block" or "component" for an element', () => {
+    for (const [type, doc] of Object.entries(ELEMENT_DOCS)) {
+      for (const text of [doc.summary, doc.usage]) {
+        expect(text, `${type}: ${text}`).not.toMatch(/\b(block|blocks|component|components)\b/i);
+      }
+    }
+  });
 });
 
 describe('getElementDoc', () => {

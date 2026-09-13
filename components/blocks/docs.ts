@@ -27,11 +27,11 @@ export const ELEMENT_DOCS: Record<string, ElementDoc> = {
     summary:
       'A Card is a bordered surface with a title, an optional description and a content zone that accepts other layers. It groups related content into one visual unit.',
     usage:
-      'Use a Card when a cluster of information needs its own edge on the page: a settings block, a summary tile, a pricing option. Drop layers into its content zone; the title and description are properties in the Design tab.',
+      'Use a Card when a cluster of information needs its own edge on the page: a settings section, a summary tile, a pricing option. Drop layers into its content zone; the title and description are properties in the Design tab.',
   },
   Tabs: {
     summary:
-      'Tabs show one of several panels at a time behind a row of labelled triggers. The block takes a comma-separated list of tab names and keeps one content zone for the active tab.',
+      'Tabs show one of several panels at a time behind a row of labelled triggers. It takes a comma-separated list of tab names and keeps one content zone for the active tab.',
     usage:
       'Use Tabs to split content that belongs to the same screen into views a person switches between, such as Overview, Details and Settings. In Play mode the triggers switch the active tab; on the canvas the Active tab property picks which one shows.',
   },

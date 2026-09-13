@@ -3,16 +3,21 @@
 import type { RefObject } from 'react';
 import { getElementDoc } from '@/components/blocks/docs';
 import { resolver, schemaFor, trayItems } from '@/components/blocks/registry';
-import type { FieldSchema } from '@/components/blocks/schema';
+import type { BlockSchema, FieldSchema } from '@/components/blocks/schema';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isResponsive } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
-import { OVERLAY_CAPTION, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_TITLE, WIDE_DIALOG_CONTENT } from './chrome';
+import {
+  LABEL,
+  OVERLAY_CAPTION,
+  OVERLAY_GROUP_TITLE,
+  OVERLAY_KEY_CAP,
+  OVERLAY_PARAGRAPH,
+  OVERLAY_TITLE,
+  WIDE_DIALOG_CONTENT,
+} from './chrome';
 
-// Body copy in the dialog: OVERLAY_ROW_LABEL's size and colour, without its
-// `whitespace-nowrap` (these are paragraphs, not one-line rows).
-const PARAGRAPH = 'text-[15px] leading-6 text-t2';
-const TABLE_HEAD = 'pb-2 pr-4 font-mono text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
+// Table structure only (type comes from the chrome constants above).
 const CELL = 'border-t border-line-soft py-2.5 pr-4 align-top';
 
 export interface PropertyRow {
@@ -45,6 +50,9 @@ function valueLabel(field: FieldSchema, value: unknown): string {
     return field.options.find((option) => String(option.value) === String(value))?.label ?? String(value);
   }
   if (typeof value === 'string') return value === '' ? 'Empty' : value;
+  // No block has one today; a plain object default would otherwise read
+  // "[object Object]".
+  if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
 
@@ -60,15 +68,12 @@ function defaultLabel(field: FieldSchema, value: unknown): string {
 }
 
 /**
- * The Properties table's rows for one element type, in schema order, minus
+ * The Properties table's rows for a schema, in schema order, minus
  * editor-only fields (canvas conveniences such as the Dialog's "Show content
- * on canvas", which are not properties of the element itself). Empty for a
- * type with no schema.
+ * on canvas", which are not properties of the element itself). `defaults`
+ * is the block's default props; a prop missing from it reads "None".
  */
-export function propertyRows(type: string): PropertyRow[] {
-  const schema = schemaFor(type);
-  if (!schema) return [];
-  const defaults = defaultPropsFor(type);
+export function schemaRows(schema: BlockSchema, defaults: Record<string, unknown>): PropertyRow[] {
   return schema.fields
     .filter((field) => !field.editorOnly)
     .map((field) => ({
@@ -77,6 +82,12 @@ export function propertyRows(type: string): PropertyRow[] {
       type: typeLabel(field),
       defaultValue: defaultLabel(field, defaults[field.prop]),
     }));
+}
+
+/** schemaRows for one element type; empty for a type with no schema. */
+export function propertyRows(type: string): PropertyRow[] {
+  const schema = schemaFor(type);
+  return schema ? schemaRows(schema, defaultPropsFor(type)) : [];
 }
 
 /**
@@ -111,7 +122,7 @@ export function ElementDocsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn(WIDE_DIALOG_CONTENT, 'max-h-[calc(100vh-48px)] overflow-y-auto')}
+        className={WIDE_DIALOG_CONTENT}
         onCloseAutoFocus={(event) => {
           const opener = openerRef?.current;
           if (!opener) return;
@@ -121,55 +132,61 @@ export function ElementDocsDialog({
           opener.focus();
         }}
       >
-        <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="flex flex-col gap-6">
-            <DialogHeader className="gap-1.5">
-              <DialogTitle className={OVERLAY_TITLE}>{item?.label ?? type}</DialogTitle>
-              {item && <p className={OVERLAY_CAPTION}>{item.group}</p>}
-            </DialogHeader>
-            <section>
-              <h3 className={OVERLAY_GROUP_TITLE}>Summary</h3>
-              <DialogDescription className={PARAGRAPH}>{doc.summary}</DialogDescription>
-            </section>
-            <section>
-              <h3 className={OVERLAY_GROUP_TITLE}>Usage</h3>
-              <p className={PARAGRAPH}>{doc.usage}</p>
-            </section>
-          </div>
-          <div className="flex flex-col gap-3">
-            <h3 className={cn(OVERLAY_GROUP_TITLE, 'mb-0')}>Properties</h3>
-            {rows.length > 0 ? (
-              <table aria-label="Properties" className="w-full border-collapse text-left">
-                <thead>
-                  <tr>
-                    <th scope="col" className={TABLE_HEAD}>
-                      Property
-                    </th>
-                    <th scope="col" className={TABLE_HEAD}>
-                      Type
-                    </th>
-                    <th scope="col" className={cn(TABLE_HEAD, 'pr-0')}>
-                      Default
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.prop}>
-                      <td className={cn(CELL, 'whitespace-nowrap')}>
-                        <code className={OVERLAY_KEY_CAP}>{row.prop}</code>
-                        <span className="ml-2 text-[12px] text-muted-foreground">{row.label}</span>
-                      </td>
-                      <td className={cn(CELL, PARAGRAPH)}>{row.type}</td>
-                      <td className={cn(CELL, PARAGRAPH, 'pr-0')}>{row.defaultValue}</td>
+        {/* Only the columns scroll on a short window: shadcn's close button
+        is positioned absolutely inside DialogContent, so making
+        DialogContent the scroll container would scroll it away. The cap is
+        the window minus the dialog's 24px margins and its 1rem padding. */}
+        <div className="max-h-[calc(100vh-48px-2rem)] overflow-y-auto">
+          <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <div className="flex flex-col gap-6">
+              <DialogHeader className="gap-1.5">
+                <DialogTitle className={OVERLAY_TITLE}>{item?.label ?? type}</DialogTitle>
+                {item && <p className={OVERLAY_CAPTION}>{item.group}</p>}
+              </DialogHeader>
+              <section>
+                <h3 className={OVERLAY_GROUP_TITLE}>Summary</h3>
+                <DialogDescription className={OVERLAY_PARAGRAPH}>{doc.summary}</DialogDescription>
+              </section>
+              <section>
+                <h3 className={OVERLAY_GROUP_TITLE}>Usage</h3>
+                <p className={OVERLAY_PARAGRAPH}>{doc.usage}</p>
+              </section>
+            </div>
+            <div className="flex flex-col gap-3">
+              <h3 className={cn(OVERLAY_GROUP_TITLE, 'mb-0')}>Properties</h3>
+              {rows.length > 0 ? (
+                <table aria-label="Properties" className="w-full border-collapse text-left">
+                  <thead>
+                    <tr>
+                      <th scope="col" className={cn(LABEL, 'pb-2 pr-4')}>
+                        Property
+                      </th>
+                      <th scope="col" className={cn(LABEL, 'pb-2 pr-4')}>
+                        Type
+                      </th>
+                      <th scope="col" className={cn(LABEL, 'pb-2')}>
+                        Default
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className={PARAGRAPH}>This element has no properties.</p>
-            )}
-            <p className={cn(OVERLAY_CAPTION, 'mt-2')}>Full documentation is coming soon.</p>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.prop}>
+                        <td className={cn(CELL, 'whitespace-nowrap')}>
+                          <code className={OVERLAY_KEY_CAP}>{row.prop}</code>
+                          <span className="ml-2 text-[12px] text-muted-foreground">{row.label}</span>
+                        </td>
+                        <td className={cn(CELL, OVERLAY_PARAGRAPH)}>{row.type}</td>
+                        <td className={cn(CELL, OVERLAY_PARAGRAPH, 'pr-0')}>{row.defaultValue}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className={OVERLAY_PARAGRAPH}>This element has no properties.</p>
+              )}
+              <p className={cn(OVERLAY_CAPTION, 'mt-2')}>Full documentation is coming soon.</p>
+            </div>
           </div>
         </div>
       </DialogContent>
