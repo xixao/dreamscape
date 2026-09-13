@@ -247,6 +247,40 @@ describe('Canvas', () => {
 
       expect(onRenameScreen).toHaveBeenCalledWith(SCREEN_1.id, 'Renamed frame');
     });
+
+    it('snaps a drag to another frame\'s edge, nearer than the grid, and draws a guide that clears on pointerup', async () => {
+      saveViewport(window.localStorage, 'snaptest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      const other: Screen = { ...SCREEN_2, x: 803 };
+      renderCanvas({ screens: [SCREEN_1, other], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'snaptest' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      // Dragged right edge (0+404+400=804) sits 1px from the other frame's
+      // left edge (803) - nearer than the grid's own line at 408 (4px away).
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 404, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 403, y: 0 });
+      expect(screen.getAllByTestId('snap-guide-line').length).toBeGreaterThan(0);
+
+      fireEvent.pointerUp(title, { pointerId: 1, clientX: 404, clientY: 0 });
+      expect(screen.queryAllByTestId('snap-guide-line')).toHaveLength(0);
+    });
+
+    it('Cmd held while dragging a title moves it freely, ignoring the grid and other frames', async () => {
+      saveViewport(window.localStorage, 'snaptest2', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      const other: Screen = { ...SCREEN_2, x: 803 };
+      renderCanvas({ screens: [SCREEN_1, other], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'snaptest2' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 404, clientY: 0, metaKey: true });
+
+      expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 404, y: 0 });
+    });
   });
 
   describe('CanvasViewportProvider / useCanvasViewport', () => {

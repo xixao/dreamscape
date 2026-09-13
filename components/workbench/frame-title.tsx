@@ -2,26 +2,35 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Screen } from '@/lib/files/repository';
+import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import { NAME_MAX, RenameInput } from './screens-strip';
 
-// Frame drag snaps to this many canvas px on each axis (spec docs/
-// superpowers/specs/2026-09-12-infinite-canvas-design.md section 6).
-const SNAP_PX = 8;
-
-function snap(value: number): number {
-  return Math.round(value / SNAP_PX) * SNAP_PX;
+export interface FrameSnapResult {
+  guides: SnapGuide[];
+  distances: SnapDistance[];
 }
+
+const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
 
 /**
  * A frame's title, drawn above its top-left corner in canvas space (spec
- * section 6): mono, `text-t2` when the frame is focused and `text-t4`
- * otherwise. Doubles as the drag handle that moves the whole frame (8px
- * snapping, pointer capture, deltas divided by the current zoom so a screen-
- * pixel drag always moves the frame by the same amount regardless of how
- * zoomed in or out the canvas is) and, on double-click, an inline rename
- * reusing the screens strip's own input and Enter/Escape rules.
+ * docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 6):
+ * mono, `text-t2` when the frame is focused and `text-t4` otherwise.
+ * Doubles as the drag handle that moves the whole frame - pointer capture,
+ * deltas divided by the current zoom so a screen-pixel drag always moves the
+ * frame by the same amount regardless of how zoomed in or out the canvas
+ * is, and the position resolved through lib/canvas/snap.ts's resolveSnap
+ * against `otherFrames` (spec docs/superpowers/specs/2026-09-13-grid-
+ * snapping-alignment-design.md section 3): Cmd/Ctrl held disables snapping,
+ * Alt held reports distances to the nearest neighbours even without a snap.
+ * `onSnapGuides` fires on every move with the current guides/distances, and
+ * again with both empty right before `onDragEnd` - so a caller drawing them
+ * in the canvas overlay never has to guess when to clear them - and, on
+ * double-click, an inline rename reusing the screens strip's own input and
+ * Enter/Escape rules.
  *
  * Rendered by components/workbench/canvas.tsx as a sibling of each frame's
  * Stage/FramePreview, inside that same absolutely-positioned (at the
@@ -35,12 +44,26 @@ export function FrameTitle({
   zoom,
   onRename,
   onMove,
+  otherFrames = [],
+  onSnapGuides,
+  onDragEnd,
 }: {
   screen: Screen;
   focused: boolean;
   zoom: number;
   onRename: (name: string) => void;
-  onMove: (position: { x: number; y: number }) => void;
+  // `delta` is the drag's total movement so far (canvas px, already
+  // snapped) from this frame's own position at pointerdown - how
+  // components/workbench/canvas.tsx fans a multi-frame drag out to every
+  // other selected frame (spec section 3: "dragging any selected title
+  // moves all selected frames together").
+  onMove: (position: { x: number; y: number }, delta: { dx: number; dy: number }) => void;
+  // Every OTHER frame to snap against - the caller (canvas.tsx) excludes
+  // this frame and, for a multi-select drag, every co-selected frame too
+  // (a selection does not snap against its own members).
+  otherFrames?: SnapBox[];
+  onSnapGuides?: (result: FrameSnapResult) => void;
+  onDragEnd?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,11 +99,29 @@ export function FrameTitle({
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = (event.clientX - drag.startClientX) / zoom;
     const dy = (event.clientY - drag.startClientY) / zoom;
-    onMove({ x: snap(drag.startX + dx), y: snap(drag.startY + dy) });
+    const moving: SnapBox = {
+      id: screen.id,
+      x: drag.startX + dx,
+      y: drag.startY + dy,
+      width: screen.stageWidth,
+      height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
+    };
+    const resolved = resolveSnap(moving, otherFrames, zoom, {
+      disabled: event.metaKey || event.ctrlKey,
+      showDistances: event.altKey,
+    });
+    onSnapGuides?.({ guides: resolved.guides, distances: resolved.distances });
+    onMove(resolved.position, {
+      dx: resolved.position.x - drag.startX,
+      dy: resolved.position.y - drag.startY,
+    });
   }
 
   function endDrag(event: ReactPointerEvent<HTMLButtonElement>): void {
-    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    onSnapGuides?.(NO_SNAP_RESULT);
+    onDragEnd?.();
   }
 
   if (renaming) {

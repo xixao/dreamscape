@@ -18,6 +18,7 @@ import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
 import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
+import type { SnapBox, SnapDistance, SnapGuide } from '@/lib/canvas/snap';
 import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
@@ -27,6 +28,7 @@ import type { StageCommentsProps } from './comments/comment-layer';
 import { DiagramLayer, POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import { FrameTitle } from './frame-title';
 import { isEditableTarget } from './keyboard';
+import { SnapGuides } from './snap-guides';
 import { FramePreview, Stage } from './stage';
 import { useStage } from './stage-context';
 
@@ -97,6 +99,11 @@ export function frameRect(screen: Screen): FrameRect {
     // "roughly fit everything," which is all a default viewport needs to be.
     height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
   };
+}
+
+/** frameRect, plus the screen's id - the shape lib/canvas/snap.ts's resolveSnap needs for a candidate frame to snap against or report a guide for. */
+function snapBoxFor(screen: Screen): SnapBox {
+  return { id: screen.id, ...frameRect(screen) };
 }
 
 /**
@@ -381,6 +388,17 @@ export function Canvas({
   const setStageZoom = useStage().setZoom;
   const focusedCanvasDocument = useCanvasDocument();
   const { viewport, setViewport } = useCanvasViewport();
+
+  // The guides/distances a frame's own drag last reported (spec docs/
+  // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section
+  // 2), keyed by which frame is being dragged so the SnapGuides overlay
+  // below can anchor its distance chips to that frame's own (already
+  // resolved) box. FrameTitle itself reports empty arrays right before its
+  // own onDragEnd (see frame-title.tsx's endDrag), so this needs no
+  // separate "drag ended" handling of its own to clear the overlay.
+  const [snapResult, setSnapResult] = useState<{ frameId: string; guides: SnapGuide[]; distances: SnapDistance[] } | null>(
+    null,
+  );
   // Read from event handlers and listener callbacks only (applyPanDelta,
   // onFrameWheel) - never during render, so synced through an effect rather
   // than assigned directly in the render body.
@@ -697,6 +715,11 @@ export function Canvas({
     return () => root.removeEventListener('wheel', onWheel);
   }, [rootRef, setViewport]);
 
+  // The frame snapResult last reported for, resolved against the current
+  // screens prop so SnapGuides always anchors its distance chips to that
+  // frame's own up-to-date box (see snapResult's own doc comment above).
+  const snappingScreen = snapResult ? screens.find((screen) => screen.id === snapResult.frameId) : undefined;
+
   return (
     <div
       ref={rootRef}
@@ -728,6 +751,11 @@ export function Canvas({
       >
         {screens.map((screen) => {
           const focused = screen.id === focusedScreenId;
+          // Every OTHER frame on this page, to snap against - excludes only
+          // this frame itself for now; once multi-select exists (spec
+          // section 3) it will also exclude every co-selected frame, so a
+          // selection never snaps against its own members.
+          const otherFrames = screens.filter((candidate) => candidate.id !== screen.id).map(snapBoxFor);
           return (
             <div
               key={screen.id}
@@ -741,6 +769,8 @@ export function Canvas({
                 zoom={viewport.zoom}
                 onRename={(name) => onRenameScreen(screen.id, name)}
                 onMove={(position) => onMoveScreen(screen.id, position)}
+                otherFrames={otherFrames}
+                onSnapGuides={(result) => setSnapResult({ frameId: screen.id, ...result })}
               />
               {focused ? (
                 <Stage screen={screen} viewport={viewport} comments={comments} />
@@ -781,6 +811,11 @@ export function Canvas({
           viewport={viewport}
           tool={diagramTool}
           onToolConsumed={onDiagramToolConsumed}
+        />
+        <SnapGuides
+          guides={snapResult?.guides ?? []}
+          distances={snapResult?.distances ?? []}
+          movingFrame={snappingScreen ? snapBoxFor(snappingScreen) : null}
         />
       </div>
     </div>
