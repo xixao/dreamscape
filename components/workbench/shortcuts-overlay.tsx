@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { detectPlatform, formatKeys, SHORTCUTS, type Platform, type ShortcutArea } from '@/lib/shortcuts';
+import { detectPlatform, displayRows, formatKeys, type Platform, type ShortcutArea, type ShortcutRow } from '@/lib/shortcuts';
 import { OVERLAY_CAPTION, OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, OVERLAY_SURFACE, OVERLAY_TITLE } from './chrome';
 import { isEditableTarget } from './keyboard';
 
@@ -16,8 +16,9 @@ const HOLD_MS = 600;
 // section 2, so the overlay and the README read the same way.
 const AREA_ORDER: ShortcutArea[] = ['Panels', 'Present', 'Tools', 'Canvas', 'Screens', 'Edit', 'Help'];
 
-function groupedShortcuts(): { area: ShortcutArea; items: typeof SHORTCUTS }[] {
-  return AREA_ORDER.map((area) => ({ area, items: SHORTCUTS.filter((shortcut) => shortcut.area === area) })).filter(
+function groupedShortcuts(): { area: ShortcutArea; items: ShortcutRow[] }[] {
+  const rows = displayRows();
+  return AREA_ORDER.map((area) => ({ area, items: rows.filter((row) => row.area === area) })).filter(
     (group) => group.items.length > 0,
   );
 }
@@ -37,10 +38,16 @@ function ShortcutGroups({ platform }: { platform: Platform }) {
         <div key={group.area}>
           <h3 className={OVERLAY_GROUP_TITLE}>{group.area}</h3>
           <div className="flex flex-col gap-1.5">
-            {group.items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-3">
+            {group.items.map((item: ShortcutRow) => (
+              <div key={item.ids.join('+')} className="flex items-center justify-between gap-6">
                 <span className={OVERLAY_ROW_LABEL}>{item.label}</span>
-                <span className={OVERLAY_KEY_CAP}>{formatKeys(item.keys, platform)}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {item.keys.map((keys, index) => (
+                    <span key={item.ids[index] ?? index} className={OVERLAY_KEY_CAP}>
+                      {formatKeys(keys, platform)}
+                    </span>
+                  ))}
+                </span>
               </div>
             ))}
           </div>
@@ -147,9 +154,9 @@ export function ShortcutsOverlay({
         {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
         plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
         variant scope, later in the cascade) - only a same-variant override
-        (`sm:max-w-[880px]`) actually wins. The unprefixed class is just the
+        (`sm:max-w-[calc(100vw-4rem)] xl:max-w-[1240px]`) actually wins. The unprefixed class is just the
         sensible base for narrower viewports. */}
-        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[880px]">
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-4rem)] xl:max-w-[1240px]">
           <DialogHeader>
             <DialogTitle>Keyboard shortcuts</DialogTitle>
           </DialogHeader>

@@ -63,7 +63,8 @@ describe('ShortcutsOverlay', () => {
       // The Space+drag and middle-mouse-drag pan gestures (canvas.tsx) are
       // registered in SHORTCUTS under Canvas even though matchShortcut
       // never returns their ids, specifically so they show up here.
-      expect(screen.getAllByText('Pan the canvas')).toHaveLength(2);
+      // One merged row for both pan gestures, with two key chips.
+      expect(screen.getAllByText('Pan the canvas')).toHaveLength(1);
       expect(screen.getByText('Hold Space + drag')).toBeInTheDocument();
       expect(screen.getByText('Middle mouse drag')).toBeInTheDocument();
     });
@@ -242,7 +243,7 @@ describe('ShortcutsOverlay', () => {
       expect(within(dialog).getByText('D')).toBeInTheDocument();
       expect(within(dialog).getByText('Present the focused screen')).toBeInTheDocument();
       expect(within(dialog).getByText('⌘R')).toBeInTheDocument();
-      expect(within(dialog).getAllByText('Pan the canvas')).toHaveLength(2);
+      expect(within(dialog).getAllByText('Pan the canvas')).toHaveLength(1);
       expect(within(dialog).getByText('Hold Space + drag')).toBeInTheDocument();
       expect(within(dialog).getByText('Middle mouse drag')).toBeInTheDocument();
     });
@@ -256,7 +257,8 @@ describe('ShortcutsOverlay', () => {
       // "sm:" variant scope, later in the cascade) - only a same-variant
       // override actually takes effect. See components/ui/dialog.tsx
       // (read-only) for the base classes this must out-rank.
-      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[880px]');
+      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[calc(100vw-4rem)]');
+      expect(dialog.className.split(/\s+/)).toContain('xl:max-w-[1240px]');
     });
 
     it('renders nothing else when open is false', () => {

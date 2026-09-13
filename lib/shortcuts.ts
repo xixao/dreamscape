@@ -85,29 +85,25 @@ export const SHORTCUTS: Shortcut[] = [
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
-  {
-    id: 'diagram-nudge-up',
+  { id: 'diagram-nudge-up',
     area: 'Canvas',
     keys: ['↑'],
-    label: 'Nudge the diagram selection (Shift: 64px)',
+    label: 'Nudge the selection, Shift for 64 px',
   },
-  {
-    id: 'diagram-nudge-down',
+  { id: 'diagram-nudge-down',
     area: 'Canvas',
     keys: ['↓'],
-    label: 'Nudge the diagram selection (Shift: 64px)',
+    label: 'Nudge the selection, Shift for 64 px',
   },
-  {
-    id: 'diagram-nudge-left',
+  { id: 'diagram-nudge-left',
     area: 'Canvas',
     keys: ['←'],
-    label: 'Nudge the diagram selection (Shift: 64px)',
+    label: 'Nudge the selection, Shift for 64 px',
   },
-  {
-    id: 'diagram-nudge-right',
+  { id: 'diagram-nudge-right',
     area: 'Canvas',
     keys: ['→'],
-    label: 'Nudge the diagram selection (Shift: 64px)',
+    label: 'Nudge the selection, Shift for 64 px',
   },
   { id: 'escape', area: 'Edit', keys: ['Escape'], label: 'Deselect, leave a tool, close a menu' },
   // Labelled "Shortcuts dialog" rather than "Keyboard shortcuts" (the
@@ -259,4 +255,30 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (event.key === 'ArrowRight') return 'diagram-nudge-right';
 
   return null;
+}
+
+/** One row per area and label: entries that share a label (the chat panel's
+ * C and Cmd+J, the two pan gestures, the four nudge arrows) show as a single
+ * row with every key chip, in registry order. Used by the shortcuts sheet,
+ * the dialog and the README table so all three stay identical. */
+export type ShortcutRow = { area: ShortcutArea; label: string; keys: string[][]; ids: string[] };
+
+export function displayRows(): ShortcutRow[] {
+  const rows: ShortcutRow[] = [];
+  for (const shortcut of SHORTCUTS) {
+    const existing = rows.find((row) => row.area === shortcut.area && row.label === shortcut.label);
+    if (existing) {
+      existing.keys.push(shortcut.keys);
+      existing.ids.push(shortcut.id);
+    } else {
+      rows.push({ area: shortcut.area, label: shortcut.label, keys: [shortcut.keys], ids: [shortcut.id] });
+    }
+  }
+  return rows;
+}
+
+/** The README table cell for a row: every key combination, mac formatted,
+ * joined with " or ". */
+export function readmeKeysCell(row: ShortcutRow): string {
+  return row.keys.map((keys) => formatKeys(keys, 'mac')).join(' or ');
 }

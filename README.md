@@ -72,35 +72,30 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Panels | D | Design tab |
 | Panels | P | Prototype tab |
 | Panels | E | Elements tab |
-| Panels | C | Open or close the chat panel |
-| Panels | ⌘J (Ctrl+J elsewhere) | Open or close the chat panel |
-| Panels | ⌘. (Ctrl+. elsewhere) | Minimize or expand the right panel |
-| Panels | ⌘\ (Ctrl+\ elsewhere) | Show or hide all panels |
-| Present | ⌘R (Ctrl+R elsewhere) | Present the focused screen |
+| Panels | C or ⌘J | Open or close the chat panel |
+| Panels | ⌘. | Minimize or expand the right panel |
+| Panels | ⌘\ | Show or hide all panels |
+| Present | ⌘R | Present the focused screen |
 | Tools | V | Pointer |
-| Tools | ⇧C (Shift+C elsewhere) | Comment tool |
-| Tools | ⇧D (Shift+D elsewhere) | Diagram palette |
-| Canvas | Hold Space + drag | Pan the canvas |
-| Canvas | Middle mouse drag | Pan the canvas |
-| Canvas | ⌘= (Ctrl+= elsewhere) | Zoom in |
-| Canvas | ⌘- (Ctrl+- elsewhere) | Zoom out |
-| Canvas | ⌘0 (Ctrl+0 elsewhere) | Zoom to 100% |
-| Canvas | ⇧1 (Shift+1 elsewhere) | Zoom to fit |
-| Canvas | ⇧2 (Shift+2 elsewhere) | Zoom to selection |
-| Canvas | ↑ | Nudge the diagram selection (Shift: 64px) |
-| Canvas | ↓ | Nudge the diagram selection (Shift: 64px) |
-| Canvas | ← | Nudge the diagram selection (Shift: 64px) |
-| Canvas | → | Nudge the diagram selection (Shift: 64px) |
-| Screens | ⇧N (Shift+N elsewhere) | New screen |
-| Screens | ⌘⇧] (Ctrl+Shift+] elsewhere) | Next page |
-| Screens | ⌘⇧[ (Ctrl+Shift+[ elsewhere) | Previous page |
-| Edit | ⌘Z (Ctrl+Z elsewhere) | Undo |
-| Edit | ⇧⌘Z (Shift+Ctrl+Z elsewhere) | Redo |
-| Edit | Delete (or Backspace) | Delete the selected layer |
-| Edit | ⌘D (Ctrl+D elsewhere) | Duplicate the diagram selection |
+| Tools | ⇧C | Comment tool |
+| Tools | ⇧D | Diagram palette |
+| Canvas | Hold Space + drag or Middle mouse drag | Pan the canvas |
+| Canvas | ⌘= | Zoom in |
+| Canvas | ⌘- | Zoom out |
+| Canvas | ⌘0 | Zoom to 100% |
+| Canvas | ⇧1 | Zoom to fit |
+| Canvas | ⇧2 | Zoom to selection |
+| Screens | ⇧N | New screen |
+| Screens | ⌘⇧] | Next page |
+| Screens | ⌘⇧[ | Previous page |
+| Edit | ⌘Z | Undo |
+| Edit | ⇧⌘Z | Redo |
+| Edit | Delete | Delete the selected layer |
+| Edit | ⌘D | Duplicate the diagram selection |
+| Canvas | ↑ or ↓ or ← or → | Nudge the selection, Shift for 64 px |
 | Edit | Escape | Deselect, leave a tool, close a menu |
 | Help | ? | Shortcuts dialog |
-| Help | Hold ⌘ (Hold Ctrl elsewhere) | Shortcuts overlay |
+| Help | Hold ⌘ | Shortcuts overlay |
 
 Cmd+R deliberately takes over the browser's own reload shortcut inside the editor; Cmd+Shift+R still hard-reloads. The root frame and the content zones cannot be deleted.
 

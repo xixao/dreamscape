@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { SHORTCUTS, SHORTCUTS_BY_ID, detectPlatform, formatKeys, matchShortcut, type ShortcutKeyEvent } from './shortcuts';
+import { SHORTCUTS, SHORTCUTS_BY_ID, detectPlatform, formatKeys, matchShortcut, type ShortcutKeyEvent, displayRows, readmeKeysCell } from './shortcuts';
 
 // Builds a plain object satisfying ShortcutKeyEvent (the small subset of
 // KeyboardEvent matchShortcut reads) rather than a real KeyboardEvent -
@@ -324,17 +324,22 @@ describe('README shortcut table', () => {
   // label's own cell ties both to one specific `| ... | ... |` row, so a
   // row that quietly fell out of sync with the registry actually fails
   // this.
-  it('lists every registry entry as one table row: the mac-formatted keys cell followed by the label cell', () => {
+  it('lists every merged registry row as one table row: the keys cell (all combinations joined with " or ") followed by the label cell', () => {
     const text = readme();
-    for (const shortcut of SHORTCUTS) {
-      const macKeys = formatKeys(shortcut.keys, 'mac');
-      const rowPattern = new RegExp(
-        `\\|\\s*${escapeRegExp(macKeys)}[^|\\n]*\\|\\s*${escapeRegExp(shortcut.label)}\\s*\\|`,
-      );
+    for (const row of displayRows()) {
+      const keysCell = readmeKeysCell(row);
+      const rowPattern = new RegExp(`\\|\\s*${escapeRegExp(keysCell)}\\s*\\|\\s*${escapeRegExp(row.label)}\\s*\\|`);
       expect(
         rowPattern.test(text),
-        `README has no table row matching "| ${macKeys} ... | ${shortcut.label} |" for "${shortcut.id}"`,
+        `README has no table row matching "| ${keysCell} | ${row.label} |" for "${row.ids.join(', ')}"`,
       ).toBe(true);
     }
+  });
+
+  it('merges entries that share a label into one row with every key combination', () => {
+    const chat = displayRows().find((row) => row.label === 'Open or close the chat panel');
+    expect(chat?.keys).toHaveLength(2);
+    const nudge = displayRows().find((row) => row.label.startsWith('Nudge the selection'));
+    expect(nudge?.keys.map((keys) => keys.join(' '))).toEqual(['↑', '↓', '←', '→']);
   });
 });
