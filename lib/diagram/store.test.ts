@@ -766,6 +766,37 @@ describe('diagramReducer: selection', () => {
     const next = diagramReducer(state, { type: 'clearSelection' });
     expect(next.selection).toEqual([]);
   });
+
+  it('selectAll selects every node then every edge', () => {
+    const n1 = node({ id: 'n1' });
+    const n2 = node({ id: 'n2' });
+    const e1 = edge({ id: 'e1' });
+    const e2 = edge({ id: 'e2' });
+    const state = stateWith({ nodes: [n1, n2], edges: [e1, e2] });
+    const selected = diagramReducer(state, { type: 'selectAll' });
+    expect(selected.selection).toEqual([
+      { type: 'node', id: 'n1' },
+      { type: 'node', id: 'n2' },
+      { type: 'edge', id: 'e1' },
+      { type: 'edge', id: 'e2' },
+    ]);
+    // No history entry for selecting.
+    expect(diagramReducer(selected, { type: 'undo' })).toBe(selected);
+  });
+
+  it('selectAll is a no-op when already fully selected', () => {
+    const n1 = node({ id: 'n1' });
+    const e1 = edge({ id: 'e1' });
+    const state = {
+      ...stateWith({ nodes: [n1], edges: [e1] }),
+      selection: [
+        { type: 'node' as const, id: 'n1' },
+        { type: 'edge' as const, id: 'e1' },
+      ],
+    };
+    const next = diagramReducer(state, { type: 'selectAll' });
+    expect(next).toBe(state);
+  });
 });
 
 describe('diagramReducer: undo/redo', () => {
