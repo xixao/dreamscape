@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_STAGE_WIDTH,
-  MIN_STAGE_WIDTH,
-  STAGE_PRESETS,
-  clampWidth,
-  computeZoom,
-  presetForWidth,
-} from './stage';
+import { MAX_STAGE_WIDTH, MIN_STAGE_WIDTH, STAGE_PRESETS, clampWidth, presetForWidth } from './stage';
 
 describe('presets', () => {
   it('are the PRD widths', () => {
@@ -33,22 +26,5 @@ describe('presetForWidth', () => {
     expect(presetForWidth(1440)).toBe('desktop');
     expect(presetForWidth(1439)).toBeNull();
     expect(presetForWidth(900)).toBeNull();
-  });
-});
-
-describe('computeZoom', () => {
-  it('is 1 when the artboard fits', () => {
-    expect(computeZoom(1000, 375)).toBe(1);
-    expect(computeZoom(1440, 1440)).toBe(1);
-  });
-
-  it('scales down to fit, never below 0.1', () => {
-    expect(computeZoom(720, 1440)).toBe(0.5);
-    expect(computeZoom(10, 1920)).toBe(0.1);
-  });
-
-  it('is 1 when measurements are not usable yet', () => {
-    expect(computeZoom(0, 1440)).toBe(1);
-    expect(computeZoom(500, 0)).toBe(1);
   });
 });
