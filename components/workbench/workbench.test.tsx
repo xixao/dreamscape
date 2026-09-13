@@ -1567,10 +1567,12 @@ describe('Workbench', () => {
       );
     });
 
-    it('the screens strip floats at the top-left of the canvas, beneath the top bar', () => {
-      render(<Workbench file={makeFile()} />);
-      const strip = screen.getByRole('tablist', { name: 'Screens' }).closest('[class*="absolute"]');
-      expect(strip).toHaveClass('absolute', 'top-[76px]', 'left-3');
+    it('the frames chip shows the current frame name and page frame count', () => {
+      const screen1 = { ...SCREEN_1, name: 'Login' };
+      const screen2 = { ...SCREEN_2, name: 'Settings' };
+      render(<Workbench file={makeFile({ screens: [screen1, screen2] })} />);
+      // The frames chip is in the topbar and shows: frame name · frame count
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Login · 2');
     });
 
     it('the chat panel floats below the top bar too, at the same height as the right panel', async () => {

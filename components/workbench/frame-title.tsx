@@ -5,7 +5,7 @@ import type { Screen } from '@/lib/files/repository';
 import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
-import { NAME_MAX, RenameInput } from './screens-strip';
+import { NAME_MAX, RenameInput } from './rename-input';
 
 export interface FrameSnapResult {
   guides: SnapGuide[];

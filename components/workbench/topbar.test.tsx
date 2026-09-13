@@ -56,6 +56,11 @@ function renderTopbar(
   const onDuplicatePage = overrides.onDuplicatePage ?? vi.fn();
   const onDeletePage = overrides.onDeletePage ?? vi.fn();
   const onMovePage = overrides.onMovePage ?? vi.fn();
+  const onSwitchScreen = overrides.onSwitchScreen ?? vi.fn();
+  const onRenameScreen = overrides.onRenameScreen ?? vi.fn();
+  const onDuplicateScreen = overrides.onDuplicateScreen ?? vi.fn();
+  const onDeleteScreen = overrides.onDeleteScreen ?? vi.fn();
+  const onZoomToFrame = overrides.onZoomToFrame ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
@@ -80,6 +85,11 @@ function renderTopbar(
     onDuplicatePage,
     onDeletePage,
     onMovePage,
+    onSwitchScreen,
+    onRenameScreen,
+    onDuplicateScreen,
+    onDeleteScreen,
+    onZoomToFrame,
   };
   return {
     ...renderInEditor(
@@ -152,6 +162,11 @@ describe('Topbar', () => {
             onDeletePage={() => {}}
             onMovePage={() => {}}
             currentScreenId="screen0001"
+            onSwitchScreen={() => {}}
+            onRenameScreen={() => {}}
+            onDuplicateScreen={() => {}}
+            onDeleteScreen={() => {}}
+            onZoomToFrame={() => {}}
             chatOpen={false}
             onToggleChat={() => {}}
             onZoomIn={() => {}}

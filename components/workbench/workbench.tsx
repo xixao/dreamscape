@@ -47,7 +47,6 @@ import { DEFAULT_LAYOUT_GRID, resolveLayoutGrid } from './layout-grid';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
-import { ScreensStrip } from './screens-strip';
 import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 import { StageErrorBoundary } from './stage-error-boundary';
@@ -1234,16 +1233,11 @@ function WorkbenchShell({
     frames: pageScreens.map((screen) => frameRect(screen, measuredHeights)),
   });
 
-  // Clicking a screens tab still switches the focused screen (onSelectScreen,
-  // from Workbench) and also animates the viewport to fit that frame (spec:
-  // "200 ms ease-out, cancelled by any pan/zoom input") - wrapping it here
-  // rather than in Workbench itself, since the viewport this animates is
-  // owned by this component, one level below where switchScreen lives.
-  // Deliberately NOT used for Canvas's own onFocusScreen (clicking a frame
-  // directly on the canvas): the user is already looking at that frame, so
-  // fitting it could jump the view somewhere they did not ask for.
-  function handleSelectScreenTab(id: string): void {
-    onSelectScreen(id);
+  // Frames chip zoom handler: when a frame is selected in the frames chip menu,
+  // animate the viewport to fit that frame (spec: "200 ms ease-out, cancelled by
+  // any pan/zoom input"). The frames chip menu handles the focus switch via
+  // onSelectScreen; this handler only animates the zoom.
+  function handleZoomToFrame(id: string): void {
     const target = pageScreens.find((screen) => screen.id === id);
     if (target) animateTo(zoomToRect(frameRect(target, measuredHeights), viewportSize, SELECTION_ZOOM_PADDING));
   }
@@ -1573,6 +1567,11 @@ function WorkbenchShell({
                 onDeletePage={onDeletePage}
                 onMovePage={onMovePage}
                 currentScreenId={currentScreenId}
+                onSwitchScreen={onSelectScreen}
+                onRenameScreen={onRenameScreen}
+                onDuplicateScreen={onDuplicateScreen}
+                onDeleteScreen={onDeleteScreen}
+                onZoomToFrame={handleZoomToFrame}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((open) => !open)}
                 commentMode={commentMode}
@@ -1632,21 +1631,6 @@ function WorkbenchShell({
                   <div className={cn(CHIP, 'px-3')}>
                     <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
                   </div>
-                </div>
-              )}
-              {!uiHidden && (
-                <div className="absolute top-[76px] left-3 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
-                  <ScreensStrip
-                    screens={pageScreens}
-                    pages={pages}
-                    currentScreenId={currentScreenId}
-                    onSelect={handleSelectScreenTab}
-                    onAdd={onAddScreen}
-                    onRename={onRenameScreen}
-                    onDuplicate={onDuplicateScreen}
-                    onDelete={onDeleteScreen}
-                    onMoveToPage={onMoveScreenToPage}
-                  />
                 </div>
               )}
               <LayerStackMenu />

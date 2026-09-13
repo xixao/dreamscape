@@ -45,6 +45,7 @@ import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
 import { useCanvasViewport } from './canvas';
 import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { FramesChip } from './frames-chip';
 import { PagesMenu } from './pages-menu';
 import { useStage } from './stage-context';
 
@@ -362,6 +363,11 @@ export function Topbar({
   onDeletePage,
   onMovePage,
   currentScreenId,
+  onSwitchScreen,
+  onRenameScreen,
+  onDuplicateScreen,
+  onDeleteScreen,
+  onZoomToFrame,
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
@@ -392,6 +398,11 @@ export function Topbar({
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: 'up' | 'down') => void;
   currentScreenId: string;
+  onSwitchScreen: (id: string) => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onDuplicateScreen: (id: string) => void;
+  onDeleteScreen: (id: string) => void;
+  onZoomToFrame: (id: string) => void;
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
@@ -459,6 +470,16 @@ export function Topbar({
           onDuplicate={onDuplicatePage}
           onDelete={onDeletePage}
           onMove={onMovePage}
+        />
+        <FramesChip
+          frames={screens.filter((screen) => screen.pageId === currentPageId)}
+          currentFrameId={currentScreenId}
+          onSwitch={onSwitchScreen}
+          onAdd={onNew}
+          onRename={onRenameScreen}
+          onDuplicate={onDuplicateScreen}
+          onDelete={onDeleteScreen}
+          onZoomToFrame={onZoomToFrame}
         />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
         <ToggleGroup
