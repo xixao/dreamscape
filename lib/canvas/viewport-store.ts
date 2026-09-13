@@ -29,15 +29,18 @@ function isViewport(value: unknown): value is Viewport {
 }
 
 /**
- * The saved viewport `{ x, y, zoom }` for this file in this browser, or null
- * when nothing is stored yet, the value is corrupt JSON, or it does not have
- * the shape of a Viewport - every failure mode falls back to null rather
- * than throwing, so a caller can always treat null as "compute a default
- * (fit all) instead."
+ * The saved viewport `{ x, y, zoom }` for this page of this file in this
+ * browser, or null when nothing is stored yet, the value is corrupt JSON,
+ * or it does not have the shape of a Viewport - every failure mode falls
+ * back to null rather than throwing, so a caller can always treat null as
+ * "compute a default (fit all) instead." Keyed per page (migration 0003),
+ * not just per file: each page is its own infinite canvas with its own pan
+ * and zoom, so switching pages must not carry one page's viewport onto
+ * another's frames.
  */
-export function loadViewport(storage: ViewportStorageLike, fileId: string): Viewport | null {
+export function loadViewport(storage: ViewportStorageLike, fileId: string, pageId: string): Viewport | null {
   try {
-    const raw = storage.getItem(KEY_PREFIX + fileId);
+    const raw = storage.getItem(KEY_PREFIX + fileId + ':' + pageId);
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     return isViewport(parsed) ? parsed : null;
@@ -46,9 +49,9 @@ export function loadViewport(storage: ViewportStorageLike, fileId: string): View
   }
 }
 
-export function saveViewport(storage: ViewportStorageLike, fileId: string, viewport: Viewport): void {
+export function saveViewport(storage: ViewportStorageLike, fileId: string, pageId: string, viewport: Viewport): void {
   try {
-    storage.setItem(KEY_PREFIX + fileId, JSON.stringify(viewport));
+    storage.setItem(KEY_PREFIX + fileId + ':' + pageId, JSON.stringify(viewport));
   } catch {
     // Best effort only - a full or disabled store should not crash the
     // canvas, matching lib/workbench/panel-store.ts's savePanelMode.

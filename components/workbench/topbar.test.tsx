@@ -50,11 +50,20 @@ function renderTopbar(
   const onZoomOut = overrides.onZoomOut ?? vi.fn();
   const onZoomToFit = overrides.onZoomToFit ?? vi.fn();
   const onZoomToSelection = overrides.onZoomToSelection ?? vi.fn();
+  const onSwitchPage = overrides.onSwitchPage ?? vi.fn();
+  const onAddPage = overrides.onAddPage ?? vi.fn();
+  const onRenamePage = overrides.onRenamePage ?? vi.fn();
+  const onDuplicatePage = overrides.onDuplicatePage ?? vi.fn();
+  const onDeletePage = overrides.onDeletePage ?? vi.fn();
+  const onMovePage = overrides.onMovePage ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
     fileId: 'file123abc',
     folderId: null,
+    pages: [{ id: 'page000001', name: 'Page 1' }],
+    currentPageId: 'page000001',
+    screens: [],
     currentScreenId: 'screen0001',
     chatOpen: false,
     ...overrides,
@@ -65,6 +74,12 @@ function renderTopbar(
     onZoomOut,
     onZoomToFit,
     onZoomToSelection,
+    onSwitchPage,
+    onAddPage,
+    onRenamePage,
+    onDuplicatePage,
+    onDeletePage,
+    onMovePage,
   };
   return {
     ...renderInEditor(
@@ -80,6 +95,12 @@ function renderTopbar(
     onZoomOut,
     onZoomToFit,
     onZoomToSelection,
+    onSwitchPage,
+    onAddPage,
+    onRenamePage,
+    onDuplicatePage,
+    onDeletePage,
+    onMovePage,
   };
 }
 
@@ -121,6 +142,15 @@ describe('Topbar', () => {
             onNew={() => {}}
             fileId="file123abc"
             folderId={null}
+            pages={[{ id: 'page000001', name: 'Page 1' }]}
+            currentPageId="page000001"
+            screens={[]}
+            onSwitchPage={() => {}}
+            onAddPage={() => {}}
+            onRenamePage={() => {}}
+            onDuplicatePage={() => {}}
+            onDeletePage={() => {}}
+            onMovePage={() => {}}
             currentScreenId="screen0001"
             chatOpen={false}
             onToggleChat={() => {}}
@@ -168,7 +198,7 @@ describe('Topbar', () => {
     it('is a ghost icon link opening the play route for the current screen in a new tab', () => {
       renderTopbar({ fileId: 'file123abc', currentScreenId: 'screen0002' });
       const present = screen.getByRole('link', { name: 'Present' });
-      expect(present).toHaveAttribute('href', '/f/file123abc/play?screen=screen0002');
+      expect(present).toHaveAttribute('href', '/f/file123abc/play?page=page000001&screen=screen0002');
       expect(present).toHaveAttribute('target', '_blank');
       expect(present).toHaveAttribute('rel', expect.stringContaining('noopener'));
     });

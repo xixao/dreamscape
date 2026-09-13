@@ -17,10 +17,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import type { Screen } from '@/lib/files/repository';
+import type { Page, Screen } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
 import { CHIP_INPUT, DANGER_GHOST, SEG_ITEM } from './chrome';
 
@@ -74,20 +77,31 @@ export function RenameInput({
 
 export function ScreensStrip({
   screens,
+  pages,
   currentScreenId,
   onSelect,
   onAdd,
   onRename,
   onDuplicate,
   onDelete,
+  onMoveToPage,
 }: {
   screens: Screen[];
+  // Every page of the file (not just this one), for the chevron menu's
+  // "Move to page" submenu - see the spec's own wording (docs/superpowers/
+  // specs/2026-09-12-pages-design.md section 3: "'Move to page' in the
+  // screen's chevron menu (submenu listing the pages)"). Optional so a
+  // caller with only one page (or none of this feature's concerns at all)
+  // can omit it; the submenu itself only ever renders once there is at
+  // least one OTHER page to move to.
+  pages?: Page[];
   currentScreenId: string;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onMoveToPage?: (id: string, pageId: string) => void;
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Screen | null>(null);
@@ -165,6 +179,20 @@ export function ScreensStrip({
               >
                 <DropdownMenuItem onSelect={() => setRenamingId(item.id)}>Rename</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => onDuplicate(item.id)}>Duplicate</DropdownMenuItem>
+                {pages && pages.length > 1 && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {pages
+                        .filter((page) => page.id !== item.pageId)
+                        .map((page) => (
+                          <DropdownMenuItem key={page.id} onSelect={() => onMoveToPage?.(item.id, page.id)}>
+                            {page.name}
+                          </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   disabled={screens.length <= 1}

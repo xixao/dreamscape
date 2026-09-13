@@ -51,17 +51,26 @@ function frameBody(): HTMLElement {
 // fixture assembled by hand can drift from that just enough (a few bytes)
 // to make a screen's very first mount look like a real edit and trigger an
 // unwanted extra save that has nothing to do with what a test is checking.
+// The one page every screen in this file's fixtures lives on unless a test
+// explicitly builds a second one - keeping it a fixed, known id (rather
+// than leaving `pages` off FileRecord and letting Workbench's own
+// resolveInitialPages fallback mint a random one) is what lets tests below
+// assert on exact hash/URL/saved-patch values instead of pattern-matching a
+// page id they cannot predict.
+const PAGE_ID = 'page000001';
 const SCREEN_1: Screen = {
   id: 'screen0001',
   name: 'Frame 1',
   layout: EXAMPLES[0].layout,
   stageWidth: EXAMPLES[0].stageWidth,
+  pageId: PAGE_ID,
 };
 const SCREEN_2: Screen = {
   id: 'screen0002',
   name: 'Frame 2',
   layout: EXAMPLES[2].layout, // Settings: has a "Save changes" button, unlike Login.
   stageWidth: EXAMPLES[2].stageWidth,
+  pageId: PAGE_ID,
 };
 // Used only by the "frame positions" tests below, which need a third screen
 // and never assert on its rendered content.
@@ -70,6 +79,7 @@ const SCREEN_3: Screen = {
   name: 'Frame 3',
   layout: EXAMPLES[1].layout,
   stageWidth: EXAMPLES[1].stageWidth,
+  pageId: PAGE_ID,
 };
 
 const BASE_FILE: FileRecord = {
@@ -78,6 +88,7 @@ const BASE_FILE: FileRecord = {
   createdAt: '2026-09-12T00:00:00.000Z',
   updatedAt: '2026-09-12T00:00:00.000Z',
   folderId: null,
+  pages: [{ id: PAGE_ID, name: 'Page 1' }],
   screens: [SCREEN_1],
 };
 
@@ -726,14 +737,14 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
         'href',
-        `/f/${BASE_FILE.id}/play?screen=${SCREEN_1.id}`,
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`,
       );
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
 
       expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
         'href',
-        `/f/${BASE_FILE.id}/play?screen=${SCREEN_2.id}`,
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
       );
     });
 
@@ -743,7 +754,7 @@ describe('Workbench', () => {
 
       const notCancelled = fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
-        `/f/${BASE_FILE.id}/play?screen=${SCREEN_1.id}`,
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`,
         '_blank',
         'noopener,noreferrer',
       );
@@ -752,7 +763,7 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
-        `/f/${BASE_FILE.id}/play?screen=${SCREEN_2.id}`,
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
         '_blank',
         'noopener,noreferrer',
       );

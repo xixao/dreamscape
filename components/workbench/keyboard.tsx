@@ -89,6 +89,12 @@ export function useWorkbenchKeyboard(
     // Shift+N: adds a screen, same as the screens strip's own "New screen"
     // button.
     onAddScreen?: () => void;
+    // Cmd+Shift+]/[ (spec docs/superpowers/specs/2026-09-12-pages-design.md
+    // section 3): goes to the next/previous page, guarded like every other
+    // plain (non-`always`) shortcut - never fires inside a text field,
+    // select or dialog.
+    onPageNext?: () => void;
+    onPagePrev?: () => void;
     // "?": opens the shortcuts sheet as a dialog, same content the Cmd-hold
     // overlay shows (components/workbench/shortcuts-overlay.tsx) and the
     // same action the top bar's overflow menu item performs.
@@ -111,6 +117,8 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onPageNext,
+    onPagePrev,
     onOpenShortcuts,
   } = options;
   const { actions, query } = useEditor();
@@ -217,6 +225,22 @@ export function useWorkbenchKeyboard(
           onAddScreen?.();
           return;
 
+        case 'page-next':
+          // preventDefault: Cmd+Shift+]/Ctrl+Shift+] is a real browser
+          // shortcut too (next tab, in Chrome and Safari on Mac) - the
+          // editor must win when the chord legitimately reaches here (it
+          // never does from inside a text field or dialog - see this
+          // shortcut's own `always` being unset in lib/shortcuts.ts, unlike
+          // the zoom/present chords above).
+          event.preventDefault();
+          onPageNext?.();
+          return;
+
+        case 'page-prev':
+          event.preventDefault();
+          onPagePrev?.();
+          return;
+
         case 'shortcuts-help':
           onOpenShortcuts?.();
           return;
@@ -278,6 +302,8 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onPageNext,
+    onPagePrev,
     onOpenShortcuts,
     canvasDocument,
   ]);

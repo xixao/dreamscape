@@ -88,6 +88,8 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ⇧1 (Shift+1 elsewhere) | Zoom to fit |
 | Canvas | ⇧2 (Shift+2 elsewhere) | Zoom to selection |
 | Screens | ⇧N (Shift+N elsewhere) | New screen |
+| Screens | ⌘⇧] (Ctrl+Shift+] elsewhere) | Next page |
+| Screens | ⌘⇧[ (Ctrl+Shift+[ elsewhere) | Previous page |
 | Edit | ⌘Z (Ctrl+Z elsewhere) | Undo |
 | Edit | ⇧⌘Z (Shift+Ctrl+Z elsewhere) | Redo |
 | Edit | Delete (or Backspace) | Delete the selected layer |

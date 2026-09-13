@@ -1,9 +1,10 @@
-import type { Screen } from './files/repository';
+import type { Page, Screen } from './files/repository';
 
 export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 
 export type FilePatch = {
   screens?: Screen[];
+  pages?: Page[];
   name?: string;
 };
 

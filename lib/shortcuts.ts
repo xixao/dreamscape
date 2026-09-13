@@ -75,6 +75,8 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'zoom-to-fit', area: 'Canvas', keys: ['Shift', '1'], label: 'Zoom to fit' },
   { id: 'zoom-to-selection', area: 'Canvas', keys: ['Shift', '2'], label: 'Zoom to selection' },
   { id: 'screen-new', area: 'Screens', keys: ['Shift', 'N'], label: 'New screen' },
+  { id: 'page-next', area: 'Screens', keys: ['Mod', 'Shift', ']'], label: 'Next page' },
+  { id: 'page-prev', area: 'Screens', keys: ['Mod', 'Shift', '['], label: 'Previous page' },
   { id: 'undo', area: 'Edit', keys: ['Mod', 'Z'], label: 'Undo' },
   { id: 'redo', area: 'Edit', keys: ['Shift', 'Mod', 'Z'], label: 'Redo' },
   { id: 'delete-layer', area: 'Edit', keys: ['Delete'], label: 'Delete the selected layer' },
@@ -153,6 +155,16 @@ const ZOOM_OUT_KEYS = new Set(['-', '_']);
 const ZOOM_IN_CODES = new Set(['Equal', 'NumpadAdd']);
 const ZOOM_OUT_CODES = new Set(['Minus', 'NumpadSubtract']);
 
+// Cmd+Shift+]/[ (next/previous page): `event.key` already reflects the
+// shifted character a real US-layout keyboard reports for Shift+]/[ ('}'/
+// '{'), so both the plain and shifted character are accepted, same pattern
+// as ZOOM_IN_KEYS/ZOOM_OUT_KEYS above; `code` is checked too for a
+// keyboard/OS combination that reports something unexpected for `key`.
+const PAGE_NEXT_KEYS = new Set([']', '}']);
+const PAGE_PREV_KEYS = new Set(['[', '{']);
+const PAGE_NEXT_CODE = 'BracketRight';
+const PAGE_PREV_CODE = 'BracketLeft';
+
 /**
  * Maps a raw keyboard event to the `Shortcut.id` it corresponds to, or
  * `null` for anything unhandled. Purely a key-matching function - it knows
@@ -173,6 +185,8 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (mod && (ZOOM_OUT_KEYS.has(event.key) || ZOOM_OUT_CODES.has(event.code))) return 'zoom-out';
   if (mod && event.key === '0') return 'zoom-reset';
   if (mod && !shift && key === 'r') return 'present';
+  if (mod && shift && (PAGE_NEXT_KEYS.has(event.key) || event.code === PAGE_NEXT_CODE)) return 'page-next';
+  if (mod && shift && (PAGE_PREV_KEYS.has(event.key) || event.code === PAGE_PREV_CODE)) return 'page-prev';
   if (mod && shift && key === 'z') return 'redo';
   if (mod && key === 'z') return 'undo';
   if (mod) return null;

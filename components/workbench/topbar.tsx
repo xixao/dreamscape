@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import type { Page, Screen } from '@/lib/files/repository';
 import { zoomTo } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
 import { formatKeys, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
@@ -42,6 +43,7 @@ import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
 import { useCanvasViewport } from './canvas';
 import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { PagesMenu } from './pages-menu';
 import { useStage } from './stage-context';
 
 const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
@@ -348,6 +350,15 @@ export function Topbar({
   onNew,
   fileId,
   folderId,
+  pages,
+  currentPageId,
+  screens,
+  onSwitchPage,
+  onAddPage,
+  onRenamePage,
+  onDuplicatePage,
+  onDeletePage,
+  onMovePage,
   currentScreenId,
   commentMode = false,
   onToggleCommentMode,
@@ -367,6 +378,15 @@ export function Topbar({
   onNew: () => void;
   fileId: string;
   folderId: string | null;
+  pages: Page[];
+  currentPageId: string;
+  screens: Screen[];
+  onSwitchPage: (id: string) => void;
+  onAddPage: () => void;
+  onRenamePage: (id: string, name: string) => void;
+  onDuplicatePage: (id: string) => void;
+  onDeletePage: (id: string) => void;
+  onMovePage: (id: string, direction: 'up' | 'down') => void;
   currentScreenId: string;
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
@@ -385,26 +405,51 @@ export function Topbar({
     canRedo: query.history.canRedo(),
   }));
   const filesHref = folderId ? `/folders/${folderId}` : '/';
-  const presentHref = `/f/${fileId}/play?screen=${currentScreenId}`;
+  const presentHref = `/f/${fileId}/play?page=${currentPageId}&screen=${currentScreenId}`;
 
   return (
     <TooltipProvider delayDuration={0}>
       <header
         className={cn(PANEL, 'shadow-panel-lg', 'absolute top-3 left-3 right-3 z-10', 'flex h-[54px] items-center gap-2 px-3.5')}
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link href={filesHref} aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
-              <ArrowLeft className="size-4" aria-hidden />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>Files</TooltipContent>
-        </Tooltip>
-        <span className="text-[13px] font-semibold">Assembly Workbench</span>
+        {/*
+          Breadcrumb (spec docs/superpowers/specs/2026-09-12-pages-design.md
+          section 3: "Files › <file> › <page>"), matching the root crumb's
+          own wording on the Files page itself (components/files/files-
+          page.tsx) - a plain Link, not the shadcn Breadcrumb primitive that
+          page uses, since this compact bar already mixes a chevron and an
+          editable chip into the same row a real <ol>-based breadcrumb is
+          not built to hold. Replaces the old bare ArrowLeft icon button:
+          two adjacent links both named "Files" (an icon-only one plus this
+          text) would be a confusing, redundant stop for a screen reader,
+          so the icon now sits inside this same link instead of its own.
+        */}
+        <Link
+          href={filesHref}
+          aria-label="Files"
+          className="flex items-center gap-1.5 text-[13px] font-semibold hover:underline"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          Files
+        </Link>
         <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
           ›
         </span>
         <FileNameField fileName={fileName} onRename={onRename} />
+        <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
+          ›
+        </span>
+        <PagesMenu
+          pages={pages}
+          currentPageId={currentPageId}
+          screens={screens}
+          onSwitch={onSwitchPage}
+          onAdd={onAddPage}
+          onRename={onRenamePage}
+          onDuplicate={onDuplicatePage}
+          onDelete={onDeletePage}
+          onMove={onMovePage}
+        />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
         <ToggleGroup
           type="single"

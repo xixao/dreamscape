@@ -5,14 +5,16 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { Button } from '@/components/ui/button';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
-import type { FileRecord, Screen } from '@/lib/files/repository';
+import type { FileRecord, Page, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
+import { cn } from '@/lib/utils';
 import {
   loadPanelCollapsed,
   loadPanelMode,
@@ -22,6 +24,7 @@ import {
 import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
+import { CHIP, SECONDARY_BUTTON } from './chrome';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -48,23 +51,72 @@ const SELECTION_ZOOM_PADDING = 48;
 // prop below and app/f/[id]/page.tsx, which computes it).
 const INVALID_LAYOUT_NOTICE = 'The saved design of this screen could not be read; it starts empty.';
 
+// A file always has at least one page by the time it reaches this component
+// in real use (validatePages rejects zero pages, and migration 0003
+// backfilled one onto every pre-pages file) - this is only a fallback for
+// the optional `pages` field's own precedent (see the comment on FileRecord
+// in lib/files/repository.ts), e.g. an older test fixture that predates
+// pages. A fresh nanoid(10) every call, same rationale as defaultScreen():
+// two files opened without pages back to back must not collide, though in
+// practice this only ever runs once per mount (see initialPages below).
+function resolveInitialPages(file: FileRecord): Page[] {
+  return file.pages && file.pages.length > 0 ? file.pages : [{ id: nanoid(10), name: 'Page 1' }];
+}
+
 // A file always has at least one screen by the time it reaches this
 // component in real use (the repository's create()/save() both run every
 // screens array through validateScreens, which rejects zero screens) - this
 // is only a fallback for the optional `screens` field's own precedent (see
 // the comment on FileRecord in lib/files/repository.ts), e.g. an older test
-// fixture that predates screens.
-function resolveInitialScreens(file: FileRecord): Screen[] {
-  return file.screens && file.screens.length > 0 ? file.screens : [defaultScreen()];
+// fixture that predates screens. Every screen is then stamped with `pages`'
+// own first page when it does not already name one - the same convenience
+// stampMissingPageId gives a create()/save() caller that has not adopted
+// pages yet (lib/files/repository.ts) - so an older fixture with screens
+// but no pageId still ends up on the one page resolveInitialPages resolved
+// for it, instead of being invisible on every page's own filtered view.
+function resolveInitialScreens(file: FileRecord, pages: Page[]): Screen[] {
+  const screens: Screen[] = file.screens && file.screens.length > 0 ? file.screens : [defaultScreen()];
+  const fallbackPageId = pages[0].id;
+  return screens.map((screen) => (screen.pageId ? screen : { ...screen, pageId: fallbackPageId }));
 }
 
-// The current screen id is remembered in the URL hash (#s=<id>) so a reload
-// keeps it; falls back to the first screen when the hash names no screen of
-// this file (missing, stale after a delete, or simply absent on first load).
-function screenIdFromHash(hash: string, screens: Screen[]): string {
-  const match = /[#&]s=([^&]+)/.exec(hash);
-  const id = match?.[1];
-  return id && screens.some((screen) => screen.id === id) ? id : screens[0].id;
+// The current page id is remembered in the URL hash: explicitly, as
+// `#p=<id>`, when the current page has no screen to derive it from (an
+// empty page); implicitly otherwise, via whichever screen `#s=<id>` names
+// (switchScreen only ever writes `#s=`, never `#p=`, when the target page
+// has a screen - see switchScreen and switchPage below). `#p=` wins when
+// both are present and valid, matching the spec's own stated precedence;
+// falls back to the file's first page when neither names anything real.
+function pageIdFromHash(hash: string, screens: Screen[], pages: Page[]): string {
+  const pageMatch = /[#&]p=([^&]+)/.exec(hash)?.[1];
+  if (pageMatch && pages.some((page) => page.id === pageMatch)) return pageMatch;
+  const screenMatch = /[#&]s=([^&]+)/.exec(hash)?.[1];
+  if (screenMatch) {
+    const screen = screens.find((candidate) => candidate.id === screenMatch);
+    if (screen?.pageId && pages.some((page) => page.id === screen.pageId)) return screen.pageId;
+  }
+  return pages[0].id;
+}
+
+// The screen to focus for a given (already-resolved) page id: the one named
+// by `#s=<id>` in the hash when it actually belongs to this page, else the
+// first screen on this page in array order, else '' when the page has no
+// screen at all - an empty page shows the canvas with its own "no screens
+// yet" chip rather than a Stage for a screen that does not exist.
+function screenIdForPage(hash: string, screens: Screen[], pageId: string): string {
+  const screenMatch = /[#&]s=([^&]+)/.exec(hash)?.[1];
+  if (screenMatch) {
+    const screen = screens.find((candidate) => candidate.id === screenMatch && candidate.pageId === pageId);
+    if (screen) return screen.id;
+  }
+  return firstScreenIdForPage(screens, pageId);
+}
+
+// Shared by screenIdForPage above and switchPage/deleteScreen/
+// moveScreenToPage further down: the first screen (array order) belonging
+// to `pageId`, or '' when that page currently has none.
+function firstScreenIdForPage(screens: Screen[], pageId: string): string {
+  return screens.find((screen) => screen.pageId === pageId)?.id ?? '';
 }
 
 type MinimalQuery = { serialize: () => string };
@@ -100,15 +152,31 @@ export function Workbench({
 }) {
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [fileName, setFileName] = useState(file.name);
+  // Computed once, up front, and reused by every state initializer below
+  // rather than each calling resolveInitialPages/resolveInitialScreens
+  // itself: resolveInitialPages can mint a fresh random id (its own
+  // pre-pages-fixture fallback), and calling it more than once per mount
+  // would hand different initializers different ids for what must be the
+  // exact same implicit page - screens and pages would then disagree about
+  // which page is "the first one". React only ever consumes a useState
+  // initializer's return value from the FIRST render anyway, so recomputing
+  // these on later renders (cheap, and here harmless even in the fallback
+  // case, since nothing reads them again) costs nothing real.
+  const initialPages = resolveInitialPages(file);
   // A screen predating this feature has no x/y yet; layoutMissingPositions
-  // (lib/files/layout.ts) fills them in left to right, in screen order, the
-  // moment the file loads - so the canvas always has a concrete position for
-  // every frame, without ever queuing a save purely from loading the file
-  // (that only happens on the next real change, once these computed
-  // positions are already part of `screens` and so ride along with it).
-  const [screens, setScreens] = useState<Screen[]>(() => layoutMissingPositions(resolveInitialScreens(file)));
+  // (lib/files/layout.ts) fills them in left to right, per page, the moment
+  // the file loads - so the canvas always has a concrete position for every
+  // frame, without ever queuing a save purely from loading the file (that
+  // only happens on the next real change, once these computed positions are
+  // already part of `screens` and so ride along with it).
+  const initialScreens = layoutMissingPositions(resolveInitialScreens(file, initialPages));
+  const initialPageId = pageIdFromHash(window.location.hash, initialScreens, initialPages);
+
+  const [pages, setPages] = useState<Page[]>(() => initialPages);
+  const [screens, setScreens] = useState<Screen[]>(() => initialScreens);
+  const [currentPageId, setCurrentPageId] = useState<string>(() => initialPageId);
   const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
-    screenIdFromHash(window.location.hash, resolveInitialScreens(file)),
+    screenIdForPage(window.location.hash, initialScreens, initialPageId),
   );
   // Screens the user has actually changed this session (a real edit, per
   // onNodesChange's own canonical-layout comparison below - not merely
@@ -155,6 +223,7 @@ export function Workbench({
   // below), and Frame's own mount calls Craft's deserialize() synchronously
   // inside its render function body, re-triggering this very subscription
   // before any effect from this render has had a chance to run.
+  const pagesRef = useRef(pages);
   const screensRef = useRef(screens);
   const currentScreenIdRef = useRef(currentScreenId);
   // Per screen id, the layout JSON string last known to match what the
@@ -259,6 +328,126 @@ export function Workbench({
     [saver],
   );
 
+  // Switches the focused page: flushes the saver, clears Craft history (same
+  // as switchScreen below - Craft's <Editor> stays mounted across the whole
+  // file, so its undo stack is one shared stack unless cleared on every
+  // switch) and moves to the target page's first screen, in array order, if
+  // it has one. Deliberately does NOT create a screen when the target page
+  // is empty (spec: "creating a screen when the page is empty is NOT
+  // automatic") - WorkbenchShell/Canvas render a "This page has no screens
+  // yet" chip and the New screen button instead, the same one every page
+  // already has. currentScreenId becomes '' in that case: nothing in
+  // `screens` has that id, so every consumer (Canvas, ScreensStrip) simply
+  // shows nothing focused - the same fallback resolveInitialScreens/
+  // screenIdForPage already rely on elsewhere.
+  function switchPage(pageId: string): void {
+    if (pageId === currentPageId) return;
+    void saver.flush();
+    editorActionsRef.current?.history.clear();
+    const firstScreenId = firstScreenIdForPage(screensRef.current, pageId);
+    setCurrentPageId(pageId);
+    if (firstScreenId) {
+      baselinedScreenIdsRef.current.delete(firstScreenId);
+      currentScreenIdRef.current = firstScreenId;
+      setCurrentScreenId(firstScreenId);
+      window.history.replaceState(null, '', `#s=${firstScreenId}`);
+    } else {
+      currentScreenIdRef.current = '';
+      setCurrentScreenId('');
+      window.history.replaceState(null, '', `#p=${pageId}`);
+    }
+  }
+
+  // Cmd+Shift+]/[ (lib/shortcuts.ts): cycles to the next/previous page in
+  // `pages` order, wrapping around at either end.
+  function switchToAdjacentPage(direction: 'next' | 'previous'): void {
+    const index = pages.findIndex((page) => page.id === currentPageId);
+    if (index === -1) return;
+    const delta = direction === 'next' ? 1 : -1;
+    const target = pages[(index + delta + pages.length) % pages.length];
+    switchPage(target.id);
+  }
+
+  function addPage(): void {
+    const newPage: Page = { id: nanoid(10), name: `Page ${pages.length + 1}` };
+    const next = [...pages, newPage];
+    pagesRef.current = next;
+    setPages(next);
+    queuePatch({ pages: next });
+    switchPage(newPage.id);
+  }
+
+  function renamePage(id: string, name: string): void {
+    const next = pages.map((page) => (page.id === id ? { ...page, name } : page));
+    pagesRef.current = next;
+    setPages(next);
+    queuePatch({ pages: next });
+  }
+
+  // Copies a page's own screens onto the copy with fresh ids and positions
+  // (layoutMissingPositions places them relative to the copy's own,
+  // initially-empty page - see its own doc comment), the same "new,
+  // independent identity" treatment duplicateScreen already gives a single
+  // screen. Switches to the copy, matching duplicateScreen's own
+  // switch-to-the-copy convention.
+  function duplicatePage(id: string): void {
+    const index = pages.findIndex((page) => page.id === id);
+    if (index === -1) return;
+    const newPageId = nanoid(10);
+    const newPage: Page = { id: newPageId, name: `${pages[index].name} copy` };
+    const nextPages = [...pages.slice(0, index + 1), newPage, ...pages.slice(index + 1)];
+
+    const copiedScreens: Screen[] = screens
+      .filter((screen) => screen.pageId === id)
+      .map((screen) => ({ ...screen, id: nanoid(10), pageId: newPageId, x: null, y: null }));
+    for (const copy of copiedScreens) {
+      lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
+    }
+    const nextScreens = layoutMissingPositions([...screens, ...copiedScreens]);
+
+    pagesRef.current = nextPages;
+    screensRef.current = nextScreens;
+    setPages(nextPages);
+    setScreens(nextScreens);
+    queuePatch({ pages: nextPages, screens: nextScreens });
+    switchPage(newPageId);
+  }
+
+  // The last page cannot be deleted (guarded here the same way deleteScreen
+  // guards the file's last screen - lib/files/validate.ts's validatePages
+  // enforces this server-side too, since "at least one page" is its own
+  // rejection rule). Removes the page and every one of its screens in the
+  // same patch (spec: "deleting a page removes its screens in the same
+  // patch") - the two arrays are validated together server-side precisely
+  // so a page can never end up pointed at by a patch that forgot to also
+  // drop its screens.
+  function deletePage(id: string): void {
+    if (pages.length <= 1) return;
+    const nextPages = pages.filter((page) => page.id !== id);
+    const nextScreens = screens.filter((screen) => screen.pageId !== id);
+    for (const screen of screens) {
+      if (screen.pageId === id) delete lastSavedLayoutsRef.current[screen.id];
+    }
+    pagesRef.current = nextPages;
+    screensRef.current = nextScreens;
+    setPages(nextPages);
+    setScreens(nextScreens);
+    queuePatch({ pages: nextPages, screens: nextScreens });
+    if (id === currentPageId) switchPage(nextPages[0].id);
+  }
+
+  function movePage(id: string, direction: 'up' | 'down'): void {
+    const index = pages.findIndex((page) => page.id === id);
+    if (index === -1) return;
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= pages.length) return;
+    const next = [...pages];
+    [next[index], next[swapWith]] = [next[swapWith], next[index]];
+    pagesRef.current = next;
+    setPages(next);
+    queuePatch({ pages: next });
+  }
+
   function switchScreen(id: string): void {
     if (id === currentScreenId) return;
     void saver.flush();
@@ -287,10 +476,15 @@ export function Workbench({
   }
 
   function addScreen(): void {
-    const current = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
+    const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
+    // Falls back across the whole file (any page) only when the current
+    // page has nothing of its own to size a new frame after - an empty
+    // page's "New screen" still needs some starting width, and every file
+    // has at least one screen somewhere (validateScreens' own invariant).
+    const current = pageScreens.find((screen) => screen.id === currentScreenId) ?? pageScreens[0] ?? screens[0];
     const newScreen: Screen = {
       id: nanoid(10),
-      name: `Frame ${screens.length + 1}`,
+      name: `Frame ${pageScreens.length + 1}`,
       layout: emptyLayoutJson(),
       stageWidth: current.stageWidth,
       // Copies the source screen's device, same as duplicateScreen's plain
@@ -298,14 +492,17 @@ export function Workbench({
       // was added from, device included, not just its width.
       stageHeight: current.stageHeight ?? null,
       deviceName: current.deviceName ?? null,
+      pageId: currentPageId,
       // No position yet: appended at the end of the array with x/y left
       // unset, layoutMissingPositions places it to the right of the
-      // RIGHTMOST already-positioned frame in the file, not merely the last
-      // one in array order (spec: "a new or duplicated screen is placed to
-      // the right of the rightmost frame in the file, never overlapping") -
-      // every existing screen already has a position by this point (the
-      // initial-load computation above), so this only ever fills in the new
-      // one.
+      // RIGHTMOST already-positioned frame on ITS OWN page, not merely the
+      // last one in array order (spec: "a new or duplicated screen is
+      // placed to the right of the rightmost frame in the file, never
+      // overlapping" - "the file" there predates pages splitting one canvas
+      // into several; layoutMissingPositions itself now scopes this per
+      // page, see lib/files/layout.ts) - every existing screen already has
+      // a position by this point (the initial-load computation above), so
+      // this only ever fills in the new one.
       x: null,
       y: null,
     };
@@ -341,12 +538,14 @@ export function Workbench({
     // x/y explicitly cleared, not inherited from the plain spread: the copy
     // must not land exactly on top of its source. Placed right after the
     // source in the array (below); layoutMissingPositions resolves its
-    // actual position from the RIGHTMOST already-positioned frame across
-    // the whole file (spec: "a new or duplicated screen is placed to the
-    // right of the rightmost frame in the file, never overlapping"), not
-    // from wherever the source itself happens to sit - a source that is not
-    // already the rightmost frame must not have its copy land on whatever
-    // frame comes after it.
+    // actual position from the RIGHTMOST already-positioned frame on the
+    // same page (spec: "a new or duplicated screen is placed to the right
+    // of the rightmost frame in the file, never overlapping"; scoped per
+    // page by layoutMissingPositions, see lib/files/layout.ts), not from
+    // wherever the source itself happens to sit - a source that is not
+    // already the rightmost frame on its page must not have its copy land
+    // on whatever frame comes after it. pageId comes along with the plain
+    // spread, same page as its source.
     const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy`, x: null, y: null };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
     const next = layoutMissingPositions([...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)]);
@@ -356,14 +555,55 @@ export function Workbench({
     switchScreen(copy.id);
   }
 
+  // Disabled in the UI (screens-strip.tsx) once a page is down to one
+  // screen, the same way it always disabled Delete at one screen file-wide
+  // before pages existed - now scoped to the screen's OWN page rather than
+  // the whole file, since a page emptying out entirely is a real, supported
+  // state (reached instead through "Move to page", or a page that started
+  // empty), just not one Delete itself produces.
   function deleteScreen(id: string): void {
-    if (screens.length <= 1) return;
+    const target = screens.find((screen) => screen.id === id);
+    if (!target) return;
+    const pageScreenCount = screens.filter((screen) => screen.pageId === target.pageId).length;
+    if (pageScreenCount <= 1) return;
     const next = screens.filter((screen) => screen.id !== id);
     delete lastSavedLayoutsRef.current[id];
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
-    if (id === currentScreenId) switchScreen(next[0].id);
+    if (id === currentScreenId) switchScreen(firstScreenIdForPage(next, target.pageId!));
+  }
+
+  // "Move to page" (screens-strip.tsx's chevron menu): keeps the screen's
+  // layout, comments (comments are keyed by screen id, not page - see
+  // lib/comments/store.ts - so they simply travel with it) and everything
+  // else, only repointing pageId and clearing its position so
+  // layoutMissingPositions places it fresh on the target page rather than
+  // possibly on top of one of that page's existing frames. If the screen
+  // being moved is the one currently focused, follows deleteScreen's own
+  // convention for "this screen is no longer part of the current page's
+  // view": pick another screen still on the ORIGIN page, or show that page
+  // empty - moving never jumps the editor's view to the destination page.
+  function moveScreenToPage(id: string, targetPageId: string): void {
+    const target = screens.find((screen) => screen.id === id);
+    if (!target || target.pageId === targetPageId) return;
+    const originPageId = target.pageId;
+    const next = layoutMissingPositions(
+      screens.map((screen) => (screen.id === id ? { ...screen, pageId: targetPageId, x: null, y: null } : screen)),
+    );
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+    if (id === currentScreenId) {
+      const remainingId = firstScreenIdForPage(next, originPageId!);
+      if (remainingId) {
+        switchScreen(remainingId);
+      } else {
+        currentScreenIdRef.current = '';
+        setCurrentScreenId('');
+        window.history.replaceState(null, '', `#p=${originPageId}`);
+      }
+    }
   }
 
   // Handles every manual, deviceless size change on the current screen: a
@@ -473,6 +713,15 @@ export function Workbench({
           }}
           saveState={saveState}
           notice={notice}
+          pages={pages}
+          currentPageId={currentPageId}
+          onSwitchPage={switchPage}
+          onSwitchToAdjacentPage={switchToAdjacentPage}
+          onAddPage={addPage}
+          onRenamePage={renamePage}
+          onDuplicatePage={duplicatePage}
+          onDeletePage={deletePage}
+          onMovePage={movePage}
           screens={screens}
           currentScreenId={currentScreenId}
           onSelectScreen={switchScreen}
@@ -481,6 +730,7 @@ export function Workbench({
           onMoveScreen={moveScreen}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
+          onMoveScreenToPage={moveScreenToPage}
         />
       </StageProvider>
     </Editor>
@@ -494,6 +744,15 @@ function WorkbenchShell({
   onRename,
   saveState,
   notice,
+  pages,
+  currentPageId,
+  onSwitchPage,
+  onSwitchToAdjacentPage,
+  onAddPage,
+  onRenamePage,
+  onDuplicatePage,
+  onDeletePage,
+  onMovePage,
   screens,
   currentScreenId,
   onSelectScreen,
@@ -502,6 +761,7 @@ function WorkbenchShell({
   onMoveScreen,
   onDuplicateScreen,
   onDeleteScreen,
+  onMoveScreenToPage,
 }: {
   fileId: string;
   folderId: string | null;
@@ -509,6 +769,20 @@ function WorkbenchShell({
   onRename: (name: string) => void;
   saveState: SaveState;
   notice?: string;
+  pages: Page[];
+  currentPageId: string;
+  onSwitchPage: (id: string) => void;
+  onSwitchToAdjacentPage: (direction: 'next' | 'previous') => void;
+  onAddPage: () => void;
+  onRenamePage: (id: string, name: string) => void;
+  onDuplicatePage: (id: string) => void;
+  onDeletePage: (id: string) => void;
+  onMovePage: (id: string, direction: 'up' | 'down') => void;
+  // The whole file's screens, every page's own - WorkbenchShell itself
+  // filters to the current page's screens (pageScreens, below) for Canvas,
+  // ScreensStrip and the viewport controller's frames; the full array is
+  // still what onMoveScreenToPage needs to reach a screen that is about to
+  // leave the current page altogether.
   screens: Screen[];
   currentScreenId: string;
   onSelectScreen: (id: string) => void;
@@ -517,6 +791,7 @@ function WorkbenchShell({
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
+  onMoveScreenToPage: (id: string, pageId: string) => void;
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
@@ -554,9 +829,16 @@ function WorkbenchShell({
   // same instance can be shared - through CanvasViewportProvider, below -
   // with the top bar's zoom menu and the keyboard shortcuts wired just
   // after this, neither of which is a descendant of Canvas.
+  // Only the current page's own screens - Canvas, ScreensStrip and the
+  // viewport controller's frames all scope to this, never the whole file's
+  // `screens` (spec: "the screens strip shows only the current page's
+  // screens"; "the canvas... frames of the current page only").
+  const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
+
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
-    frames: screens.map(frameRect),
+    pageId: currentPageId,
+    frames: pageScreens.map(frameRect),
   });
 
   // Clicking a screens tab still switches the focused screen (onSelectScreen,
@@ -569,7 +851,7 @@ function WorkbenchShell({
   // fitting it could jump the view somewhere they did not ask for.
   function handleSelectScreenTab(id: string): void {
     onSelectScreen(id);
-    const target = screens.find((screen) => screen.id === id);
+    const target = pageScreens.find((screen) => screen.id === id);
     if (target) animateTo(zoomToRect(frameRect(target), viewportSize, SELECTION_ZOOM_PADDING));
   }
 
@@ -581,7 +863,7 @@ function WorkbenchShell({
   // canvas.tsx's own comments on this), so only the frame's own x/y needs
   // adding to place it in canvas space.
   function zoomToSelectionOrFocusedFrame(): void {
-    const focused = screens.find((screen) => screen.id === currentScreenId);
+    const focused = pageScreens.find((screen) => screen.id === currentScreenId);
     if (!focused) return;
     const selectedId = selectedIdFrom(query.getState());
     const dom = selectedId ? query.getState().nodes[selectedId]?.dom : null;
@@ -663,9 +945,17 @@ function WorkbenchShell({
 
   // Cmd+R (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
   // design.md section 2): the same URL, in the same new tab, as the top
-  // bar's own Present link (see presentHref in topbar.tsx).
+  // bar's own Present link (see presentHref in topbar.tsx). Carries `page`
+  // alongside `screen` (spec docs/superpowers/specs/2026-09-12-pages-
+  // design.md section 2: "Present carries `?page=`") so Play starts on the
+  // right page even for the rare case of a screen id that (through some
+  // future bug or hand-edited link) does not actually belong to it.
   function presentFocusedScreen(): void {
-    window.open(`/f/${fileId}/play?screen=${currentScreenId}`, '_blank', 'noopener,noreferrer');
+    window.open(
+      `/f/${fileId}/play?page=${currentPageId}&screen=${currentScreenId}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
   }
 
   // The viewport centre (screen space, relative to the canvas's own origin -
@@ -684,7 +974,7 @@ function WorkbenchShell({
     onZoomIn: () => setViewport((current) => stepZoom(current, viewportCenter, 'in')),
     onZoomOut: () => setViewport((current) => stepZoom(current, viewportCenter, 'out')),
     onZoomReset: () => setViewport((current) => zoomTo(current, viewportCenter, 1)),
-    onZoomToFit: () => setViewport(fitAll(screens.map(frameRect), viewportSize)),
+    onZoomToFit: () => setViewport(fitAll(pageScreens.map(frameRect), viewportSize)),
     onZoomToSelection: zoomToSelectionOrFocusedFrame,
     onSelectPanelTab: selectPanelTab,
     // V (spec section 2, "Pointer: leaves the comment or diagram tool"): only
@@ -693,6 +983,8 @@ function WorkbenchShell({
     onPointerTool: cancelPendingAndExitCommentMode,
     onPresent: presentFocusedScreen,
     onAddScreen,
+    onPageNext: () => onSwitchToAdjacentPage('next'),
+    onPagePrev: () => onSwitchToAdjacentPage('previous'),
     onOpenShortcuts: () => setShortcutsOpen(true),
   });
 
@@ -793,6 +1085,15 @@ function WorkbenchShell({
                 onNew={() => setNewOpen(true)}
                 fileId={fileId}
                 folderId={folderId}
+                pages={pages}
+                currentPageId={currentPageId}
+                screens={screens}
+                onSwitchPage={onSwitchPage}
+                onAddPage={onAddPage}
+                onRenamePage={onRenamePage}
+                onDuplicatePage={onDuplicatePage}
+                onDeletePage={onDeletePage}
+                onMovePage={onMovePage}
                 currentScreenId={currentScreenId}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((open) => !open)}
@@ -801,14 +1102,14 @@ function WorkbenchShell({
                 commentCount={threads.length}
                 onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
-                onZoomToFit={() => setViewport(fitAll(screens.map(frameRect), viewportSize))}
+                onZoomToFit={() => setViewport(fitAll(pageScreens.map(frameRect), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
               />
             )}
             <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
               <Canvas
-                screens={screens}
+                screens={pageScreens}
                 focusedScreenId={currentScreenId}
                 onFocusScreen={onSelectScreen}
                 onRenameScreen={onRenameScreen}
@@ -816,16 +1117,35 @@ function WorkbenchShell({
                 comments={commentsProps}
                 rootRef={rootRef}
               />
+              {/*
+                Spec docs/superpowers/specs/2026-09-12-pages-design.md
+                section 3: creating a screen for an empty page is never
+                automatic - this chip and its own "New screen" button are
+                the only way in, alongside the screens strip's own "+"
+                just below (still rendered with zero tabs).
+              */}
+              {pageScreens.length === 0 && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <div className={cn(CHIP, 'pointer-events-auto gap-3 px-3')}>
+                    <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
+                    <Button type="button" className={SECONDARY_BUTTON} onClick={onAddScreen}>
+                      New screen
+                    </Button>
+                  </div>
+                </div>
+              )}
               {!uiHidden && (
                 <div className="absolute top-[76px] left-3 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
                   <ScreensStrip
-                    screens={screens}
+                    screens={pageScreens}
+                    pages={pages}
                     currentScreenId={currentScreenId}
                     onSelect={handleSelectScreenTab}
                     onAdd={onAddScreen}
                     onRename={onRenameScreen}
                     onDuplicate={onDuplicateScreen}
                     onDelete={onDeleteScreen}
+                    onMoveToPage={onMoveScreenToPage}
                   />
                 </div>
               )}

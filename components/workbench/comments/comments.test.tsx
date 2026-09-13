@@ -17,7 +17,14 @@ import { Workbench } from '../workbench';
 // save. Zoom is pinned to 1 below (a stored viewport, so Canvas never runs
 // its own fitAll) rather than left to default, so the example's own width
 // works fine for these tests regardless of stageWidth.
-const SCREEN: Screen = { id: 'screen0001', name: 'Frame 1', layout: EXAMPLES[0].layout, stageWidth: EXAMPLES[0].stageWidth };
+const PAGE_ID = 'page000001';
+const SCREEN: Screen = {
+  id: 'screen0001',
+  name: 'Frame 1',
+  layout: EXAMPLES[0].layout,
+  stageWidth: EXAMPLES[0].stageWidth,
+  pageId: PAGE_ID,
+};
 const FILE_ID = 'file0000ab';
 const BASE_FILE: FileRecord = {
   id: FILE_ID,
@@ -25,6 +32,7 @@ const BASE_FILE: FileRecord = {
   createdAt: '2026-09-12T00:00:00.000Z',
   updatedAt: '2026-09-12T00:00:00.000Z',
   folderId: null,
+  pages: [{ id: PAGE_ID, name: 'Page 1' }],
   screens: [SCREEN],
 };
 
@@ -91,7 +99,7 @@ describe('comments placeholder', () => {
     // also answers for the canvas's own root) would get fitAll'd into a
     // resulting zoom far from 1, throwing off every artboard-coordinate math
     // this file checks.
-    saveViewport(window.localStorage, FILE_ID, { x: 0, y: 0, zoom: 1 });
+    saveViewport(window.localStorage, FILE_ID, PAGE_ID, { x: 0, y: 0, zoom: 1 });
     rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(ARTBOARD_RECT);
   });
 

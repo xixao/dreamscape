@@ -33,6 +33,7 @@ function Harness({
   onRenameScreen,
   onMoveScreen,
   fileId,
+  pageId = 'page1',
   extra,
 }: {
   screens: Screen[];
@@ -41,10 +42,12 @@ function Harness({
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   fileId: string;
+  pageId?: string;
   extra?: ReactNode;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
+    pageId,
     frames: screens.map(frameRect),
   });
   return (
@@ -70,6 +73,7 @@ function renderCanvas({
   onRenameScreen = vi.fn(),
   onMoveScreen = vi.fn(),
   fileId = 'file1',
+  pageId = 'page1',
   extra,
 }: {
   screens?: Screen[];
@@ -78,6 +82,7 @@ function renderCanvas({
   onRenameScreen?: (id: string, name: string) => void;
   onMoveScreen?: (id: string, position: { x: number; y: number }) => void;
   fileId?: string;
+  pageId?: string;
   extra?: ReactNode;
 } = {}) {
   return renderInEditor(
@@ -88,6 +93,7 @@ function renderCanvas({
       onRenameScreen={onRenameScreen}
       onMoveScreen={onMoveScreen}
       fileId={fileId}
+      pageId={pageId}
       extra={extra}
     />,
   );
@@ -172,7 +178,7 @@ describe('Canvas', () => {
       // Pinned to zoom 1 (rather than relying on renderCanvas's own default
       // fitAll, which would pick some other zoom for two 400px-wide frames
       // 800px apart) so the drag delta below maps 1:1 to canvas px.
-      saveViewport(window.localStorage, 'dragtest', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'dragtest', 'page1', { x: 0, y: 0, zoom: 1 });
       const onMoveScreen = vi.fn();
       renderCanvas({ screens: [SCREEN_1, SCREEN_2], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'dragtest' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
@@ -185,7 +191,7 @@ describe('Canvas', () => {
     });
 
     it('dragging a non-focused frame\'s title moves it without focusing it', async () => {
-      saveViewport(window.localStorage, 'dragtest2', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'dragtest2', 'page1', { x: 0, y: 0, zoom: 1 });
       const onMoveScreen = vi.fn();
       const onFocusScreen = vi.fn();
       renderCanvas({
@@ -255,25 +261,100 @@ describe('Canvas', () => {
     it('defaults to fitting all frames when nothing is stored for this file', async () => {
       renderCanvas({ screens: [SCREEN_1, SCREEN_2], fileId: 'newfile' });
       await waitFor(() => {
-        const stored = loadViewport(window.localStorage, 'newfile');
+        const stored = loadViewport(window.localStorage, 'newfile', 'page1');
         expect(stored).not.toBeNull();
       });
     });
 
     it('restores a previously saved viewport for this file instead of fitting all', async () => {
-      saveViewport(window.localStorage, 'restoredfile', { x: 42, y: 24, zoom: 2 });
+      saveViewport(window.localStorage, 'restoredfile', 'page1', { x: 42, y: 24, zoom: 2 });
       renderCanvas({ fileId: 'restoredfile' });
       // Restored, not overwritten with a freshly computed fit-all - saving
       // again immediately should read back the same values.
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-      expect(loadViewport(window.localStorage, 'restoredfile')).toEqual({ x: 42, y: 24, zoom: 2 });
+      expect(loadViewport(window.localStorage, 'restoredfile', 'page1')).toEqual({ x: 42, y: 24, zoom: 2 });
     });
 
     it('keeps different files\' viewports independent', async () => {
-      saveViewport(window.localStorage, 'fileA', { x: 5, y: 5, zoom: 1 });
+      saveViewport(window.localStorage, 'fileA', 'page1', { x: 5, y: 5, zoom: 1 });
       renderCanvas({ fileId: 'fileB' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-      expect(loadViewport(window.localStorage, 'fileA')).toEqual({ x: 5, y: 5, zoom: 1 });
+      expect(loadViewport(window.localStorage, 'fileA', 'page1')).toEqual({ x: 5, y: 5, zoom: 1 });
+    });
+
+    it('keeps different pages of the same file independent, keyed by pageId', async () => {
+      saveViewport(window.localStorage, 'pagesfile', 'pageA', { x: 1, y: 1, zoom: 1 });
+      saveViewport(window.localStorage, 'pagesfile', 'pageB', { x: 9, y: 9, zoom: 2 });
+      renderCanvas({ fileId: 'pagesfile', pageId: 'pageA' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      expect(loadViewport(window.localStorage, 'pagesfile', 'pageA')).toEqual({ x: 1, y: 1, zoom: 1 });
+      expect(loadViewport(window.localStorage, 'pagesfile', 'pageB')).toEqual({ x: 9, y: 9, zoom: 2 });
+    });
+
+    it('swaps to the new page\'s own remembered viewport when pageId changes on an already-mounted canvas', async () => {
+      function Readout() {
+        const { viewport } = useCanvasViewport();
+        return (
+          <output data-testid="page-switch-readout">
+            {viewport.x},{viewport.y},{viewport.zoom}
+          </output>
+        );
+      }
+
+      saveViewport(window.localStorage, 'switchfile', 'pageB', { x: 77, y: 88, zoom: 1.5 });
+      const result = renderCanvas({ fileId: 'switchfile', pageId: 'pageA', extra: <Readout /> });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      result.rerenderUi(
+        <Harness
+          screens={[SCREEN_1]}
+          focusedScreenId={SCREEN_1.id}
+          onFocusScreen={vi.fn()}
+          onRenameScreen={vi.fn()}
+          onMoveScreen={vi.fn()}
+          fileId="switchfile"
+          pageId="pageB"
+          extra={<Readout />}
+        />,
+      );
+
+      await waitFor(() => expect(screen.getByTestId('page-switch-readout')).toHaveTextContent('77,88,1.5'));
+    });
+
+    it('fits all of the new page\'s frames when it has no remembered viewport of its own', async () => {
+      function Readout() {
+        const { viewport } = useCanvasViewport();
+        return (
+          <output data-testid="page-switch-fit-readout">
+            {viewport.x.toFixed(1)},{viewport.y.toFixed(1)},{viewport.zoom.toFixed(3)}
+          </output>
+        );
+      }
+
+      saveViewport(window.localStorage, 'switchfile2', 'pageA', { x: 500, y: 500, zoom: 3 });
+      const result = renderCanvas({ fileId: 'switchfile2', pageId: 'pageA', extra: <Readout /> });
+      await waitFor(() => expect(screen.getByTestId('page-switch-fit-readout')).toHaveTextContent('500.0,500.0,3.000'));
+
+      // pageB has never been visited before: no remembered viewport, so
+      // switching to it must fit its own frame instead of inheriting
+      // pageA's 500,500,3 (which would leave pageB's frame off screen).
+      result.rerenderUi(
+        <Harness
+          screens={[SCREEN_1]}
+          focusedScreenId={SCREEN_1.id}
+          onFocusScreen={vi.fn()}
+          onRenameScreen={vi.fn()}
+          onMoveScreen={vi.fn()}
+          fileId="switchfile2"
+          pageId="pageB"
+          extra={<Readout />}
+        />,
+      );
+
+      await waitFor(() => {
+        const text = screen.getByTestId('page-switch-fit-readout').textContent ?? '';
+        expect(text).not.toBe('500.0,500.0,3.000');
+      });
     });
   });
 
@@ -520,7 +601,7 @@ describe('Canvas', () => {
     }
 
     it('tracks three consecutive in-frame moves by their cumulative screen delta, even while the frame\'s own bounding rect is mocked to move with the pan', async () => {
-      saveViewport(window.localStorage, 'screenpan-cumulative', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'screenpan-cumulative', 'page1', { x: 0, y: 0, zoom: 1 });
       renderWithReadout({ fileId: 'screenpan-cumulative' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
       const body = frameBody();
@@ -562,7 +643,7 @@ describe('Canvas', () => {
     });
 
     it('keeps panning with no jump when a move continues in the parent document after leaving the frame', async () => {
-      saveViewport(window.localStorage, 'screenpan-handoff', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'screenpan-handoff', 'page1', { x: 0, y: 0, zoom: 1 });
       renderWithReadout({ fileId: 'screenpan-handoff' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
       const body = frameBody();
@@ -584,7 +665,7 @@ describe('Canvas', () => {
     });
 
     it('a pan started on the root ignores frame events for its duration', async () => {
-      saveViewport(window.localStorage, 'screenpan-root-owns', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'screenpan-root-owns', 'page1', { x: 0, y: 0, zoom: 1 });
       renderWithReadout({ fileId: 'screenpan-root-owns' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
       const root = screen.getByTestId('canvas-root');
@@ -654,7 +735,7 @@ describe('Canvas', () => {
     }
 
     it('a plain wheel pans the viewport by the delta, leaving the focused screen unchanged', async () => {
-      saveViewport(window.localStorage, 'previewwheel-pan', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'previewwheel-pan', 'page1', { x: 0, y: 0, zoom: 1 });
       const onFocusScreen = vi.fn();
       renderWithReadout({
         screens: [SCREEN_1, SCREEN_2],
@@ -673,7 +754,7 @@ describe('Canvas', () => {
 
     it('a ctrlKey wheel zooms around the pointer position converted from the preview\'s own frame coordinates, keeping the canvas point under the pointer fixed', async () => {
       const initial: Viewport = { x: 50, y: 30, zoom: 2 };
-      saveViewport(window.localStorage, 'previewwheel-zoom', initial);
+      saveViewport(window.localStorage, 'previewwheel-zoom', 'page1', initial);
       renderWithReadout({
         screens: [SCREEN_1, SCREEN_2],
         focusedScreenId: SCREEN_1.id,
@@ -707,7 +788,7 @@ describe('Canvas', () => {
     });
 
     it('does not pan or prevent default while the preview\'s own document can still scroll, but still pans once it can\'t', async () => {
-      saveViewport(window.localStorage, 'previewwheel-scroll', { x: 0, y: 0, zoom: 1 });
+      saveViewport(window.localStorage, 'previewwheel-scroll', 'page1', { x: 0, y: 0, zoom: 1 });
       renderWithReadout({
         screens: [SCREEN_1, SCREEN_2],
         focusedScreenId: SCREEN_1.id,
@@ -744,7 +825,7 @@ describe('Canvas', () => {
     });
 
     it('fades out below 25% zoom', async () => {
-      saveViewport(window.localStorage, 'zoomedout', { x: 0, y: 0, zoom: 0.1 });
+      saveViewport(window.localStorage, 'zoomedout', 'page1', { x: 0, y: 0, zoom: 0.1 });
       renderCanvas({ fileId: 'zoomedout' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
       const root = screen.getByTestId('canvas-root');
@@ -780,7 +861,11 @@ describe('useCanvasViewportController animateTo', () => {
   }
 
   function AnimationHarness({ fileId = 'animfile' }: { fileId?: string }) {
-    const { viewport, animateTo, setViewport, rootRef } = useCanvasViewportController({ fileId, frames: [] });
+    const { viewport, animateTo, setViewport, rootRef } = useCanvasViewportController({
+      fileId,
+      pageId: 'page1',
+      frames: [],
+    });
     return (
       <div ref={rootRef}>
         <output data-testid="readout">

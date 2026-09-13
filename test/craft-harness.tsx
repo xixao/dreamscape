@@ -19,19 +19,29 @@ function EditorProbe({ onRender }: { onRender: (handle: EditorHandle) => void })
 
 export function renderInEditor(ui: ReactElement, { width = 1440 }: { width?: number } = {}) {
   let latest: EditorHandle | null = null;
-  const result = render(
-    <Editor resolver={resolver} enabled>
-      <StageProvider initialWidth={width}>
-        <EditorProbe onRender={(handle) => (latest = handle)} />
-        {ui}
-      </StageProvider>
-    </Editor>,
-  );
+  function wrap(inner: ReactElement) {
+    return (
+      <Editor resolver={resolver} enabled>
+        <StageProvider initialWidth={width}>
+          <EditorProbe onRender={(handle) => (latest = handle)} />
+          {inner}
+        </StageProvider>
+      </Editor>
+    );
+  }
+  const result = render(wrap(ui));
   const editor = (): EditorHandle => {
     if (!latest) throw new Error('editor not mounted');
     return latest;
   };
-  return { ...result, editor };
+  // Rerenders just the inner element, re-wrapped in the same <Editor>/
+  // <StageProvider> this render started with - a caller that swaps a prop
+  // (e.g. a pageId, to test behavior on an already-mounted tree without a
+  // full remount) would otherwise have to reconstruct that wrapper itself,
+  // or lose it entirely by calling the plain RTL `rerender` with only the
+  // inner element.
+  const rerenderUi = (inner: ReactElement) => result.rerender(wrap(inner));
+  return { ...result, editor, rerenderUi };
 }
 
 export function renderTree(

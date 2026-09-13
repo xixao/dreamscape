@@ -109,9 +109,19 @@ function easeOutCubic(t: number): number {
 
 export function useCanvasViewportController({
   fileId,
+  pageId,
   frames,
 }: {
   fileId: string;
+  // Scopes the per-page viewport storage key (lib/canvas/viewport-store.ts).
+  // This one controller instance stays mounted for the whole file (see the
+  // pageId-change check right below `viewportSize`, further down): a page
+  // switch does not remount it (WorkbenchShell needs its own direct,
+  // un-keyed access to setViewport/viewportSize/animateTo for the top bar
+  // and keyboard shortcuts), so the controller instead notices `pageId`
+  // itself changed and swaps to that page's own remembered viewport (or a
+  // fresh fit-all when it has none) the same render.
+  pageId: string;
   frames: readonly FrameRect[];
 }): {
   viewport: Viewport;
@@ -134,7 +144,7 @@ export function useCanvasViewportController({
     framesRef.current = frames;
   }, [frames]);
 
-  const [initialViewport] = useState(() => loadViewport(window.localStorage, fileId));
+  const [initialViewport] = useState(() => loadViewport(window.localStorage, fileId, pageId));
   const [viewport, setViewportState] = useState<Viewport>(initialViewport ?? { x: 0, y: 0, zoom: 1 });
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 0, height: 0 });
   const hasFitRef = useRef(initialViewport !== null);
@@ -150,6 +160,40 @@ export function useCanvasViewportController({
   // cancels whatever animation is running - spec: "cancelled by any pan/
   // zoom input").
   const animationRef = useRef<{ cancelled: boolean } | null>(null);
+
+  // Detects a page switch (pageId changed since the previous commit) and
+  // swaps straight to that page's own remembered viewport, or a fresh
+  // fit-all over its frames when it has none. A layout effect (runs
+  // synchronously after DOM mutations, before the browser paints - same
+  // reason the measurement effect below is one too), not the "adjust
+  // during render" pattern workbench.tsx's own lastSelectedNodeId and
+  // topbar.tsx's syncedFileName use elsewhere: this block also needs to
+  // mutate animationRef/hasFitRef, and only an effect may touch a ref
+  // (react-hooks/refs) - a plain state comparison during render may not.
+  // Still paints the new page's viewport on the very first frame it is
+  // visible, same as those render-phase patterns achieve for state.
+  // viewportSize is already a real, non-zero measurement by the time a user
+  // can switch pages at all (the canvas root never unmounts across a
+  // switch), so fitAll below has real data without waiting for another
+  // ResizeObserver firing. framesRef (not the raw `frames` param) so this
+  // effect's own dependency array does not fire on every unrelated frames
+  // change (a resize, a rename, a new screen) - only on an actual pageId
+  // change; framesRef is kept current by its own effect above, which runs
+  // first in every commit that changes both at once.
+  const previousPageIdRef = useRef(pageId);
+  useLayoutEffect(() => {
+    if (pageId === previousPageIdRef.current) return;
+    previousPageIdRef.current = pageId;
+    if (animationRef.current) animationRef.current.cancelled = true;
+    const loaded = loadViewport(window.localStorage, fileId, pageId);
+    const hasMeasurement = viewportSize.width > 0 && viewportSize.height > 0;
+    setViewportState(loaded ?? (hasMeasurement ? fitAll(framesRef.current, viewportSize) : { x: 0, y: 0, zoom: 1 }));
+    // Either branch above already resolved a concrete viewport for this
+    // page, so the measurement effect's own "first fit" below must not
+    // recompute and override it the next time it runs (a later resize, say).
+    hasFitRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, fileId]);
 
   const setViewport = useCallback((update: Viewport | ((current: Viewport) => Viewport)) => {
     if (animationRef.current) animationRef.current.cancelled = true;
@@ -213,10 +257,11 @@ export function useCanvasViewportController({
     return () => observer.disconnect();
   }, []);
 
-  // Persists on every change, keyed per file (lib/canvas/viewport-store.ts).
+  // Persists on every change, keyed per file and page (lib/canvas/viewport-
+  // store.ts).
   useEffect(() => {
-    saveViewport(window.localStorage, fileId, viewport);
-  }, [fileId, viewport]);
+    saveViewport(window.localStorage, fileId, pageId, viewport);
+  }, [fileId, pageId, viewport]);
 
   return { viewport, setViewport, viewportSize, rootRef, animateTo };
 }

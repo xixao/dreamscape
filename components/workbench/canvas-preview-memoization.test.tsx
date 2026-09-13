@@ -73,6 +73,7 @@ const NOOP_MOVE = () => {};
 function Harness({ screens, focusedScreenId, fileId }: { screens: Screen[]; focusedScreenId: string; fileId: string }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
+    pageId: 'page1',
     frames: screens.map(frameRect),
   });
   return (
