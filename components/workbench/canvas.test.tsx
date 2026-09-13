@@ -584,6 +584,101 @@ describe('Canvas', () => {
       expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_1.id, { x: 24, y: 0 });
       expect(onMoveScreens).not.toHaveBeenCalled();
     });
+
+    // Review fix wave nit 16: the marquee's start/current corners are
+    // resolved to canvas space the moment each is captured (pointerdown for
+    // start, each pointermove for current), instead of deferring both
+    // conversions to pointerup through whatever viewport happens to be
+    // current by then.
+    it('anchors the marquee in canvas space, so a wheel-pan mid-drag does not shift the resulting selection', async () => {
+      saveViewport(window.localStorage, 'wheelmidmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+      const target: Screen = { id: 'target', name: 'Target', layout: emptyLayoutJson(), stageWidth: 100, stageHeight: 300, x: 250, y: 0 };
+      const onSetFrameSelection = vi.fn();
+      renderCanvas({ screens: [target], onSetFrameSelection, fileId: 'wheelmidmarquee' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      const root = screen.getByTestId('canvas-root');
+      // Marquee starts at screen x=500 while the viewport is still at x=0 -
+      // canvas-space start = 500 (right of `target`, which spans canvas x
+      // 250-350).
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 500, clientY: 0 });
+
+      // A wheel-pan mid-drag shifts the viewport's x by +300 (panBy negates
+      // deltaX) - screen x=500 now corresponds to a different canvas point
+      // than it did at pointerdown.
+      fireEvent.wheel(root, { deltaX: -300, deltaY: 0 });
+
+      // Ends the drag with a further move to screen x=520 - under the
+      // now-panned viewport, canvas x = 520-300 = 220, just left of
+      // target's own left edge (250).
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 520, clientY: 300 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 520, clientY: 300 });
+
+      // Fixed canvas-space rect: [min(500,220), max(500,220)] = [220,500] on
+      // x - overlaps target (250-350). The old, late-conversion code
+      // reinterpreted the START corner (500) through the POST-pan viewport
+      // too (500-300=200), producing [200,220] on x - entirely left of
+      // target, missing it.
+      expect(onSetFrameSelection).toHaveBeenCalledWith(['target']);
+    });
+
+    // Review fix wave nit 12.
+    describe('marquee robustness (review fix wave nit 12)', () => {
+      it('only a primary (left) button press starts a marquee', async () => {
+        saveViewport(window.localStorage, 'rightclickmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'rightclickmarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, button: 2 });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
+
+      it('clears on window blur, discarding the gesture instead of turning it into a selection', async () => {
+        saveViewport(window.localStorage, 'blurmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'blurmarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+        fireEvent.blur(window);
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        // The mouse button may physically still be down - a later pointerup
+        // for the same gesture must be a no-op, not a late selection.
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
+
+      it('Escape cancels an in-progress marquee without selecting anything', async () => {
+        saveViewport(window.localStorage, 'escapemarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+        const onSetFrameSelection = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'escapemarquee' });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const root = screen.getByTestId('canvas-root');
+        fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+        fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+        expect(onSetFrameSelection).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('CanvasViewportProvider / useCanvasViewport', () => {
@@ -800,6 +895,27 @@ describe('Canvas', () => {
 
       await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
       expect(root).not.toHaveClass('cursor-grabbing');
+    });
+
+    // One of the review's named missing tests (task-grid-review.md): Space
+    // held on empty canvas must take the pan path, never the marquee one -
+    // shouldStartPan(button) gates handleRootPointerDown's own branch
+    // between the two, and this is the one thing that existing "Space +
+    // drag pans" test above never actually checked.
+    it('Space held on empty canvas pans, never starting a marquee', async () => {
+      renderWithReadout();
+      const root = screen.getByTestId('canvas-root');
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toBeInTheDocument());
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 100, clientY: 100, screenX: 100, screenY: 100, button: 0 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 150, clientY: 130, screenX: 150, screenY: 130 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
     });
 
     it('releasing Space mid-drag ends the pan (a later move does nothing)', async () => {

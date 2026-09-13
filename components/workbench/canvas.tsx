@@ -22,6 +22,7 @@ import {
   panBy,
   snapBoxFor,
   toCanvasPoint,
+  toWindowPoint,
   zoomAround,
   type FrameRect,
   type Size,
@@ -541,18 +542,35 @@ export function Canvas({
 
   // The active marquee-selection gesture, if any (spec docs/superpowers/
   // specs/2026-09-13-grid-snapping-alignment-design.md section 3): a plain
-  // (non-Space, non-middle-mouse) press that starts on empty canvas. Screen
-  // px, root-relative (rootLeft/rootTop cached once at pointerdown, same
-  // reasoning frameWheel's own iframe-rect read documents) rather than
-  // canvas-space, since the visible marquee box (marqueeBox, below) is
-  // drawn OUTSIDE the pan/zoom-transformed canvas-layer - only the final
-  // hit-test against each frame's box (endMarquee) needs canvas-space,
-  // computed once at pointerup via toCanvasPoint.
+  // (non-Space, non-middle-mouse) press that starts on empty canvas.
+  // rootLeft/rootTop are cached once at pointerdown (same reasoning
+  // frameWheel's own iframe-rect read documents) purely to convert a raw
+  // clientX/Y into a root-relative screen point at each subsequent event.
+  //
+  // startX/Y and currentX/Y are CANVAS-space (review fix wave nit 16),
+  // converted via toCanvasPoint the moment each point is captured
+  // (pointerdown for start, each pointermove for current) using the
+  // viewport THEN current - not deferred to pointerup, which used to
+  // reinterpret both corners through whatever viewport happened to be
+  // current at release time. A wheel-pan mid-drag changes what canvas-space
+  // point a given screen pixel corresponds to; converting late meant the
+  // start corner (captured under the OLD viewport) got silently
+  // re-mapped to the wrong canvas location by the time endMarquee ran.
+  //
+  // start/currentScreenX/Y are the same two points kept in root-relative
+  // SCREEN px instead, purely for MARQUEE_CLICK_THRESHOLD's "was this
+  // really just a click" check below - that threshold is a fixed physical
+  // mouse-movement amount and must stay zoom-independent, unlike the
+  // canvas-space pair above.
   const marqueeRef = useRef<{
     pointerId: number;
     shiftKey: boolean;
     rootLeft: number;
     rootTop: number;
+    startScreenX: number;
+    startScreenY: number;
+    currentScreenX: number;
+    currentScreenY: number;
     startX: number;
     startY: number;
     currentX: number;
@@ -587,9 +605,21 @@ export function Canvas({
     setPanning(false);
   }
 
+  // Review fix wave nit 12: Escape cancels an in-progress marquee (a plain
+  // discard, no selection change) - the pointer button may still be
+  // physically down when this fires, but marqueeRef going null makes every
+  // later pointermove/pointerup for this gesture a no-op via their own
+  // existing guards, so no further cleanup is needed here.
+  function cancelMarquee(): void {
+    if (!marqueeRef.current) return;
+    marqueeRef.current = null;
+    setMarqueeBox(null);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code === 'Space' && !isEditableTarget(event.target)) setSpaceDown(true);
+      if (event.key === 'Escape') cancelMarquee();
     }
     function onKeyUp(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
@@ -616,11 +646,15 @@ export function Canvas({
   // otherwise leave panRef stuck "active" forever and (per the one-owner
   // guards above) silently swallowing every pan gesture after it. A blur of
   // the top-level window catches this regardless of whether the gesture is
-  // currently owned by the root or by some frame.
+  // currently owned by the root or by some frame. A marquee (review fix
+  // wave nit 12) is exactly the same kind of gesture-with-no-guaranteed-end
+  // and gets the identical treatment - discarded, not turned into a
+  // selection, the same as Escape above.
   useEffect(() => {
     function onBlur() {
       panRef.current = null;
       setPanning(false);
+      cancelMarquee();
     }
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
@@ -642,20 +676,33 @@ export function Canvas({
         // immediately, matching the deselect above, so a click with no
         // drag at all still clears with no further action needed.
         if (!event.shiftKey) onClearFrameSelection();
-        capturePointer(event.currentTarget, event.pointerId);
-        const rect = event.currentTarget.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        marqueeRef.current = {
-          pointerId: event.pointerId,
-          shiftKey: event.shiftKey,
-          rootLeft: rect.left,
-          rootTop: rect.top,
-          startX: x,
-          startY: y,
-          currentX: x,
-          currentY: y,
-        };
+        // Review fix wave nit 12: only a primary (left) button press starts
+        // a marquee - a right-click or other button on empty canvas still
+        // deselects (above) but must not begin tracking a drag gesture.
+        if (event.button === 0) {
+          capturePointer(event.currentTarget, event.pointerId);
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          // Canvas-space from the very start (review fix wave nit 16) - see
+          // marqueeRef's own doc comment above.
+          const canvasPoint = toCanvasPoint({ x, y }, viewport);
+          marqueeRef.current = {
+            pointerId: event.pointerId,
+            shiftKey: event.shiftKey,
+            rootLeft: rect.left,
+            rootTop: rect.top,
+            startScreenX: x,
+            startScreenY: y,
+            currentScreenX: x,
+            currentScreenY: y,
+            startX: canvasPoint.x,
+            startY: canvasPoint.y,
+            currentX: canvasPoint.x,
+            currentY: canvasPoint.y,
+          };
+          setMarqueeBox({ left: x, top: y, width: 0, height: 0 });
+        }
       }
       return;
     }
@@ -679,13 +726,26 @@ export function Canvas({
   function handleRootPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
     const marquee = marqueeRef.current;
     if (marquee && marquee.pointerId === event.pointerId) {
-      marquee.currentX = event.clientX - marquee.rootLeft;
-      marquee.currentY = event.clientY - marquee.rootTop;
+      const x = event.clientX - marquee.rootLeft;
+      const y = event.clientY - marquee.rootTop;
+      marquee.currentScreenX = x;
+      marquee.currentScreenY = y;
+      // Canvas-space, converted now under the CURRENT viewport (review fix
+      // wave nit 16) - see marqueeRef's own doc comment above.
+      const canvasPoint = toCanvasPoint({ x, y }, viewport);
+      marquee.currentX = canvasPoint.x;
+      marquee.currentY = canvasPoint.y;
+      // The visual box stays screen-space (drawn outside the transformed
+      // canvas-layer) - the start corner is re-projected through the
+      // CURRENT viewport every move, so a pan since pointerdown still
+      // renders it in the right place; the current corner is simply this
+      // move's own already-screen-space point, no round trip needed.
+      const startScreen = toWindowPoint({ x: marquee.startX, y: marquee.startY }, viewport);
       setMarqueeBox({
-        left: Math.min(marquee.startX, marquee.currentX),
-        top: Math.min(marquee.startY, marquee.currentY),
-        width: Math.abs(marquee.currentX - marquee.startX),
-        height: Math.abs(marquee.currentY - marquee.startY),
+        left: Math.min(startScreen.x, x),
+        top: Math.min(startScreen.y, y),
+        width: Math.abs(x - startScreen.x),
+        height: Math.abs(y - startScreen.y),
       });
       return;
     }
@@ -716,17 +776,23 @@ export function Canvas({
     marqueeRef.current = null;
     setMarqueeBox(null);
 
-    const dx = Math.abs(marquee.currentX - marquee.startX);
-    const dy = Math.abs(marquee.currentY - marquee.startY);
+    // Screen-space threshold check (review fix wave nit 16): stays
+    // zoom-independent, unlike the canvas-space pair below.
+    const dx = Math.abs(marquee.currentScreenX - marquee.startScreenX);
+    const dy = Math.abs(marquee.currentScreenY - marquee.startScreenY);
     if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) return;
 
-    const corner1 = toCanvasPoint({ x: marquee.startX, y: marquee.startY }, viewport);
-    const corner2 = toCanvasPoint({ x: marquee.currentX, y: marquee.currentY }, viewport);
+    // Already canvas-space, resolved incrementally as each point was
+    // captured (review fix wave nit 16) - no toCanvasPoint call here
+    // anymore, and critically, nothing left to re-interpret through
+    // whatever viewport happens to be current now (a wheel-pan mid-drag
+    // used to silently shift the resulting rectangle by reconverting both
+    // corners through the SAME, now-stale-for-one-of-them viewport).
     const marqueeCanvasRect: FrameRect = {
-      x: Math.min(corner1.x, corner2.x),
-      y: Math.min(corner1.y, corner2.y),
-      width: Math.abs(corner2.x - corner1.x),
-      height: Math.abs(corner2.y - corner1.y),
+      x: Math.min(marquee.startX, marquee.currentX),
+      y: Math.min(marquee.startY, marquee.currentY),
+      width: Math.abs(marquee.currentX - marquee.startX),
+      height: Math.abs(marquee.currentY - marquee.startY),
     };
     const matchedIds = screens
       .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
