@@ -25,6 +25,8 @@ The editor works like Figma: the whole window is one endless canvas, the top bar
 
 ## 4. Floating chrome
 
+Matt (2026-09-12): "when the chat panel is opened, the canvas that holds the frames (pages) should not scale up or down." Opening or closing any panel (chat, the right panel, minimize, Cmd+\) never changes the viewport's zoom or pan: the panels float over the canvas and cover part of it, and the frames stay exactly where they are at the same size. Fit-to-width on panel changes, which the current column layout does, goes away with this work; zoom only changes when the user zooms (or picks Fit / a screen tab).
+
 - The top bar floats over the canvas (full width, `absolute top-3 left-3 right-3`, SF2 panel surface with `shadow-panel-lg`); the right panel floats at `right-3 top-[76px] bottom-3` with the same surface; the chat column, when open, floats to the right of it. The canvas element fills the viewport (`inset-0`). Cmd+\ hides both.
 - The screens strip stays at the top of the canvas area beneath the top bar as a floating chip row.
 
