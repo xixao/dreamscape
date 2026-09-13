@@ -8,6 +8,10 @@
 // is exhaustively unit-testable; components/workbench/canvas.tsx is the only
 // caller that touches the DOM.
 
+import type { Screen } from '@/lib/files/repository';
+import type { SnapBox } from './snap';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+
 export interface Point {
   x: number;
   y: number;
@@ -31,6 +35,37 @@ export interface FrameRect {
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * A screen's box in canvas-space (unscaled) px (review fix wave nit 15:
+ * moved here from components/workbench/canvas.tsx, beside the FrameRect
+ * shape it returns, so lib/canvas/align.ts and lib/canvas/snap.ts's own
+ * callers - inspector.tsx included - do not need to import a component
+ * file just for this). `measuredHeights` (review fix wave item 8) is the
+ * live content height Stage/FramePreview have actually measured for an
+ * auto-height frame (fed through Canvas's onMeasuredHeight and, from
+ * there, up to WorkbenchShell) - consulted only when the screen has no
+ * fixed `stageHeight` of its own; ARTBOARD_MIN_HEIGHT is the last resort,
+ * for a frame that has not rendered (and so not measured) yet.
+ */
+export function frameRect(screen: Screen, measuredHeights?: ReadonlyMap<string, number>): FrameRect {
+  return {
+    x: screen.x ?? 0,
+    y: screen.y ?? 0,
+    width: screen.stageWidth,
+    height: screen.stageHeight ?? measuredHeights?.get(screen.id) ?? ARTBOARD_MIN_HEIGHT,
+  };
+}
+
+/**
+ * frameRect, plus the screen's id - the shape lib/canvas/snap.ts's
+ * resolveSnap needs for a candidate frame to snap against or report a guide
+ * for, and lib/canvas/align.ts's AlignableFrame needs for a canvas frame
+ * selection.
+ */
+export function snapBoxFor(screen: Screen, measuredHeights?: ReadonlyMap<string, number>): SnapBox {
+  return { id: screen.id, ...frameRect(screen, measuredHeights) };
 }
 
 export const MIN_ZOOM = 0.1;

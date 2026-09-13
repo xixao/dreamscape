@@ -282,6 +282,7 @@ function StageImpl({
   screen,
   viewport,
   comments = DEFAULT_STAGE_COMMENTS,
+  onMeasuredHeight,
 }: {
   screen: Screen;
   viewport: Viewport;
@@ -290,6 +291,13 @@ function StageImpl({
   // optional so callers written before comments existed keep rendering an
   // inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
+  // Review fix wave item 8: relays this frame's real, current height (the
+  // exact same value contentHeight below tracks for the artboard's own
+  // sizing) up to canvas.tsx's measuredHeights map, so an auto-height
+  // frame's actual content height - not just ARTBOARD_MIN_HEIGHT - reaches
+  // snapping, the frame alignment row, distribute and the marquee's hit
+  // test. Optional so callers written before this existed keep working.
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { width, height, zoom, setWidth, setSize } = useStage();
   const { query } = useEditor();
@@ -302,6 +310,21 @@ function StageImpl({
   // handles and the wrapper's own reserved layout space never need to guess.
   const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
   const effectiveHeight = height ?? contentHeight;
+
+  // Review fix wave item 8: relays this frame's real, current height up to
+  // canvas.tsx's measuredHeights map - a SEPARATE effect from the
+  // CanvasFrame below (rather than folded into its own onContentHeightChange
+  // callback) specifically so that callback's identity stays exactly
+  // `setContentHeight` (a stable setState reference) and CanvasFrame's own
+  // memoization is untouched; onMeasuredHeight is deliberately not a
+  // dependency for the same reason CanvasFrame's own effect excludes it
+  // (canvas-frame.tsx) - canvas.tsx's caller already keeps it stable via
+  // useStableCallback, but this must not re-fire for the same height even
+  // if some future caller does not.
+  useEffect(() => {
+    onMeasuredHeight?.(screen.id, effectiveHeight);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen.id, effectiveHeight]);
 
   // Feeds CommentLayer's pin/popover positioning (toScreenPoint). A plain
   // ResizeObserver plus window resize/scroll only catch a same-document size
@@ -493,9 +516,9 @@ export const Stage = memo(StageImpl);
  * pays off because every prop canvas.tsx passes here is itself stable
  * across a pure viewport change: `onFocusScreen` is passed straight through
  * unchanged (see the comment where this is rendered), and `shouldStartPan`/
- * `onPanPointerDown`/`onPanPointerMove`/`onPanPointerUp` are each wrapped in
- * `useStableCallback` there - a fresh closure for any one of them would
- * defeat this the same way an unstable object prop would.
+ * `onPanPointerDown`/`onPanPointerMove`/`onPanPointerUp`/`onMeasuredHeight`
+ * are each wrapped in `useStableCallback` there - a fresh closure for any
+ * one of them would defeat this the same way an unstable object prop would.
  */
 function FramePreviewImpl({
   screen,
@@ -505,6 +528,7 @@ function FramePreviewImpl({
   onPanPointerMove,
   onPanPointerUp,
   onFrameWheel,
+  onMeasuredHeight,
 }: {
   screen: Screen;
   // Takes the screen id (rather than a plain, no-argument `onFocus`) so
@@ -537,8 +561,27 @@ function FramePreviewImpl({
   // clientX/clientY into a window-space point for zoom-around-pointer, and
   // only the caller - not the event itself - knows which iframe that is.
   onFrameWheel: (event: WheelEvent, frameWindow: Window) => void;
+  // Review fix wave item 8: the same relay Stage does above - a
+  // non-focused, auto-height frame had NO content-height tracking of its
+  // own at all before this (its wrapper below just hardcoded
+  // ARTBOARD_MIN_HEIGHT), so other frames could never snap to, align
+  // against, or marquee-select it by its real bottom edge.
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
+  // Mirrors Stage's own contentHeight/effectiveHeight above: CanvasFrame's
+  // ResizeObserver-backed measurement when this frame has no fixed height
+  // of its own, otherwise the fixed height itself.
+  const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
+  const effectiveHeight = screen.stageHeight ?? contentHeight;
+
+  useEffect(() => {
+    onMeasuredHeight?.(screen.id, effectiveHeight);
+    // Same reasoning as Stage's identical effect: onMeasuredHeight is
+    // deliberately not a dependency, so an unstable caller can never make
+    // this re-fire for the same height.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen.id, effectiveHeight]);
 
   useEffect(() => {
     if (!frameDocument) return;
@@ -628,7 +671,7 @@ function FramePreviewImpl({
     <div
       data-testid="artboard-preview"
       className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
-      style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
+      style={{ width: screen.stageWidth, height: effectiveHeight }}
       onPointerDown={(event) => {
         event.preventDefault();
         onFocusScreen(screen.id);
@@ -640,6 +683,7 @@ function FramePreviewImpl({
         zoom={1}
         reportDocument={false}
         onCanvasDocument={setFrameDocument}
+        onContentHeightChange={setContentHeight}
       >
         {previewChildren}
       </CanvasFrame>

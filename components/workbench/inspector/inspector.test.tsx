@@ -36,6 +36,7 @@ function mount(
     selectedFrameIds,
     onAlignFrames,
     onUpdateLayoutGrid,
+    measuredHeights,
   }: {
     panelMode?: PanelMode;
     onPanelModeChange?: (mode: PanelMode) => void;
@@ -47,6 +48,7 @@ function mount(
     selectedFrameIds?: ReadonlySet<string>;
     onAlignFrames?: (positions: { id: string; x: number; y: number }[]) => void;
     onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
+    measuredHeights?: ReadonlyMap<string, number>;
   } = {},
 ) {
   return renderInEditor(
@@ -69,6 +71,7 @@ function mount(
         selectedFrameIds={selectedFrameIds}
         onAlignFrames={onAlignFrames}
         onUpdateLayoutGrid={onUpdateLayoutGrid}
+        measuredHeights={measuredHeights}
       />
       <WidthProbe />
     </>,
@@ -178,6 +181,35 @@ describe('Inspector', () => {
       await screen.findByText('Billing');
       const panel = screen.getByRole('complementary', { name: 'Design' });
       expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+    });
+
+    // Review fix wave item 8: alignment/distribute used to fall back to the
+    // static ARTBOARD_MIN_HEIGHT for any selected frame with no fixed
+    // stageHeight of its own, regardless of how tall its content actually
+    // is.
+    it('Align bottom uses a fed measured height for an auto-height frame, not ARTBOARD_MIN_HEIGHT', async () => {
+      const autoHeightFrames: Screen[] = [
+        { id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 400, stageHeight: 300, x: 0, y: 0 },
+        // s2 has no stageHeight of its own - only its fed measured height
+        // (1000) should determine where "bottom" ends up.
+        { id: 's2', name: 'Frame 2', layout: '{}', stageWidth: 400, x: 800, y: 0 },
+      ];
+      const onAlignFrames = vi.fn();
+      mount(1440, {
+        screens: autoHeightFrames,
+        selectedFrameIds: new Set(['s1', 's2']),
+        onAlignFrames,
+        measuredHeights: new Map([['s2', 1000]]),
+      });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Align bottom' }));
+
+      // bounds.bottom = max(0+300, 0+1000) = 1000; s1 -> 1000-300=700, s2 (already at the bottom) -> 1000-1000=0.
+      expect(onAlignFrames).toHaveBeenCalledWith([
+        { id: 's1', x: 0, y: 700 },
+        { id: 's2', x: 800, y: 0 },
+      ]);
     });
   });
 

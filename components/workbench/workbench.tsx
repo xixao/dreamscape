@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
-import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
+import { fitAll, frameRect, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { loadPixelGridVisible, savePixelGridVisible } from '@/lib/canvas/pixel-grid-store';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
@@ -30,7 +30,7 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
-import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
+import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP } from './chrome';
@@ -1033,6 +1033,27 @@ function WorkbenchShell({
       return next;
     });
   }
+  // Review fix wave item 8: an auto-height frame's real height is not known
+  // until it renders and measures its own content - snapping, the frame
+  // alignment row, distribute and the marquee's hit test all used to fall
+  // back to the same static ARTBOARD_MIN_HEIGHT estimate every such frame
+  // starts at, which is wrong the moment its actual content is taller or
+  // shorter. Fed by Stage/FramePreview (through Canvas's onMeasuredHeight,
+  // itself CanvasFrame's own ResizeObserver-backed content measurement) and
+  // read by both Canvas (snapping, marquee) and Inspector (alignment,
+  // distribute) - lives here, not in Canvas, since both are siblings that
+  // need the same map. Keyed by screen id, which stays unique across pages,
+  // so a stale entry for a screen on a page you have since left is
+  // harmless: nothing queries it while that page is not showing.
+  const [measuredHeights, setMeasuredHeights] = useState<ReadonlyMap<string, number>>(new Map());
+  const handleMeasuredHeight = useCallback((id: string, height: number) => {
+    setMeasuredHeights((current) => {
+      if (current.get(id) === height) return current;
+      const next = new Map(current);
+      next.set(id, height);
+      return next;
+    });
+  }, []);
   // Per browser, not per file - same lazy-useState-plus-effect pattern as
   // chatOpen just below (and see lib/chat/store.ts for the precedent this
   // mirrors: lib/workbench/panel-store.ts's loadPanelMode/savePanelMode).
@@ -1209,7 +1230,7 @@ function WorkbenchShell({
   // diagram bounds") - folds the current page's diagram nodes' bounding box
   // in alongside every frame's own, when the diagram has any.
   function zoomToFitTargets(): FrameRect[] {
-    const targets: FrameRect[] = pageScreens.map(frameRect);
+    const targets: FrameRect[] = pageScreens.map((screen) => frameRect(screen));
     const diagramBox = diagramBounds(diagram.nodes);
     if (diagramBox) targets.push(diagramBox);
     return targets;
@@ -1218,7 +1239,7 @@ function WorkbenchShell({
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId: currentPageId,
-    frames: pageScreens.map(frameRect),
+    frames: pageScreens.map((screen) => frameRect(screen)),
   });
 
   // Clicking a screens tab still switches the focused screen (onSelectScreen,
@@ -1586,6 +1607,8 @@ function WorkbenchShell({
                 onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
                 onClearFrameSelection={() => setSelectedFrameIds(new Set())}
                 pixelGridVisible={pixelGridVisible}
+                measuredHeights={measuredHeights}
+                onMeasuredHeight={handleMeasuredHeight}
               />
               {!uiHidden && (
                 <DiagramPalette
@@ -1643,6 +1666,7 @@ function WorkbenchShell({
                 onAlignFrames={onMoveScreens}
                 diagramAlignment={diagramAlignmentContext}
                 onUpdateLayoutGrid={onUpdateLayoutGrid}
+                measuredHeights={measuredHeights}
               />
             )}
             {!uiHidden && chatOpen && (

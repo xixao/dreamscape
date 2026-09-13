@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import { frameRect } from '@/lib/canvas/viewport';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
@@ -45,7 +46,7 @@ vi.mock('./canvas-frame', async (importOriginal) => {
   };
 });
 
-const { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } = await import('./canvas');
+const { Canvas, CanvasViewportProvider, useCanvasViewportController } = await import('./canvas');
 
 const SCREEN_1: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 300, x: 0, y: 0 };
 const SCREEN_2: Screen = {
@@ -74,7 +75,7 @@ function Harness({ screens, focusedScreenId, fileId }: { screens: Screen[]; focu
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId: 'page1',
-    frames: screens.map(frameRect),
+    frames: screens.map((screen) => frameRect(screen)),
   });
   return (
     <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>

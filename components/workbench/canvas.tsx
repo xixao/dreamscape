@@ -16,11 +16,20 @@ import {
 } from 'react';
 import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
-import { fitAll, panBy, toCanvasPoint, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
+import {
+  fitAll,
+  frameRect,
+  panBy,
+  snapBoxFor,
+  toCanvasPoint,
+  zoomAround,
+  type FrameRect,
+  type Size,
+  type Viewport,
+} from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
-import type { SnapBox, SnapDistance, SnapGuide } from '@/lib/canvas/snap';
+import type { SnapDistance, SnapGuide } from '@/lib/canvas/snap';
 import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
-import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
@@ -47,6 +56,9 @@ function noopIds(): void {}
 // selection-free as before (see DEFAULT_DIAGRAM_STATE's own comment above
 // for the identical "keep old callers working" precedent).
 const DEFAULT_FRAME_SELECTION: ReadonlySet<string> = new Set();
+// Same precedent, for callers predating item 8's measured-height plumbing.
+const DEFAULT_MEASURED_HEIGHTS: ReadonlyMap<string, number> = new Map();
+function noopMeasuredHeight(): void {}
 
 export type ViewportSize = Size;
 
@@ -94,30 +106,9 @@ export function useCanvasViewport(): CanvasViewportContextValue {
   return context;
 }
 
-export function frameRect(screen: Screen): FrameRect {
-  return {
-    x: screen.x ?? 0,
-    y: screen.y ?? 0,
-    width: screen.stageWidth,
-    // The real height of an auto-height frame is not known until it
-    // renders and measures its own content - ARTBOARD_MIN_HEIGHT is the
-    // same starting estimate the artboard itself uses, good enough for
-    // "roughly fit everything," which is all a default viewport needs to be.
-    height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
-  };
-}
-
-/**
- * frameRect, plus the screen's id - the shape lib/canvas/snap.ts's
- * resolveSnap needs for a candidate frame to snap against or report a guide
- * for, and (exported) the same shape lib/canvas/align.ts's AlignableFrame
- * needs for a canvas frame selection - inspector.tsx builds those from the
- * same screens this file already renders, rather than duplicating the
- * `stageHeight ?? ARTBOARD_MIN_HEIGHT` fallback a second time.
- */
-export function snapBoxFor(screen: Screen): SnapBox {
-  return { id: screen.id, ...frameRect(screen) };
-}
+// frameRect/snapBoxFor moved to lib/canvas/viewport.ts (review fix wave nit
+// 15, beside the FrameRect shape they return) - imported above, alongside
+// this file's other viewport helpers, rather than defined here.
 
 /** Whether two canvas-space boxes overlap at all - the marquee's own hit test (spec section 3: "selects every frame whose box intersects the marquee"). */
 function rectsIntersect(a: FrameRect, b: FrameRect): boolean {
@@ -392,6 +383,8 @@ export function Canvas({
   onSetFrameSelection = noopIds,
   onClearFrameSelection = noop,
   pixelGridVisible = true,
+  measuredHeights = DEFAULT_MEASURED_HEIGHTS,
+  onMeasuredHeight = noopMeasuredHeight,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -433,6 +426,14 @@ export function Canvas({
   // canvas.tsx itself, the same split every other per-browser UI flag here
   // already has (chatOpen, panelMode, ...).
   pixelGridVisible?: boolean;
+  // Review fix wave item 8: an auto-height frame's real, current height -
+  // owned by WorkbenchShell (Inspector needs the same map for alignment/
+  // distribute), fed here purely to resolve frameRect/snapBoxFor's own
+  // fallback for snapping and the marquee's hit test.
+  measuredHeights?: ReadonlyMap<string, number>;
+  // CanvasFrame's own ResizeObserver-backed content measurement, relayed
+  // up through Stage/FramePreview (below) to WorkbenchShell's map above.
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { actions } = useEditor();
   const setStageZoom = useStage().setZoom;
@@ -728,7 +729,7 @@ export function Canvas({
       height: Math.abs(corner2.y - corner1.y),
     };
     const matchedIds = screens
-      .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate)))
+      .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
       .map((candidate) => candidate.id);
     onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedIds])) : matchedIds);
   }
@@ -823,6 +824,12 @@ export function Canvas({
   const stableMoveFramePan = useStableCallback(moveFramePan);
   const stableEndFramePan = useStableCallback(endFramePan);
   const stableFrameWheel = useStableCallback(frameWheel);
+  // Review fix wave item 8: wrapped the same way as the pan/wheel callbacks
+  // above - onMeasuredHeight is a plain prop this component received (not
+  // necessarily already stable the way onFocusScreen's own WorkbenchShell
+  // origin already is), and Stage/FramePreview need a stable reference to
+  // stay memoized across a pure viewport re-render.
+  const stableOnMeasuredHeight = useStableCallback(onMeasuredHeight);
 
   // The focused frame's own iframe is a separate document: neither the root
   // pointer handlers above nor a plain wheel listener on the root element
@@ -954,7 +961,7 @@ export function Canvas({
           // own members while moving together (spec section 3).
           const otherFrames = screens
             .filter((candidate) => candidate.id !== screen.id && !(selected && selectedFrameIds.has(candidate.id)))
-            .map(snapBoxFor);
+            .map((candidate) => snapBoxFor(candidate, measuredHeights));
           return (
             <div
               key={screen.id}
@@ -978,7 +985,7 @@ export function Canvas({
                 }}
               />
               {focused ? (
-                <Stage screen={screen} viewport={viewport} comments={comments} />
+                <Stage screen={screen} viewport={viewport} comments={comments} onMeasuredHeight={stableOnMeasuredHeight} />
               ) : (
                 <FramePreview
                   screen={screen}
@@ -988,13 +995,18 @@ export function Canvas({
                   // WorkbenchShell/Workbench, neither of which re-renders
                   // just because THIS component's viewport context does),
                   // so no per-screen wrapping is needed here - FramePreview
-                  // calls it with its own screen.id itself.
+                  // calls it with its own screen.id itself. onMeasuredHeight
+                  // (review fix wave item 8) is the same shape and gets the
+                  // same treatment, just wrapped in useStableCallback below
+                  // since it originates as a plain prop THIS component
+                  // received, not necessarily already stable itself.
                   onFocusScreen={onFocusScreen}
                   shouldStartPan={stableShouldStartPan}
                   onPanPointerDown={stableStartFramePan}
                   onPanPointerMove={stableMoveFramePan}
                   onPanPointerUp={stableEndFramePan}
                   onFrameWheel={stableFrameWheel}
+                  onMeasuredHeight={stableOnMeasuredHeight}
                 />
               )}
             </div>
@@ -1012,7 +1024,7 @@ export function Canvas({
         <DiagramLayer
           diagram={diagram}
           dispatch={onDiagramAction}
-          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen) }))}
+          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen, measuredHeights) }))}
           viewport={viewport}
           tool={diagramTool}
           onToolConsumed={onDiagramToolConsumed}
@@ -1020,7 +1032,7 @@ export function Canvas({
         <SnapGuides
           guides={snapResult?.guides ?? []}
           distances={snapResult?.distances ?? []}
-          movingFrame={snappingScreen ? snapBoxFor(snappingScreen) : null}
+          movingFrame={snappingScreen ? snapBoxFor(snappingScreen, measuredHeights) : null}
           zoom={viewport.zoom}
         />
       </div>

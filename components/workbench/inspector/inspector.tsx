@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { schemaFor } from '@/components/blocks/registry';
 import type { FieldSchema, SectionName } from '@/components/blocks/schema';
 import type { AlignableFrame, FramePosition } from '@/lib/canvas/align';
+import { snapBoxFor } from '@/lib/canvas/viewport';
 import { distributeGapPx, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
 import type { DiagramAction } from '@/lib/diagram/store';
 // Aliased: this module already imports lucide's LayoutGrid icon (the
@@ -35,7 +36,6 @@ import {
   SEG_GROUP,
   SEG_ITEM,
 } from '../chrome';
-import { snapBoxFor } from '../canvas';
 import { ComponentTray } from '../component-tray';
 import { DiagramFields, type DiagramFieldsSelection } from '../diagram/diagram-fields';
 import type { PanelMode } from '../prototype-context';
@@ -256,6 +256,7 @@ export function Inspector({
   onAlignFrames,
   diagramAlignment = null,
   onUpdateLayoutGrid,
+  measuredHeights,
 }: {
   screens: Screen[];
   currentScreenId: string;
@@ -290,6 +291,13 @@ export function Inspector({
   // selected) - merges a partial change into the current screen's
   // layoutGrid, same as Shift+G's own onToggleLayoutGrid in workbench.tsx.
   onUpdateLayoutGrid?: (id: string, patch: Partial<LayoutGridData>) => void;
+  // Review fix wave item 8: an auto-height frame's real, current height
+  // (owned by WorkbenchShell, fed by Stage/FramePreview through Canvas) -
+  // used the same way canvas.tsx uses it, so the frame alignment row below
+  // aligns/distributes against a frame's actual measured box, not just
+  // ARTBOARD_MIN_HEIGHT. Optional so every existing caller/test keeps
+  // rendering exactly as before.
+  measuredHeights?: ReadonlyMap<string, number>;
 }) {
   const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
@@ -334,7 +342,7 @@ export function Inspector({
     selectedFrames.length >= 2
       ? {
           type: 'frames' as const,
-          frames: selectedFrames.map(snapBoxFor) as AlignableFrame[],
+          frames: selectedFrames.map((screen) => snapBoxFor(screen, measuredHeights)) as AlignableFrame[],
           onAlign: (positions: FramePosition[]) => onAlignFrames?.(positions),
         }
       : null;

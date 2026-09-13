@@ -3,12 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
-import { toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
+import { frameRect, toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
-import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewport, useCanvasViewportController } from './canvas';
+import { Canvas, CanvasViewportProvider, useCanvasViewport, useCanvasViewportController } from './canvas';
 
 const SCREEN_1: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 300, x: 0, y: 0 };
 const SCREEN_2: Screen = {
@@ -42,6 +42,8 @@ function Harness({
   onSetFrameSelection,
   onClearFrameSelection,
   pixelGridVisible,
+  measuredHeights,
+  onMeasuredHeight,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -58,11 +60,13 @@ function Harness({
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
   pixelGridVisible?: boolean;
+  measuredHeights?: ReadonlyMap<string, number>;
+  onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId,
-    frames: screens.map(frameRect),
+    frames: screens.map((screen) => frameRect(screen)),
   });
   return (
     <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
@@ -81,6 +85,8 @@ function Harness({
         onSetFrameSelection={onSetFrameSelection}
         onClearFrameSelection={onClearFrameSelection}
         pixelGridVisible={pixelGridVisible}
+        measuredHeights={measuredHeights}
+        onMeasuredHeight={onMeasuredHeight}
       />
       {extra}
     </CanvasViewportProvider>
@@ -103,6 +109,8 @@ function renderCanvas({
   onSetFrameSelection,
   onClearFrameSelection,
   pixelGridVisible,
+  measuredHeights,
+  onMeasuredHeight,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
@@ -119,6 +127,8 @@ function renderCanvas({
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
   pixelGridVisible?: boolean;
+  measuredHeights?: ReadonlyMap<string, number>;
+  onMeasuredHeight?: (id: string, height: number) => void;
 } = {}) {
   return renderInEditor(
     <Harness
@@ -137,6 +147,8 @@ function renderCanvas({
       onSetFrameSelection={onSetFrameSelection}
       onClearFrameSelection={onClearFrameSelection}
       pixelGridVisible={pixelGridVisible}
+      measuredHeights={measuredHeights}
+      onMeasuredHeight={onMeasuredHeight}
     />,
   );
 }
@@ -389,6 +401,49 @@ describe('Canvas', () => {
 
       expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
       expect(screen.queryByTestId('marquee-selection')).toBeNull();
+    });
+
+    // Review fix wave item 8: the marquee's own hit test (frameRect, via
+    // rectsIntersect) used to always fall back to the static
+    // ARTBOARD_MIN_HEIGHT (640) for an auto-height frame, regardless of how
+    // tall its content actually is.
+    it('hit-tests an auto-height frame against its fed measured height, not just ARTBOARD_MIN_HEIGHT', async () => {
+      saveViewport(window.localStorage, 'marqueeheight', 'page1', { x: 0, y: 0, zoom: 1 });
+      const autoHeightScreen: Screen = { id: 'auto1', name: 'Auto Frame', layout: emptyLayoutJson(), stageWidth: 400, x: 0, y: 0 };
+      const onSetFrameSelection = vi.fn();
+      const { rerenderUi } = renderCanvas({
+        screens: [autoHeightScreen],
+        onSetFrameSelection,
+        fileId: 'marqueeheight',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      const root = screen.getByTestId('canvas-root');
+      // A box from (0,700) to (400,900) - below the frame's own unmeasured
+      // ARTBOARD_MIN_HEIGHT (640) bottom edge entirely, but well within its
+      // fed measured height of 1000.
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith([]);
+
+      onSetFrameSelection.mockClear();
+      rerenderUi(
+        <Harness
+          screens={[autoHeightScreen]}
+          focusedScreenId={autoHeightScreen.id}
+          onFocusScreen={vi.fn()}
+          onRenameScreen={vi.fn()}
+          onMoveScreen={vi.fn()}
+          onSetFrameSelection={onSetFrameSelection}
+          fileId="marqueeheight"
+          measuredHeights={new Map([[autoHeightScreen.id, 1000]])}
+        />,
+      );
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith([autoHeightScreen.id]);
     });
 
     it('a plain click (no drag) on empty canvas does not treat it as a marquee', async () => {
