@@ -218,6 +218,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // race, and the same fix, as screens-strip.tsx's RenameInput/
   // onCloseAutoFocus for the chevron-menu Rename item.
   const editInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  // "Edit text"/"Edit label" reached from the right-click menu queue their
+  // request here rather than calling setEditing directly - see
+  // queueEditFromMenu's own comment below for why.
+  const pendingMenuEditRef = useRef<{ id: string; text: string } | null>(null);
   const [hover, setHover] = useState<HoverTarget>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -856,7 +860,6 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // guaranteed to run after Radix's own focus shuffling is completely done -
   // means the inline editor does not even exist yet while that shuffling
   // happens, so there is nothing for it to steal focus from.
-  const pendingMenuEditRef = useRef<{ id: string; text: string } | null>(null);
   function queueEditFromMenu(id: string, text: string): void {
     pendingMenuEditRef.current = { id, text };
   }
