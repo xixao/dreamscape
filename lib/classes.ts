@@ -136,6 +136,22 @@ export function normalizeSpacing(props: LegacySpacingProps): { gapPx: SpacingPx;
   return { gapPx, paddingPx };
 }
 
+/**
+ * The gap that would spread `childMainSizes` (each child's own size along
+ * the container's main axis) evenly across `containerMainSize`, snapped to
+ * the 8 px scale (spec docs/superpowers/specs/2026-09-13-grid-snapping-
+ * alignment-design.md section 4: "'Distribute' setting the container gap so
+ * children spread evenly"). `null` below two children - a single child, or
+ * none, has no gap to compute. Floors at 0 when the children already fill
+ * or overflow the container, same as snapToSpacing's own clamp.
+ */
+export function distributeGapPx(containerMainSize: number, childMainSizes: readonly number[]): SpacingPx | null {
+  if (childMainSizes.length < 2) return null;
+  const totalChildSize = childMainSizes.reduce((sum, size) => sum + size, 0);
+  const available = Math.max(0, containerMainSize - totalChildSize);
+  return snapToSpacing(available / (childMainSizes.length - 1));
+}
+
 export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
   mode: 'flex',
   direction: { mobile: 'column', desktop: 'row' },

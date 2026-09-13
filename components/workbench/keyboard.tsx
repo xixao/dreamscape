@@ -99,7 +99,14 @@ export function useWorkbenchKeyboard(
     onClearFrameSelection?: () => void;
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
+    // `big` is Shift held: 1 px plain, 8 px with Shift (Matt, 2026-09-13:
+    // dropped the earlier 8/64 px split in favour of matching the canvas's
+    // own 8 px grid). The four arrow keys nudge whichever selection is
+    // active - the diagram (onDiagramNudge) when diagramSelectionActive, a
+    // canvas frame selection (onFrameNudge) otherwise when
+    // frameSelectionActive - diagram wins when both are somehow true.
     onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
+    onFrameNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
     onDiagramUndo?: () => void;
     onDiagramRedo?: () => void;
     // Canvas zoom (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
@@ -165,6 +172,7 @@ export function useWorkbenchKeyboard(
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
+    onFrameNudge,
     onDiagramUndo,
     onDiagramRedo,
     onZoomIn,
@@ -277,13 +285,25 @@ export function useWorkbenchKeyboard(
         case 'diagram-nudge-down':
         case 'diagram-nudge-left':
         case 'diagram-nudge-right':
-          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
-          event.preventDefault();
-          onDiagramNudge?.(
-            id.slice('diagram-nudge-'.length) as 'up' | 'down' | 'left' | 'right',
-            event.shiftKey,
-          );
+        case 'diagram-nudge-up-shift':
+        case 'diagram-nudge-down-shift':
+        case 'diagram-nudge-left-shift':
+        case 'diagram-nudge-right-shift': {
+          if (isSeparatorTarget(event.target)) return;
+          const direction = id.replace(/^diagram-nudge-/, '').replace(/-shift$/, '') as 'up' | 'down' | 'left' | 'right';
+          const big = id.endsWith('-shift');
+          if (diagramSelectionActive) {
+            event.preventDefault();
+            onDiagramNudge?.(direction, big);
+            return;
+          }
+          if (frameSelectionActive) {
+            event.preventDefault();
+            onFrameNudge?.(direction, big);
+            return;
+          }
           return;
+        }
 
         case 'tool-comment':
           event.preventDefault();
@@ -410,6 +430,7 @@ export function useWorkbenchKeyboard(
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
+    onFrameNudge,
     onDiagramUndo,
     onDiagramRedo,
     onZoomIn,

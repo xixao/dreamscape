@@ -85,25 +85,51 @@ export const SHORTCUTS: Shortcut[] = [
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  // Nudges whichever selection is active - a diagram element, or (spec
+  // docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
+  // section 4) one or more selected frames when no diagram element is
+  // selected; keyboard.tsx's own dispatch decides which (diagram wins when
+  // both exist). 1 px plain, 8 px with Shift - the same two rows below,
+  // split by modifier since they now move by different amounts.
   { id: 'diagram-nudge-up',
     area: 'Canvas',
     keys: ['↑'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-down',
     area: 'Canvas',
     keys: ['↓'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-left',
     area: 'Canvas',
     keys: ['←'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
   },
   { id: 'diagram-nudge-right',
     area: 'Canvas',
     keys: ['→'],
-    label: 'Nudge the selection, Shift for 64 px',
+    label: 'Nudge the selection 1 px',
+  },
+  { id: 'diagram-nudge-up-shift',
+    area: 'Canvas',
+    keys: ['Shift', '↑'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-down-shift',
+    area: 'Canvas',
+    keys: ['Shift', '↓'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-left-shift',
+    area: 'Canvas',
+    keys: ['Shift', '←'],
+    label: 'Nudge the selection 8 px',
+  },
+  { id: 'diagram-nudge-right-shift',
+    area: 'Canvas',
+    keys: ['Shift', '→'],
+    label: 'Nudge the selection 8 px',
   },
   { id: 'escape', area: 'Edit', keys: ['Escape'], label: 'Deselect, leave a tool, close a menu' },
   // Labelled "Shortcuts dialog" rather than "Keyboard shortcuts" (the
@@ -229,15 +255,15 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && key === 'c') return 'tool-comment';
   if (shift && key === 'd') return 'tool-diagram';
   if (shift && event.key === '?') return 'shortcuts-help';
-  // Arrow keys nudge the diagram selection (keyboard.tsx only acts on this
-  // when one exists) - matched both with and without Shift (Shift is a
-  // bigger nudge, decided by keyboard.tsx from event.shiftKey directly, not
-  // a different id), so these four checks sit on both sides of the
-  // `if (shift) return null` gate just below.
-  if (shift && event.key === 'ArrowUp') return 'diagram-nudge-up';
-  if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down';
-  if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left';
-  if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right';
+  // Arrow keys nudge the diagram selection or, when none is active, a
+  // selected frame (keyboard.tsx decides which) - matched both with and
+  // without Shift, as distinct ids now that they move by a different
+  // amount (1 px plain, 8 px with Shift), so these four checks sit on both
+  // sides of the `if (shift) return null` gate just below.
+  if (shift && event.key === 'ArrowUp') return 'diagram-nudge-up-shift';
+  if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down-shift';
+  if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left-shift';
+  if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right-shift';
   if (shift) return null;
 
   if (key === 'd') return 'panel-design';

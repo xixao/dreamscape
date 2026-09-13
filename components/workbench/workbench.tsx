@@ -8,7 +8,14 @@ import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
-import { createInitialDiagramState, diagramReducer, pruneEdgesForScreen, type DiagramData, cloneDiagram } from '@/lib/diagram/store';
+import {
+  createInitialDiagramState,
+  diagramReducer,
+  pruneEdgesForScreen,
+  type DiagramAction,
+  type DiagramData,
+  cloneDiagram,
+} from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Page, Screen } from '@/lib/files/repository';
@@ -31,6 +38,7 @@ import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
 import { useDropPlaceholder } from './drop-placeholder';
+import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspector/alignment-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
@@ -171,6 +179,45 @@ function sanitizeDiagram(diagram: DiagramData, validScreenIds: ReadonlySet<strin
     if (!validScreenIds.has(screenId)) sanitized = pruneEdgesForScreen(sanitized, screenId);
   }
   return sanitized;
+}
+
+// Shared by onDiagramNudge and onFrameNudge below (spec docs/superpowers/
+// specs/2026-09-13-grid-snapping-alignment-design.md section 4, updated
+// 2026-09-13: 1 px plain, 8 px with Shift - dropped the earlier 8/64 px
+// split so a nudge always lands on the canvas's own 8 px grid).
+const NUDGE_PX = 1;
+const NUDGE_PX_SHIFT = 8;
+
+function nudgeDelta(direction: 'up' | 'down' | 'left' | 'right', big: boolean): [number, number] {
+  const amount = big ? NUDGE_PX_SHIFT : NUDGE_PX;
+  switch (direction) {
+    case 'up':
+      return [0, -amount];
+    case 'down':
+      return [0, amount];
+    case 'left':
+      return [-amount, 0];
+    case 'right':
+      return [amount, 0];
+  }
+}
+
+// Diagram align({ids, mode}) / distribute({ids, axis}) (Matt, 2026-09-13:
+// "i also need alignment options when selecting multiple shapes") are being
+// added to lib/diagram/store.ts's own DiagramAction union on a separate
+// branch (diagram-followups) - this branch does not own that file, so
+// these two shapes are dispatched through a narrow, explicitly-typed
+// adapter instead of widening DiagramAction here. When the branches merge,
+// only this cast needs reconciling with whatever the real action types
+// turn out to be, not every call site.
+type DiagramAlignAction = { type: 'align'; ids: string[]; mode: AlignMode };
+type DiagramDistributeAction = { type: 'distribute'; ids: string[]; axis: DistributeAxis };
+
+function dispatchDiagramAlign(
+  dispatch: (action: DiagramAction) => void,
+  action: DiagramAlignAction | DiagramDistributeAction,
+): void {
+  dispatch(action as unknown as DiagramAction);
 }
 
 type MinimalQuery = { serialize: () => string };
@@ -1062,6 +1109,25 @@ function WorkbenchShell({
     return edge ? { type: 'edge', edge } : null;
   }
 
+  // The Design panel's alignment row for a diagram selection of two or
+  // more SHAPES (Matt, 2026-09-13: "i also need alignment options when
+  // selecting multiple shapes") - edges are excluded, aligning a connector
+  // has no meaning. Takes priority over selectedDiagramFields() above in
+  // inspector.tsx's own render order, since that would otherwise still
+  // point at only the first of the several selected shapes.
+  const selectedDiagramNodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+  const diagramAlignmentContext: DiagramAlignmentContext | null =
+    selectedDiagramNodeIds.length >= 2
+      ? {
+          type: 'diagram',
+          count: selectedDiagramNodeIds.length,
+          onAlign: (mode: AlignMode) =>
+            dispatchDiagramAlign(dispatchDiagram, { type: 'align', ids: selectedDiagramNodeIds, mode }),
+          onDistribute: (axis: DistributeAxis) =>
+            dispatchDiagramAlign(dispatchDiagram, { type: 'distribute', ids: selectedDiagramNodeIds, axis }),
+        }
+      : null;
+
   // The diagram tool/palette (diagram-palette.tsx, diagram-layer.tsx):
   // `diagramPaletteOpen` is the floating bar's own visibility, toggled by
   // Shift+D or the top bar's Diagram tool button and closed by its own
@@ -1252,16 +1318,21 @@ function WorkbenchShell({
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;
-      const amount = big ? 64 : 8;
-      const [dx, dy] =
-        direction === 'up'
-          ? [0, -amount]
-          : direction === 'down'
-            ? [0, amount]
-            : direction === 'left'
-              ? [-amount, 0]
-              : [amount, 0];
+      const [dx, dy] = nudgeDelta(direction, big);
       dispatchDiagram({ type: 'move', ids, dx, dy });
+    },
+    // The frame-selection counterpart to onDiagramNudge above, firing
+    // instead of it once no diagram element is selected (keyboard.tsx's own
+    // dispatch decides which) - moves every selected frame by the same
+    // delta and saves them together, the same "one patch" treatment a
+    // dragged multi-selection already gets (canvas.tsx's onMoveScreens).
+    onFrameNudge: (direction, big) => {
+      if (selectedFrameIds.size === 0) return;
+      const [dx, dy] = nudgeDelta(direction, big);
+      const updates = pageScreens
+        .filter((screen) => selectedFrameIds.has(screen.id))
+        .map((screen) => ({ id: screen.id, x: (screen.x ?? 0) + dx, y: (screen.y ?? 0) + dy }));
+      if (updates.length > 0) onMoveScreens(updates);
     },
     onDiagramUndo: () => dispatchDiagram({ type: 'undo' }),
     onDiagramRedo: () => dispatchDiagram({ type: 'redo' }),
@@ -1486,6 +1557,9 @@ function WorkbenchShell({
                 onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
                 diagramSelection={selectedDiagramFields()}
                 onDiagramAction={dispatchDiagram}
+                selectedFrameIds={selectedFrameIds}
+                onAlignFrames={onMoveScreens}
+                diagramAlignment={diagramAlignmentContext}
               />
             )}
             {!uiHidden && chatOpen && (

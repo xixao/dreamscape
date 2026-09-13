@@ -173,12 +173,15 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'd', metaKey: true, shiftKey: true }))).toBeNull();
   });
 
-  it('matches the four arrow keys for the diagram nudge, with or without Shift', () => {
+  it('matches the four arrow keys for the nudge, as distinct ids with and without Shift', () => {
     expect(matchShortcut(key({ key: 'ArrowUp' }))).toBe('diagram-nudge-up');
     expect(matchShortcut(key({ key: 'ArrowDown' }))).toBe('diagram-nudge-down');
     expect(matchShortcut(key({ key: 'ArrowLeft' }))).toBe('diagram-nudge-left');
     expect(matchShortcut(key({ key: 'ArrowRight' }))).toBe('diagram-nudge-right');
-    expect(matchShortcut(key({ key: 'ArrowUp', shiftKey: true }))).toBe('diagram-nudge-up');
+    expect(matchShortcut(key({ key: 'ArrowUp', shiftKey: true }))).toBe('diagram-nudge-up-shift');
+    expect(matchShortcut(key({ key: 'ArrowDown', shiftKey: true }))).toBe('diagram-nudge-down-shift');
+    expect(matchShortcut(key({ key: 'ArrowLeft', shiftKey: true }))).toBe('diagram-nudge-left-shift');
+    expect(matchShortcut(key({ key: 'ArrowRight', shiftKey: true }))).toBe('diagram-nudge-right-shift');
     expect(matchShortcut(key({ key: 'ArrowUp', metaKey: true }))).toBeNull();
   });
 
@@ -339,7 +342,9 @@ describe('README shortcut table', () => {
   it('merges entries that share a label into one row with every key combination', () => {
     const chat = displayRows().find((row) => row.label === 'Open or close the chat panel');
     expect(chat?.keys).toHaveLength(2);
-    const nudge = displayRows().find((row) => row.label.startsWith('Nudge the selection'));
+    const nudge = displayRows().find((row) => row.label === 'Nudge the selection 1 px');
     expect(nudge?.keys.map((keys) => keys.join(' '))).toEqual(['↑', '↓', '←', '→']);
+    const nudgeShift = displayRows().find((row) => row.label === 'Nudge the selection 8 px');
+    expect(nudgeShift?.keys.map((keys) => keys.join(' '))).toEqual(['Shift ↑', 'Shift ↓', 'Shift ←', 'Shift →']);
   });
 });

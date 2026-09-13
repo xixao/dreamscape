@@ -107,8 +107,15 @@ export function frameRect(screen: Screen): FrameRect {
   };
 }
 
-/** frameRect, plus the screen's id - the shape lib/canvas/snap.ts's resolveSnap needs for a candidate frame to snap against or report a guide for. */
-function snapBoxFor(screen: Screen): SnapBox {
+/**
+ * frameRect, plus the screen's id - the shape lib/canvas/snap.ts's
+ * resolveSnap needs for a candidate frame to snap against or report a guide
+ * for, and (exported) the same shape lib/canvas/align.ts's AlignableFrame
+ * needs for a canvas frame selection - inspector.tsx builds those from the
+ * same screens this file already renders, rather than duplicating the
+ * `stageHeight ?? ARTBOARD_MIN_HEIGHT` fallback a second time.
+ */
+export function snapBoxFor(screen: Screen): SnapBox {
   return { id: screen.id, ...frameRect(screen) };
 }
 

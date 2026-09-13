@@ -14,6 +14,7 @@ import {
   SPACING_OPTIONS,
   type LayoutBoxProps,
   blockClasses,
+  distributeGapPx,
   layoutBoxClasses,
   normalizeSpacing,
   snapToSpacing,
@@ -198,6 +199,31 @@ describe('GAP_PX_CLASSES and PADDING_PX_CLASSES', () => {
       expect(typeof GAP_PX_CLASSES[step]).toBe('string');
       expect(typeof PADDING_PX_CLASSES[step]).toBe('string');
     }
+  });
+});
+
+describe('distributeGapPx', () => {
+  it('computes the gap that spreads children evenly across the remaining space, snapped to the 8 px scale', () => {
+    // 100 - (20+20+20) = 40 available over 2 gaps = 20 each -> snaps to 24.
+    expect(distributeGapPx(100, [20, 20, 20])).toBe(24);
+  });
+
+  it('returns an already-on-scale gap unchanged', () => {
+    // 100 - (30+30) = 40 available over 1 gap = 40, already on the scale.
+    expect(distributeGapPx(100, [30, 30])).toBe(40);
+  });
+
+  it('floors at 0 when the children already fill or overflow the container', () => {
+    expect(distributeGapPx(50, [30, 30])).toBe(0);
+  });
+
+  it('clamps to the 64 px maximum', () => {
+    expect(distributeGapPx(1000, [10, 10])).toBe(64);
+  });
+
+  it('returns null with fewer than two children - nothing to distribute', () => {
+    expect(distributeGapPx(100, [50])).toBeNull();
+    expect(distributeGapPx(100, [])).toBeNull();
   });
 });
 
