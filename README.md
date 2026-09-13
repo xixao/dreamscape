@@ -68,19 +68,24 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 | Keys | Action |
 | --- | --- |
 | Cmd+\ (Ctrl+\ on Windows) | Show or hide the top bar and both panels |
+| Cmd+J (Ctrl+J on Windows) | Open or close the Chat panel |
 | Cmd+Z, Shift+Cmd+Z | Undo, redo (history is per screen) |
 | Escape | Deselect |
 | Delete or Backspace | Delete the selected layer (the root frame and the content zones cannot be deleted) |
 | Press and hold on the canvas | Layer stack menu listing every layer under the pointer |
 | Escape in Play mode | Leave the presentation and return to the editor on the screen you were viewing |
 
+## Chat panel
+
+The Chat button in the top bar (or Cmd+J) opens a chat conversation UI docked to the right of the editor. It is a placeholder: sending a message always gets a fixed "not connected yet" reply, and nothing ever reaches the network. See `docs/chat-integration.md` for the `ChatTransport` interface a real assistant integration implements and where it plugs in.
+
 ## Where things are
 
 - `app/`: routes. `/` and `/folders/[id]` are the Files pages, `/f/[id]` is the editor, `/f/[id]/play` is Play mode, `/api/files` and `/api/folders` are the JSON APIs.
-- `components/workbench/`: the editor chrome (top bar, Components panel, canvas, layers, Design and Prototype panels). Its styling follows the SF2 design system spec; shared class tables live in `components/workbench/chrome.ts`.
+- `components/workbench/`: the editor chrome (top bar, Components panel, canvas, layers, Design and Prototype panels, Chat panel). Its styling follows the SF2 design system spec; shared class tables live in `components/workbench/chrome.ts`.
 - `components/blocks/`: the components that can be placed on the frame. They render plain shadcn/ui as a placeholder for the product design systems that will replace it later. `components/blocks/registry.tsx` lists them for the Components panel.
 - `components/ui/`: shadcn/ui primitives. Do not hand-edit them; add new ones with `npx shadcn@latest add <name>`.
 - `components/files/` and `components/play/`: the Files pages and Play mode.
-- `lib/`: files repository and validation, the autosave client, examples, interactions, spacing and class helpers, device presets.
+- `lib/`: files repository and validation, the autosave client, examples, interactions, spacing and class helpers, device presets, the chat placeholder's transport contract and per-file storage (`lib/chat/`, see `docs/chat-integration.md`).
 - `db/` and `drizzle/`: database client, schema and migrations.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/`: the design specs and implementation plans for each sub-project. `docs/research/` holds the research notes (diagram libraries, Figma device presets).

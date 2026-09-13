@@ -8,6 +8,8 @@ import {
   Check,
   ChevronDown,
   FilePlus2,
+  MessageCircle,
+  MessageSquareText,
   Monitor,
   Play,
   Redo2,
@@ -50,18 +52,42 @@ function IconAction({
   label,
   icon: Icon,
   disabled,
+  pressed,
   onClick,
+  badge,
 }: {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  // Undefined (the default) omits aria-pressed entirely, so every existing
+  // caller (Undo, Redo, New frame) renders exactly as before. Only a toggle
+  // like the Chat button passes an actual boolean.
+  pressed?: boolean;
   onClick: () => void;
+  // Comment tool only: a mono open-thread count shown as a small badge when
+  // there is at least one (spec
+  // docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+  // section 5, "the comment tool button shows the open thread count").
+  badge?: number;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} disabled={disabled} onClick={onClick}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn('relative', pressed && 'bg-muted text-foreground')}
+        >
           <Icon className="size-4" aria-hidden />
+          {!!badge && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-white">
+              {badge}
+            </span>
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -208,6 +234,11 @@ export function Topbar({
   fileId,
   folderId,
   currentScreenId,
+  commentMode = false,
+  onToggleCommentMode,
+  commentCount = 0,
+  chatOpen,
+  onToggleChat,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -217,6 +248,11 @@ export function Topbar({
   fileId: string;
   folderId: string | null;
   currentScreenId: string;
+  commentMode?: boolean;
+  onToggleCommentMode?: () => void;
+  commentCount?: number;
+  chatOpen: boolean;
+  onToggleChat: () => void;
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -228,7 +264,14 @@ export function Topbar({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <header className={cn(PANEL, 'shadow-panel', 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
+      <header
+        className={cn(
+          PANEL,
+          'shadow-panel',
+          chatOpen ? 'col-span-4' : 'col-span-3',
+          'flex h-[54px] items-center gap-2 px-3.5',
+        )}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Link href={filesHref} aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
@@ -276,6 +319,13 @@ export function Topbar({
         </span>
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
+        <IconAction
+          label="Comment tool"
+          icon={MessageCircle}
+          pressed={commentMode}
+          badge={commentCount}
+          onClick={() => onToggleCommentMode?.()}
+        />
         <Tooltip>
           <TooltipTrigger asChild>
             <a
@@ -293,6 +343,7 @@ export function Topbar({
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
+        <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
       </header>
     </TooltipProvider>
   );
