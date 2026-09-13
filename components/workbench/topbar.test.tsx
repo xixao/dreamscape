@@ -6,7 +6,7 @@ import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import type { SaveState } from '@/lib/persistence';
 import { renderInEditor } from '@/test/craft-harness';
-import { Topbar, stageReadout } from './topbar';
+import { Topbar } from './topbar';
 
 function presetButton(label: string) {
   const button = screen.getByText(label).closest('button');
@@ -36,23 +36,9 @@ function renderTopbar(
   return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew, onToggleChat };
 }
 
-describe('stageReadout', () => {
-  it('shows width, breakpoint and zoom only when scaled', () => {
-    expect(stageReadout(1440, 'desktop', 1)).toBe('1440 px · desktop');
-    expect(stageReadout(375, 'mobile', 1)).toBe('375 px · mobile');
-    expect(stageReadout(1440, 'desktop', 0.72)).toBe('1440 px · desktop · 72%');
-  });
-
-  it('shows the device name and its width x height instead, when given', () => {
-    expect(stageReadout(402, 'mobile', 1, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
-      'iPhone 16 & 17 Pro · 402 × 874',
-    );
-    expect(stageReadout(402, 'mobile', 0.63, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
-      'iPhone 16 & 17 Pro · 402 × 874 · 63%',
-    );
-  });
-});
-
+// The readout text itself (readoutFor) is unit-tested in
+// lib/stage/size.test.ts; the tests below just confirm Topbar renders it
+// through data-testid="stage-readout" with the live stage values.
 describe('Topbar', () => {
   it('marks the active preset and switches width on click', async () => {
     renderTopbar({}, { width: 1440 });
@@ -242,13 +228,19 @@ describe('Topbar', () => {
       expect(onToggleChat).toHaveBeenCalledTimes(1);
     });
 
-    it('spans 3 columns when chat is closed and 4 when it is open', () => {
+    // The left column (the Components tray) went away in
+    // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1,
+    // so the top bar now spans 2 columns without chat and 3 with it (one
+    // fewer than before either way), regardless of whether the right panel
+    // is minimized - collapsing it only narrows that column, it does not
+    // remove it.
+    it('spans 2 columns when chat is closed and 3 when it is open', () => {
       const { unmount } = renderTopbar({ chatOpen: false });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-2');
       unmount();
 
       renderTopbar({ chatOpen: true });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-4');
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
     });
   });
 

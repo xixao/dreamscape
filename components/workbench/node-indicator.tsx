@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { ZONE_TYPES } from '@/components/blocks/registry';
 import { describeInteraction, getInteraction } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
+import { useCanvasDocument } from './canvas-frame';
 import { InteractionTag } from './interaction-tag';
 import { usePrototypeContext } from './prototype-context';
 import { useStage } from './stage-context';
@@ -77,13 +78,20 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     // (rare), so this costs nothing for every other node's collector.
     nodes: state.nodes,
   }));
-  // The stage scales the artboard with a CSS `zoom` factor to fit the column
-  // (see stage.tsx). `zoom` and `width` are read here only to force the effect
-  // below to re-measure when either changes; see the adaptation note where
-  // they're added to its dependency array.
+  // The stage scales the artboard with a CSS transform to fit the column
+  // (see stage.tsx / canvas-frame.tsx). `zoom` and `width` are read here only
+  // to force the effect below to re-measure when either changes; see the
+  // adaptation note where they're added to its dependency array.
   const { zoom, width } = useStage();
   const { panelMode, screens } = usePrototypeContext();
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // The iframe's own document/window once Stage has one (canvas-frame.tsx);
+  // null in Play mode and in any test that renders a block tree without a
+  // Stage, in which case this falls back to the parent document/window
+  // exactly as before this feature.
+  const canvasDocument = useCanvasDocument();
+  const targetDocument = canvasDocument?.document ?? document;
+  const targetWindow = canvasDocument?.window ?? window;
 
   const isRoot = id === ROOT_NODE;
   const isZone = ZONE_TYPES.has(name);
@@ -102,25 +110,30 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     update();
     const observer = new ResizeObserver(update);
     observer.observe(dom);
-    window.addEventListener('scroll', update, true);
-    window.addEventListener('resize', update);
+    // Listened on the node's own window (the iframe's, once Stage has one -
+    // see targetWindow above) rather than always the outer one: a node
+    // scrolling inside the frame (a fixed-height device with overflowing
+    // content) fires scroll/resize on ITS window, which is a different
+    // object from the parent's once the artboard lives in an iframe.
+    targetWindow.addEventListener('scroll', update, true);
+    targetWindow.addEventListener('resize', update);
     return () => {
       observer.disconnect();
-      window.removeEventListener('scroll', update, true);
-      window.removeEventListener('resize', update);
+      targetWindow.removeEventListener('scroll', update, true);
+      targetWindow.removeEventListener('resize', update);
     };
     // `zoom` and `width` are not read in the effect body: the stage applies
-    // zoom as a CSS `zoom` factor on an ancestor (stage.tsx), which rescales
-    // getBoundingClientRect() without changing the node's own layout box, so
-    // neither ResizeObserver nor a window resize/scroll event fires for it.
-    // Depending on them here forces a re-measure whenever the artboard
-    // rescales (preset switch or resize-grip drag).
+    // zoom as a CSS transform on an ancestor (canvas-frame.tsx), which
+    // rescales getBoundingClientRect() without changing the node's own
+    // layout box, so neither ResizeObserver nor a window resize/scroll event
+    // fires for it. Depending on them here forces a re-measure whenever the
+    // artboard rescales (preset switch or a resize-handle drag).
     // `treeVersion` is the same kind of dependency: adding, removing or moving
     // a node elsewhere in the tree can shift this node's position (e.g. a new
     // sibling pushes it over) without resizing this node's own box, which is
     // the one thing ResizeObserver watches. Depending on it here forces a
     // re-measure on every such structural change.
-  }, [dom, active, zoom, width, treeVersion]);
+  }, [dom, active, zoom, width, treeVersion, targetWindow]);
 
   const tagText = showTag ? describeInteraction(interaction, screens, nodes) : null;
 
@@ -141,7 +154,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
             )}
             {tagText && <InteractionTag rect={rect} text={tagText} />}
           </>,
-          document.body,
+          targetDocument.body,
         )}
     </>
   );

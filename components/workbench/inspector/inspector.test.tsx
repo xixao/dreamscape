@@ -18,7 +18,17 @@ const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: '{}', stageWi
 
 function mount(
   width = 1440,
-  { panelMode = 'design', onPanelModeChange = vi.fn() }: { panelMode?: PanelMode; onPanelModeChange?: (mode: PanelMode) => void } = {},
+  {
+    panelMode = 'design',
+    onPanelModeChange = vi.fn(),
+    collapsed = false,
+    onToggleCollapsed = vi.fn(),
+  }: {
+    panelMode?: PanelMode;
+    onPanelModeChange?: (mode: PanelMode) => void;
+    collapsed?: boolean;
+    onToggleCollapsed?: () => void;
+  } = {},
 ) {
   return renderInEditor(
     <>
@@ -33,6 +43,8 @@ function mount(
         currentScreenId="s1"
         panelMode={panelMode}
         onPanelModeChange={onPanelModeChange}
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
       />
       <WidthProbe />
     </>,
@@ -138,12 +150,13 @@ describe('Inspector', () => {
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
   });
 
-  describe('Design / Prototype panel mode', () => {
-    it('shows a Design | Prototype segmented control, Design active by default', () => {
+  describe('Design / Prototype / Components panel mode', () => {
+    it('shows a Design | Prototype | Components segmented control, Design active by default', () => {
       mount();
       const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'off');
+      expect(within(seg).getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'off');
     });
 
     it('calls onPanelModeChange when Prototype is clicked', async () => {
@@ -153,10 +166,17 @@ describe('Inspector', () => {
       expect(onPanelModeChange).toHaveBeenCalledWith('prototype');
     });
 
+    it('calls onPanelModeChange when Components is clicked', async () => {
+      const onPanelModeChange = vi.fn();
+      mount(1440, { onPanelModeChange });
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('components');
+    });
+
     it('shows the Prototype tab content instead of the Design fields when panelMode is prototype', async () => {
       const { editor } = mount(1440, { panelMode: 'prototype' });
       await screen.findByText('Billing');
-      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const panel = screen.getByRole('complementary', { name: 'Prototype' });
 
       expect(within(panel).getByText('Select a layer to add an interaction.')).toBeInTheDocument();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
@@ -164,6 +184,84 @@ describe('Inspector', () => {
       await select(editor, 'button');
       expect(within(panel).getByRole('combobox', { name: 'On click' })).toBeInTheDocument();
       expect(within(panel).queryByTestId('inspector-type')).toBeNull();
+    });
+
+    it('shows the Components tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
+      mount(1440, { panelMode: 'components' });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Components' });
+
+      expect(within(panel).getByLabelText('Search components')).toBeInTheDocument();
+      expect(within(panel).getByText('Layout')).toBeInTheDocument();
+      expect(within(panel).getByText('Frame')).toBeInTheDocument();
+      expect(within(panel).queryByText('Nothing selected')).toBeNull();
+      expect(within(panel).queryByText('Select a layer to add an interaction.')).toBeNull();
+    });
+
+    it('keeps the tab list keyboard operable with three items (roving focus)', async () => {
+      mount();
+      const design = screen.getByRole('radio', { name: 'Design' });
+      const prototype = screen.getByRole('radio', { name: 'Prototype' });
+      const components = screen.getByRole('radio', { name: 'Components' });
+
+      design.focus();
+      expect(design).toHaveFocus();
+
+      await userEvent.keyboard('{ArrowRight}');
+      expect(prototype).toHaveFocus();
+
+      await userEvent.keyboard('{ArrowRight}');
+      expect(components).toHaveFocus();
+
+      await userEvent.keyboard('{ArrowLeft}');
+      expect(prototype).toHaveFocus();
+    });
+  });
+
+  describe('Minimize panel', () => {
+    it('shows a Minimize panel button when expanded; clicking it calls onToggleCollapsed', async () => {
+      const onToggleCollapsed = vi.fn();
+      mount(1440, { onToggleCollapsed });
+      const button = screen.getByRole('button', { name: 'Minimize panel' });
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+
+      await userEvent.click(button);
+      expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+    });
+
+    it('collapses to a rail with an Expand panel button and the three tab icons, hiding the tab list and fields', () => {
+      mount(1440, { collapsed: true });
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      const expandButton = within(panel).getByRole('button', { name: 'Expand panel' });
+      expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+      expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
+      expect(within(panel).queryByRole('radiogroup', { name: 'Panel mode' })).toBeNull();
+      expect(within(panel).queryByText('Nothing selected')).toBeNull();
+    });
+
+    it('clicking a rail icon expands the panel on that tab', async () => {
+      const onPanelModeChange = vi.fn();
+      const onToggleCollapsed = vi.fn();
+      mount(1440, { collapsed: true, onPanelModeChange, onToggleCollapsed });
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Prototype' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('prototype');
+      expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking the Components rail icon selects Components and expands', async () => {
+      const onPanelModeChange = vi.fn();
+      const onToggleCollapsed = vi.fn();
+      mount(1440, { collapsed: true, onPanelModeChange, onToggleCollapsed });
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('components');
+      expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
   });
 });

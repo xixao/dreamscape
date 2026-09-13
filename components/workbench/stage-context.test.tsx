@@ -21,6 +21,8 @@ function Probe() {
       <button onClick={() => stage.setPreset('mobile')}>mobile</button>
       <button onClick={() => stage.setZoom(0.5)}>half</button>
       <button onClick={() => stage.setDevice(IPHONE)}>set device</button>
+      <button onClick={() => stage.setSize({ width: 1024, height: 768 })}>set size</button>
+      <button onClick={() => stage.setSize({ width: 900, height: null })}>set size auto</button>
     </div>
   );
 }
@@ -136,6 +138,59 @@ describe('StageProvider', () => {
       expect(screen.getByTestId('height')).toHaveTextContent('874');
       expect(screen.getByTestId('deviceName')).toHaveTextContent('iPhone 16 & 17 Pro');
       expect(screen.getByTestId('preset')).toHaveTextContent('mobile');
+    });
+  });
+
+  describe('setSize', () => {
+    it('sets width and a fixed height, clamps both, and clears the device', async () => {
+      const onSizeChange = vi.fn();
+      render(
+        <StageProvider onSizeChange={onSizeChange}>
+          <Probe />
+        </StageProvider>,
+      );
+
+      await userEvent.click(screen.getByText('set device'));
+      expect(screen.getByTestId('deviceName')).toHaveTextContent('iPhone 16 & 17 Pro');
+
+      await userEvent.click(screen.getByText('set size'));
+      expect(screen.getByTestId('width')).toHaveTextContent('1024');
+      expect(screen.getByTestId('height')).toHaveTextContent('768');
+      expect(screen.getByTestId('deviceName')).toHaveTextContent('none');
+      expect(onSizeChange).toHaveBeenLastCalledWith({ width: 1024, height: 768 });
+    });
+
+    it('accepts a null height (auto)', async () => {
+      render(
+        <StageProvider initialWidth={1024} initialHeight={768}>
+          <Probe />
+        </StageProvider>,
+      );
+
+      await userEvent.click(screen.getByText('set size auto'));
+      expect(screen.getByTestId('width')).toHaveTextContent('900');
+      expect(screen.getByTestId('height')).toHaveTextContent('none');
+    });
+  });
+
+  describe('canvasDocument', () => {
+    it('starts null and is settable through setCanvasDocument', () => {
+      function CanvasProbe() {
+        const stage = useStage();
+        return (
+          <div>
+            <output data-testid="canvas-doc">{stage.canvasDocument ? 'set' : 'none'}</output>
+            <button onClick={() => stage.setCanvasDocument({ document, window })}>set doc</button>
+            <button onClick={() => stage.setCanvasDocument(null)}>clear doc</button>
+          </div>
+        );
+      }
+      render(
+        <StageProvider>
+          <CanvasProbe />
+        </StageProvider>,
+      );
+      expect(screen.getByTestId('canvas-doc')).toHaveTextContent('none');
     });
   });
 });

@@ -6,7 +6,7 @@ import { Search } from 'lucide-react';
 import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { LABEL, PANEL, PANEL_HEADER, PANEL_TITLE, SEARCH, SEARCH_INPUT } from './chrome';
+import { LABEL, SEARCH, SEARCH_INPUT } from './chrome';
 
 // Render order for the group headings; within a group, trayItems' own order wins.
 const GROUP_ORDER: readonly TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
@@ -19,16 +19,19 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   );
 }
 
+// The Components tab's content: search field, grouped list, Craft drag
+// sources (`connectors.create`). Rendered inside the right panel's own
+// <aside> by Inspector, which already owns that panel's chrome and header
+// (the Design/Prototype/Components tabs) - this renders no landmark or
+// title of its own, so the two are never nested or duplicated (see
+// docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1).
 export function ComponentTray() {
   const { connectors } = useEditor();
   const [filter, setFilter] = useState('');
   const filteredItems = filterTrayItems(trayItems, filter);
 
   return (
-    <aside aria-label="Components" className={cn(PANEL, 'flex min-h-0 flex-col')}>
-      <div className={PANEL_HEADER}>
-        <span className={PANEL_TITLE}>Components</span>
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pt-2">
         <div className={SEARCH}>
           <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -72,6 +75,6 @@ export function ComponentTray() {
       {filteredItems.length === 0 && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No components match.</p>
       )}
-    </aside>
+    </div>
   );
 }

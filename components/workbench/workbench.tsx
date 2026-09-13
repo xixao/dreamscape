@@ -11,9 +11,14 @@ import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
+import {
+  loadPanelCollapsed,
+  loadPanelMode,
+  savePanelCollapsed,
+  savePanelMode,
+} from '@/lib/workbench/panel-store';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
-import { ComponentTray } from './component-tray';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -21,7 +26,7 @@ import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
-import { useZoneRedirect } from './selection';
+import { useSelectedNode, useZoneRedirect } from './selection';
 import { Stage } from './stage';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
@@ -285,39 +290,45 @@ export function Workbench({
     if (id === currentScreenId) switchScreen(next[0].id);
   }
 
-  function handleWidthChange(width: number): void {
+  // Handles every manual, deviceless size change on the current screen: a
+  // plain width (the width handle, the Mobile/Tablet/Desktop segments, or
+  // arrow keys on the width handle - always height: null, deviceName: null),
+  // a fixed height set by the height handle (width unchanged, deviceName
+  // still null), or both from the corner handle. One function because
+  // StageContext's setWidth and setSize both ultimately mean the same thing
+  // to a saved screen - "the user set an explicit size by hand, so whatever
+  // device it had is gone" - and both always clear deviceName the same way.
+  function handleSizeChange(next: { width: number; height: number | null; deviceName: string | null }): void {
     const current = screens.find((screen) => screen.id === currentScreenId);
-    // No-op guard: WorkbenchShell's own width-reinit effect (below) calls
-    // this same setWidth whenever the screen changes and has no device,
-    // purely to make StageProvider's context match a screen it didn't
-    // remount for (see the comment on <StageProvider> below) - not because
-    // anything actually changed. Without this, every screen switch would
-    // queue an identical, pointless save. stageHeight/deviceName are
-    // compared against null (not undefined) since a Screen predating this
-    // feature (or one already cleared) may omit them entirely.
+    // No-op guard: WorkbenchShell's own size-reinit effect (below) calls
+    // setWidth/setSize/setDevice whenever the screen changes, purely to make
+    // StageProvider's context match a screen it didn't remount for (see the
+    // comment on <StageProvider> below) - not because anything actually
+    // changed. Without this, every screen switch would queue an identical,
+    // pointless save. stageHeight/deviceName are compared against null (not
+    // undefined) since a Screen predating this feature (or one already
+    // cleared) may omit them entirely.
     if (
       current &&
-      current.stageWidth === width &&
-      (current.stageHeight ?? null) === null &&
-      (current.deviceName ?? null) === null
+      current.stageWidth === next.width &&
+      (current.stageHeight ?? null) === next.height &&
+      (current.deviceName ?? null) === next.deviceName
     ) {
       return;
     }
-    // setWidth (the grip, the Mobile/Tablet/Desktop segments) always clears
-    // the frame's device in the stage context - this mirrors that onto the
-    // saved screen, so a plain width change also clears a device the
-    // screen previously had.
-    const next = screens.map((screen) =>
-      screen.id === currentScreenId ? { ...screen, stageWidth: width, stageHeight: null, deviceName: null } : screen,
+    const nextScreens = screens.map((screen) =>
+      screen.id === currentScreenId
+        ? { ...screen, stageWidth: next.width, stageHeight: next.height, deviceName: next.deviceName }
+        : screen,
     );
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    screensRef.current = nextScreens;
+    setScreens(nextScreens);
+    queuePatch({ screens: nextScreens });
   }
 
   function handleDeviceChange(device: { width: number; height: number; deviceName: string }): void {
     const current = screens.find((screen) => screen.id === currentScreenId);
-    // Same no-op guard as handleWidthChange, above, and for the same
+    // Same no-op guard as handleSizeChange, above, and for the same
     // reason: WorkbenchShell's resync effect calls setDevice whenever the
     // screen changes and already has this exact device, purely to make the
     // stage context match it - not because anything actually changed.
@@ -372,7 +383,8 @@ export function Workbench({
         initialWidth={currentScreen.stageWidth}
         initialHeight={currentScreen.stageHeight ?? null}
         initialDeviceName={currentScreen.deviceName ?? null}
-        onWidthChange={handleWidthChange}
+        onWidthChange={(width) => handleSizeChange({ width, height: null, deviceName: null })}
+        onSizeChange={(size) => handleSizeChange({ width: size.width, height: size.height, deviceName: null })}
         onDeviceChange={handleDeviceChange}
       >
         <WorkbenchShell
@@ -432,7 +444,19 @@ function WorkbenchShell({
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
-  const [panelMode, setPanelMode] = useState<PanelMode>('design');
+  // Per browser, not per file - same lazy-useState-plus-effect pattern as
+  // chatOpen just below (and see lib/chat/store.ts for the precedent this
+  // mirrors: lib/workbench/panel-store.ts's loadPanelMode/savePanelMode).
+  const [panelMode, setPanelMode] = useState<PanelMode>(() => loadPanelMode(window.localStorage));
+  useEffect(() => {
+    savePanelMode(window.localStorage, panelMode);
+  }, [panelMode]);
+  // The right panel's minimized state, same per-browser persistence as
+  // panelMode above.
+  const [panelCollapsed, setPanelCollapsed] = useState(() => loadPanelCollapsed(window.localStorage));
+  useEffect(() => {
+    savePanelCollapsed(window.localStorage, panelCollapsed);
+  }, [panelCollapsed]);
   // Per browser, not per file (unlike the chat log itself) - see
   // lib/chat/store.ts. Lazy useState so this reads localStorage exactly
   // once, the same pattern as currentScreenId's hash-derived initial value
@@ -442,8 +466,29 @@ function WorkbenchShell({
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
   const { actions } = useEditor();
-  const { setWidth, setDevice } = useStage();
+  const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // Figma's own behaviour: picking a layer on the canvas while the
+  // Components tab is showing jumps the panel to Design, the same way
+  // Figma does when you select something while its Assets panel is open.
+  // Adjusted during render (the same pattern FileNameField in topbar.tsx
+  // uses for syncedFileName) rather than in an effect: comparing against a
+  // mirrored `lastSelectedNodeId` is how this tells "the selection itself
+  // just changed" apart from "this component merely re-rendered" (e.g.
+  // because panelMode changed). That distinction is exactly why this
+  // cannot be an effect keyed on panelMode too - choosing Prototype or
+  // Components is always explicit, and reacting to panelMode here would
+  // immediately switch a just-chosen Components tab back to Design the
+  // moment it renders, defeating the click.
+  const { id: selectedNodeId } = useSelectedNode();
+  const [lastSelectedNodeId, setLastSelectedNodeId] = useState(selectedNodeId);
+  if (selectedNodeId !== lastSelectedNodeId) {
+    setLastSelectedNodeId(selectedNodeId);
+    if (selectedNodeId && panelMode === 'components') {
+      setPanelMode('design');
+    }
+  }
 
   // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
   // section 5): browser-only, one store per file, created once for this
@@ -483,6 +528,7 @@ function WorkbenchShell({
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
+    onTogglePanelCollapsed: () => setPanelCollapsed((collapsed) => !collapsed),
     onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
@@ -533,30 +579,46 @@ function WorkbenchShell({
   // active before - stale for every useStage() consumer here (the topbar
   // readout and device chip, the inspector's breakpoint badge, the artboard
   // itself). Re-initialises only on an actual screen change, not on every
-  // resize (handleWidthChange's/handleDeviceChange's own no-op guards also
-  // keep this from queuing a spurious save). setDevice when the screen has
-  // one (stageHeight is always set alongside deviceName - see addScreen,
-  // duplicateScreen and validateScreens, which all keep the two together;
-  // the stageHeight check here is defensive, not an expected case), setWidth
-  // otherwise - the same two entry points a user's own action reaches this
-  // context through. A layout effect so the artboard never paints the new
-  // screen at the old width or height.
+  // resize (handleSizeChange's/handleDeviceChange's own no-op guards also
+  // keep this from queuing a spurious save). Three cases, the same ones a
+  // user's own action reaches this context through: setDevice when the
+  // screen has one (stageHeight is always set alongside deviceName - see
+  // addScreen, duplicateScreen and validateScreens, which all keep the two
+  // together; the stageHeight check here is defensive, not an expected
+  // case); setSize when it has a manual fixed height with no device (the
+  // height or corner handle, without ever touching a device preset) -
+  // setWidth alone would silently drop that height back to auto, since
+  // setWidth always clears it; setWidth otherwise. A layout effect so the
+  // artboard never paints the new screen at the old width or height.
   useLayoutEffect(() => {
     const screen = screens.find((candidate) => candidate.id === currentScreenId);
     if (!screen) return;
     if (screen.deviceName && screen.stageHeight != null) {
       setDevice({ name: screen.deviceName, width: screen.stageWidth, height: screen.stageHeight });
+    } else if (screen.stageHeight != null) {
+      setSize({ width: screen.stageWidth, height: screen.stageHeight });
     } else {
       setWidth(screen.stageWidth);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 
+  // The left column (the Components tray) is gone - the right panel now
+  // covers Design, Prototype and Components as tabs of one column, which
+  // narrows to a 40px rail instead of disappearing when minimized (see
+  // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md sections 1
+  // and 2). Every branch below is a complete, literal Tailwind class list
+  // (not built by interpolating a variable into the arbitrary-value bracket)
+  // so the build's class scanner can see each one.
   const gridClass = uiHidden
     ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
-    : chatOpen
-      ? 'grid h-screen grid-cols-[280px_1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-      : 'grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
+    : panelCollapsed
+      ? chatOpen
+        ? 'grid h-screen grid-cols-[1fr_40px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+        : 'grid h-screen grid-cols-[1fr_40px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+      : chatOpen
+        ? 'grid h-screen grid-cols-[1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+        : 'grid h-screen grid-cols-[1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
 
   return (
     <ChatTransportProvider transport={placeholderTransport}>
@@ -580,7 +642,6 @@ function WorkbenchShell({
               commentCount={threads.length}
             />
           )}
-          {!uiHidden && <ComponentTray key="tray" />}
           <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
             <Stage
               data={currentScreenLayout}
@@ -601,6 +662,8 @@ function WorkbenchShell({
               currentScreenId={currentScreenId}
               panelMode={panelMode}
               onPanelModeChange={setPanelMode}
+              collapsed={panelCollapsed}
+              onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
             />
           )}
           {!uiHidden && chatOpen && (

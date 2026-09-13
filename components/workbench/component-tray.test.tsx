@@ -8,13 +8,23 @@ import { ComponentTray, filterTrayItems } from './component-tray';
 const GROUP_ORDER: TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
 
 describe('ComponentTray', () => {
-  it('shows the panel title and every tray item by its label', () => {
+  it('shows every tray item by its label', () => {
     renderInEditor(<ComponentTray />);
-    expect(screen.getByText('Components')).toBeInTheDocument();
     for (const item of trayItems) {
       const row = screen.getByText(item.label).closest('[data-tray-item]');
       expect(row).toHaveAttribute('data-tray-item', item.type);
     }
+  });
+
+  // The Components tab now renders this content inside the right panel's own
+  // <aside> (Inspector owns that panel chrome and its header) - see
+  // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1.
+  // ComponentTray must not bring a second, nested landmark or panel title of
+  // its own.
+  it('renders no panel chrome of its own: no landmark, no "Components" title', () => {
+    renderInEditor(<ComponentTray />);
+    expect(screen.queryByRole('complementary')).toBeNull();
+    expect(screen.queryByText('Components')).toBeNull();
   });
 
   it('renders the five group headings in the spec order', () => {

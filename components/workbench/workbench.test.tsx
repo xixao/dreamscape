@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Workbench } from './workbench';
 
 // The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
@@ -12,6 +13,22 @@ function presetButton(label: string) {
   const button = screen.getByText(label).closest('button');
   if (!button) throw new Error(`no button for ${label}`);
   return button;
+}
+
+// Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
+// a separate document `screen` (bound to the outer one) cannot see into.
+// Synchronous, not a `findBy`-style async helper: React (via Testing
+// Library's `act` wrapping of `render`/`fireEvent`) has already flushed
+// CanvasFrame's own effect and portaled the frame's content into the iframe
+// body by the time any of these callers run, the same guarantee the rest of
+// this file already relied on for the pre-iframe artboard. Throws instead of
+// silently returning an empty body so a real timing regression fails fast
+// with a clear message rather than a confusing "element not found" later.
+function frameBody(): HTMLElement {
+  const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+  const body = iframe.contentDocument?.body;
+  if (!body) throw new Error('canvas frame body not ready');
+  return body;
 }
 
 // Screen content for these tests comes from two different bundled examples
@@ -65,8 +82,8 @@ function conflict(updatedAt: string): Response {
 // flips its "Layout" field from Auto layout to Grid through the Design panel:
 // a genuine `setProp` on ROOT driven through the rendered editor, not a bare
 // harness call.
-async function changeRootLayoutMode(container: HTMLElement): Promise<void> {
-  const root = container.querySelector('[data-block="LayoutBox"]');
+async function changeRootLayoutMode(): Promise<void> {
+  const root = frameBody().querySelector('[data-block="LayoutBox"]');
   if (!root) throw new Error('root LayoutBox not found');
   fireEvent.mouseDown(root);
   const group = screen.getByRole('radiogroup', { name: 'Layout' });
@@ -89,6 +106,12 @@ describe('Workbench', () => {
     fetchMock = vi.fn().mockImplementation(() => Promise.resolve(ok('T1')));
     vi.stubGlobal('fetch', fetchMock);
     window.location.hash = '';
+    // The right panel's tab and minimized state are now remembered per
+    // browser (assembly-workbench:panel-mode / :panel-collapsed, like
+    // chatOpen's own assembly-workbench:chat-open) - cleared so every test
+    // starts from the same default (Design, expanded) regardless of what an
+    // earlier test in this file persisted.
+    localStorage.clear();
   });
 
   // Deliberately does not call vi.unstubAllGlobals(): this file's own
@@ -110,13 +133,13 @@ describe('Workbench', () => {
 
   it('renders the layout of the file\'s first screen', () => {
     render(<Workbench file={makeFile()} />);
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   it('sends exactly one PATCH after the debounce when a prop changes on ROOT', async () => {
-    const { container } = render(<Workbench file={makeFile()} />);
+    render(<Workbench file={makeFile()} />);
 
-    await changeRootLayoutMode(container);
+    await changeRootLayoutMode();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
     const [url, init] = fetchMock.mock.calls[0];
@@ -208,37 +231,37 @@ describe('Workbench', () => {
 
   it('New frame still clears the layout after confirming', async () => {
     render(<Workbench file={makeFile()} />);
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     expect(await screen.findByText('Start a new frame?')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Start a new frame?')).toBeNull());
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Clear frame' }));
-    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+    expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
 
   describe('unchanged layout on mount', () => {
-    function selectRoot(container: HTMLElement): void {
-      const root = container.querySelector('[data-block="LayoutBox"]');
+    function selectRoot(): void {
+      const root = frameBody().querySelector('[data-block="LayoutBox"]');
       if (!root) throw new Error('root LayoutBox not found');
       fireEvent.mouseDown(root);
     }
 
     it('sends no PATCH within 2s of fake time, even once the root gets selected with no real edit', async () => {
       vi.useFakeTimers();
-      const { container } = render(<Workbench file={makeFile()} />);
+      render(<Workbench file={makeFile()} />);
 
       // Craft's onNodesChange fires unconditionally the first time its store
       // notifies after mount (it has nothing yet to compare that firing's
       // content against), and a plain selection - not a prop change - is
       // enough to trigger that first notification. That first firing's
       // content matches what's already stored, so it must not be queued.
-      selectRoot(container);
+      selectRoot();
 
       await vi.advanceTimersByTimeAsync(2000);
 
@@ -246,8 +269,8 @@ describe('Workbench', () => {
     });
 
     it('still sends exactly one PATCH for a real edit made after that unchanged first firing', async () => {
-      const { container } = render(<Workbench file={makeFile()} />);
-      selectRoot(container);
+      render(<Workbench file={makeFile()} />);
+      selectRoot();
 
       // Let the (correctly suppressed) first firing's would-be debounce
       // window fully elapse before making a real edit, so the assertions
@@ -256,7 +279,7 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 900));
       expect(fetchMock).not.toHaveBeenCalled();
 
-      await changeRootLayoutMode(container);
+      await changeRootLayoutMode();
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -264,9 +287,9 @@ describe('Workbench', () => {
     });
 
     it('does not send another PATCH when the same change is applied again with no diff', async () => {
-      const { container } = render(<Workbench file={makeFile()} />);
+      render(<Workbench file={makeFile()} />);
 
-      await changeRootLayoutMode(container);
+      await changeRootLayoutMode();
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       // Re-applying the same value: a single-select ToggleGroup treats a
@@ -275,7 +298,7 @@ describe('Workbench', () => {
       // Craft as a no-op - if it produced a layout at all, it would be
       // identical to what was just saved, and lastSavedLayout must not let
       // a duplicate through either way.
-      await changeRootLayoutMode(container);
+      await changeRootLayoutMode();
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -283,24 +306,21 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the Components and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the right panel and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
@@ -316,12 +336,12 @@ describe('Workbench', () => {
 
     it('switching screens swaps the artboard content', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
-      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
 
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
       expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
     });
 
@@ -334,7 +354,7 @@ describe('Workbench', () => {
       expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
       const newTab = within(tablist).getByRole('tab', { name: 'Frame 2' });
       expect(newTab).toHaveAttribute('aria-selected', 'true');
-      expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+      expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
 
       // Drains this screen's own save traffic before the test ends: Craft's
       // own onNodesChange first-fire for the brand new empty Frame is not a
@@ -358,7 +378,7 @@ describe('Workbench', () => {
     it('opens the screen named by the URL hash on mount', () => {
       window.location.hash = `#s=${SCREEN_2.id}`;
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
-      expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(within(frameBody()).getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
     });
 
@@ -405,11 +425,11 @@ describe('Workbench', () => {
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874');
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent(`${SCREEN_2.stageWidth} px`));
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
-      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       await waitFor(() =>
         expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874'),
       );
@@ -420,9 +440,9 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
-      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       await new Promise((resolve) => setTimeout(resolve, 900));
       expect(fetchMock).not.toHaveBeenCalled();
@@ -506,13 +526,13 @@ describe('Workbench', () => {
   // patches against this screen's own (identically-id'd) nodes.
   describe('undo history is per screen', () => {
     it('starts empty on the screen you switch to, so Undo/Redo and Cmd+Z do not touch it', async () => {
-      const { container } = render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
-      await changeRootLayoutMode(container);
+      await changeRootLayoutMode();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled());
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
       // The new screen's history must start empty, not inherit screen 1's.
       expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
@@ -525,8 +545,8 @@ describe('Workbench', () => {
       // exactly as it was - screen 2's own content, no Redo newly enabled.
       expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
-      expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(within(frameBody()).getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
     });
   });
 
@@ -534,21 +554,19 @@ describe('Workbench', () => {
     const NOTICE = 'The saved design of this screen could not be read; it starts empty.';
 
     it('shows only for a screen in invalidScreenIds, clears on switch, and returns until that screen is edited', async () => {
-      const { container } = render(
-        <Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} invalidScreenIds={[SCREEN_1.id]} />,
-      );
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} invalidScreenIds={[SCREEN_1.id]} />);
 
       expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE);
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
-      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
 
-      await changeRootLayoutMode(container);
+      await changeRootLayoutMode();
       await waitFor(() => expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE));
     });
 
@@ -559,37 +577,114 @@ describe('Workbench', () => {
   });
 
   describe('editor UI state persists across a screen switch', () => {
-    it('keeps Prototype mode, the Components search filter and hidden UI, and updates the width readout', async () => {
+    // Design, Prototype and Components are one panel's mutually exclusive
+    // tabs now (docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md
+    // section 1), so a search filter typed on the Components tab and a
+    // Prototype-mode selection can no longer be checked in the same moment
+    // the way the pre-tab version of this test did - each is its own tab's
+    // own state, and both, like panelMode itself, belong to the editor
+    // session rather than the document, so neither may reset from a plain
+    // screen switch alone.
+    it('keeps the Components search filter across a screen switch, distinct from the per-screen width readout', async () => {
       const narrowScreen2: Screen = { ...SCREEN_2, stageWidth: 375 };
       render(<Workbench file={makeFile({ screens: [SCREEN_1, narrowScreen2] })} />);
 
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
       await userEvent.type(screen.getByLabelText('Search components'), 'Button');
-      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
-      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
-      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
-      // Neither the search filter nor the panel mode is specific to a
-      // screen - both belong to the editor session, not the document, so
-      // they must survive the switch untouched.
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
       expect(screen.getByLabelText('Search components')).toHaveValue('Button');
-      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
       // The width readout, in contrast, IS per screen and must update.
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px'));
+    });
+
+    it('keeps Prototype mode and hidden UI across a screen switch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       // Hiding the UI and switching again must not bring it back by itself.
       // The screens strip stays visible even with the rest of the UI
       // hidden (see the "Show/Hide UI" tests above), so switching is still
       // possible without it.
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
-      expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
+    });
+  });
+
+  describe('resize handles', () => {
+    it('PATCHes stageHeight, on the current screen and with no device, when the height handle sets a fixed height', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      const handle = screen.getByRole('separator', { name: 'Resize height' });
+      fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientY: 40, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientY: 40, pointerId: 1 });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0].stageWidth).toBe(1440);
+      expect(body.screens[0].stageHeight).toBe(ARTBOARD_MIN_HEIGHT + 40);
+      expect(body.screens[0].deviceName).toBeNull();
+      expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
+    });
+
+    it('PATCHes both stageWidth and stageHeight when the corner handle changes both', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      const handle = screen.getByRole('separator', { name: 'Resize frame' });
+      fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientX: 60, clientY: 20, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientX: 60, clientY: 20, pointerId: 1 });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0].stageWidth).toBe(1500);
+      expect(body.screens[0].stageHeight).toBe(ARTBOARD_MIN_HEIGHT + 20);
+    });
+
+    it('shows a width x height readout, with no breakpoint, once a manual fixed height is set', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      const handle = screen.getByRole('separator', { name: 'Resize height' });
+      fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientY: 40, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientY: 40, pointerId: 1 });
+
+      const readout = screen.getByTestId('stage-readout');
+      expect(readout).toHaveTextContent(`1440 × ${ARTBOARD_MIN_HEIGHT + 40}`);
+      expect(readout).not.toHaveTextContent('desktop');
+    });
+
+    it('returns to the plain width x breakpoint readout after double-clicking the height handle back to auto', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      const handle = screen.getByRole('separator', { name: 'Resize height' });
+      fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientY: 40, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientY: 40, pointerId: 1 });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      fireEvent.doubleClick(handle);
+
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+      expect(body.screens[0].stageHeight).toBeNull();
     });
   });
 
@@ -598,23 +693,23 @@ describe('Workbench', () => {
       localStorage.clear();
     });
 
-    it('is closed by default; the topbar button opens it as a fourth column, reflected in aria-pressed', async () => {
+    it('is closed by default; the topbar button opens it as a third column, reflected in aria-pressed', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       const chatButton = screen.getByRole('button', { name: 'Chat' });
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
 
       await userEvent.click(chatButton);
 
       expect(chatButton).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px_360px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
 
       await userEvent.click(chatButton);
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
     });
 
     it('Cmd+J toggles the chat panel open and closed', () => {
@@ -636,11 +731,132 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+    });
+  });
+
+  describe('Components tab', () => {
+    function selectRoot(): void {
+      const root = frameBody().querySelector('[data-block="LayoutBox"]');
+      if (!root) throw new Error('root LayoutBox not found');
+      fireEvent.mouseDown(root);
+    }
+
+    it('renders a third Components tab alongside Design and Prototype', () => {
+      render(<Workbench file={makeFile()} />);
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const seg = within(panel).getByRole('radiogroup', { name: 'Panel mode' });
+      expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(seg).getByRole('radio', { name: 'Prototype' })).toBeInTheDocument();
+      expect(within(seg).getByRole('radio', { name: 'Components' })).toBeInTheDocument();
+    });
+
+    it('shows the search field and grouped list with drag sources on the Components tab', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+
+      expect(screen.getByLabelText('Search components')).toBeInTheDocument();
+      expect(document.querySelector('[data-tray-group]')).toBeInTheDocument();
+      expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
+    });
+
+    it('the grid has no left column; the chat column still appends', async () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+    });
+
+    it('selecting a layer while on Components switches to Design', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+
+      selectRoot();
+
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+    });
+
+    it('choosing Components while a layer is already selected is explicit and does not bounce back to Design', async () => {
+      render(<Workbench file={makeFile()} />);
+      selectRoot();
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('remembers the selected tab across a remount', async () => {
+      const { unmount } = render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      unmount();
+
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('tolerates a corrupt panel-mode value in localStorage, defaulting to Design', () => {
+      localStorage.setItem('assembly-workbench:panel-mode', 'not-a-mode');
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+    });
+  });
+
+  describe('Minimize panel', () => {
+    it('the minimize button collapses the panel to a rail and the expand button restores it', async () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+    });
+
+    it('Cmd+. toggles the panel collapsed, with the chat column still appending when collapsed', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+
+      fireEvent.keyDown(window, { key: '.', metaKey: true });
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px_360px]');
+
+      fireEvent.keyDown(window, { key: '.', metaKey: true });
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+    });
+
+    it('clicking a rail icon expands the panel on that tab', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
+
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('collapsed state persists across a remount', async () => {
+      const { unmount } = render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      unmount();
+
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument();
     });
   });
 });

@@ -6,6 +6,7 @@ import { Button } from '@/components/blocks/button';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { resolver } from '@/components/blocks/registry';
 import type { Screen } from '@/lib/files/repository';
+import { CanvasFrame } from './canvas-frame';
 import { PrototypeProvider } from './prototype-context';
 import { StageProvider } from './stage-context';
 import { NodeIndicator, SelectionOutline } from './node-indicator';
@@ -91,6 +92,32 @@ describe('NodeIndicator', () => {
     const outline = await screen.findByTestId('selection-outline');
     expect(outline).toHaveAttribute('data-weight', 'selected');
     expect(outline).toHaveTextContent('Frame');
+  });
+
+  it('portals into the canvas document, not the parent one, when a CanvasFrame provides it', async () => {
+    render(
+      <Editor resolver={resolver} onRender={NodeIndicator}>
+        <StageProvider>
+          <CanvasFrame width={800} height={null} zoom={1}>
+            <Frame>
+              <Element is={LayoutBox} canvas>
+                <Button label="Pick me" />
+              </Element>
+            </Frame>
+            <Selector pick="first-child" />
+          </CanvasFrame>
+        </StageProvider>
+      </Editor>,
+    );
+    const iframe = (await screen.findByTestId('canvas-frame')) as HTMLIFrameElement;
+    await waitFor(() => expect(iframe.contentDocument?.body.querySelector('button')).not.toBeNull());
+
+    // Not in the parent document at all...
+    expect(screen.queryByTestId('selection-outline')).toBeNull();
+    // ...but present inside the iframe's own body.
+    await waitFor(() =>
+      expect(iframe.contentDocument?.body.querySelector('[data-testid="selection-outline"]')).not.toBeNull(),
+    );
   });
 });
 

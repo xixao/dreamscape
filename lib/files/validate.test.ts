@@ -185,7 +185,7 @@ describe('validateScreens', () => {
     expect(high.ok).toBe(true);
     if (!low.ok || !high.ok) throw new Error('expected ok');
     expect(low.screens[0].stageWidth).toBe(120);
-    expect(high.screens[0].stageWidth).toBe(1920);
+    expect(high.screens[0].stageWidth).toBe(3840);
   });
 });
 

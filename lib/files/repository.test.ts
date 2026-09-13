@@ -79,7 +79,7 @@ describe('files repository', () => {
       const file = await repo.create({ screens: [screen({ stageWidth: 10 }), screen({ stageWidth: 5000 })] });
 
       expect(file.screens?.[0].stageWidth).toBe(120);
-      expect(file.screens?.[1].stageWidth).toBe(1920);
+      expect(file.screens?.[1].stageWidth).toBe(3840);
     });
 
     it('refuses to create a file with an invalid layout in a screen', async () => {
@@ -218,7 +218,7 @@ describe('files repository', () => {
       expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(120);
 
       await repo.save(created.id, { screens: [screen({ stageWidth: 5000 })] });
-      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(1920);
+      expect((await repo.get(created.id))?.screens?.[0].stageWidth).toBe(3840);
     });
 
     it('succeeds when baseUpdatedAt matches the current row', async () => {

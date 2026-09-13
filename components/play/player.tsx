@@ -152,11 +152,16 @@ export function Player({ file, initialScreenId }: { file: FileRecord; initialScr
       <div className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
         <StageProvider key={state.currentScreenId} initialWidth={currentScreen.stageWidth}>
           <div
-            className="relative shrink-0 bg-background"
-            style={{
-              width: currentScreen.stageWidth,
-              minHeight: currentScreen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
-            }}
+            data-testid="artboard"
+            className={cn(
+              'relative shrink-0 bg-background',
+              currentScreen.stageHeight != null && 'overflow-auto',
+            )}
+            style={
+              currentScreen.stageHeight != null
+                ? { width: currentScreen.stageWidth, height: currentScreen.stageHeight }
+                : { width: currentScreen.stageWidth, minHeight: ARTBOARD_MIN_HEIGHT }
+            }
           >
             <Editor resolver={resolver} enabled={false}>
               <Frame key={state.currentScreenId} data={currentScreen.layout} />
