@@ -1,15 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useEditor } from '@craftjs/core';
-import { Search } from 'lucide-react';
+import { Info, Search } from 'lucide-react';
 import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
+import type { BlockType } from '@/components/blocks/schema';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { LABEL, SEARCH, SEARCH_INPUT } from './chrome';
+import { ElementDocsDialog } from './element-docs-dialog';
 
 // Render order for the group headings; within a group, trayItems' own order wins.
 const GROUP_ORDER: readonly TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
+
+// The row's "i" button (spec docs/superpowers/specs/2026-09-13-element-docs-
+// design.md section 1): invisible until the row is hovered or something in
+// it has focus, but always in the tab order, so a keyboard user reaches it
+// with Tab and sees it appear.
+const INFO_BUTTON =
+  'mr-1.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 group-focus-within:opacity-100';
 
 export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   const trimmed = query.trim().toLowerCase();
@@ -28,7 +37,21 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
 export function ComponentTray() {
   const { connectors } = useEditor();
   const [filter, setFilter] = useState('');
+  // One Element documentation dialog for the whole tray. The type outlives
+  // `open` so the dialog's closing animation keeps showing the element it
+  // was opened for instead of flashing the fallback doc.
+  const [docsType, setDocsType] = useState<BlockType | null>(null);
+  const [docsOpen, setDocsOpen] = useState(false);
+  // The "i" button that opened the dialog; the dialog returns focus to it
+  // when it closes (see ElementDocsDialog's openerRef).
+  const docsOpenerRef = useRef<HTMLElement | null>(null);
   const filteredItems = filterTrayItems(trayItems, filter);
+
+  function openDocs(type: BlockType, opener: HTMLElement): void {
+    docsOpenerRef.current = opener;
+    setDocsType(type);
+    setDocsOpen(true);
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -57,14 +80,43 @@ export function ComponentTray() {
                 {items.map((item) => (
                   <li
                     key={item.type}
-                    data-tray-item={item.type}
-                    ref={(element) => {
-                      if (element) connectors.create(element, item.create());
-                    }}
-                    className="flex cursor-grab items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent active:cursor-grabbing"
+                    className="group flex items-center rounded-lg border border-transparent transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent focus-within:border-line-strong focus-within:bg-accent"
                   >
-                    <item.icon className="size-4 text-acc2" aria-hidden />
-                    <span className="text-[13px] font-medium text-foreground">{item.label}</span>
+                    {/* The drag surface: connectors.create marks it draggable
+                    and attaches Craft's native dragstart/dragend listeners,
+                    and data-tray-item sits on this exact element so a raw
+                    dragstart on it names the TrayItem (drop-placeholder.tsx).
+                    The "i" button below is its sibling, not a descendant -
+                    an HTML drag starts from the nearest draggable ancestor
+                    of the pointer, so a press on the button can never become
+                    this item's drag. */}
+                    <div
+                      data-tray-item={item.type}
+                      ref={(element) => {
+                        if (element) connectors.create(element, item.create());
+                      }}
+                      className="flex min-w-0 flex-1 cursor-grab items-center gap-3 py-2 pr-2 pl-3 active:cursor-grabbing"
+                    >
+                      <item.icon className="size-4 shrink-0 text-acc2" aria-hidden />
+                      <span className="text-[13px] font-medium text-foreground">{item.label}</span>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`About ${item.label}`}
+                      draggable={false}
+                      className={INFO_BUTTON}
+                      // Nothing above the button sees the press: a future
+                      // row-level handler (click to insert, say) must not
+                      // fire for a request to read about the element.
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openDocs(item.type, event.currentTarget);
+                      }}
+                    >
+                      <Info className="size-3.5" aria-hidden />
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -74,6 +126,9 @@ export function ComponentTray() {
       </div>
       {filteredItems.length === 0 && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No elements match.</p>
+      )}
+      {docsType !== null && (
+        <ElementDocsDialog type={docsType} open={docsOpen} onOpenChange={setDocsOpen} openerRef={docsOpenerRef} />
       )}
     </div>
   );

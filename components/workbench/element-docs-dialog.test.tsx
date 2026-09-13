@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { getElementDoc } from '@/components/blocks/docs';
 import { schemaFor, trayItems } from '@/components/blocks/registry';
 import { WIDE_DIALOG_CONTENT } from './chrome';
@@ -100,6 +101,31 @@ describe('ElementDocsDialog', () => {
     const { onOpenChange } = renderDialog('Button');
     await userEvent.click(within(screen.getByRole('dialog', { name: 'Button' })).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it('returns focus to the opener element on close, since a shared controlled dialog has no DialogTrigger for Radix to focus', async () => {
+    const openerRef = { current: null as HTMLButtonElement | null };
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" ref={openerRef}>
+            Opener
+          </button>
+          <ElementDocsDialog type="Button" open={open} onOpenChange={setOpen} openerRef={openerRef} />
+        </>
+      );
+    }
+    render(<Harness />);
+    // Read through the ref: while the modal is open, Radix marks everything
+    // outside it aria-hidden, so a role query cannot see the opener.
+    const opener = openerRef.current!;
+    expect(opener).not.toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Button' }), { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 
   it('renders nothing when open is false', () => {

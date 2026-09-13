@@ -1,5 +1,6 @@
 'use client';
 
+import type { RefObject } from 'react';
 import { getElementDoc } from '@/components/blocks/docs';
 import { resolver, schemaFor, trayItems } from '@/components/blocks/registry';
 import type { FieldSchema } from '@/components/blocks/schema';
@@ -86,15 +87,22 @@ export function propertyRows(type: string): PropertyRow[] {
  * components/blocks/docs.ts. Right column: the Properties table generated
  * from the element's schema, then the stub note. Takes the element type
  * only, so richer content can replace the stub without touching the list.
+ *
+ * `openerRef` is the element that opened the dialog (the row's "i"
+ * button); focus returns to it on close. Radix's modal Dialog only returns
+ * focus to its own DialogTrigger, and a single controlled dialog shared by
+ * every row has none, so without this focus would land on the body.
  */
 export function ElementDocsDialog({
   type,
   open,
   onOpenChange,
+  openerRef,
 }: {
   type: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  openerRef?: RefObject<HTMLElement | null>;
 }) {
   const item = trayItems.find((entry) => entry.type === type);
   const doc = getElementDoc(type);
@@ -102,7 +110,17 @@ export function ElementDocsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(WIDE_DIALOG_CONTENT, 'max-h-[calc(100vh-48px)] overflow-y-auto')}>
+      <DialogContent
+        className={cn(WIDE_DIALOG_CONTENT, 'max-h-[calc(100vh-48px)] overflow-y-auto')}
+        onCloseAutoFocus={(event) => {
+          const opener = openerRef?.current;
+          if (!opener) return;
+          // preventDefault also skips Radix's own handler, which would
+          // otherwise focus the (absent) trigger instead.
+          event.preventDefault();
+          opener.focus();
+        }}
+      >
         <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <div className="flex flex-col gap-6">
             <DialogHeader className="gap-1.5">
