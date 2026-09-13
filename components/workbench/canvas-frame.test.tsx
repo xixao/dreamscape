@@ -2,8 +2,17 @@ import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import { invalidateDropCache } from '@/lib/craft-positioner';
 import { StageProvider, useStage } from './stage-context';
 import { CanvasFrame, useCanvasDocument } from './canvas-frame';
+
+// CanvasFrame clears Craft's drop-target cache directly (see
+// lib/craft-positioner.ts) rather than dispatching a synthetic window
+// `scroll` - mock the module so the tests below can spy on that call
+// without needing a real Craft `<Editor>`/drag in progress.
+vi.mock('@/lib/craft-positioner', () => ({
+  invalidateDropCache: vi.fn(),
+}));
 
 // Installs a fake global ResizeObserver and returns a `trigger()` that
 // invokes whichever callback the code under test registered - a plain `let`
@@ -308,7 +317,7 @@ describe('CanvasFrame', () => {
     expect(disconnectSpy).not.toHaveBeenCalled();
   });
 
-  it('bridges a scroll inside the iframe document to the parent window, for Craft.js\'s Positioner (which only listens on window)', async () => {
+  it("clears Craft's drop cache when the iframe document scrolls, instead of bridging to the parent window", async () => {
     renderFrame(<div>hi</div>);
     const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
     await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
@@ -317,7 +326,16 @@ describe('CanvasFrame', () => {
     window.addEventListener('scroll', onWindowScroll);
     try {
       fireEvent.scroll(iframe.contentDocument!);
-      expect(onWindowScroll).toHaveBeenCalledTimes(1);
+      // Craft's Positioner only clears its cache from its own window-level
+      // listener (see lib/craft-positioner.ts for why that listener can
+      // never fire for this) - a scroll inside the frame must invalidate
+      // the cache directly instead.
+      expect(invalidateDropCache).toHaveBeenCalledTimes(1);
+      // No synthetic window scroll dispatch left behind: Craft's Positioner
+      // would never act on it anyway (window is not an Element, and even a
+      // parent-document Element could never `.contains()` a node whose DOM
+      // lives inside the iframe document), so it was pure dead weight.
+      expect(onWindowScroll).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('scroll', onWindowScroll);
     }
@@ -341,15 +359,10 @@ describe('CanvasFrame', () => {
     });
 
     unmount();
+    vi.mocked(invalidateDropCache).mockClear();
 
-    const onWindowScroll = vi.fn();
-    window.addEventListener('scroll', onWindowScroll);
-    try {
-      fireEvent.scroll(frameDoc);
-      expect(onWindowScroll).not.toHaveBeenCalled();
-    } finally {
-      window.removeEventListener('scroll', onWindowScroll);
-    }
+    fireEvent.scroll(frameDoc);
+    expect(invalidateDropCache).not.toHaveBeenCalled();
   });
 });
 
