@@ -249,11 +249,13 @@ export default function ParticipantTest({
         </>
       ) : (
         <main className="test-finish tester-feedback">
-          <CheckCircle2 size={34} />
-          <h1 ref={heading} tabIndex={-1}>
-            {outcome === "complete"
-              ? "Test complete. Thank you!"
-              : "Test abandoned. Thank you for trying."}
+          <h1 ref={heading} tabIndex={-1} className="icon-title">
+            <CheckCircle2 size={28} aria-hidden="true" />
+            <span>
+              {outcome === "complete"
+                ? "Test complete. Thank you!"
+                : "Test abandoned. Thank you for trying."}
+            </span>
           </h1>
           <p>Your progress has been recorded. How was the experience?</p>
           <div

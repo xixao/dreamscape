@@ -86,8 +86,9 @@ export default function EvidenceTrail({
             <li>
               <span className="evidence-step">2</span>
               <div>
-                <strong>
-                  <MessageSquare size={14} /> Feedback on v{source.number}
+                <strong className="icon-title">
+                  <MessageSquare size={14} aria-hidden="true" />
+                  <span>Feedback on v{source.number}</span>
                 </strong>
                 {feedback.length ? (
                   feedback.slice(-2).map((c) => (

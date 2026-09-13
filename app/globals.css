@@ -4375,3 +4375,16 @@ body {
   margin-top: 16px;
   max-width: 90ch;
 }
+.icon-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.icon-title > svg {
+  flex-shrink: 0;
+}
+.icon-title > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

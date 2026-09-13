@@ -420,8 +420,10 @@ export default function JourneyView({
               className="journey-context"
               aria-label="Step review context"
             >
-              <Route size={24} />
-              <h3>{linkLabels[step.link]}</h3>
+              <h3 className="icon-title">
+                <Route size={24} aria-hidden="true" />
+                <span>{linkLabels[step.link]}</span>
+              </h3>
               {step.link === "none" ? (
                 <p>No prototype is connected to this step.</p>
               ) : (

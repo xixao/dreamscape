@@ -104,8 +104,10 @@ export default function ReviewComments({
       </form>
       {roots.length === 0 && (
         <Empty className="empty-state">
-          <MessageSquare size={23} />
-          <strong>No feedback on v{revision.number}</strong>
+          <strong className="icon-title">
+            <MessageSquare size={23} aria-hidden="true" />
+            <span>No feedback on v{revision.number}</span>
+          </strong>
           <p>
             {state === "failed"
               ? "Is the error clear? Can someone recover?"

@@ -68,8 +68,10 @@ function SharedReviewContent({ token }: { token: string }) {
   if (!data)
     return (
       <main className="shared-loading">
-        <Layers3 size={26} />
-        <h1>{error ? "Link unavailable" : "Opening prototype..."}</h1>
+        <h1 className="icon-title">
+          <Layers3 size={26} aria-hidden="true" />
+          <span>{error ? "Link unavailable" : "Opening prototype..."}</span>
+        </h1>
         {error && (
           <>
             <p role="alert">{error}</p>

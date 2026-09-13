@@ -1562,8 +1562,10 @@ export default function FlowReview() {
                           </div>
                         ))}
                         <div className="manual-check">
-                          <ShieldCheck size={18} />
-                          <strong>Human verification still required</strong>
+                          <strong className="icon-title">
+                            <ShieldCheck size={18} aria-hidden="true" />
+                            <span>Human verification still required</span>
+                          </strong>
                           <p>
                             Keyboard order, screen-reader behavior, zoom,
                             contrast, and error recovery with people.
