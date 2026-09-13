@@ -17,13 +17,58 @@ function presetButton(label: string) {
   return button;
 }
 
-// Select a frame from the frames chip dropdown menu by name. Opens the menu,
-// finds the frame by name, and clicks it.
+// Select a frame from the frames chip dropdown menu by name. Opens the menu
+// and clicks the frame name to switch to it.
 async function selectFrame(frameName: string): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
   await userEvent.click(framesButton);
   const frameItem = await screen.findByRole('menuitem', { name: frameName });
   await userEvent.click(frameItem);
+}
+
+// Add a new frame via the frames chip menu.
+async function addNewFrame(): Promise<void> {
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  await userEvent.click(framesButton);
+  const newFrameItem = await screen.findByRole('menuitem', { name: 'New frame' });
+  await userEvent.click(newFrameItem);
+  // Wait for the menu to close
+  await waitFor(() => {
+    expect(framesButton).toHaveAttribute('aria-expanded', 'false');
+  });
+}
+
+// Duplicate a frame by name. Switches to the frame first, then clicks Duplicate.
+async function duplicateFrame(frameName: string): Promise<void> {
+  await selectFrame(frameName);
+  // After selecting the frame, open the menu again and click Duplicate
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  await userEvent.click(framesButton);
+  const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' });
+  await userEvent.click(duplicateItem);
+}
+
+// Delete a frame by name. Switches to the frame first, then clicks Delete.
+async function deleteFrame(frameName: string): Promise<void> {
+  await selectFrame(frameName);
+  // After selecting the frame, open the menu again and click Delete
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  await userEvent.click(framesButton);
+  const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+  await userEvent.click(deleteItem);
+}
+
+// Move a frame to another page by frame name and page name.
+// Switches to the frame first, then clicks Move to page and the target page.
+async function moveFrameToPage(frameName: string, pageName: string): Promise<void> {
+  await selectFrame(frameName);
+  // After selecting the frame, open the menu again and navigate Move to page
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  await userEvent.click(framesButton);
+  const moveToPageTrigger = await screen.findByRole('button', { name: 'Move to page' });
+  await userEvent.click(moveToPageTrigger);
+  const pageItem = await screen.findByRole('menuitem', { name: pageName });
+  await userEvent.click(pageItem);
 }
 
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
@@ -436,7 +481,7 @@ describe('Workbench', () => {
     it('New screen adds a screen sized like the current one and switches to it', async () => {
       render(<Workbench file={makeFile()} />);
 
-      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      await addNewFrame();
 
       // The frames chip should now show "Frame 2 · 2" (name · count)
       const framesButton = screen.getByRole('button', { name: 'Frames' });
@@ -504,7 +549,7 @@ describe('Workbench', () => {
       const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
       render(<Workbench file={makeFile({ screens: [deviceScreen] })} />);
 
-      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      await addNewFrame();
 
       await waitFor(() =>
         expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874'),
@@ -614,7 +659,7 @@ describe('Workbench', () => {
     it('New screen is placed to the right of the last frame', async () => {
       render(<Workbench file={makeFile()} />);
 
-      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      await addNewFrame();
       // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce),
       // same as "New screen adds a screen..." above - Craft's own
       // onNodesChange first-fire for the brand new empty Frame can queue a
@@ -635,8 +680,7 @@ describe('Workbench', () => {
     it('Duplicate is placed to the right of the rightmost frame in the file, never overlapping another screen', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
-      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await duplicateFrame(SCREEN_1.name);
       await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
@@ -662,8 +706,7 @@ describe('Workbench', () => {
     it('Duplicating the first of three screens places the copy right of the third, not the second', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2, SCREEN_3] })} />);
 
-      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await duplicateFrame(SCREEN_1.name);
       await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
@@ -698,7 +741,7 @@ describe('Workbench', () => {
       fireEvent.pointerMove(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
       fireEvent.pointerUp(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
 
-      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      await addNewFrame();
       // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce);
       // this only waits for AT LEAST one call and reads the first one, same
       // as "New screen is placed to the right of the last frame" above.
@@ -1650,7 +1693,7 @@ describe('Workbench', () => {
       // The button is hidden when there are 0 frames, but we can check via the "no screens yet" message
       expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      await addNewFrame();
       expect(screen.queryByText('This page has no screens yet')).toBeNull();
       // Now the frames chip should show "Frame 1 · 1"
       framesButton = screen.getByRole('button', { name: /Frames/ });
@@ -1755,9 +1798,7 @@ describe('Workbench', () => {
     it('Move to page (screens strip chevron) moves a screen, which then shows up on the target page', async () => {
       render(<Workbench file={twoPageFile()} />);
 
-      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to page' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      await moveFrameToPage(SCREEN_1.name, 'v2');
 
       // The only screen on page 1 just left it: the page is now empty.
       expect(await screen.findByText('This page has no screens yet')).toBeInTheDocument();
@@ -2211,8 +2252,7 @@ describe('Workbench', () => {
         await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
         fetchMock.mockClear();
 
-        await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
-        await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+        await deleteFrame(SCREEN_1.name);
         await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
         // The frame is gone, so the edge can no longer resolve an endpoint -
@@ -2238,9 +2278,7 @@ describe('Workbench', () => {
         await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
         fetchMock.mockClear();
 
-        await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
-        await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to page' }));
-        await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+        await moveFrameToPage(SCREEN_1.name, 'v2');
 
         expect(screen.queryByTestId(/^diagram-edge-hit-/)).not.toBeInTheDocument();
 
