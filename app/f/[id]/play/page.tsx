@@ -45,10 +45,10 @@ export default async function PlayPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ screen?: string | string[] }>;
+  searchParams: Promise<{ screen?: string | string[]; page?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { screen } = await searchParams;
+  const { screen, page } = await searchParams;
   const file = await getFile(id);
   if (!file) notFound();
 
@@ -62,8 +62,16 @@ export default async function PlayPage({
   // production.
   if (screens.length === 0) notFound();
 
-  const requestedScreenId = Array.isArray(screen) ? screen[0] : screen;
-  const initialScreenId = screens.some((s) => s.id === requestedScreenId) ? requestedScreenId! : screens[0].id;
+  // Passed through raw: components/play/player.tsx's own
+  // resolveInitialScreenId is what makes sense of an absent, unknown or
+  // mismatched screen/page (spec docs/superpowers/specs/2026-09-12-pages-
+  // design.md section 4, "resolve the page and start on its first screen
+  // (or the given one)") - duplicating that fallback chain here would only
+  // risk the two drifting apart.
+  const initialScreenId = Array.isArray(screen) ? screen[0] : screen;
+  const initialPageId = Array.isArray(page) ? page[0] : page;
 
-  return <PlayerLoader file={{ ...file, screens }} initialScreenId={initialScreenId} />;
+  return (
+    <PlayerLoader file={{ ...file, screens }} initialScreenId={initialScreenId} initialPageId={initialPageId} />
+  );
 }

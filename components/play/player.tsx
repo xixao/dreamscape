@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { LABEL } from '@/components/workbench/chrome';
 import { StageProvider } from '@/components/workbench/stage-context';
-import type { FileRecord } from '@/lib/files/repository';
+import type { FileRecord, Screen } from '@/lib/files/repository';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import { PlayProvider, type PlayContextValue } from './play-context';
@@ -63,6 +63,35 @@ function playReducer(state: PlayState, action: PlayAction): PlayState {
 }
 
 /**
+ * The screen Play actually starts on (spec docs/superpowers/specs/2026-09-
+ * 12-pages-design.md section 4: "resolve the page and start on its first
+ * screen (or the given one)"): an explicit, valid `initialScreenId` always
+ * wins outright, regardless of `initialPageId` (a caller naming a specific
+ * screen means exactly that screen); otherwise the given page's own first
+ * screen (array order), when it has one; otherwise the first screen (array
+ * order) of the first page - in `pages` order - that has any screen at all;
+ * otherwise plain array order, for a file with no `pages` of its own yet
+ * (an older fixture, or a page.tsx caller that never looked one up).
+ */
+function resolveInitialScreenId(
+  screens: Screen[],
+  pages: FileRecord['pages'],
+  initialScreenId: string | undefined,
+  initialPageId: string | undefined,
+): string | undefined {
+  if (initialScreenId && screens.some((screen) => screen.id === initialScreenId)) return initialScreenId;
+  if (initialPageId) {
+    const onPage = screens.find((screen) => screen.pageId === initialPageId);
+    if (onPage) return onPage.id;
+  }
+  for (const page of pages ?? []) {
+    const found = screens.find((screen) => screen.pageId === page.id);
+    if (found) return found.id;
+  }
+  return screens[0]?.id;
+}
+
+/**
  * Runs a file's screens full-window with Craft disabled and every block's
  * real (non-design-mode) behavior live: the wired Button navigates, dialogs
  * open for real, inputs are typeable. Loaded only through
@@ -71,13 +100,25 @@ function playReducer(state: PlayState, action: PlayAction): PlayState {
  * @craftjs/core, from a module Next.js can reach while rendering a Server
  * Component crashes the same way known-types.ts documents for a route
  * handler; app/f/[id]/page.tsx's own components/workbench/workbench-loader.tsx
- * sidesteps it the same way for the design-mode editor).
+ * sidesteps it the same way for the design-mode editor). initialScreenId/
+ * initialPageId are both optional and both raw, unvalidated caller input
+ * (app/f/[id]/play/page.tsx passes the `screen`/`page` query params
+ * straight through) - resolveInitialScreenId above is what actually makes
+ * sense of them.
  */
-export function Player({ file, initialScreenId }: { file: FileRecord; initialScreenId: string }) {
+export function Player({
+  file,
+  initialScreenId,
+  initialPageId,
+}: {
+  file: FileRecord;
+  initialScreenId?: string;
+  initialPageId?: string;
+}) {
   const screens = useMemo(() => file.screens ?? [], [file.screens]);
   const validScreenIds = useMemo(() => new Set(screens.map((screen) => screen.id)), [screens]);
   const [state, dispatch] = useReducer(playReducer, {
-    currentScreenId: initialScreenId,
+    currentScreenId: resolveInitialScreenId(screens, file.pages, initialScreenId, initialPageId) ?? '',
     history: [],
     openDialogIds: new Set<string>(),
   });

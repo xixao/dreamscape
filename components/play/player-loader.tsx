@@ -15,6 +15,14 @@ const Player = dynamic(() => import('./player').then((m) => m.Player), {
   ssr: false,
 });
 
-export function PlayerLoader({ file, initialScreenId }: { file: FileRecord; initialScreenId: string }) {
-  return <Player file={file} initialScreenId={initialScreenId} />;
+export function PlayerLoader({
+  file,
+  initialScreenId,
+  initialPageId,
+}: {
+  file: FileRecord;
+  initialScreenId?: string;
+  initialPageId?: string;
+}) {
+  return <Player file={file} initialScreenId={initialScreenId} initialPageId={initialPageId} />;
 }

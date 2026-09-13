@@ -300,4 +300,55 @@ describe('Player', () => {
     render(<Player file={makeFile()} initialScreenId="not-a-real-screen" />);
     expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
   });
+
+  // Pages (docs/superpowers/specs/2026-09-12-pages-design.md section 4):
+  // "app/f/[id]/play/page.tsx and components/play/player.tsx resolve the
+  // page and start on its first screen (or the given one)". Pages of its
+  // own, distinct from makeFile() above (which predates pages, has no
+  // `pages` array, and every other test in this file relies on that to
+  // keep exercising the pageless fallback path).
+  function makeFileWithPages(): FileRecord {
+    return {
+      id: 'file1',
+      name: 'Sign-in flow',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+      pages: [
+        { id: 'page1', name: 'Page 1' },
+        { id: 'page2', name: 'v2' },
+      ],
+      screens: [
+        { id: 'screen1', name: 'Login', layout: JSON.stringify(SCREEN_1_TREE), stageWidth: 1440, pageId: 'page1' },
+        {
+          id: 'screen2',
+          name: 'Second screen',
+          layout: JSON.stringify(SCREEN_2_TREE),
+          stageWidth: 1440,
+          pageId: 'page2',
+        },
+      ],
+    };
+  }
+
+  describe('pages', () => {
+    it('starts on the given page\'s first screen when no screen is given', async () => {
+      render(<Player file={makeFileWithPages()} initialPageId="page2" />);
+      expect(await screen.findByText('Hello world')).toBeInTheDocument();
+    });
+
+    it('an explicit initialScreenId wins even when initialPageId names a different page', async () => {
+      render(<Player file={makeFileWithPages()} initialScreenId="screen1" initialPageId="page2" />);
+      expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
+    });
+
+    it('falls back to the first page with any screen when neither is given', async () => {
+      render(<Player file={makeFileWithPages()} />);
+      expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
+    });
+
+    it('falls back to the first page with any screen when the given page does not exist', async () => {
+      render(<Player file={makeFileWithPages()} initialPageId="doesnotexist" />);
+      expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
+    });
+  });
 });
