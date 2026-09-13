@@ -378,8 +378,21 @@ describe('FramePreview', () => {
     });
   }
 
+  // The pan props canvas.tsx always supplies in the real app - a plain
+  // `() => false` shouldStartPan (so a press always falls through to
+  // onFocusScreen, matching every test below that is not specifically about
+  // panning) plus spy no-ops for the rest, overridable per test.
+  function noPanProps() {
+    return {
+      shouldStartPan: () => false,
+      onPanPointerDown: vi.fn(),
+      onPanPointerMove: vi.fn(),
+      onPanPointerUp: vi.fn(),
+    };
+  }
+
   it('renders a read-only artboard sized to the screen, with no resize handles', async () => {
-    renderInEditor(<FramePreview screen={SCREEN_1} onFocus={vi.fn()} />);
+    renderInEditor(<FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} />);
     expect(screen.getByTestId('artboard-preview')).toHaveStyle({ width: '1440px' });
     expect(screen.queryByRole('separator')).toBeNull();
     const body = await previewFrameBody();
@@ -388,7 +401,7 @@ describe('FramePreview', () => {
 
   it('sizes to the screen\'s own stageHeight when set, else ARTBOARD_MIN_HEIGHT', () => {
     renderInEditor(
-      <FramePreview screen={{ ...SCREEN_1, stageHeight: 900 }} onFocus={vi.fn()} />,
+      <FramePreview screen={{ ...SCREEN_1, stageHeight: 900 }} onFocusScreen={vi.fn()} {...noPanProps()} />,
     );
     expect(screen.getByTestId('artboard-preview')).toHaveStyle({ height: '900px' });
   });
@@ -400,7 +413,7 @@ describe('FramePreview', () => {
     }
     renderInEditor(
       <>
-        <FramePreview screen={SCREEN_1} onFocus={vi.fn()} />
+        <FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} />
         <Probe />
       </>,
     );
@@ -408,18 +421,61 @@ describe('FramePreview', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('none');
   });
 
-  it('calls onFocus when the wrapper is pressed', () => {
-    const onFocus = vi.fn();
-    renderInEditor(<FramePreview screen={SCREEN_1} onFocus={onFocus} />);
+  it('calls onFocusScreen with the screen id when the wrapper is pressed', () => {
+    const onFocusScreen = vi.fn();
+    renderInEditor(<FramePreview screen={SCREEN_1} onFocusScreen={onFocusScreen} {...noPanProps()} />);
     fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
-    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onFocusScreen).toHaveBeenCalledExactlyOnceWith(SCREEN_1.id);
   });
 
-  it('calls onFocus when a press lands inside the frame\'s own iframe document', async () => {
-    const onFocus = vi.fn();
-    renderInEditor(<FramePreview screen={SCREEN_1} onFocus={onFocus} />);
+  it('calls onFocusScreen with the screen id when a press lands inside the frame\'s own iframe document', async () => {
+    const onFocusScreen = vi.fn();
+    renderInEditor(<FramePreview screen={SCREEN_1} onFocusScreen={onFocusScreen} {...noPanProps()} />);
     const body = await previewFrameBody();
     fireEvent.pointerDown(body);
-    expect(onFocus).toHaveBeenCalledTimes(1);
+    expect(onFocusScreen).toHaveBeenCalledExactlyOnceWith(SCREEN_1.id);
+  });
+
+  describe('Space + drag (or middle mouse) pans instead of focusing', () => {
+    it('calls onPanPointerDown instead of onFocusScreen when shouldStartPan is true', async () => {
+      const onFocusScreen = vi.fn();
+      const onPanPointerDown = vi.fn();
+      renderInEditor(
+        <FramePreview
+          screen={SCREEN_1}
+          onFocusScreen={onFocusScreen}
+          {...noPanProps()}
+          shouldStartPan={() => true}
+          onPanPointerDown={onPanPointerDown}
+        />,
+      );
+      const body = await previewFrameBody();
+
+      fireEvent.pointerDown(body, { pointerId: 7, clientX: 10, clientY: 20 });
+
+      expect(onPanPointerDown).toHaveBeenCalledTimes(1);
+      expect(onFocusScreen).not.toHaveBeenCalled();
+    });
+
+    it('forwards pointermove and pointerup from the frame document unconditionally', async () => {
+      const onPanPointerMove = vi.fn();
+      const onPanPointerUp = vi.fn();
+      renderInEditor(
+        <FramePreview
+          screen={SCREEN_1}
+          onFocusScreen={vi.fn()}
+          {...noPanProps()}
+          onPanPointerMove={onPanPointerMove}
+          onPanPointerUp={onPanPointerUp}
+        />,
+      );
+      const body = await previewFrameBody();
+
+      fireEvent.pointerMove(body, { pointerId: 7, clientX: 15, clientY: 25 });
+      fireEvent.pointerUp(body, { pointerId: 7, clientX: 15, clientY: 25 });
+
+      expect(onPanPointerMove).toHaveBeenCalledTimes(1);
+      expect(onPanPointerUp).toHaveBeenCalledTimes(1);
+    });
   });
 });

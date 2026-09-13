@@ -19,6 +19,7 @@ import type { Screen } from '@/lib/files/repository';
 import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import { canScrollInDirection, capturePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import type { StageCommentsProps } from './comments/comment-layer';
@@ -243,6 +244,36 @@ const MIDDLE_MOUSE_BUTTON = 1;
 const WHEEL_ZOOM_SENSITIVITY = 0.01;
 
 /**
+ * Returns a function with a permanently stable identity that always calls
+ * through to the LATEST `fn` passed in - the standard "useEvent" pattern
+ * (the ref is synced by an effect after every render, and the returned
+ * callback only ever reads it, never writes anything else) - for a plain
+ * callback that must be handed to a memoized child (FramePreview below) as
+ * a prop without defeating that memoization, but whose own implementation
+ * is not itself safe to wrap directly in `useCallback`.
+ *
+ * That last part is the reason this exists rather than a plain
+ * `useCallback` at each call site: `shouldStartPan`/`startFramePan`/
+ * `moveFramePan`/`endFramePan` in Canvas below all read or write
+ * `panRef.current`, deliberately kept as ordinary, freshly-defined-per-
+ * render functions (matching every other pointer handler in this file).
+ * Wrapping one of THEM directly in `useCallback` makes React Compiler's
+ * static analysis treat `panRef` as reachable from a memoized value used
+ * as an effect dependency, and it then flags every OTHER plain mutation of
+ * that same ref (handleRootPointerDown, handleRootPointerMove) as unsafe.
+ * This hook's own ref (`fnRef`) is private to each call site and never
+ * touches `panRef` itself, so it carries none of that baggage - it only
+ * ever forwards to whichever plain function is current.
+ */
+function useStableCallback<Args extends unknown[], R>(fn: (...args: Args) => R): (...args: Args) => R {
+  const fnRef = useRef(fn);
+  useEffect(() => {
+    fnRef.current = fn;
+  });
+  return useCallback((...args: Args) => fnRef.current(...args), []);
+}
+
+/**
  * The infinite canvas (spec docs/superpowers/specs/2026-09-12-infinite-
  * canvas-design.md): a full-window pannable, zoomable surface with every
  * screen of the file rendered as an absolutely positioned frame inside one
@@ -299,6 +330,37 @@ export function Canvas({
   // focuses it first (see FramePreview), which is the more natural way to
   // start panning from over a frame that was not already focused.
   const [spaceDown, setSpaceDown] = useState(false);
+
+  // The active pan gesture, if any: which pointer started it, the last
+  // point seen (in whichever document the gesture started - a drag never
+  // crosses from one document to another), whether that document is the
+  // focused iframe (whose local px must be scaled by the current zoom to get
+  // a parent-space delta - see moveFramePan below), and whether Space
+  // (rather than the middle mouse button) is what started it - releasing
+  // Space only ends a pan it started itself (see the keyup handler below).
+  const panRef = useRef<{ pointerId: number; lastX: number; lastY: number; inFrame: boolean; viaSpace: boolean } | null>(
+    null,
+  );
+  const [panning, setPanning] = useState(false);
+
+  // Every function below that touches panRef.current is a deliberately
+  // plain, freshly-defined-per-render function (never useCallback) - see
+  // useStableCallback's own doc comment above for why mixing that ref with
+  // useCallback trips React Compiler's static analysis.
+  function shouldStartPan(button: number): boolean {
+    return spaceDown || button === MIDDLE_MOUSE_BUTTON;
+  }
+
+  function applyPanDelta(dxLocal: number, dyLocal: number, inFrame: boolean): void {
+    const scale = inFrame ? viewportRef.current.zoom : 1;
+    setViewport((current) => panBy(current, dxLocal * scale, dyLocal * scale));
+  }
+
+  function endPan(): void {
+    panRef.current = null;
+    setPanning(false);
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code === 'Space' && !isEditableTarget(event.target)) setSpaceDown(true);
@@ -323,27 +385,6 @@ export function Canvas({
     };
   }, [focusedCanvasDocument]);
 
-  // The active pan gesture, if any: which pointer started it, the last
-  // point seen (in whichever document the gesture started - a drag never
-  // crosses from one document to another), whether that document is the
-  // focused iframe (whose local px must be scaled by the current zoom to get
-  // a parent-space delta - see onFramePointerMove below), and whether Space
-  // (rather than the middle mouse button) is what started it - releasing
-  // Space only ends a pan it started itself (see the keyup handler above).
-  const panRef = useRef<{ pointerId: number; lastX: number; lastY: number; inFrame: boolean; viaSpace: boolean } | null>(
-    null,
-  );
-  const [panning, setPanning] = useState(false);
-
-  function shouldStartPan(button: number): boolean {
-    return spaceDown || button === MIDDLE_MOUSE_BUTTON;
-  }
-
-  function applyPanDelta(dxLocal: number, dyLocal: number, inFrame: boolean): void {
-    const scale = inFrame ? viewportRef.current.zoom : 1;
-    setViewport((current) => panBy(current, dxLocal * scale, dyLocal * scale));
-  }
-
   function handleRootPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!shouldStartPan(event.button)) {
       // Clicking empty canvas (not a frame, not while starting a pan)
@@ -355,7 +396,7 @@ export function Canvas({
       return;
     }
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    capturePointer(event.currentTarget, event.pointerId);
     panRef.current = {
       pointerId: event.pointerId,
       lastX: event.clientX,
@@ -374,48 +415,68 @@ export function Canvas({
     pan.lastY = event.clientY;
   }
 
-  function endPan(): void {
-    panRef.current = null;
-    setPanning(false);
+  // Starts a pan gesture that began inside a frame's own document - the
+  // focused frame (wired below) or, per the fix here, any non-focused
+  // preview too (wired where FramePreview is rendered further down): a
+  // frame document is a separate browsing context, so a plain click never
+  // bubbles out to this component's own pointer handlers on canvas-root.
+  function startFramePan(event: PointerEvent): void {
+    if (!shouldStartPan(event.button)) return;
+    event.preventDefault();
+    panRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      inFrame: true,
+      viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
+    };
+    setPanning(true);
   }
+
+  function moveFramePan(event: PointerEvent): void {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== event.pointerId || !pan.inFrame) return;
+    applyPanDelta(event.clientX - pan.lastX, event.clientY - pan.lastY, true);
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+  }
+
+  function endFramePan(event: PointerEvent): void {
+    if (panRef.current?.pointerId === event.pointerId) endPan();
+  }
+
+  // Stable (permanently-unchanging-identity) versions of the four functions
+  // above that FramePreview needs as props - there can be many of them, one
+  // per non-focused screen, and this component re-renders on every pan/zoom
+  // tick to update the viewport transform. See useStableCallback's own doc
+  // comment (top of file) for why this indirection exists instead of
+  // useCallback directly on shouldStartPan/startFramePan/moveFramePan/
+  // endFramePan themselves.
+  const stableShouldStartPan = useStableCallback(shouldStartPan);
+  const stableStartFramePan = useStableCallback(startFramePan);
+  const stableMoveFramePan = useStableCallback(moveFramePan);
+  const stableEndFramePan = useStableCallback(endFramePan);
 
   // The focused frame's own iframe is a separate document: neither the root
   // pointer handlers above nor a plain wheel listener on the root element
   // ever see an event that originates inside it. Space+drag and wheel pan/
   // zoom are mirrored onto that one document so panning and zooming also
   // work while the pointer is over the frame actually being edited, not
-  // only over the empty canvas around it - every non-focused preview is
-  // read-only and, per FramePreview, focuses itself (and so gains this same
-  // wiring) on the very first press inside it.
+  // only over the empty canvas around it. Every non-focused preview gets
+  // the same Space+drag wiring (the stable pan callbacks above, wired where
+  // FramePreview is rendered further down) directly against its own frame
+  // document, the same way - a non-focused preview otherwise only focuses
+  // itself on a press, per FramePreview, and pressing while Space is down
+  // must pan instead, not steal focus. Wheel forwarding (onFrameWheel
+  // below) stays scoped to the one focused frame only - see the "What needs
+  // the browser check" concerns in the implementation report for why
+  // extending it to every preview was left out of scope.
   useEffect(() => {
     const frameWindow = focusedCanvasDocument?.window;
     const frameDocument = focusedCanvasDocument?.document;
     if (!frameWindow || !frameDocument) return;
 
-    function onFramePointerDown(event: PointerEvent) {
-      if (!shouldStartPan(event.button)) return;
-      event.preventDefault();
-      panRef.current = {
-        pointerId: event.pointerId,
-        lastX: event.clientX,
-        lastY: event.clientY,
-        inFrame: true,
-        viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
-      };
-      setPanning(true);
-    }
-    function onFramePointerMove(event: PointerEvent) {
-      const pan = panRef.current;
-      if (!pan || pan.pointerId !== event.pointerId || !pan.inFrame) return;
-      applyPanDelta(event.clientX - pan.lastX, event.clientY - pan.lastY, true);
-      pan.lastX = event.clientX;
-      pan.lastY = event.clientY;
-    }
-    function onFramePointerUp(event: PointerEvent) {
-      if (panRef.current?.pointerId === event.pointerId) endPan();
-    }
     function onFrameWheel(event: WheelEvent) {
-      event.preventDefault();
       // Guarded above (this effect returns early when frameWindow is
       // undefined) - TS narrowing does not persist into a nested function
       // declaration, hence the assertion.
@@ -426,29 +487,49 @@ export function Canvas({
         ? { x: iframeRect.left + event.clientX * zoom, y: iframeRect.top + event.clientY * zoom }
         : { x: event.clientX, y: event.clientY };
       if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
         const factor = Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY);
         setViewport((current) => zoomAround(current, point, factor));
-      } else {
-        setViewport((current) => panBy(current, -event.deltaX, -event.deltaY));
+        return;
       }
+      // A fixed-height frame (or any scrollable content inside one) can
+      // have its own overflow - without this check, a plain wheel/two-
+      // finger-scroll gesture meant to scroll THAT content always panned
+      // the canvas instead, since this handler used to preventDefault and
+      // pan unconditionally, leaving a fixed-height frame with no way to
+      // ever scroll its own content. When the wheel target (or a scrollable
+      // ancestor of it, including the frame document's own <html>/<body>
+      // when the overflow lives there) still has room to scroll further in
+      // this gesture's direction, let the browser handle it natively -
+      // don't preventDefault, don't pan. Only once nothing in that chain
+      // can scroll any further does this fall through to panning the
+      // canvas, exactly as it always did for a frame with no scrollable
+      // content at all.
+      if (canScrollInDirection(event.target, event.deltaX, event.deltaY)) return;
+      event.preventDefault();
+      setViewport((current) => panBy(current, -event.deltaX, -event.deltaY));
     }
 
-    frameDocument.addEventListener('pointerdown', onFramePointerDown);
-    frameWindow.addEventListener('pointermove', onFramePointerMove);
-    frameWindow.addEventListener('pointerup', onFramePointerUp);
-    frameWindow.addEventListener('pointercancel', onFramePointerUp);
+    frameDocument.addEventListener('pointerdown', stableStartFramePan);
+    frameWindow.addEventListener('pointermove', stableMoveFramePan);
+    frameWindow.addEventListener('pointerup', stableEndFramePan);
+    frameWindow.addEventListener('pointercancel', stableEndFramePan);
     frameDocument.addEventListener('wheel', onFrameWheel, { passive: false });
     return () => {
-      frameDocument.removeEventListener('pointerdown', onFramePointerDown);
-      frameWindow.removeEventListener('pointermove', onFramePointerMove);
-      frameWindow.removeEventListener('pointerup', onFramePointerUp);
-      frameWindow.removeEventListener('pointercancel', onFramePointerUp);
+      frameDocument.removeEventListener('pointerdown', stableStartFramePan);
+      frameWindow.removeEventListener('pointermove', stableMoveFramePan);
+      frameWindow.removeEventListener('pointerup', stableEndFramePan);
+      frameWindow.removeEventListener('pointercancel', stableEndFramePan);
       frameDocument.removeEventListener('wheel', onFrameWheel);
     };
-    // spaceDown is read through shouldStartPan's closure - re-subscribing
-    // whenever it changes keeps that check current without needing a ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedCanvasDocument, spaceDown]);
+    // setViewport included below even though it is stable (a useCallback
+    // with an empty dependency array in useCanvasViewportController) and so
+    // never actually changes - listing it is what lets this effect drop the
+    // blanket eslint-disable the pre-stableCallback version of this file
+    // needed here (that one was there for spaceDown's sake specifically,
+    // now moot: shouldStartPan reads it through useStableCallback's own ref
+    // instead of a closure this effect would otherwise need to re-run for).
+  }, [focusedCanvasDocument, stableStartFramePan, stableMoveFramePan, stableEndFramePan, setViewport]);
 
   // The root's own wheel handling: a non-passive listener (React's onWheel
   // is passive by default in modern browsers, which would make
@@ -521,7 +602,21 @@ export function Canvas({
               {focused ? (
                 <Stage screen={screen} viewport={viewport} comments={comments} />
               ) : (
-                <FramePreview screen={screen} onFocus={() => onFocusScreen(screen.id)} />
+                <FramePreview
+                  screen={screen}
+                  // onFocusScreen is the prop this component itself
+                  // received, passed straight through: already stable
+                  // across a pure viewport re-render (it comes from
+                  // WorkbenchShell/Workbench, neither of which re-renders
+                  // just because THIS component's viewport context does),
+                  // so no per-screen wrapping is needed here - FramePreview
+                  // calls it with its own screen.id itself.
+                  onFocusScreen={onFocusScreen}
+                  shouldStartPan={stableShouldStartPan}
+                  onPanPointerDown={stableStartFramePan}
+                  onPanPointerMove={stableMoveFramePan}
+                  onPanPointerUp={stableEndFramePan}
+                />
               )}
             </div>
           );

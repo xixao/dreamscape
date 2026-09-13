@@ -1,4 +1,4 @@
-import type { Viewport } from './viewport';
+import { MAX_ZOOM, MIN_ZOOM, type Viewport } from './viewport';
 
 // Small enough surface that a plain object or the real window.localStorage
 // both satisfy it - the same pattern lib/chat/store.ts's ChatStorageLike and
@@ -15,7 +15,17 @@ const KEY_PREFIX = 'assembly-workbench:viewport:';
 function isViewport(value: unknown): value is Viewport {
   if (typeof value !== 'object' || value === null) return false;
   const { x, y, zoom } = value as Record<string, unknown>;
-  return typeof x === 'number' && typeof y === 'number' && typeof zoom === 'number';
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof zoom !== 'number') return false;
+  // JSON has no NaN/Infinity literal (JSON.parse already throws on one,
+  // caught below), but a huge exponent - a syntactically ordinary JSON
+  // number - overflows a JS double into Infinity on parse, and corrupt or
+  // hand-edited storage could plausibly carry one. A canvas transform built
+  // from a non-finite or wildly out-of-range zoom would paint nothing
+  // (scale(Infinity)) or something practically unusable, so this is treated
+  // the same as any other corrupt value: fall back to null, and let the
+  // caller compute a fresh default (fit all) instead.
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom)) return false;
+  return zoom >= MIN_ZOOM && zoom <= MAX_ZOOM;
 }
 
 /**

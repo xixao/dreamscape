@@ -64,6 +64,22 @@ describe('layoutMissingPositions', () => {
     expect(result[0].y).toBe(0);
   });
 
+  it('places an unpositioned screen to the right of the rightmost positioned frame, even when that frame is not adjacent to it in the array', () => {
+    const screens = [
+      screen({ id: 'aaaaaaaaaa', x: 0, y: 0, stageWidth: 1440 }),
+      screen({ id: 'bbbbbbbbbb' }), // no position - chaining off the previous element alone would land this on 'cccccccccc' below
+      screen({ id: 'cccccccccc', x: 1000, y: 50, stageWidth: 2000 }), // the true rightmost frame, right edge 3000
+    ];
+
+    const result = layoutMissingPositions(screens);
+
+    // 3000 (cccccccccc's right edge) + 200 - not 1440 (aaaaaaaaaa's right
+    // edge, the previous array element) + 200, which is where the old
+    // "chain off the previous element only" bug would have placed it,
+    // landing it exactly on top of cccccccccc.
+    expect(result[1]).toMatchObject({ x: 3000 + 200, y: 0 });
+  });
+
   it('does not mutate the input array or its screens', () => {
     const input = [screen()];
     const frozen = Object.freeze([...input]);

@@ -2,8 +2,10 @@
 
 import { Editor, Frame, useEditor, type EditorState } from "@craftjs/core";
 import {
+  memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -14,6 +16,7 @@ import { resolver } from "@/components/blocks/registry";
 import type { Screen } from "@/lib/files/repository";
 import type { Viewport } from "@/lib/canvas/viewport";
 import { toArtboardPoint, type Rect } from "@/lib/comments/geometry";
+import { capturePointer, releasePointer } from "@/lib/dom";
 import { stackUnder, type LayerStackNode } from "@/lib/layer-stack";
 import { ARTBOARD_MIN_HEIGHT } from "@/lib/stage";
 import {
@@ -149,9 +152,7 @@ function ResizeHandle({
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     start.current = null;
     setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    releasePointer(event.currentTarget, event.pointerId);
   };
 
   function applyDelta(dx: number, dy: number) {
@@ -184,7 +185,7 @@ function ResizeHandle({
       className={cn("absolute flex touch-none select-none", meta.className)}
       onPointerDown={(event) => {
         event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
+        capturePointer(event.currentTarget, event.pointerId);
         start.current = { x: event.clientX, y: event.clientY, width, height };
         setDragging(true);
       }}
@@ -256,8 +257,19 @@ function ResizeHandle({
  * ResizeObserver nor a window resize/scroll event on its own); the actual
  * zoom VALUE used for handle math and comment placement still comes from
  * useStage().zoom, which canvas.tsx keeps in sync with the viewport.
+ *
+ * Wrapped in memo() below (as StageImpl here) - the focused frame host,
+ * alongside FramePreview - so that an unrelated re-render of an ancestor
+ * with otherwise-unchanged props does not cascade into this frame's own
+ * CanvasFrame. `viewport` itself still changes on every pan/zoom tick (it
+ * has to - see the comment above on why this component needs it), so memo
+ * alone does not stop THIS component's own body from re-running then; what
+ * it stops is CanvasFrame underneath it doing the same, since that
+ * component is separately memoized (canvas-frame.tsx) and every OTHER prop
+ * passed to it here - including its `children`, via the useMemo below - is
+ * unaffected by viewport changing at all.
  */
-export function Stage({
+function StageImpl({
   screen,
   viewport,
   comments = DEFAULT_STAGE_COMMENTS,
@@ -343,6 +355,15 @@ export function Stage({
     comments.onPlacePin(point.x, point.y, anchorNodeId);
   }
 
+  // Memoized so CanvasFrame's own `children` prop stays referentially
+  // stable across a viewport-only re-render of this component (StageImpl's
+  // own body re-runs on every pan/zoom tick - see the comment on it above -
+  // so an inline `<Frame .../>` literal here would otherwise be a brand
+  // new element every tick, which would defeat CanvasFrame's memoization
+  // (canvas-frame.tsx) just as surely as an unstable prop would, even
+  // though the props visible to CanvasFrame itself never changed).
+  const frameChildren = useMemo(() => <Frame key={screen.id} data={screen.layout} />, [screen.id, screen.layout]);
+
   return (
     <div
       data-artboard
@@ -372,7 +393,7 @@ export function Stage({
           zoom={1}
           onContentHeightChange={setContentHeight}
         >
-          <Frame key={screen.id} data={screen.layout} />
+          {frameChildren}
         </CanvasFrame>
         {/*
           Comment mode: the frame lives in its own document, so a click on
@@ -418,6 +439,8 @@ export function Stage({
   );
 }
 
+export const Stage = memo(StageImpl);
+
 /**
  * A non-focused frame: a read-only preview of a screen that is not currently
  * being edited (spec: "reuse the Play renderer approach"), rendered through a
@@ -425,36 +448,90 @@ export function Stage({
  * comments. Pressing anywhere inside it focuses that screen (the click is
  * swallowed; selecting normally on the canvas only ever happens on a LATER
  * click, once this frame is the focused one and the real, enabled `Stage`
- * above is what is actually mounted there).
+ * above is what is actually mounted there) - UNLESS Space is already held
+ * (or the press is a middle-mouse click), in which case it pans the canvas
+ * instead, without changing focus or selection at all (spec section 3).
  *
  * Deliberately does not go through the shared StageContext.canvasDocument
  * slot (CanvasFrame's `reportDocument={false}`) - that slot is scoped to the
  * one focused frame. `onCanvasDocument` gives this component its OWN, local
  * reference to its iframe's document/window instead, just for the
- * click-to-focus listener below (a plain onPointerDown on the wrapper catches
- * a press that lands on the border/background around the iframe, but not one
- * that lands on the iframe's own rendered content - a separate document, per
- * lib/craft-positioner.ts's explanation of why every cross-frame listener in
- * this codebase is doubled up the same way).
+ * click-to-focus/pan listeners below (a plain onPointerDown on the wrapper
+ * catches a press that lands on the border/background around the iframe,
+ * but not one that lands on the iframe's own rendered content - a separate
+ * document, per lib/craft-positioner.ts's explanation of why every
+ * cross-frame listener in this codebase is doubled up the same way).
+ *
+ * Wrapped in memo() below (as FramePreviewImpl here): there can be many of
+ * these on screen at once, one per non-focused screen, and canvas.tsx
+ * re-renders on every pan/zoom tick (it has to, to update the viewport
+ * transform) - without memoization, every one of them would re-run its own
+ * body, and so recreate its `<Editor>`/`<Frame>` children, on every such
+ * tick even though nothing about any of them actually changed. This only
+ * pays off because every prop canvas.tsx passes here is itself stable
+ * across a pure viewport change: `onFocusScreen` is passed straight through
+ * unchanged (see the comment where this is rendered), and `shouldStartPan`/
+ * `onPanPointerDown`/`onPanPointerMove`/`onPanPointerUp` are each wrapped in
+ * `useStableCallback` there - a fresh closure for any one of them would
+ * defeat this the same way an unstable object prop would.
  */
-export function FramePreview({
+function FramePreviewImpl({
   screen,
-  onFocus,
+  onFocusScreen,
+  shouldStartPan,
+  onPanPointerDown,
+  onPanPointerMove,
+  onPanPointerUp,
 }: {
   screen: Screen;
-  onFocus: () => void;
+  // Takes the screen id (rather than a plain, no-argument `onFocus`) so
+  // canvas.tsx can pass its own onFocusScreen prop straight through
+  // unchanged - already stable across a pure viewport re-render, since it
+  // comes from a parent that does not itself re-render on one (see the
+  // comment there) - instead of needing a per-screen-id cache of pre-bound
+  // closures, which can only be populated by writing to a ref during
+  // render, unsafe under React's own rules (react-hooks/refs).
+  onFocusScreen: (id: string) => void;
+  // Space+drag (plus middle mouse) must pan the canvas from a non-focused
+  // preview too, not just the focused frame - without changing focus or
+  // selection (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
+  // design.md section 3). All four come from canvas.tsx, stable across
+  // renders (see the comment there), so wiring them here never needs to
+  // re-subscribe the effect below just because Canvas re-rendered for an
+  // unrelated reason such as a pan/zoom tick.
+  shouldStartPan: (button: number) => boolean;
+  onPanPointerDown: (event: PointerEvent) => void;
+  onPanPointerMove: (event: PointerEvent) => void;
+  onPanPointerUp: (event: PointerEvent) => void;
 }) {
   const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
 
   useEffect(() => {
     if (!frameDocument) return;
-    function focusOnce(event: PointerEvent) {
+    function onPointerDown(event: PointerEvent) {
+      if (shouldStartPan(event.button)) {
+        onPanPointerDown(event);
+        return;
+      }
       event.preventDefault();
-      onFocus();
+      onFocusScreen(screen.id);
     }
-    frameDocument.window.addEventListener("pointerdown", focusOnce, { capture: true });
-    return () => frameDocument.window.removeEventListener("pointerdown", focusOnce, { capture: true });
-  }, [frameDocument, onFocus]);
+    frameDocument.window.addEventListener("pointerdown", onPointerDown, { capture: true });
+    // Forwarded unconditionally (not gated on shouldStartPan here) - the
+    // pan itself already checks canvas.tsx's own panRef for a matching
+    // pointerId before doing anything, the same guard the focused frame's
+    // identical wiring already relies on, so a move/up that has nothing to
+    // do with a pan started elsewhere is always a no-op.
+    frameDocument.window.addEventListener("pointermove", onPanPointerMove);
+    frameDocument.window.addEventListener("pointerup", onPanPointerUp);
+    frameDocument.window.addEventListener("pointercancel", onPanPointerUp);
+    return () => {
+      frameDocument.window.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      frameDocument.window.removeEventListener("pointermove", onPanPointerMove);
+      frameDocument.window.removeEventListener("pointerup", onPanPointerUp);
+      frameDocument.window.removeEventListener("pointercancel", onPanPointerUp);
+    };
+  }, [frameDocument, screen.id, onFocusScreen, shouldStartPan, onPanPointerDown, onPanPointerMove, onPanPointerUp]);
 
   return (
     <div
@@ -463,7 +540,7 @@ export function FramePreview({
       style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
       onPointerDown={(event) => {
         event.preventDefault();
-        onFocus();
+        onFocusScreen(screen.id);
       }}
     >
       <CanvasFrame
@@ -480,3 +557,5 @@ export function FramePreview({
     </div>
   );
 }
+
+export const FramePreview = memo(FramePreviewImpl);

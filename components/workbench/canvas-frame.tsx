@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEventHandler } from '@craftjs/core';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -34,8 +34,18 @@ function copyStylesheets(iframeDoc: Document): void {
  * document is ready; `useCanvasDocument()` below is how overlays and hooks
  * that also need to reach into that document (selection outlines, the
  * layer-stack menu, keyboard shortcuts) get at it.
+ *
+ * Wrapped in memo() below (as CanvasFrameImpl here): the infinite canvas
+ * (canvas.tsx) re-renders its host - Stage for the focused frame, or
+ * FramePreview for a non-focused one - on every pan/zoom tick in Stage's
+ * case (FramePreview stays fully memoized and so never even re-renders for
+ * one at all - see the comment there). Memoizing this component too is
+ * what actually stops that from reaching the iframe and the portaled Craft
+ * tree inside it: every prop passed to it, from both callers, is already
+ * stable across a pure viewport change (Stage memoizes its own `children`
+ * via useMemo for exactly this).
  */
-export function CanvasFrame({
+function CanvasFrameImpl({
   width,
   height,
   zoom,
@@ -273,6 +283,8 @@ export function CanvasFrame({
     </>
   );
 }
+
+export const CanvasFrame = memo(CanvasFrameImpl);
 
 /**
  * `{ document, window }` of the iframe CanvasFrame renders into, once it is

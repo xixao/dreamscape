@@ -1,13 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { Card } from '@/components/blocks/card';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { Viewport } from '@/lib/canvas/viewport';
 import { HOLD_MS } from '@/lib/layer-stack';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
+import { CanvasViewportProvider } from './canvas';
 import { LayerStackMenu } from './layer-stack-menu';
 import { Stage } from './stage';
 import { useStage } from './stage-context';
@@ -46,6 +48,33 @@ async function frameBody(): Promise<HTMLElement> {
   });
 }
 
+// LayerStackMenu closes itself when the shared canvas viewport changes (it
+// used to close on the stage column's own `scroll` event, which no longer
+// fires now that panning is a CSS transform - see canvas.tsx) - so it now
+// reads useCanvasViewport(), which throws outside a CanvasViewportProvider.
+// This harness wraps every setup() render in one with a real, settable
+// viewport (rather than a static literal) so the one test that actually
+// needs to change it after the menu opens can, through the exposed
+// `setViewport`; every other test in this file never touches it and is
+// unaffected by the wrapper being there.
+function ViewportHarness({
+  children,
+  onViewportSetter,
+}: {
+  children: ReactNode;
+  onViewportSetter: (setViewport: (viewport: Viewport) => void) => void;
+}) {
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+  useEffect(() => {
+    onViewportSetter(setViewport);
+  }, [onViewportSetter]);
+  return (
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={{ width: 1000, height: 800 }} animateTo={() => {}}>
+      {children}
+    </CanvasViewportProvider>
+  );
+}
+
 // Builds ROOT(Frame) -> Card -> CardContent(zone) -> Button("Sign in"), the
 // exact tree the spec's own harness example uses, via the same
 // query.parseReactElement/actions.addNodeTree technique as
@@ -53,8 +82,13 @@ async function frameBody(): Promise<HTMLElement> {
 // never reads a `children` prop, so JSX nesting under <Card> would not
 // actually place a node in its content zone).
 async function setup(zoom = 1) {
+  let setSharedViewport: ((viewport: Viewport) => void) | null = null;
   const utils = renderInEditor(
-    <>
+    <ViewportHarness
+      onViewportSetter={(setViewport) => {
+        setSharedViewport = setViewport;
+      }}
+    >
       {/*
         data-testid="canvas-root" stands in for the real infinite canvas's
         own root element (components/workbench/canvas.tsx) - the only thing
@@ -66,7 +100,7 @@ async function setup(zoom = 1) {
         <Stage screen={ONE_SCREEN} viewport={{ x: 0, y: 0, zoom }} />
       </div>
       <LayerStackMenu />
-    </>,
+    </ViewportHarness>,
   );
   const body = await frameBody();
   await within(body).findByText('This frame is empty');
@@ -91,7 +125,12 @@ async function setup(zoom = 1) {
   // settle hangs the whole setup instead of failing fast.
   vi.useFakeTimers();
 
-  return { button, cardId, query, actions };
+  function setViewport(viewport: Viewport): void {
+    if (!setSharedViewport) throw new Error('viewport setter not ready');
+    act(() => setSharedViewport!(viewport));
+  }
+
+  return { button, cardId, query, actions, setViewport };
 }
 
 function press(target: Element, x = 100, y = 100) {
@@ -254,14 +293,23 @@ describe('LayerStackMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('closes when the stage scrolls', async () => {
-    const { button } = await setup();
+  it('closes when the canvas viewport changes (pan or zoom)', async () => {
+    const { button, setViewport } = await setup();
     press(button);
     await advance(HOLD_MS);
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
-    fireEvent.scroll(screen.getByTestId('canvas-root'));
+    setViewport({ x: 50, y: 0, zoom: 1 });
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('does not close from a viewport change while it is not open', async () => {
+    const { button, setViewport } = await setup();
+    setViewport({ x: 50, y: 0, zoom: 1 });
+
+    press(button);
+    await advance(HOLD_MS);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
   it('swallows the click that follows a completed hold, exactly once', async () => {

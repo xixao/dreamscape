@@ -399,6 +399,106 @@ describe('Canvas', () => {
 
       expect(screen.getByTestId('viewport-readout')).toHaveTextContent(before!);
     });
+
+  describe('wheel over the focused frame lets it scroll its own content when possible', () => {
+    // The focused frame's own iframe body - components/workbench/canvas.tsx
+    // mirrors wheel handling onto its document so panning/zooming also work
+    // while the pointer is over the frame being edited, not only over the
+    // empty canvas around it.
+    function focusedFrameBody(): HTMLElement {
+      const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+        | HTMLIFrameElement
+        | null;
+      const body = iframe?.contentDocument?.body;
+      if (!body) throw new Error('focused frame body not ready');
+      return body;
+    }
+
+    function makeBodyScrollable({ scrollTop }: { scrollTop: number }): HTMLElement {
+      const body = focusedFrameBody();
+      Object.defineProperty(body, 'scrollHeight', { value: 2000, configurable: true });
+      Object.defineProperty(body, 'clientHeight', { value: 300, configurable: true });
+      Object.defineProperty(body, 'scrollTop', { value: scrollTop, configurable: true });
+      return body;
+    }
+
+    it('is not prevented and does not pan the canvas when the frame document can still scroll down', async () => {
+      renderWithReadout();
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const body = makeBodyScrollable({ scrollTop: 0 });
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      const notCancelled = fireEvent.wheel(body, { deltaY: 50 });
+
+      expect(notCancelled).toBe(true);
+      expect(screen.getByTestId('viewport-readout')).toHaveTextContent(before!);
+    });
+
+    it('pans the canvas once the frame is at the bottom of its own scroll range', async () => {
+      renderWithReadout();
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      // scrollTop + clientHeight === scrollHeight: no room left to scroll down.
+      const body = makeBodyScrollable({ scrollTop: 1700 });
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      const notCancelled = fireEvent.wheel(body, { deltaY: 50 });
+
+      expect(notCancelled).toBe(false);
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
+    });
+
+    it('Ctrl/Cmd+wheel always zooms, even when the frame document can still scroll', async () => {
+      renderWithReadout();
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      makeBodyScrollable({ scrollTop: 0 });
+      const [, , beforeZoom] = screen.getByTestId('viewport-readout').textContent!.split(',');
+
+      const notCancelled = fireEvent.wheel(focusedFrameBody(), { deltaY: -50, ctrlKey: true });
+
+      expect(notCancelled).toBe(false);
+      await waitFor(() => {
+        const [, , afterZoom] = screen.getByTestId('viewport-readout').textContent!.split(',');
+        expect(afterZoom).not.toBe(beforeZoom);
+      });
+    });
+  });
+
+  describe('Space + drag pans from a non-focused frame too', () => {
+    function previewFrameBody(): HTMLElement {
+      const iframe = document.querySelector('[data-testid="artboard-preview"] [data-testid="canvas-frame"]') as
+        | HTMLIFrameElement
+        | null;
+      const body = iframe?.contentDocument?.body;
+      if (!body) throw new Error('preview frame body not ready');
+      return body;
+    }
+
+    it('pans the canvas by the drag delta and leaves the focused screen unchanged', async () => {
+      const onFocusScreen = vi.fn();
+      renderWithReadout({ screens: [SCREEN_1, SCREEN_2], focusedScreenId: SCREEN_1.id, onFocusScreen });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      const body = previewFrameBody();
+      const before = screen.getByTestId('viewport-readout').textContent;
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(body, { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+      fireEvent.pointerMove(body, { pointerId: 1, clientX: 150, clientY: 130 });
+      fireEvent.pointerUp(body, { pointerId: 1, clientX: 150, clientY: 130 });
+
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent(before!));
+      expect(onFocusScreen).not.toHaveBeenCalled();
+    });
+
+    it('a plain press with no Space still focuses the non-focused frame, unchanged', async () => {
+      const onFocusScreen = vi.fn();
+      renderWithReadout({ screens: [SCREEN_1, SCREEN_2], focusedScreenId: SCREEN_1.id, onFocusScreen });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      fireEvent.pointerDown(previewFrameBody(), { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+
+      expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_2.id);
+    });
+  });
   });
 
   describe('the dot grid', () => {

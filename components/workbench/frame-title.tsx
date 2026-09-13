@@ -2,6 +2,7 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Screen } from '@/lib/files/repository';
+import { capturePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { NAME_MAX, RenameInput } from './screens-strip';
 
@@ -60,7 +61,7 @@ export function FrameTitle({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
-    event.currentTarget.setPointerCapture(event.pointerId);
+    capturePointer(event.currentTarget, event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
       startClientX: event.clientX,

@@ -269,11 +269,13 @@ export function Workbench({
       stageHeight: current.stageHeight ?? null,
       deviceName: current.deviceName ?? null,
       // No position yet: appended at the end of the array with x/y left
-      // unset, layoutMissingPositions places it to the right of the last
-      // frame (spec: "new screens are placed to the right of the last
-      // frame") - every existing screen already has a position by this
-      // point (the initial-load computation above), so this only ever fills
-      // in the new one.
+      // unset, layoutMissingPositions places it to the right of the
+      // RIGHTMOST already-positioned frame in the file, not merely the last
+      // one in array order (spec: "a new or duplicated screen is placed to
+      // the right of the rightmost frame in the file, never overlapping") -
+      // every existing screen already has a position by this point (the
+      // initial-load computation above), so this only ever fills in the new
+      // one.
       x: null,
       y: null,
     };
@@ -308,9 +310,13 @@ export function Workbench({
     if (index === -1) return;
     // x/y explicitly cleared, not inherited from the plain spread: the copy
     // must not land exactly on top of its source. Placed right after the
-    // source in the array (below), so layoutMissingPositions resolves its
-    // position relative to the source specifically (spec: "duplicates go
-    // right of the source"), not the last frame overall.
+    // source in the array (below); layoutMissingPositions resolves its
+    // actual position from the RIGHTMOST already-positioned frame across
+    // the whole file (spec: "a new or duplicated screen is placed to the
+    // right of the rightmost frame in the file, never overlapping"), not
+    // from wherever the source itself happens to sit - a source that is not
+    // already the rightmost frame must not have its copy land on whatever
+    // frame comes after it.
     const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy`, x: null, y: null };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
     const next = layoutMissingPositions([...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)]);

@@ -62,6 +62,14 @@ const SCREEN_2: Screen = {
   layout: EXAMPLES[2].layout, // Settings: has a "Save changes" button, unlike Login.
   stageWidth: EXAMPLES[2].stageWidth,
 };
+// Used only by the "frame positions" tests below, which need a third screen
+// and never assert on its rendered content.
+const SCREEN_3: Screen = {
+  id: 'screen0003',
+  name: 'Frame 3',
+  layout: EXAMPLES[1].layout,
+  stageWidth: EXAMPLES[1].stageWidth,
+};
 
 const BASE_FILE: FileRecord = {
   id: 'file0000ab',
@@ -547,7 +555,7 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
 
-    it('Duplicate is placed to the right of the source, not the last frame', async () => {
+    it('Duplicate is placed to the right of the rightmost frame in the file, never overlapping another screen', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
       await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
@@ -556,13 +564,78 @@ describe('Workbench', () => {
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
       expect(body.screens).toHaveLength(3);
-      // Source (screen 0) keeps its position; the copy is inserted right
-      // after it, right of the source - screen 2 (the original SCREEN_2,
-      // pushed one slot over) keeps its own already-resolved position.
+      // Source (screen 0) and screen 2 (the original SCREEN_2, pushed one
+      // slot over by the copy's insertion) both keep their own
+      // already-resolved positions untouched.
       expect(body.screens[0]).toMatchObject({ id: SCREEN_1.id, x: 0, y: 0 });
-      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
       expect(body.screens[2]).toMatchObject({ id: SCREEN_2.id, x: SCREEN_1.stageWidth + 200, y: 0 });
+      // The copy must clear BOTH existing frames, not just its source: it
+      // used to chain off the source alone and land exactly on SCREEN_2
+      // (which sits at the same x a plain "next to the source" rule would
+      // have picked). Now it chains off the rightmost edge across every
+      // positioned frame in the file - here, SCREEN_2's own right edge.
+      expect(body.screens[1]).toMatchObject({
+        x: SCREEN_1.stageWidth + 200 + SCREEN_2.stageWidth + 200,
+        y: 0,
+      });
 
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Duplicating the first of three screens places the copy right of the third, not the second', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2, SCREEN_3] })} />);
+
+      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens).toHaveLength(4);
+      const screen2X = SCREEN_1.stageWidth + 200;
+      const screen3X = screen2X + SCREEN_2.stageWidth + 200;
+      expect(body.screens[2]).toMatchObject({ id: SCREEN_2.id, x: screen2X, y: 0 });
+      expect(body.screens[3]).toMatchObject({ id: SCREEN_3.id, x: screen3X, y: 0 });
+      // The copy (inserted right after the source, at index 1) must clear
+      // screen 3 - the rightmost frame - not merely screen 2, which chaining
+      // off the source alone (the old bug) would have landed it on.
+      expect(body.screens[1]).toMatchObject({ x: screen3X + SCREEN_3.stageWidth + 200, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('adding a screen after a manual drag places it right of the rightmost frame, not the last one in array order', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      // Drags SCREEN_1's title far to the right of SCREEN_2, past its right
+      // edge - array order stays [SCREEN_1, SCREEN_2], but SCREEN_1 is now
+      // the rightmost frame on the canvas. 4000 is an 8px-snap-exact delta
+      // comfortably past SCREEN_2's own right edge (SCREEN_1.stageWidth +
+      // 200 + SCREEN_2.stageWidth).
+      const dragDistance = 4000;
+      // Scoped to the canvas frame wrapper, not a bare getByText(name): the
+      // screens strip tab shows the same text ("Frame 1") beside the frame
+      // title itself.
+      const title = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
+      fireEvent.pointerUp(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce);
+      // this only waits for AT LEAST one call and reads the first one, same
+      // as "New screen is placed to the right of the last frame" above.
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens[0]).toMatchObject({ id: SCREEN_1.id, x: dragDistance, y: 0 });
+      // The new screen must clear the DRAGGED SCREEN_1 (now rightmost),
+      // not just SCREEN_2 (last in array order, and where the old
+      // "chain off the previous array element" bug would have placed it).
+      expect(body.screens[2]).toMatchObject({ x: dragDistance + SCREEN_1.stageWidth + 200, y: 0 });
+
+      // Drains this screen's own extra save traffic - see the identical
+      // comment on "New screen adds a screen..." above.
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
   });
