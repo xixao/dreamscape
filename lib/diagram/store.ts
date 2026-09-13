@@ -85,6 +85,14 @@ export interface DiagramHistory {
 export interface DiagramState extends DiagramData {
   selection: DiagramSelection;
   history: DiagramHistory;
+  // The ids created by the most recent add/duplicate/quickAdd action, so a
+  // caller (diagram-layer.tsx) can react to a creation without threading its
+  // own minted ids back out of the dispatch call - e.g. redirecting an
+  // option-drag's in-progress pointer gesture onto the copies `duplicate`
+  // just made. Not part of `DiagramData`: like `selection`, it is ephemeral
+  // UI state, never persisted, and reset to `[]` by undo/redo (there is no
+  // meaningful "most recently created" id once history has moved).
+  lastCreatedIds: string[];
 }
 
 // Inline text/label cap (spec: "text up to 500 chars"; palette behaviour:
@@ -97,13 +105,27 @@ export const DUPLICATE_OFFSET = 16;
 // A shape can never resize down to zero or negative (validateDiagram's own
 // "positive sizes" rule) - one grid unit is the smallest useful shape.
 export const MIN_SIZE = 8;
+// quickAdd's gap between the source shape and its new neighbour (spec
+// follow-up section 7, Build step 4: "64 px beyond the source").
+export const QUICK_ADD_GAP = 64;
+
+// Align/distribute (Matt's alignment-options follow-up, 2026-09-13): the
+// six edges/centres a multi-selection can align to, and the two axes it can
+// spread evenly along. `as const` tuples for the same reason as NODE_KINDS
+// et al above - a future Design-panel alignment row (a different branch)
+// can build its own UI straight off these exported arrays.
+export const ALIGN_MODES = ['left', 'centerX', 'right', 'top', 'centerY', 'bottom'] as const;
+export type AlignMode = (typeof ALIGN_MODES)[number];
+
+export const DISTRIBUTE_AXES = ['horizontal', 'vertical'] as const;
+export type DistributeAxis = (typeof DISTRIBUTE_AXES)[number];
 
 export function createEmptyDiagramData(): DiagramData {
   return { nodes: [], edges: [] };
 }
 
 export function createInitialDiagramState(data: DiagramData = createEmptyDiagramData()): DiagramState {
-  return { nodes: data.nodes, edges: data.edges, selection: [], history: { past: [], future: [] } };
+  return { nodes: data.nodes, edges: data.edges, selection: [], history: { past: [], future: [] }, lastCreatedIds: [] };
 }
 
 export type DiagramAction =
@@ -124,7 +146,41 @@ export type DiagramAction =
   | { type: 'connect'; edge: DiagramEdge }
   | { type: 'disconnect'; id: string }
   | { type: 'delete'; ids: string[] }
-  | { type: 'duplicate'; pairs: { sourceId: string; newId: string }[] }
+  // `offset` defaults to a 16px-down-and-right offset (DUPLICATE_OFFSET) when
+  // omitted, preserving Cmd+D's existing behaviour; the option-drag gesture
+  // (diagram-layer.tsx) passes `{ x: 0, y: 0 }` so the copies start exactly
+  // under the originals before the drag moves them. `edgePairs`, when given,
+  // copies a connector alongside its nodes - but only the ones the reducer
+  // itself confirms have BOTH endpoints among `pairs` (spec follow-up:
+  // "Connectors between two duplicated shapes are duplicated too ... others
+  // are not"); the caller still mints every new id (this module never
+  // generates one), including for `edgePairs`.
+  | {
+      type: 'duplicate';
+      pairs: { sourceId: string; newId: string }[];
+      edgePairs?: { sourceId: string; newId: string }[];
+      offset?: { x: number; y: number };
+    }
+  // Moves the given nodes to the end (`front`, painted last/on top - nodes
+  // always render after edges in diagram-layer.tsx, so this only reorders
+  // nodes relative to each other) or start (`back`) of the `nodes` array,
+  // preserving their relative order among themselves and among the rest.
+  // Build step 1: "reorder action (bringToFront / sendToBack by moving nodes
+  // to the end or start of the array)".
+  | { type: 'reorder'; ids: string[]; to: 'front' | 'back' }
+  // Creates a same kind/colour/size node with empty text 64px beyond
+  // `sourceId` on `side`, aligned with it on the cross axis, plus a `step`
+  // connector from that side to the opposite side of the new node - the
+  // quick-add hover circles (Build step 4). `newNodeId`/`newEdgeId` are
+  // caller-minted, same convention as every other id here.
+  | { type: 'quickAdd'; sourceId: string; side: Side; newNodeId: string; newEdgeId: string }
+  // Aligns every node in `ids` to the bounding box of just those nodes (an
+  // edge or centre, per `mode`), 8px-snapped. Matt's alignment follow-up.
+  | { type: 'align'; ids: string[]; mode: AlignMode }
+  // Spreads 3+ nodes in `ids` along `axis` so the gaps between them are
+  // equal; the first and last (by position) stay put. Matt's alignment
+  // follow-up.
+  | { type: 'distribute'; ids: string[]; axis: DistributeAxis }
   | { type: 'select'; selection: DiagramSelection }
   | { type: 'clearSelection' }
   | { type: 'undo' }
@@ -174,10 +230,28 @@ function snapSize(value: number): number {
   return Math.max(MIN_SIZE, snapToGrid(value));
 }
 
-/** Pushes `{ nodes, edges }` of the state BEFORE this edit onto `past` (capped at HISTORY_LIMIT) and clears `future` - every action that changes the document, other than selection/undo/redo/load, commits through this. */
-function commit(state: DiagramState, next: DiagramData, selection: DiagramSelection = state.selection): DiagramState {
+/** Pushes `{ nodes, edges }` of the state BEFORE this edit onto `past` (capped at HISTORY_LIMIT) and clears `future` - every action that changes the document, other than selection/undo/redo/load, commits through this. `lastCreatedIds` defaults to carrying the previous value forward unchanged, so only the actions that actually create something (add/duplicate/quickAdd) need to pass a 4th argument. */
+function commit(
+  state: DiagramState,
+  next: DiagramData,
+  selection: DiagramSelection = state.selection,
+  lastCreatedIds: string[] = state.lastCreatedIds,
+): DiagramState {
   const past = [...state.history.past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT);
-  return { nodes: next.nodes, edges: next.edges, selection, history: { past, future: [] } };
+  return { nodes: next.nodes, edges: next.edges, selection, history: { past, future: [] }, lastCreatedIds };
+}
+
+function opposite(side: Side): Side {
+  switch (side) {
+    case 'top':
+      return 'bottom';
+    case 'bottom':
+      return 'top';
+    case 'left':
+      return 'right';
+    case 'right':
+      return 'left';
+  }
 }
 
 function pruneSelection(selection: DiagramSelection, removedIds: ReadonlySet<string>): DiagramSelection {
@@ -189,9 +263,12 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
   switch (action.type) {
     case 'add': {
       if (state.nodes.some((n) => n.id === action.node.id)) return state;
-      return commit(state, { nodes: [...state.nodes, action.node], edges: state.edges }, [
-        { type: 'node', id: action.node.id },
-      ]);
+      return commit(
+        state,
+        { nodes: [...state.nodes, action.node], edges: state.edges },
+        [{ type: 'node', id: action.node.id }],
+        [action.node.id],
+      );
     }
 
     case 'move': {
@@ -299,16 +376,156 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
     }
 
     case 'duplicate': {
+      const offset = action.offset ?? { x: DUPLICATE_OFFSET, y: DUPLICATE_OFFSET };
+      const idMap: Record<string, string> = {};
       const copies: DiagramNode[] = [];
       const selection: DiagramSelection = [];
       for (const { sourceId, newId } of action.pairs) {
         const source = state.nodes.find((n) => n.id === sourceId);
         if (!source) continue;
-        copies.push({ ...source, id: newId, x: source.x + DUPLICATE_OFFSET, y: source.y + DUPLICATE_OFFSET });
+        idMap[sourceId] = newId;
+        copies.push({ ...source, id: newId, x: snapToGrid(source.x + offset.x), y: snapToGrid(source.y + offset.y) });
         selection.push({ type: 'node', id: newId });
       }
       if (copies.length === 0) return state;
-      return commit(state, { nodes: [...state.nodes, ...copies], edges: state.edges }, selection);
+      // A connector is copied only when the reducer itself confirms BOTH its
+      // endpoints are node ids that just got a copy above - never just
+      // because the caller happened to list it in edgePairs (defense in
+      // depth, same as every other action here re-validating rather than
+      // trusting its own caller).
+      const copiedEdges: DiagramEdge[] = [];
+      for (const { sourceId, newId } of action.edgePairs ?? []) {
+        const original = state.edges.find((e) => e.id === sourceId);
+        if (!original) continue;
+        const newSourceId = original.source.nodeId ? idMap[original.source.nodeId] : undefined;
+        const newTargetId = original.target.nodeId ? idMap[original.target.nodeId] : undefined;
+        if (!newSourceId || !newTargetId) continue;
+        copiedEdges.push({
+          ...original,
+          id: newId,
+          source: { ...original.source, nodeId: newSourceId },
+          target: { ...original.target, nodeId: newTargetId },
+        });
+      }
+      return commit(
+        state,
+        { nodes: [...state.nodes, ...copies], edges: [...state.edges, ...copiedEdges] },
+        selection,
+        copies.map((c) => c.id),
+      );
+    }
+
+    case 'reorder': {
+      const idSet = new Set(action.ids);
+      const targets = state.nodes.filter((n) => idSet.has(n.id));
+      if (targets.length === 0) return state;
+      const rest = state.nodes.filter((n) => !idSet.has(n.id));
+      const nodes = action.to === 'front' ? [...rest, ...targets] : [...targets, ...rest];
+      return commit(state, { nodes, edges: state.edges });
+    }
+
+    case 'quickAdd': {
+      const source = state.nodes.find((n) => n.id === action.sourceId);
+      if (!source) return state;
+      const { width, height } = source;
+      let x = source.x;
+      let y = source.y;
+      switch (action.side) {
+        case 'right':
+          x = source.x + source.width + QUICK_ADD_GAP;
+          break;
+        case 'left':
+          x = source.x - QUICK_ADD_GAP - width;
+          break;
+        case 'bottom':
+          y = source.y + source.height + QUICK_ADD_GAP;
+          break;
+        case 'top':
+          y = source.y - QUICK_ADD_GAP - height;
+          break;
+      }
+      const newNode: DiagramNode = {
+        id: action.newNodeId,
+        kind: source.kind,
+        x: snapToGrid(x),
+        y: snapToGrid(y),
+        width,
+        height,
+        text: '',
+        color: source.color,
+      };
+      const newEdge: DiagramEdge = {
+        id: action.newEdgeId,
+        source: { nodeId: source.id, side: action.side },
+        target: { nodeId: newNode.id, side: opposite(action.side) },
+        kind: 'step',
+        arrow: 'end',
+      };
+      return commit(
+        state,
+        { nodes: [...state.nodes, newNode], edges: [...state.edges, newEdge] },
+        [{ type: 'node', id: newNode.id }],
+        [newNode.id],
+      );
+    }
+
+    case 'align': {
+      const targets = action.ids
+        .map((id) => state.nodes.find((n) => n.id === id))
+        .filter((n): n is DiagramNode => n !== undefined);
+      if (targets.length < 2) return state;
+      const box = bounds(targets);
+      if (!box) return state;
+      const targetIds = new Set(targets.map((n) => n.id));
+      const nodes = state.nodes.map((n) => {
+        if (!targetIds.has(n.id)) return n;
+        switch (action.mode) {
+          case 'left':
+            return { ...n, x: snapToGrid(box.x) };
+          case 'right':
+            return { ...n, x: snapToGrid(box.x + box.width - n.width) };
+          case 'centerX':
+            return { ...n, x: snapToGrid(box.x + (box.width - n.width) / 2) };
+          case 'top':
+            return { ...n, y: snapToGrid(box.y) };
+          case 'bottom':
+            return { ...n, y: snapToGrid(box.y + box.height - n.height) };
+          case 'centerY':
+            return { ...n, y: snapToGrid(box.y + (box.height - n.height) / 2) };
+          default:
+            return n;
+        }
+      });
+      return commit(state, { nodes, edges: state.edges });
+    }
+
+    case 'distribute': {
+      const targets = action.ids
+        .map((id) => state.nodes.find((n) => n.id === id))
+        .filter((n): n is DiagramNode => n !== undefined);
+      if (targets.length < 3) return state;
+      const horizontal = action.axis === 'horizontal';
+      const sorted = [...targets].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      const totalSize = sorted.reduce((sum, n) => sum + (horizontal ? n.width : n.height), 0);
+      const span = horizontal ? last.x + last.width - first.x : last.y + last.height - first.y;
+      const gap = (span - totalSize) / (sorted.length - 1);
+      // Only the interior shapes move - the first and last stay exactly
+      // where they were (spec: "first and last stay put").
+      const updates = new Map<string, number>();
+      let cursor = horizontal ? first.x : first.y;
+      for (let i = 0; i < sorted.length; i++) {
+        const current = sorted[i];
+        if (i > 0 && i < sorted.length - 1) updates.set(current.id, snapToGrid(cursor));
+        cursor += (horizontal ? current.width : current.height) + gap;
+      }
+      const nodes = state.nodes.map((n) => {
+        const value = updates.get(n.id);
+        if (value === undefined) return n;
+        return horizontal ? { ...n, x: value } : { ...n, y: value };
+      });
+      return commit(state, { nodes, edges: state.edges });
     }
 
     case 'select':
@@ -326,6 +543,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         edges: previous.edges,
         selection: [],
         history: { past: past.slice(0, -1), future: [{ nodes: state.nodes, edges: state.edges }, ...future] },
+        lastCreatedIds: [],
       };
     }
 
@@ -341,6 +559,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
           past: [...past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT),
           future: future.slice(1),
         },
+        lastCreatedIds: [],
       };
     }
 
