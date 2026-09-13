@@ -87,8 +87,10 @@ const Y_AXIS: DistributeAxis = {
 
 /**
  * Spaces the gaps between every frame evenly along one axis, keeping the
- * outermost two frames (by their current position) exactly where they are -
- * Figma's own "distribute spacing" behaviour. A no-op (rounded positions
+ * first frame (by start) and the frame with the greatest end exactly where
+ * they are - Figma's own "distribute spacing" behaviour (a wide frame that
+ * starts early can still be the one that ends last, so the two anchors are
+ * chosen by start and by end, not by start alone). A no-op (rounded positions
  * only) below three frames: with only two, there is a single gap and
  * nothing to equalize against.
  */

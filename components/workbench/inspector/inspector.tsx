@@ -213,8 +213,14 @@ function measureDistributeGapPx(
   // only). Read fresh from the live DOM rather than the container's own
   // paddingPx prop for the same reason containerRect itself is a live read.
   const containerStyle = containerDom.ownerDocument.defaultView?.getComputedStyle(containerDom);
-  const paddingStart = computedPx(containerStyle?.[isRow ? 'paddingLeft' : 'paddingTop']);
-  const paddingEnd = computedPx(containerStyle?.[isRow ? 'paddingRight' : 'paddingBottom']);
+  // Borders are part of the border box too (a LayoutBox with a card
+  // background has a 1 px border), so they come off with the padding.
+  const paddingStart =
+    computedPx(containerStyle?.[isRow ? 'paddingLeft' : 'paddingTop']) +
+    computedPx(containerStyle?.[isRow ? 'borderLeftWidth' : 'borderTopWidth']);
+  const paddingEnd =
+    computedPx(containerStyle?.[isRow ? 'paddingRight' : 'paddingBottom']) +
+    computedPx(containerStyle?.[isRow ? 'borderRightWidth' : 'borderBottomWidth']);
 
   const children = childNodes.map((node) => {
     const rect = node.dom!.getBoundingClientRect();

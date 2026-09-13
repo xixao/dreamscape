@@ -249,13 +249,8 @@ describe('distributeGapPxFromMeasurements', () => {
     expect(result).toBe(24);
   });
 
-  it('treats a growing child as 0 width, but still counts it toward the gap count', () => {
-    // sizes become [20, 0, 20] - available 100-40=60 over (3-1)=2 gaps = 30,
-    // snapped to the nearer of 24/32 -> 32. Not measuring the growing
-    // child's own rect at all (its real width, whatever it may be, would
-    // just be a result of this very calculation).
-    const result = distributeGapPxFromMeasurements(100, 0, 0, [child(20), child(999, true), child(20)]);
-    expect(result).toBe(32);
+  it('is unavailable (null) when any child grows, since that child\'s size depends on the gap itself', () => {
+    expect(distributeGapPxFromMeasurements(600, 0, 0, [child(100), child(0, true), child(100)])).toBeNull();
   });
 
   it('floors at 0 when padding and children already fill or overflow the container', () => {
@@ -263,9 +258,8 @@ describe('distributeGapPxFromMeasurements', () => {
     expect(result).toBe(0);
   });
 
-  it('clamps to the 64px maximum when every child is growing (0 occupied size)', () => {
-    const result = distributeGapPxFromMeasurements(100, 0, 0, [child(500, true), child(500, true)]);
-    expect(result).toBe(64);
+  it('is unavailable (null) when every child grows', () => {
+    expect(distributeGapPxFromMeasurements(600, 0, 0, [child(0, true), child(0, true)])).toBeNull();
   });
 });
 

@@ -357,6 +357,18 @@ describe('Canvas', () => {
   });
 
   describe('multi-select of frames', () => {
+    it('Shift+click a frame title clears the diagram selection first (review re-review R9)', async () => {
+      const onToggleFrameSelection = vi.fn();
+      const onDeselectDiagram = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onToggleFrameSelection, onDeselectDiagram });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      fireEvent.pointerDown(screen.getByText(SCREEN_1.name), { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+      expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+      expect(onToggleFrameSelection).toHaveBeenCalledWith(SCREEN_1.id);
+    });
+
     it('Shift+click a frame title toggles it into the selection without starting a drag', async () => {
       const onToggleFrameSelection = vi.fn();
       const onMoveScreen = vi.fn();
@@ -444,6 +456,21 @@ describe('Canvas', () => {
       fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
       fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
       expect(onSetFrameSelection).toHaveBeenLastCalledWith([autoHeightScreen.id]);
+    });
+
+    it('a drag that comes back under the click threshold clears the painted marquee box (review re-review R4)', async () => {
+      saveViewport(window.localStorage, 'backtest', 'page1', { x: 0, y: 0, zoom: 1 });
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], fileId: 'backtest' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 90, clientY: 80 });
+      expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 52, clientY: 51 });
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 52, clientY: 51 });
     });
 
     it('a plain click (no drag) on empty canvas does not treat it as a marquee', async () => {

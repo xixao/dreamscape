@@ -746,7 +746,12 @@ export function Canvas({
       // click, gone again by pointerup.
       const dx = Math.abs(marquee.currentScreenX - marquee.startScreenX);
       const dy = Math.abs(marquee.currentScreenY - marquee.startScreenY);
-      if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) return;
+      if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) {
+        // Also clears a box painted earlier in the same gesture, so a drag
+        // that wanders back under the threshold does not freeze a stale box.
+        setMarqueeBox(null);
+        return;
+      }
       // The visual box stays screen-space (drawn outside the transformed
       // canvas-layer) - the start corner is re-projected through the
       // CURRENT viewport every move, so a pan since pointerdown still
@@ -1060,7 +1065,13 @@ export function Canvas({
                 height={frameRect(screen, measuredHeights).height}
                 onRename={(name) => onRenameScreen(screen.id, name)}
                 onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
-                onShiftSelect={() => onToggleFrameSelection(screen.id)}
+                onShiftSelect={() => {
+                  // One selection model at a time (review re-review R9): a
+                  // frame joining the selection drops any diagram selection,
+                  // the same way the empty-canvas press does.
+                  onDeselectDiagram();
+                  onToggleFrameSelection(screen.id);
+                }}
                 otherFrames={otherFrames}
                 onSnapGuides={(result) => setSnapResult({ frameId: screen.id, ...result })}
                 onDragEnd={() => {

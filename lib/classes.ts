@@ -180,9 +180,14 @@ export function distributeGapPxFromMeasurements(
   paddingEnd: number,
   children: readonly DistributeChildMeasurement[],
 ): SpacingPx | null {
+  // A growing child's size is a RESULT of the current gap (see
+  // DistributeChildMeasurement), so there is no independent content size
+  // to distribute around: Distribute is unavailable rather than guessed
+  // (review re-review 2 on R5; the earlier "count it as 0" turned leftover
+  // space into a 64 px gap that no design asked for).
+  if (children.some((child) => child.growing)) return null;
   const available = Math.max(0, containerMainSize - paddingStart - paddingEnd);
-  const sizes = children.map((child) => (child.growing ? 0 : child.size));
-  return distributeGapPx(available, sizes);
+  return distributeGapPx(available, children.map((child) => child.size));
 }
 
 export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
