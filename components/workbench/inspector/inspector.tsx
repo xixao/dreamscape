@@ -16,6 +16,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { schemaFor } from '@/components/blocks/registry';
 import type { SectionName } from '@/components/blocks/schema';
+import type { DiagramAction } from '@/lib/diagram/store';
 import type { Screen } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
 import {
@@ -30,6 +31,7 @@ import {
   SEG_ITEM,
 } from '../chrome';
 import { ComponentTray } from '../component-tray';
+import { DiagramFields, type DiagramFieldsSelection } from '../diagram/diagram-fields';
 import type { PanelMode } from '../prototype-context';
 import { PrototypePanel } from '../prototype-panel';
 import { useSelectedNode } from '../selection';
@@ -118,6 +120,8 @@ export function Inspector({
   onPanelModeChange,
   collapsed,
   onToggleCollapsed,
+  diagramSelection = null,
+  onDiagramAction,
 }: {
   screens: Screen[];
   currentScreenId: string;
@@ -125,6 +129,15 @@ export function Inspector({
   onPanelModeChange: (mode: PanelMode) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  // The Design tab's fields for a selected diagram shape or connector (spec
+  // docs/superpowers/specs/2026-09-13-diagrams-design.md section 3), in
+  // place of the usual Craft-node fields below whenever a diagram element -
+  // rather than a block - is selected; the panel's own label still follows
+  // panelMode, unaffected by this. Optional/no-op-by-default so every
+  // existing caller and test that predates diagrams keeps rendering
+  // exactly as before.
+  diagramSelection?: DiagramFieldsSelection | null;
+  onDiagramAction?: (action: DiagramAction) => void;
 }) {
   const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
@@ -206,6 +219,8 @@ export function Inspector({
           <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
             {panelMode === 'prototype' ? (
               <PrototypePanel screens={screens} currentScreenId={currentScreenId} />
+            ) : diagramSelection ? (
+              <DiagramFields selected={diagramSelection} onAction={(action) => onDiagramAction?.(action)} />
             ) : !id || !type || !schema || !props ? (
               <div className={EMPTY}>
                 <b className={EMPTY_TITLE}>Nothing selected</b>

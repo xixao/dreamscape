@@ -7,6 +7,8 @@ import { Card } from '@/components/blocks/card';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
+import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
+import type { DiagramFieldsSelection } from '../diagram/diagram-fields';
 import { useStage } from '../stage-context';
 import { Inspector, type PanelMode } from './inspector';
 
@@ -23,11 +25,15 @@ function mount(
     onPanelModeChange = vi.fn(),
     collapsed = false,
     onToggleCollapsed = vi.fn(),
+    diagramSelection,
+    onDiagramAction,
   }: {
     panelMode?: PanelMode;
     onPanelModeChange?: (mode: PanelMode) => void;
     collapsed?: boolean;
     onToggleCollapsed?: () => void;
+    diagramSelection?: DiagramFieldsSelection | null;
+    onDiagramAction?: (action: DiagramAction) => void;
   } = {},
 ) {
   return renderInEditor(
@@ -45,11 +51,27 @@ function mount(
         onPanelModeChange={onPanelModeChange}
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
+        diagramSelection={diagramSelection}
+        onDiagramAction={onDiagramAction}
       />
       <WidthProbe />
     </>,
     { width },
   );
+}
+
+function diagramNode(overrides: Partial<DiagramNode> = {}): DiagramNode {
+  return {
+    id: 'node000001',
+    kind: 'rect',
+    x: 0,
+    y: 0,
+    width: 120,
+    height: 60,
+    text: 'Hello',
+    color: 'neutral',
+    ...overrides,
+  };
 }
 
 async function select(editor: ReturnType<typeof mount>['editor'], pick: 'root' | 'card' | 'button') {
@@ -67,6 +89,50 @@ describe('Inspector', () => {
     const panel = screen.getByRole('complementary', { name: 'Design' });
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
     expect(within(panel).getByText('Select a layer on the canvas to edit it.')).toBeInTheDocument();
+  });
+
+  describe('a selected diagram element', () => {
+    it('shows its fields on the Design tab instead of the empty state', async () => {
+      mount(1440, { diagramSelection: { type: 'node', node: diagramNode({ text: 'Login' }) } });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).queryByText('Nothing selected')).not.toBeInTheDocument();
+      expect(within(panel).getByLabelText('Text')).toHaveValue('Login');
+    });
+
+    it('still labels the panel "Design", not something diagram-specific', async () => {
+      mount(1440, { diagramSelection: { type: 'node', node: diagramNode() } });
+      await screen.findByText('Billing');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+    });
+
+    it('does not leak into the Prototype tab', async () => {
+      mount(1440, { panelMode: 'prototype', diagramSelection: { type: 'node', node: diagramNode() } });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Prototype' });
+      expect(within(panel).queryByLabelText('Text')).not.toBeInTheDocument();
+    });
+
+    it('forwards field edits through onDiagramAction', async () => {
+      const onDiagramAction = vi.fn();
+      mount(1440, {
+        diagramSelection: { type: 'node', node: diagramNode({ text: '' }) },
+        onDiagramAction,
+      });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      await userEvent.type(within(panel).getByLabelText('Text'), '!');
+
+      expect(onDiagramAction).toHaveBeenCalledWith({ type: 'setText', id: 'node000001', text: '!' });
+    });
+
+    it('takes priority over the usual empty state even with nothing selected in Craft', async () => {
+      mount(1440, { diagramSelection: { type: 'edge', edge: { id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' }, kind: 'step', arrow: 'end' } } });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).getByRole('heading', { name: 'Connector' })).toBeInTheDocument();
+    });
   });
 
   it('builds the fields for a selected Button from its schema and edits them', async () => {
