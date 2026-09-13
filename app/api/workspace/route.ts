@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { configSchema } from "@/lib/demo/upload-schema";
 import { testSetupSchema } from "@/lib/test-setup";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
   addComment,
   body,
-  configSchema,
   db,
   ensure,
   fail,

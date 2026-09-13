@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Flag, Play, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,8 +7,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { request } from "@/lib/client";
 import type { Revision, UploadState } from "@/lib/model";
-import Uploader from "./uploader";
-import { defaultTestSetup, type TestSetup } from "@/lib/test-setup";
+import Uploader from "@/app/demo/document-upload";
+import { defaultTestSetup } from "@/lib/demo/test-setup";
+import { type TestSetup } from "@/lib/test-setup";
 
 export default function ParticipantTest({
   token,
@@ -17,7 +18,7 @@ export default function ParticipantTest({
   setup,
 }: {
   token: string;
-  revision: Revision;
+  revision: Pick<Revision, "id" | "number" | "config">;
   onReturn?: () => void;
   setup?: TestSetup;
 }) {
@@ -35,6 +36,10 @@ export default function ParticipantTest({
     pending = useRef(false),
     chain = useRef<Promise<unknown>>(Promise.resolve());
   const path = `/api/share/${token}`;
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, [sessionId, outcome]);
   const settings = setup ?? {
     ...defaultTestSetup,
     scenario: revision.config.retryEnabled ? "recovery" : "success",
@@ -106,6 +111,8 @@ export default function ParticipantTest({
     }
   }
   async function feedback(nextFuego = fuego) {
+    if (pending.current) return;
+    pending.current = true;
     setBusy(true);
     setError("");
     try {
@@ -127,6 +134,7 @@ export default function ParticipantTest({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   }
@@ -144,7 +152,9 @@ export default function ParticipantTest({
           <span className="badge">
             {settings.audience} TEST · v{revision.number}
           </span>
-          <h1>{settings.title}</h1>
+          <h1 ref={heading} tabIndex={-1}>
+            {settings.title}
+          </h1>
           <p className="test-instructions">{settings.instructions}</p>
           <div className="consent-details">
             <h2>Before you begin</h2>
@@ -187,7 +197,9 @@ export default function ParticipantTest({
           <header className="tester-task">
             <Flag size={18} aria-hidden="true" />
             <div className="tester-task-copy">
-              <h1>Your task</h1>
+              <h1 ref={heading} tabIndex={-1}>
+                Your task
+              </h1>
               <p id="active-test-task">{settings.task}</p>
               <details className="tester-instructions" open>
                 <summary>Test instructions</summary>
@@ -205,11 +217,8 @@ export default function ParticipantTest({
               )}
               <Button
                 variant="outline"
-                onClick={() =>
-                  void chain.current
-                    .catch(() => undefined)
-                    .then(() => act(state, "gave_up"))
-                }
+                disabled={busy}
+                onClick={() => void act(state, "gave_up")}
               >
                 Abandon Test
               </Button>
@@ -240,7 +249,7 @@ export default function ParticipantTest({
       ) : (
         <main className="test-finish tester-feedback">
           <CheckCircle2 size={34} />
-          <h1>
+          <h1 ref={heading} tabIndex={-1}>
             {outcome === "complete"
               ? "Test complete. Thank you!"
               : "Test abandoned. Thank you for trying."}

@@ -1,4 +1,5 @@
 "use client";
+import { DEMO_IDS } from "@/lib/demo/registry";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,11 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  scriptedTestSetup,
-  testAudiences,
-  type TestSetup,
-} from "@/lib/test-setup";
+import { scriptedTestSetup } from "@/lib/demo/test-setup";
+import { testAudiences, type TestSetup } from "@/lib/test-setup";
 export default function TestSetupEditor({
   value,
   onChange,
@@ -36,7 +34,7 @@ export default function TestSetupEditor({
   }
   return (
     <div className="test-setup-editor">
-      <div className="setup-ai">
+      <div className="setup-ai" data-demo-id={DEMO_IDS.testSetupAgent}>
         <label htmlFor="setup-prompt">
           Set up with AI <span className="badge amber">Simulated</span>
         </label>
@@ -149,7 +147,9 @@ export default function TestSetupEditor({
           </Select>
         </div>
       </div>
-      <label htmlFor="test-instructions">Before they begin</label>
+      <label htmlFor="test-instructions">
+        Instructions before and during the test
+      </label>
       <Textarea
         id="test-instructions"
         maxLength={1000}

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Config, UploadState } from "@/lib/model";
+import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 
 export default function Uploader({
   config,
@@ -37,7 +38,10 @@ export default function Uploader({
   simulateFailure?: boolean;
 }) {
   return (
-    <div className={`product ${compact ? "compact" : ""} focus-${focus}`}>
+    <div
+      data-demo-id={DEMO_IDS.upload}
+      className={`product ${compact ? "compact" : ""} focus-${focus}`}
+    >
       <header className="product-header">
         <span className="product-brand">
           <House size={19} /> Homepath
@@ -60,8 +64,11 @@ export default function Uploader({
         </div>
         <p className="eyebrow">YOUR APPLICATION</p>
         <h2>One step closer.</h2>
-        <p className="product-subtitle">Let's get your documents ready.</p>
-        <section className="upload-card" data-component-id="document-uploader">
+        <p className="product-subtitle">Let&apos;s get your documents ready.</p>
+        <section
+          className="upload-card"
+          data-component-id={UPLOAD_ANCHORS.component}
+        >
           <div className="relative">
             <h3>{config.title}</h3>
             {annotate && (
@@ -116,7 +123,7 @@ export default function Uploader({
                 <div
                   className="upload-error"
                   role={config.announceError ? "alert" : undefined}
-                  data-component-id="upload-error"
+                  data-component-id={UPLOAD_ANCHORS.error}
                 >
                   <div>
                     <AlertCircle size={17} />
@@ -149,7 +156,7 @@ export default function Uploader({
               ) : (
                 <div className="upload-success" role="status">
                   <CheckCircle2 size={18} />
-                  <span>Document received. You're all set.</span>
+                  <span>Document received. You&apos;re all set.</span>
                 </div>
               )}
             </>

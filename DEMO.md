@@ -57,7 +57,7 @@ The prototype exports a versioned JSON handoff from **Checks**. Its stable compo
 
 For an integration, an adapter should provide the rendered component, stable element IDs, explicit states, supported edit fields, version metadata, and named interaction events. The first supported edits are text, retry availability, and an error announcement flag. Avoid treating arbitrary generated HTML or an embedded URL as an instrumented app.
 
-The central contract lives in `lib/model.ts`; the demonstrator lives in `app/uploader.tsx`. Review UI is separate from the demonstrator. `lib/server.ts` validates and persists requests. The assistant patch can later come from GPT, Claude, or a Design System MCP without replacing the surrounding review workflow.
+The central contract lives in `lib/model.ts`; the demonstrator lives in `app/demo/document-upload.tsx`. Demo fixtures, upload checks, event rules, and scripted test setup live in `lib/demo/`. `lib/server.ts` validates and persists requests. Search `DEMO_IDS` or `data-demo-id` for replaceable demo surfaces. See `ENGINEERING_REVIEW.md` for the replacement map, verification, and remaining production requirements.
 
 ## Verification
 

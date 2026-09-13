@@ -1,5 +1,11 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 export type PreviewFocus = "page" | "component" | "error";
 const interactive =
   "button,a,input,textarea,select,[role=button],[data-canvas-interactive]";
@@ -13,6 +19,7 @@ export default function PreviewCanvas({
   focus,
   feedback,
   phoneWidth = 340,
+  onScaleChange,
 }: {
   children: React.ReactNode;
   zoom: number | "fit";
@@ -23,6 +30,7 @@ export default function PreviewCanvas({
   focus: PreviewFocus;
   feedback: boolean;
   phoneWidth?: number;
+  onScaleChange?: (scale: number) => void;
 }) {
   const outer = useRef<HTMLDivElement>(null),
     inner = useRef<HTMLDivElement>(null);
@@ -31,7 +39,28 @@ export default function PreviewCanvas({
     height: 600,
     contentHeight: 600,
   });
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panKey = JSON.stringify([
+    resetKey,
+    viewport,
+    paired,
+    focus,
+    feedback,
+    phoneWidth,
+  ]);
+  const [offset, setOffset] = useState({ key: panKey, x: 0, y: 0 });
+  const pan = offset.key === panKey ? offset : { x: 0, y: 0 };
+  const setPan = useCallback(
+    (update: SetStateAction<{ x: number; y: number }>) => {
+      setOffset((old) => {
+        const current = old.key === panKey ? old : { x: 0, y: 0 };
+        return {
+          ...(typeof update === "function" ? update(current) : update),
+          key: panKey,
+        };
+      });
+    },
+    [panKey],
+  );
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   useLayoutEffect(() => {
@@ -50,9 +79,6 @@ export default function PreviewCanvas({
     measure();
     return () => observer.disconnect();
   }, []);
-  useLayoutEffect(() => {
-    setPan({ x: 0, y: 0 });
-  }, [resetKey, viewport, paired, focus, feedback, phoneWidth]);
   const width =
     (paired
       ? 1180 + (viewport === "both" ? phoneWidth - 340 : 0)
@@ -76,6 +102,9 @@ export default function PreviewCanvas({
     x: (size.width - width * scale) / 2,
     y: Math.max(16, (size.height - size.contentHeight * scale) / 2),
   };
+  useLayoutEffect(() => {
+    onScaleChange?.(scale);
+  }, [scale, onScaleChange]);
   const latest = useRef({ scale, pan, base, onZoom });
   useLayoutEffect(() => {
     latest.current = { scale, pan, base, onZoom };
@@ -156,7 +185,7 @@ export default function PreviewCanvas({
       host.removeEventListener("gesturestart", start);
       host.removeEventListener("gesturechange", gesture);
     };
-  }, [width, size.contentHeight]);
+  }, [width, size.contentHeight, setPan]);
   return (
     <div
       ref={outer}

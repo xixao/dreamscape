@@ -1,4 +1,5 @@
 "use client";
+import { improvement } from "@/lib/demo/upload";
 import { useState } from "react";
 import {
   ArrowRight,
@@ -25,14 +26,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  improvement,
   type Config,
   type Comment,
   type Revision,
   type UploadState,
 } from "@/lib/model";
 import PreviewCanvas from "./preview-canvas";
-import Uploader from "./uploader";
+import Uploader from "@/app/demo/document-upload";
 
 export default function DesignWorkspace({
   draft,

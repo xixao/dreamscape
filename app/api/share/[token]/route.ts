@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uploadEvents, uploadEventError } from "@/lib/demo/upload";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
   addComment,
@@ -143,43 +144,21 @@ export async function POST(request: Request, context: Context) {
     }
     if (data.action !== "event") fail("Action not allowed", 403);
     if (session.outcome !== "started") fail("Session has already ended", 409);
-    const event = z
-      .enum([
-        "upload_attempt",
-        "upload_success",
-        "retry_success",
-        "continue",
-        "gave_up",
-      ])
-      .parse(data.event);
+    const event = z.enum(uploadEvents).parse(data.event);
     const events = JSON.parse(session.events as string) as {
       type: string;
       at: number;
     }[];
     const prior = events.at(-1)?.type;
     const revision = await getRevision(link.owner, link.revision_id);
-    if (event === "upload_attempt" && prior)
-      fail("Upload already started", 409);
     const setup = link.test_config ? JSON.parse(link.test_config) : null;
-    if (event === "upload_attempt" && setup?.scenario === "success")
-      fail("This test uses the successful upload scenario", 409);
-    if (
-      event === "upload_success" &&
-      (prior ||
-        (setup ? setup.scenario !== "success" : revision.config.retryEnabled))
-    )
-      fail("Direct upload success unavailable", 409);
-    if (
-      event === "retry_success" &&
-      (prior !== "upload_attempt" || !revision.config.retryEnabled)
-    )
-      fail("Retry unavailable", 409);
-    if (
-      event === "continue" &&
-      prior !== "retry_success" &&
-      prior !== "upload_success"
-    )
-      fail("Document must be received first", 409);
+    const invalid = uploadEventError(
+      event,
+      prior,
+      revision.config.retryEnabled,
+      setup?.scenario,
+    );
+    if (invalid) fail(invalid, 409);
     const elapsed = Math.max(
       0,
       Date.now() - new Date(session.created_at as string).getTime(),

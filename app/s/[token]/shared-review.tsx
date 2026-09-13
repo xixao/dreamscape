@@ -1,40 +1,60 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Layers3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Comment, Revision, UploadState } from "@/lib/model";
 import { request } from "@/lib/client";
-import Uploader from "@/app/uploader";
+import Uploader from "@/app/demo/document-upload";
 import Feedback from "@/app/feedback";
 import ParticipantTest from "@/app/participant-test";
 import type { TestSetup } from "@/lib/test-setup";
-type SharedData = {
-  audience: "po" | "participant";
-  revision: Revision;
-  comments?: Comment[];
-  testSetup?: TestSetup;
-};
+type SharedData =
+  | {
+      audience: "po";
+      revision: Revision;
+      comments: Comment[];
+    }
+  | {
+      audience: "participant";
+      revision: Pick<Revision, "id" | "number" | "config">;
+      testSetup?: TestSetup;
+    };
 export default function SharedReview({ token }: { token: string }) {
+  return <SharedReviewContent key={token} token={token} />;
+}
+function SharedReviewContent({ token }: { token: string }) {
   const [data, setData] = useState<SharedData | null>(null),
     [state, setState] = useState<UploadState>("ready");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [anchor, setAnchor] = useState("document-uploader");
   const actor = useRef("");
+  const pending = useRef(false);
+  const sequence = useRef(0);
   const path = `/api/share/${token}`;
-  async function load() {
+  const load = useCallback(async () => {
+    const current = ++sequence.current;
     try {
-      setData(await request<SharedData>(`${path}?actor=${actor.current}`));
+      const next = await request<SharedData>(`${path}?actor=${actor.current}`);
+      if (sequence.current !== current) return;
+      setData(next);
       setError("");
     } catch (e) {
+      if (sequence.current !== current) return;
       setError((e as Error).message);
     }
-  }
+  }, [path]);
   useEffect(() => {
     actor.current = crypto.randomUUID();
     void load();
-  }, [token]);
+    const invalidate = () => {
+      sequence.current++;
+    };
+    return invalidate;
+  }, [load]);
   async function reviewAction(payload: Record<string, unknown>) {
+    if (pending.current) return false;
+    pending.current = true;
     setBusy(true);
     try {
       await request(path, { ...payload, actor: actor.current });
@@ -44,6 +64,7 @@ export default function SharedReview({ token }: { token: string }) {
       setError((e as Error).message);
       return false;
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   }
@@ -119,7 +140,7 @@ export default function SharedReview({ token }: { token: string }) {
             viewport="desktop"
             anchor={anchor}
             busy={busy}
-            readOnly
+            canModerate={false}
             onAction={reviewAction}
             onJump={(c) => {
               setAnchor(c.anchor);

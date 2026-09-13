@@ -11,7 +11,10 @@
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test:structure": "node tests/structure.mjs",
+    "test:api": "node tests/api.mjs http://localhost:5186",
+    "lint:review": "eslint app/flow-review.tsx app/participant-test.tsx app/feedback.tsx app/preview-canvas.tsx app/anchored-comments.tsx app/comment-reactions.tsx app/review-results.tsx app/test-setup-editor.tsx app/session-signals.tsx app/demo app/api lib app/s --max-warnings 0"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

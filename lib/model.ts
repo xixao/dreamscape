@@ -1,27 +1,8 @@
+import type { UploadConfig } from "./demo/upload-schema";
 export type UploadState = "ready" | "failed" | "complete";
 export type Audience = "designer" | "po" | "engineer" | "participant";
-export type Config = {
-  title: string;
-  helper: string;
-  error: string;
-  button: string;
-  retryEnabled: boolean;
-  announceError: boolean;
-};
-export const baseline: Config = {
-  title: "Upload your document",
-  helper: "Add your most recent pay statement.",
-  error: "Something went wrong.",
-  button: "Upload document",
-  retryEnabled: false,
-  announceError: false,
-};
-export const improvement: Partial<Config> = {
-  error:
-    "Your upload was interrupted. Your document is still selected. Try again.",
-  retryEnabled: true,
-  announceError: true,
-};
+// Demo contract alias: replace with the real design document contract at integration.
+export type Config = UploadConfig;
 export type Revision = {
   id: string;
   number: number;
@@ -73,35 +54,3 @@ export type Workspace = {
   preferences: { comments: boolean; revisions: boolean; tests: boolean };
   name: string;
 };
-export function checks(config: Config) {
-  return [
-    {
-      id: "recovery",
-      title: "Recovery action",
-      pass: config.retryEnabled,
-      detail: config.retryEnabled
-        ? "A retry action is available in the failed state."
-        : "The failed state has no way to retry.",
-      kind: "Behavior rule",
-    },
-    {
-      id: "copy",
-      title: "Error guidance",
-      pass: config.error.trim().length > 35,
-      detail:
-        config.error.trim().length > 35
-          ? "Error copy includes additional guidance. Human review still required."
-          : "Short, generic error copy needs a clear next step.",
-      kind: "Copy heuristic",
-    },
-    {
-      id: "announcement",
-      title: "Error announcement",
-      pass: config.announceError,
-      detail: config.announceError
-        ? "The error uses role=alert. Verify with a screen reader."
-        : "The error is not announced as an alert.",
-      kind: "Component rule",
-    },
-  ];
-}

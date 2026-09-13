@@ -15,7 +15,7 @@ async function api(path, payload, auth = headers, expected = 200) {
     headers: {
       ...auth,
       ...(payload
-        ? { "Content-Type": "application/json", Origin: origin }
+        ? { "Content-Type": "application/json", Origin: auth.Origin ?? origin }
         : {}),
     },
     body: payload ? JSON.stringify(payload) : undefined,
@@ -457,6 +457,84 @@ await api("/api/workspace", {
 assert.equal((await api("/api/workspace")).preferences.comments, false);
 await api("/api/workspace", { action: "revoke", token });
 await api(`/api/share/${token}`, null, {}, 404);
+// Malformed JSON values must be rejected as input, not storage failures.
+for (const raw of ["null", "[]", "42", '"text"']) {
+  const response = await fetch(origin + "/api/workspace", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json", Origin: origin },
+    body: raw,
+  });
+  assert.equal(response.status, 400);
+  count++;
+}
+await api(
+  "/api/workspace",
+  { action: "preferences", value: w.preferences },
+  { ...headers, Origin: "https://foreign.example" },
+  403,
+);
+const anchoredReply = await api(
+  `/api/share/${review.token}`,
+  {
+    action: "comment",
+    revisionId: first.id,
+    parentId: added.id,
+    text: "Reply must inherit the original context",
+    state: "ready",
+    viewport: "mobile",
+    anchor: "document-uploader",
+  },
+  namedReviewer,
+);
+const inherited = (await api("/api/workspace")).comments.find(
+  (c) => c.id === anchoredReply.id,
+);
+assert.equal(inherited.state, "failed");
+assert.equal(inherited.viewport, "desktop");
+assert.equal(inherited.anchor, "upload-error");
+await api(
+  "/api/workspace",
+  {
+    action: "revision",
+    baseId: first.id,
+    config: first.config,
+    note: "Cross-owner",
+  },
+  other,
+  404,
+);
+// New revisions cannot change the configuration or instructions of an existing test.
+await api("/api/workspace", {
+  action: "revision",
+  baseId: fixed.revision.id,
+  config: { ...fixed.revision.config, title: "Later draft" },
+  note: "Later revision",
+});
+const pinned = await api(`/api/share/${configured.token}`, null, {});
+assert.equal(pinned.revision.config.title, fixed.revision.config.title);
+assert.equal(pinned.testSetup.instructions, setup.instructions);
+// Competing terminal actions cannot overwrite a session that has already ended.
+const competing = await api(
+  `/api/share/${configured.token}`,
+  { action: "start", consent: true },
+  {},
+);
+await api(
+  `/api/share/${configured.token}`,
+  { action: "event", sessionId: competing.id, event: "upload_success" },
+  {},
+);
+const terminalResponses = await Promise.all(
+  ["continue", "gave_up"].map((event) =>
+    fetch(origin + `/api/share/${configured.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ action: "event", sessionId: competing.id, event }),
+    }),
+  ),
+);
+assert.deepEqual(terminalResponses.map((r) => r.status).sort(), [200, 409]);
+count += 2;
 console.log(
   `${count} API assertions passed, plus payload, identity, persistence, and state checks.`,
 );

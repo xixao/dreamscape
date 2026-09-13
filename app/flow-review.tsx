@@ -1,6 +1,22 @@
 "use client";
+import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
+import { DEMO_IDS } from "@/lib/demo/registry";
+import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
+import {
+  createHandoff,
+  placedComments,
+  previousRevision,
+  sameConfig,
+} from "@/lib/review";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { flushSync } from "react-dom";
 import { useTheme } from "next-themes";
 import {
@@ -24,7 +40,6 @@ import {
   Pause,
   Play,
   RotateCcw,
-  Save,
   Send,
   Settings2,
   Share2,
@@ -42,7 +57,6 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Empty } from "@/components/ui/empty";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -60,7 +74,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -69,9 +82,6 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
-  baseline,
-  checks,
-  improvement,
   type Audience,
   type Config,
   type Revision,
@@ -79,19 +89,18 @@ import {
   type Workspace,
 } from "@/lib/model";
 import { download, request } from "@/lib/client";
-import Uploader from "./uploader";
+import Uploader from "@/app/demo/document-upload";
 import Feedback from "./feedback";
 import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
-import SessionSignals from "./session-signals";
+import ReviewResults from "./review-results";
+import UploadCaseStudy, { buildCaseStudy } from "./demo/upload-case-study";
+import UploadProperties from "./demo/upload-properties";
 import TestSetupEditor from "./test-setup-editor";
 import DesignWorkspace from "./design-workspace";
-import {
-  defaultTestSetup,
-  scriptedTestSetup,
-  type TestSetup,
-} from "@/lib/test-setup";
+import { defaultTestSetup, scriptedTestSetup } from "@/lib/demo/test-setup";
+import { type TestSetup } from "@/lib/test-setup";
 
 type Data = Workspace & {
   links: {
@@ -123,12 +132,13 @@ const audienceNames: Record<Audience, string> = {
   engineer: "Engineer",
   participant: "Participant test",
 };
-const scenarioStates: UploadState[] = ["ready", "failed", "complete"];
+const scenarioStates = uploadStates;
 const labels: Record<UploadState, string> = {
   ready: "Ready to upload",
   failed: "Upload interrupted",
   complete: "Document received",
 };
+const subscribeHydration = () => () => {};
 
 function IconButton({
   label,
@@ -167,11 +177,19 @@ export default function FlowReview() {
     "design",
   );
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    subscribeHydration,
+    () => true,
+    () => false,
+  );
   const [presentation, setPresentation] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [focus, setFocus] = useState<PreviewFocus>("page");
   const [zoom, setZoom] = useState<number | "fit">("fit");
+  const renderedScale = useRef(1);
+  const rememberScale = useCallback((scale: number) => {
+    renderedScale.current = scale;
+  }, []);
   const [canvasReset, setCanvasReset] = useState(0);
   const [phoneModel, setPhoneModel] = useState("iphone");
   const [phoneUnfolded, setPhoneUnfolded] = useState(false);
@@ -181,7 +199,6 @@ export default function FlowReview() {
       ? `iPhone Duo · ${phoneUnfolded ? "Unfolded" : "Folded"}`
       : "iPhone";
   const [showFeedback, setShowFeedback] = useState(false);
-  const studioRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<Data>(initial);
   const [revision, setRevision] = useState<Revision>(preview);
   const [draft, setDraft] = useState<Config>(baseline);
@@ -190,9 +207,12 @@ export default function FlowReview() {
   const [viewport, setViewport] = useState("desktop");
   const [audience, setAudience] = useState<Audience>("designer");
   const [participantToken, setParticipantToken] = useState("");
+  const [participantRevision, setParticipantRevision] =
+    useState<Revision | null>(null);
   const [view, setView] = useState("review");
   const [panel, setPanel] = useState("assistant");
   const [anchor, setAnchor] = useState("document-uploader");
+  const [commentViewport, setCommentViewport] = useState("desktop");
   const [annotations, setAnnotations] = useState(true);
   const [compare, setCompare] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -209,14 +229,20 @@ export default function FlowReview() {
   const [shareUrl, setShareUrl] = useState("");
   const [linkError, setLinkError] = useState("");
   const [testSetup, setTestSetup] = useState<TestSetup>(defaultTestSetup);
-  const [readyTestToken, setReadyTestToken] = useState("");
+  const [readyTest, setReadyTest] = useState<{
+    token: string;
+    revision: Revision;
+    setup: TestSetup;
+  } | null>(null);
   const [activeTestSetup, setActiveTestSetup] = useState<
     TestSetup | undefined
   >();
   const [saveNote, setSaveNote] = useState("Manual design update");
   const initialized = useRef(false);
+  const mutationPending = useRef(false);
+  const refreshSequence = useRef(0);
   const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(revision.config);
+  const dirty = !sameConfig(draft, revision.config);
   const currentChecks = checks(draft);
   const passed = currentChecks.filter((c) => c.pass).length;
   const isDesigner = audience === "designer";
@@ -224,12 +250,12 @@ export default function FlowReview() {
   const feedbackVisible =
     showFeedback && data.preferences.comments && !participant;
   const dark = mounted && resolvedTheme === "dark";
-  const previous =
-    data.revisions.find((r) => r.number < revision.number) ??
-    data.revisions[data.revisions.length - 1];
+  const previous = previousRevision(data.revisions, revision);
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     try {
       const next = await request<Data>("/api/workspace");
+      if (sequence !== refreshSequence.current) return next;
       setData(next);
       setLoaded(true);
       setNeedsSignIn(false);
@@ -241,6 +267,7 @@ export default function FlowReview() {
       }
       return next;
     } catch (e) {
+      if (sequence !== refreshSequence.current) return null;
       const err = e as Error & { status?: number };
       setError(err.message);
       setNeedsSignIn(err.status === 401);
@@ -248,13 +275,14 @@ export default function FlowReview() {
     }
   }, []);
   useEffect(() => {
+    // Bootstrap from asynchronous storage; this is not derived UI state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     return () => {
       if (aiTimer.current) clearTimeout(aiTimer.current);
     };
   }, [refresh]);
   useEffect(() => {
-    setMounted(true);
     const changed = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", changed);
     return () => document.removeEventListener("fullscreenchange", changed);
@@ -310,7 +338,8 @@ export default function FlowReview() {
     setPresentation(false);
   }
   async function action(payload: Record<string, unknown>) {
-    if (busy) return false;
+    if (mutationPending.current || !loaded) return false;
+    mutationPending.current = true;
     setBusy(true);
     setError("");
     try {
@@ -321,10 +350,16 @@ export default function FlowReview() {
       setError((e as Error).message);
       return false;
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
   function chooseRevision(next: Revision) {
+    if (dirty || mutationPending.current) return;
+    if (aiTimer.current) clearTimeout(aiTimer.current);
+    setShareUrl("");
+    setReadyTest(null);
+    setCompare(false);
     setRevision(next);
     setDraft(next.config);
     setAssistant("idle");
@@ -333,7 +368,9 @@ export default function FlowReview() {
     setState("ready");
   }
   async function save(config: Config, note: string) {
-    if (busy || !loaded) return;
+    if (mutationPending.current || !loaded) return;
+    mutationPending.current = true;
+    const startingDraft = draft;
     setBusy(true);
     setError("");
     try {
@@ -345,12 +382,17 @@ export default function FlowReview() {
       });
       await refresh();
       setRevision(result.revision);
-      setDraft(result.revision.config);
+      setDraft((current) =>
+        sameConfig(current, startingDraft) ? result.revision.config : current,
+      );
+      setShareUrl("");
+      setReadyTest(null);
       toast.success(`Version ${result.revision.number} saved`);
       return result.revision;
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
@@ -363,12 +405,8 @@ export default function FlowReview() {
     setReply("");
     aiTimer.current = setTimeout(() => {
       setAssistant("proposed");
-      setReply(
-        passed === 3
-          ? "The three demo rules pass. I would still ask a person to check keyboard recovery, screen-reader output, and the wording."
-          : "The upload ends without a clear recovery path. I suggest keeping the selected file, explaining what happened, and making retry available.",
-      );
-    }, 900);
+      setReply(recoveryAgent.review(passed));
+    }, recoveryAgent.delayMs);
   }
   async function applyFix() {
     const saved = await save(
@@ -378,9 +416,7 @@ export default function FlowReview() {
     if (saved) {
       setState("failed");
       setAssistant("applied");
-      setReply(
-        "The changes are saved. The file stays selected, the retry button works, and the error now uses an alert announcement.",
-      );
+      setReply(recoveryAgent.applied);
     }
   }
   function changeState(next: UploadState, event: string) {
@@ -389,11 +425,13 @@ export default function FlowReview() {
       toast.success("Scenario completed. No application was submitted.");
   }
   async function createLink() {
+    if (mutationPending.current || !loaded) return;
     setLinkError("");
     if (dirty) {
       toast.error("Save the draft before sharing");
       return;
     }
+    mutationPending.current = true;
     setBusy(true);
     try {
       const r = await request<{ path: string; token: string }>(
@@ -406,12 +444,17 @@ export default function FlowReview() {
         },
       );
       setShareUrl(window.location.origin + r.path);
-      setReadyTestToken(r.token);
+      setReadyTest(
+        shareRole === "participant"
+          ? { token: r.token, revision, setup: testSetup }
+          : null,
+      );
       if (shareRole === "participant") toast.success("Your test is ready.");
       await refresh();
     } catch (e) {
       setLinkError((e as Error).message);
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
@@ -423,23 +466,12 @@ export default function FlowReview() {
       toast.error("Clipboard unavailable. Select the link to copy it.");
     }
   }
-  const caseStudy = () =>
-    `# Homepath: Upload recovery\n\n## Problem\nThe original uploader showed a generic error without a retry action.\n\n## Hypothesis\nA clear explanation and retry action may help people recover independently.\n\n## Iterations\n${[
-      ...data.revisions,
-    ]
-      .reverse()
-      .map((r) => `- v${r.number}: ${r.note}`)
-      .join(
-        "\n",
-      )}\n\n## Evidence\n${data.sessions.length} sessions recorded; ${data.sessions.filter((s) => s.outcome === "complete").length} completed. Convenience sample, not proof of usability.\n\n## Feedback\n${
-      data.comments
-        .filter((c) => !c.parentId)
-        .map((c) => `- ${c.text} (${c.resolved ? "resolved" : "open"})`)
-        .join("\n") || "No feedback yet."
-    }\n\n## Limitations\nFictional upload and scripted assistant. No live Design System MCP, real file upload, or production certification. Manual accessibility testing remains.\n`;
+  const caseStudy = () => buildCaseStudy(data);
 
   const stateRef = useRef({ state, revision });
-  stateRef.current = { state, revision };
+  useLayoutEffect(() => {
+    stateRef.current = { state, revision };
+  }, [state, revision]);
   useEffect(() => {
     type Context = {
       registerTool: (
@@ -515,9 +547,10 @@ export default function FlowReview() {
       <ParticipantTest
         setup={activeTestSetup}
         token={participantToken}
-        revision={revision}
+        revision={participantRevision ?? revision}
         onReturn={() => {
           setParticipantToken("");
+          setParticipantRevision(null);
           setAudience("designer");
           setView("results");
           void refresh();
@@ -551,10 +584,7 @@ export default function FlowReview() {
     );
   return (
     <TooltipProvider delayDuration={250}>
-      <div
-        className={`studio ${presentation ? "is-presenting" : ""}`}
-        ref={studioRef}
-      >
+      <div className={`studio ${presentation ? "is-presenting" : ""}`}>
         <header className="studio-header">
           <Button variant="ghost" onClick={() => setWorkspaceMode("design")}>
             <ArrowRight size={16} className="rotate-180" />
@@ -638,7 +668,20 @@ export default function FlowReview() {
               value={audience}
               onValueChange={async (v) => {
                 if (v === "participant") {
-                  setActiveTestSetup(undefined);
+                  if (dirty || mutationPending.current) {
+                    toast.error(
+                      "Save or discard the draft before starting a test.",
+                    );
+                    return;
+                  }
+                  mutationPending.current = true;
+                  const setup: TestSetup = {
+                    ...defaultTestSetup,
+                    scenario: revision.config.retryEnabled
+                      ? "recovery"
+                      : "success",
+                  };
+                  setActiveTestSetup(setup);
                   setBusy(true);
                   try {
                     const link = await request<{ token: string }>(
@@ -647,12 +690,15 @@ export default function FlowReview() {
                         action: "share",
                         revisionId: revision.id,
                         audience: "participant",
+                        testSetup: setup,
                       },
                     );
+                    setParticipantRevision(revision);
                     setParticipantToken(link.token);
                   } catch (e) {
                     setError((e as Error).message);
                   } finally {
+                    mutationPending.current = false;
                     setBusy(false);
                   }
                   return;
@@ -784,14 +830,20 @@ export default function FlowReview() {
                     <IconButton
                       label="Mobile"
                       active={viewport === "mobile"}
-                      onClick={() => setViewport("mobile")}
+                      onClick={() => {
+                        setViewport("mobile");
+                        setCompare(false);
+                      }}
                     >
                       <Smartphone size={17} />
                     </IconButton>
                     <IconButton
                       label="Desktop and mobile"
                       active={viewport === "both"}
-                      onClick={() => setViewport("both")}
+                      onClick={() => {
+                        setViewport("both");
+                        setCompare(false);
+                      }}
                     >
                       <GitCompareArrows size={17} />
                     </IconButton>
@@ -879,7 +931,11 @@ export default function FlowReview() {
                       disabled={zoom !== "fit" && zoom <= 0.15}
                       onClick={() =>
                         setZoom(
-                          Math.max(0.15, (zoom === "fit" ? 1 : zoom) - 0.25),
+                          Math.max(
+                            0.15,
+                            (zoom === "fit" ? renderedScale.current : zoom) -
+                              0.25,
+                          ),
                         )
                       }
                     >
@@ -914,7 +970,13 @@ export default function FlowReview() {
                       label="Zoom in"
                       disabled={zoom !== "fit" && zoom >= 3}
                       onClick={() =>
-                        setZoom(Math.min(3, (zoom === "fit" ? 1 : zoom) + 0.25))
+                        setZoom(
+                          Math.min(
+                            3,
+                            (zoom === "fit" ? renderedScale.current : zoom) +
+                              0.25,
+                          ),
+                        )
                       }
                     >
                       <ZoomIn size={17} />
@@ -954,14 +1016,18 @@ export default function FlowReview() {
                   <PreviewCanvas
                     zoom={zoom}
                     onZoom={setZoom}
+                    onScaleChange={rememberScale}
                     resetKey={canvasReset}
                     feedback={feedbackVisible}
                     viewport={viewport}
                     phoneWidth={phoneWidth}
-                    paired={viewport === "both" || (compare && !participant)}
+                    paired={
+                      viewport === "both" ||
+                      (compare && !!previous && !participant)
+                    }
                     focus={focus}
                   >
-                    {compare && !participant && (
+                    {compare && previous && !participant && (
                       <div className="device-wrap">
                         <div className="device-label">
                           Previous · v{previous.number}
@@ -1005,22 +1071,20 @@ export default function FlowReview() {
                         annotate={!participant && annotations && !presentation}
                         onAnchor={(a) => {
                           setAnchor(a);
+                          setCommentViewport(
+                            viewport === "mobile" ? "mobile" : "desktop",
+                          );
                           setPanel("feedback");
                           setView("review");
                         }}
                       />
                       {feedbackVisible && (
                         <AnchoredComments
-                          comments={data.comments.filter(
-                            (c) =>
-                              !c.parentId &&
-                              c.revisionId === revision.id &&
-                              c.state === state &&
-                              (c.viewport === "both" ||
-                                c.viewport ===
-                                  (viewport === "mobile"
-                                    ? "mobile"
-                                    : "desktop")),
+                          comments={placedComments(
+                            data.comments,
+                            revision.id,
+                            state,
+                            viewport === "mobile" ? "mobile" : "desktop",
                           )}
                           busy={busy}
                           onAction={action}
@@ -1056,18 +1120,17 @@ export default function FlowReview() {
                           }
                           onAnchor={(a) => {
                             setAnchor(a);
+                            setCommentViewport("mobile");
                             setPanel("feedback");
                           }}
                         />
                         {feedbackVisible && (
                           <AnchoredComments
-                            comments={data.comments.filter(
-                              (c) =>
-                                !c.parentId &&
-                                c.revisionId === revision.id &&
-                                c.state === state &&
-                                (c.viewport === "both" ||
-                                  c.viewport === "mobile"),
+                            comments={placedComments(
+                              data.comments,
+                              revision.id,
+                              state,
+                              "mobile",
                             )}
                             busy={busy}
                             onAction={action}
@@ -1112,93 +1175,17 @@ export default function FlowReview() {
             </div>
             {!participant &&
               (view === "build" ? (
-                <aside className="review-panel">
-                  <div className="panel-title">
-                    <Settings2 size={17} />
-                    <strong>Component properties</strong>
-                    <span className="badge">Manual</span>
-                  </div>
-                  <div className="editor-fields">
-                    {(
-                      [
-                        ["title", "Heading"],
-                        ["helper", "Supporting text"],
-                        ["button", "Upload button"],
-                        ["error", "Error message"],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <label key={key}>
-                        {label}
-                        {key === "error" || key === "helper" ? (
-                          <Textarea
-                            maxLength={key === "error" ? 220 : 180}
-                            value={draft[key]}
-                            onChange={(e) =>
-                              setDraft({ ...draft, [key]: e.target.value })
-                            }
-                          />
-                        ) : (
-                          <Input
-                            maxLength={key === "button" ? 40 : 80}
-                            value={draft[key]}
-                            onChange={(e) =>
-                              setDraft({ ...draft, [key]: e.target.value })
-                            }
-                          />
-                        )}
-                      </label>
-                    ))}
-                    <label className="switch-line">
-                      Retry action
-                      <Switch
-                        checked={draft.retryEnabled}
-                        onCheckedChange={(v) =>
-                          setDraft({ ...draft, retryEnabled: v })
-                        }
-                      />
-                    </label>
-                    <label className="switch-line">
-                      Announce error
-                      <Switch
-                        checked={draft.announceError}
-                        onCheckedChange={(v) =>
-                          setDraft({ ...draft, announceError: v })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Version note
-                      <Input
-                        maxLength={200}
-                        value={saveNote}
-                        onChange={(e) => setSaveNote(e.target.value)}
-                      />
-                    </label>
-                    <Button
-                      disabled={
-                        busy ||
-                        !loaded ||
-                        !dirty ||
-                        !saveNote.trim() ||
-                        !draft.title.trim() ||
-                        !draft.error.trim() ||
-                        !draft.button.trim()
-                      }
-                      onClick={() => void save(draft, saveNote)}
-                    >
-                      <Save size={15} />
-                      Save new version
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={!dirty}
-                      onClick={() => setDraft(revision.config)}
-                    >
-                      <RotateCcw size={14} />
-                      Discard draft
-                    </Button>
-                  </div>
-                </aside>
+                <UploadProperties
+                  draft={draft}
+                  setDraft={setDraft}
+                  revision={revision}
+                  saveNote={saveNote}
+                  setSaveNote={setSaveNote}
+                  dirty={dirty}
+                  busy={busy}
+                  loaded={loaded}
+                  save={save}
+                />
               ) : (
                 <aside
                   className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
@@ -1215,7 +1202,11 @@ export default function FlowReview() {
                       <TabsTrigger value="history">History</TabsTrigger>
                     </TabsList>
                     {isDesigner && (
-                      <TabsContent value="assistant" className="assistant-tab">
+                      <TabsContent
+                        value="assistant"
+                        className="assistant-tab"
+                        data-demo-id={DEMO_IDS.recoveryAgent}
+                      >
                         <div className="panel-title">
                           <Sparkles size={16} />
                           <strong>Flow assistant</strong>
@@ -1303,7 +1294,7 @@ export default function FlowReview() {
                             className="assistant-prompt"
                             onSubmit={(e) => {
                               e.preventDefault();
-                              if (/test|study|pilot|research/i.test(prompt)) {
+                              if (demoPromptIntent(prompt) === "test") {
                                 setTestSetup(
                                   scriptedTestSetup(
                                     prompt,
@@ -1313,19 +1304,13 @@ export default function FlowReview() {
                                 setShareRole("participant");
                                 setShareUrl("");
                                 setDialog("share");
-                                setReply(
-                                  "Your test draft is prepared. Review its audience and instructions, then create the test to get a share link and try it.",
-                                );
+                                setReply(recoveryAgent.prepared);
                               } else if (
-                                /review|fix|upload|error|accessib|retry/i.test(
-                                  prompt,
-                                )
+                                demoPromptIntent(prompt) === "review"
                               ) {
                                 inspect();
                               } else {
-                                setReply(
-                                  "This demo can review upload recovery and propose the scripted fix. Try 'Review this flow'. No live AI model is connected.",
-                                );
+                                setReply(recoveryAgent.unsupported);
                               }
                               setPrompt("");
                             }}
@@ -1360,18 +1345,24 @@ export default function FlowReview() {
                         comments={data.comments}
                         revision={revision}
                         state={state}
-                        viewport={viewport}
+                        viewport={
+                          viewport === "both" ? commentViewport : viewport
+                        }
                         anchor={anchor}
                         busy={busy || !loaded}
                         onAction={action}
                         onJump={(c) => {
                           setState(c.state);
                           setViewport(c.viewport);
+                          setCommentViewport(c.viewport);
                           setAnchor(c.anchor);
                         }}
                       />
                     </TabsContent>
-                    <TabsContent value="checks">
+                    <TabsContent
+                      value="checks"
+                      data-demo-id={DEMO_IDS.readiness}
+                    >
                       <div className="panel-section">
                         <div className="section-heading">
                           <h3>Readiness checks</h3>
@@ -1424,18 +1415,14 @@ export default function FlowReview() {
                             download(
                               "flow-review-handoff.json",
                               JSON.stringify(
-                                {
-                                  schemaVersion: 1,
-                                  componentId: "document-uploader",
+                                createHandoff(
                                   revision,
-                                  checks: currentChecks,
-                                  states: scenarioStates,
-                                  comments: data.comments.filter(
-                                    (c) => c.revisionId === revision.id,
-                                  ),
-                                  source: "scripted-demo",
-                                  productionReady: false,
-                                },
+                                  draft,
+                                  data.comments,
+                                  currentChecks,
+                                  DEMO_IDS.upload,
+                                  scenarioStates,
+                                ),
                                 null,
                                 2,
                               ),
@@ -1454,8 +1441,11 @@ export default function FlowReview() {
                           <IconButton
                             label="Compare versions"
                             active={compare}
-                            disabled={data.revisions.length < 2}
-                            onClick={() => setCompare(!compare)}
+                            disabled={!previous}
+                            onClick={() => {
+                              setCompare(!compare);
+                              setViewport("desktop");
+                            }}
                           >
                             <GitCompareArrows size={16} />
                           </IconButton>
@@ -1464,7 +1454,7 @@ export default function FlowReview() {
                           <button
                             key={r.id}
                             className={`version-row ${r.id === revision.id ? "active" : ""}`}
-                            disabled={dirty}
+                            disabled={dirty || busy}
                             onClick={() => chooseRevision(r)}
                           >
                             <span className="version-dot">{r.number}</span>
@@ -1507,196 +1497,29 @@ export default function FlowReview() {
           </main>
         )}
         {view === "results" && !participant && (
-          <main className="wide-view">
-            <div className="view-title">
-              <div>
-                <h2>Participant sessions</h2>
-                <p>
-                  Recorded on shared test links. Internal previews are excluded.
-                </p>
-              </div>
-              <Button variant="outline" onClick={() => void refresh()}>
-                <RotateCcw size={14} />
-                Refresh
-              </Button>
-            </div>
-            <div className="metrics">
-              <div>
-                <span>Sessions</span>
-                <strong>{data.sessions.length}</strong>
-              </div>
-              <div>
-                <span>Completed</span>
-                <strong>
-                  {data.sessions.filter((s) => s.outcome === "complete").length}
-                </strong>
-              </div>
-              <div>
-                <span>Gave up</span>
-                <strong>
-                  {data.sessions.filter((s) => s.outcome === "gave_up").length}
-                </strong>
-              </div>
-              <div>
-                <span>Still open</span>
-                <strong>
-                  {data.sessions.filter((s) => s.outcome === "started").length}
-                </strong>
-              </div>
-            </div>
-            {!data.sessions.length ? (
-              <Empty className="results-empty">
-                <Flag size={28} />
-                <h3>No sessions yet</h3>
-                <p>A participant link is pinned to a saved version.</p>
-                <Button
-                  disabled={!loaded}
-                  onClick={() => {
-                    setShareRole("participant");
-                    setDialog("share");
-                  }}
-                >
-                  Create test link
-                  <ArrowRight size={14} />
-                </Button>
-              </Empty>
-            ) : (
-              <div className="sessions-list">
-                {data.sessions.map((s, i) => (
-                  <article key={s.id}>
-                    <div className="section-heading">
-                      <strong>
-                        Session {data.sessions.length - i}{" "}
-                        <span className="muted">
-                          · v
-                          {
-                            data.revisions.find((r) => r.id === s.revisionId)
-                              ?.number
-                          }
-                        </span>
-                      </strong>
-                      <span
-                        className={`badge ${s.outcome === "complete" ? "green" : "amber"}`}
-                      >
-                        {s.outcome.replace("_", " ")}
-                      </span>
-                    </div>
-                    <p className="session-meta">
-                      {new Date(s.createdAt).toLocaleString()} ·{" "}
-                      {s.duration === null
-                        ? "Not ended"
-                        : `${Math.round(s.duration / 1000)} seconds`}
-                    </p>
-                    <div className="event-trail">
-                      {s.events.map((e, j) => (
-                        <span key={j}>
-                          {e.type.replaceAll("_", " ")}{" "}
-                          <small>{Math.round(e.at / 1000)}s</small>
-                        </span>
-                      ))}
-                    </div>
-                    <SessionSignals session={s} />
-                    {s.feedback && <blockquote>{s.feedback}</blockquote>}
-                  </article>
-                ))}
-              </div>
-            )}
-            <div className="results-footer">
-              <p>
-                Convenience sample. Timing includes idle time; a completed task
-                is not proof of usability. Latest 100 sessions shown.
-              </p>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  download(
-                    "flow-review-sessions.json",
-                    JSON.stringify(data.sessions, null, 2),
-                  )
-                }
-              >
-                <Download size={14} />
-                Export sessions
-              </Button>
-            </div>
-          </main>
+          <ReviewResults
+            data={data}
+            loaded={loaded}
+            refresh={refresh}
+            onCreateTest={() => {
+              setShareRole("participant");
+              setShareUrl("");
+              setDialog("share");
+            }}
+          />
         )}
         {view === "case" && !participant && (
-          <main className="wide-view case-study">
-            <div className="view-title">
-              <div>
-                <p className="eyebrow">WORKING CASE STUDY</p>
-                <h2>From a dead end to a way forward.</h2>
-                <p>Homepath / Document upload</p>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  download(
-                    "upload-recovery-case-study.md",
-                    caseStudy(),
-                    "text/markdown",
-                  )
-                }
-              >
-                <Download size={14} />
-                Export
-              </Button>
-            </div>
-            <div className="case-grid">
-              <section>
-                <span className="section-number">01</span>
-                <h3>The problem</h3>
-                <p>
-                  The original uploader stopped at a generic error. The selected
-                  document stayed visible, but there was no way to try again.
-                </p>
-              </section>
-              <section>
-                <span className="section-number">02</span>
-                <h3>The hypothesis</h3>
-                <p>
-                  Explain the interruption, retain the selected file, and offer
-                  a retry action so people can recover without starting over.
-                </p>
-              </section>
-              <section>
-                <span className="section-number">03</span>
-                <h3>The iterations</h3>
-                {[...data.revisions].reverse().map((r) => (
-                  <button
-                    className="case-version"
-                    key={r.id}
-                    disabled={dirty}
-                    onClick={() => {
-                      chooseRevision(r);
-                      setView("review");
-                      setPanel("history");
-                    }}
-                  >
-                    <strong>v{r.number}</strong>
-                    <span>{r.note}</span>
-                    <ArrowRight size={14} />
-                  </button>
-                ))}
-              </section>
-              <section>
-                <span className="section-number">04</span>
-                <h3>The evidence</h3>
-                <p>
-                  {data.sessions.length} sessions recorded.{" "}
-                  {data.comments.filter((c) => !c.parentId).length} feedback
-                  threads. {data.comments.filter((c) => c.resolved).length}{" "}
-                  resolved.
-                </p>
-                <p>
-                  These are prototype observations, not a validated usability
-                  claim. No live AI, real uploads, or Design System MCP are
-                  connected.
-                </p>
-              </section>
-            </div>
-          </main>
+          <UploadCaseStudy
+            data={data}
+            dirty={dirty}
+            busy={busy}
+            caseStudy={caseStudy}
+            onRevision={(r) => {
+              chooseRevision(r);
+              setView("review");
+              setPanel("history");
+            }}
+          />
         )}
         <footer className="studio-footer">
           <span>
@@ -1722,6 +1545,7 @@ export default function FlowReview() {
             </DialogHeader>
             <Select
               value={shareRole}
+              disabled={busy}
               onValueChange={(v) => {
                 setShareRole(v);
                 setShareUrl("");
@@ -1748,7 +1572,7 @@ export default function FlowReview() {
                 onChange={(value) => {
                   setTestSetup(value);
                   setShareUrl("");
-                  setReadyTestToken("");
+                  setReadyTest(null);
                 }}
               />
             )}
@@ -1771,17 +1595,20 @@ export default function FlowReview() {
             </Button>
             {shareUrl && (
               <>
-                {shareRole === "participant" && (
+                {shareRole === "participant" && readyTest && (
                   <div className="test-ready" role="status">
                     <strong>Your test is ready</strong>
                     <span>
-                      {testSetup.audience} · {testSetup.viewport} ·{" "}
-                      {testSetup.focus === "page" ? "Full page" : "Component"}
+                      {readyTest.setup.audience} · {readyTest.setup.viewport} ·{" "}
+                      {readyTest.setup.focus === "page"
+                        ? "Full page"
+                        : "Component"}
                     </span>
                     <Button
                       onClick={() => {
-                        setActiveTestSetup(testSetup);
-                        setParticipantToken(readyTestToken);
+                        setActiveTestSetup(readyTest.setup);
+                        setParticipantRevision(readyTest.revision);
+                        setParticipantToken(readyTest.token);
                         setDialog(null);
                       }}
                     >

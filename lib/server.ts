@@ -1,24 +1,14 @@
 import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { baseline } from "./model";
-
-export const configSchema = z
-  .object({
-    title: z.string().trim().min(1).max(80),
-    helper: z.string().trim().max(180),
-    error: z.string().trim().min(1).max(220),
-    button: z.string().trim().min(1).max(40),
-    retryEnabled: z.boolean(),
-    announceError: z.boolean(),
-  })
-  .strict();
+import { baseline } from "./demo/upload";
+import { UPLOAD_ANCHORS } from "./demo/registry";
 export const commentSchema = z.object({
   revisionId: z.string().uuid(),
   parentId: z.string().uuid().nullable().default(null),
   text: z.string().trim().min(1).max(1500),
   state: z.enum(["ready", "failed", "complete"]),
   viewport: z.enum(["desktop", "mobile", "both"]),
-  anchor: z.enum(["document-uploader", "upload-error"]),
+  anchor: z.enum([UPLOAD_ANCHORS.component, UPLOAD_ANCHORS.error]),
 });
 export const prefSchema = z
   .object({ comments: z.boolean(), revisions: z.boolean(), tests: z.boolean() })
@@ -39,7 +29,10 @@ export async function body(request: Request) {
   const raw = await request.text();
   if (raw.length > 12000) fail("Request is too large", 413);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      fail("Request must be an object");
+    return parsed;
   } catch {
     fail("Invalid request");
   }
@@ -145,11 +138,14 @@ export async function addComment(
   if (c.parentId) {
     const parent = await db()
       .prepare(
-        "SELECT id FROM comments WHERE id=? AND owner=? AND revision_id=? AND parent_id IS NULL",
+        "SELECT id,state,viewport,anchor FROM comments WHERE id=? AND owner=? AND revision_id=? AND parent_id IS NULL",
       )
       .bind(c.parentId, owner, c.revisionId)
       .first();
     if (!parent) fail("Comment not found", 404);
+    c.state = parent.state as typeof c.state;
+    c.viewport = parent.viewport as typeof c.viewport;
+    c.anchor = parent.anchor as typeof c.anchor;
   }
   const id = uuid();
   await db()

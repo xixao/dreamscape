@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Check, MessageSquare, Send } from "lucide-react";
 import CommentReactions from "./comment-reactions";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export default function Feedback({
   onAction,
   onJump,
   busy,
-  readOnly = false,
+  canModerate = true,
 }: {
   comments: Comment[];
   revision: Revision;
@@ -31,30 +31,38 @@ export default function Feedback({
   viewport: string;
   anchor: string;
   busy: boolean;
-  readOnly?: boolean;
+  canModerate?: boolean;
   onAction: (data: Record<string, unknown>) => Promise<boolean>;
   onJump?: (comment: Comment) => void;
 }) {
   const [text, setText] = useState("");
   const [reply, setReply] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
+  const composerId = useId();
+  const sending = useRef(false);
   const current = comments.filter((c) => c.revisionId === revision.id),
     roots = current.filter((c) => !c.parentId);
   async function send(parent?: Comment) {
-    const ok = await onAction({
-      action: "comment",
-      text: parent ? replyText : text,
-      parentId: parent?.id ?? null,
-      revisionId: revision.id,
-      state: parent?.state ?? state,
-      viewport: parent?.viewport ?? viewport,
-      anchor: parent?.anchor ?? anchor,
-    });
-    if (ok) {
-      if (parent) {
-        setReply(null);
-        setReplyText("");
-      } else setText("");
+    if (sending.current || busy) return;
+    sending.current = true;
+    try {
+      const ok = await onAction({
+        action: "comment",
+        text: parent ? replyText : text,
+        parentId: parent?.id ?? null,
+        revisionId: revision.id,
+        state: parent?.state ?? state,
+        viewport: parent?.viewport ?? viewport,
+        anchor: parent?.anchor ?? anchor,
+      });
+      if (ok) {
+        if (parent) {
+          setReply(null);
+          setReplyText("");
+        } else setText("");
+      }
+    } finally {
+      sending.current = false;
     }
   }
   return (
@@ -72,14 +80,15 @@ export default function Feedback({
           void send();
         }}
       >
-        <label htmlFor="new-comment">
+        <label htmlFor={composerId}>
           {anchor === "upload-error" ? "Error message" : "Upload component"}{" "}
           <span className="muted">
             · {state} · v{revision.number}
           </span>
         </label>
         <Textarea
-          id="new-comment"
+          id={composerId}
+          disabled={busy}
           value={text}
           maxLength={1500}
           onChange={(e) => setText(e.target.value)}
@@ -136,7 +145,7 @@ export default function Feedback({
             >
               Reply
             </Button>
-            {!readOnly && (
+            {canModerate && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -153,7 +162,7 @@ export default function Feedback({
               </Button>
             )}
           </div>
-          {!readOnly && (
+          {canModerate && (
             <Select
               value={c.assignee}
               onValueChange={(assignee) =>
@@ -193,6 +202,7 @@ export default function Feedback({
               }}
             >
               <Textarea
+                disabled={busy}
                 aria-label="Reply"
                 value={replyText}
                 maxLength={1500}
