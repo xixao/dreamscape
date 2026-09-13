@@ -1,19 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { detectPlatform, displayRows, formatKeys, type Platform, type ShortcutArea, type ShortcutRow } from '@/lib/shortcuts';
-import { OVERLAY_CAPTION, OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, OVERLAY_SURFACE, OVERLAY_TITLE } from './chrome';
-import { isEditableTarget } from './keyboard';
-
-// Spec docs/superpowers/specs/2026-09-12-shortcuts-overlay-design.md section
-// 2: `keydown` of Meta (Mac) or Control (others) with no other key held
-// starts a timer; any other keydown while it runs cancels it.
-const HOLD_MS = 600;
+import { OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL } from './chrome';
 
 // Display order for the grouped list - matches the Area column order in
 // docs/superpowers/specs/2026-09-13-shortcuts-and-elements-design.md
-// section 2, so the overlay and the README read the same way.
+// section 2, so the dialog and the README read the same way.
 const AREA_ORDER: ShortcutArea[] = ['Panels', 'Present', 'Tools', 'Canvas', 'Screens', 'Edit', 'Help'];
 
 function groupedShortcuts(): { area: ShortcutArea; items: ShortcutRow[] }[] {
@@ -23,14 +17,6 @@ function groupedShortcuts(): { area: ShortcutArea; items: ShortcutRow[] }[] {
   );
 }
 
-function isHoldModifierKey(event: KeyboardEvent, platform: Platform): boolean {
-  return platform === 'mac' ? event.key === 'Meta' : event.key === 'Control';
-}
-
-// The grouped shortcut list itself - shared between the hold-triggered,
-// display-only presentation and the "?"/overflow-menu dialog, so the two
-// can never show different content (spec: "'?' ... open the same content as
-// a dialog").
 function ShortcutGroups({ platform }: { platform: Platform }) {
   return (
     <div className={OVERLAY_GRID}>
@@ -58,17 +44,16 @@ function ShortcutGroups({ platform }: { platform: Platform }) {
 }
 
 /**
- * Holding Cmd (Meta on Mac, Control elsewhere) for 600ms shows every
- * keyboard shortcut grouped by area; releasing it, blurring the window, or
- * Escape hides it again. This presentation is display-only - it captures no
- * focus and no clicks (`pointer-events-none`) and never calls
- * `preventDefault`, so a real shortcut fired while it is showing still runs
- * exactly as if the overlay were not there.
+ * Every keyboard shortcut grouped by area, as a dialog that stays open until
+ * Escape, the close button or an outside click. Opened by the top bar's ⌘
+ * button, the overflow menu's "Keyboard shortcuts" item and the "?" key
+ * (wired through `open`/`onOpenChange` by the workbench).
  *
- * The same content also opens as a normal, focusable dialog through the
- * `open`/`onOpenChange` props (wired to the "?" shortcut and the top bar's
- * overflow menu), which stays open until Escape or an outside click, same
- * as any other dialog in the app.
+ * There used to be a second, display-only presentation that appeared after
+ * holding Cmd for 600 ms; Matt replaced it with the top bar button on
+ * 2026-09-13 ("instead of the keyboard command to bring up the modal, just
+ * put a command key icon in the top toolbar"), since it also surfaced in the
+ * middle of every Cmd-modified gesture.
  */
 export function ShortcutsOverlay({
   open,
@@ -82,101 +67,22 @@ export function ShortcutsOverlay({
   // the browser, so reading navigator directly during the first render -
   // rather than syncing it in from an effect - needs no extra render pass.
   const [platform] = useState<Platform>(() => detectPlatform());
-  const [holdVisible, setHoldVisible] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    function clearPendingTimer(): void {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    }
-
-    function onKeyDown(event: KeyboardEvent): void {
-      if (isHoldModifierKey(event, platform)) {
-        // A real keyboard never repeats a bare modifier keydown, but a
-        // synthetic or unusual one might - starting a fresh 600ms timer on
-        // every repeat would mean holding it down could never actually
-        // reach 600ms of its own.
-        if (event.repeat) return;
-        // Never opens while a text field has focus or a menu/dialog owns
-        // the interaction (same isEditableTarget guard as every other
-        // shortcut).
-        if (isEditableTarget(event.target)) return;
-        clearPendingTimer();
-        timerRef.current = setTimeout(() => {
-          timerRef.current = null;
-          setHoldVisible(true);
-        }, HOLD_MS);
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        clearPendingTimer();
-        setHoldVisible(false);
-        return;
-      }
-
-      // Any other keydown while the timer is still pending cancels it, so a
-      // combo (Cmd+Z, say) never shows the overlay. An already-visible
-      // overlay is left alone here - nothing is pending to cancel, and
-      // "shortcuts fired during the hold still run" applies to this overlay
-      // too: it keeps showing while the rest of the app keeps working.
-      clearPendingTimer();
-    }
-
-    function onKeyUp(event: KeyboardEvent): void {
-      if (!isHoldModifierKey(event, platform)) return;
-      clearPendingTimer();
-      setHoldVisible(false);
-    }
-
-    function onBlur(): void {
-      clearPendingTimer();
-      setHoldVisible(false);
-    }
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    window.addEventListener('blur', onBlur);
-    return () => {
-      clearPendingTimer();
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('blur', onBlur);
-    };
-  }, [platform]);
-
-  if (open) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
-        plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
-        variant scope, later in the cascade) - only a same-variant override
-        (`sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]`) actually wins. The unprefixed class is just the
-        sensible base for narrower viewports. */}
-        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]">
-          <DialogHeader>
-            <DialogTitle>Keyboard shortcuts</DialogTitle>
-          </DialogHeader>
-          <ShortcutGroups platform={platform} />
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  if (!holdVisible) return null;
+  if (!open) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className={OVERLAY_SURFACE}>
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 className={OVERLAY_TITLE}>Keyboard shortcuts</h2>
-          <span className={OVERLAY_CAPTION}>Release {platform === 'mac' ? '⌘' : 'Ctrl'} to close</span>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
+      plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
+      variant scope, later in the cascade) - only a same-variant override
+      (`sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]`) actually wins. The unprefixed class is just the
+      sensible base for narrower viewports. */}
+      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]">
+        <DialogHeader>
+          <DialogTitle>Keyboard shortcuts</DialogTitle>
+        </DialogHeader>
         <ShortcutGroups platform={platform} />
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
