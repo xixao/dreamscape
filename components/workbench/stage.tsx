@@ -33,7 +33,7 @@ import {
   type StageCommentsProps,
 } from "./comments/comment-layer";
 import type { CanvasDocument } from "./stage-context";
-import { useStage } from "./stage-context";
+import { StageProvider, useStage } from './stage-context';
 
 const ARTBOARD_SELECTOR = "[data-artboard]";
 
@@ -591,9 +591,28 @@ function FramePreviewImpl({
         reportDocument={false}
         onCanvasDocument={setFrameDocument}
       >
-        <Editor resolver={resolver} enabled={false}>
-          <Frame data={screen.layout} />
-        </Editor>
+        {/* Every block resolves its responsive breakpoint through useStage(),
+            and the nearest provider above a preview used to be the
+            workbench-level one, whose width is the FOCUSED frame's - so a
+            1440 px preview next to a focused 375 px frame laid itself out with
+            its mobile props (Matt, 2026-09-13: "the other frame resizes its
+            content to fill the width of the frame"). A preview therefore
+            carries its own provider, seeded from its own size; the key
+            re-seeds it if the size changes while the frame stays previewed
+            (StageProvider only reads initialWidth on mount). Nothing inside a
+            disabled Editor writes back through this provider, and
+            reportDocument stays false so the shared canvasDocument slot is
+            still the focused frame's alone. */}
+        <StageProvider
+          key={`${screen.stageWidth}x${screen.stageHeight ?? 'auto'}`}
+          initialWidth={screen.stageWidth}
+          initialHeight={screen.stageHeight ?? null}
+          initialDeviceName={screen.deviceName ?? null}
+        >
+          <Editor resolver={resolver} enabled={false}>
+            <Frame data={screen.layout} />
+          </Editor>
+        </StageProvider>
       </CanvasFrame>
     </div>
   );
