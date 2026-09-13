@@ -391,3 +391,43 @@ export function selectionBounds(state: DiagramState): Box | null {
     .filter((n): n is DiagramNode => n !== undefined);
   return bounds(boxes);
 }
+
+/**
+ * A deep copy of a page's diagram for a duplicated page: every node gets a
+ * new id, edges follow their nodes, and edges that point at one of the
+ * page's screens are re-pointed through `screenIdMap` (old screen id to the
+ * copied screen's id). Edges whose screen is not in the map (a screen that
+ * was not copied) are dropped, so the copy never carries a dangling
+ * reference.
+ */
+export function cloneDiagram(
+  diagram: DiagramData,
+  screenIdMap: Record<string, string>,
+  makeId: () => string,
+): DiagramData {
+  const nodeIdMap: Record<string, string> = {};
+  const nodes = diagram.nodes.map((node) => {
+    const id = makeId();
+    nodeIdMap[node.id] = id;
+    return { ...node, id };
+  });
+  const remap = (endpoint: EdgeEndpoint): EdgeEndpoint | null => {
+    if (endpoint.nodeId) {
+      const nodeId = nodeIdMap[endpoint.nodeId];
+      return nodeId ? { ...endpoint, nodeId } : null;
+    }
+    if (endpoint.screenId) {
+      const screenId = screenIdMap[endpoint.screenId];
+      return screenId ? { ...endpoint, screenId } : null;
+    }
+    return null;
+  };
+  const edges: DiagramEdge[] = [];
+  for (const edge of diagram.edges) {
+    const source = remap(edge.source);
+    const target = remap(edge.target);
+    if (!source || !target) continue;
+    edges.push({ ...edge, id: makeId(), source, target });
+  }
+  return { nodes, edges };
+}

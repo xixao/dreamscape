@@ -1387,6 +1387,44 @@ describe('Workbench', () => {
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     });
 
+    it('Duplicate page copies the page\'s flow chart, re-pointing connectors at the copied screens', async () => {
+      const file = twoPageFile();
+      const page1 = file.pages?.[0];
+      if (!page1) throw new Error('fixture needs pages');
+      page1.diagram = {
+        nodes: [{ id: 'n1', kind: 'decision', x: 200, y: 900, width: 160, height: 100, text: 'Go?', color: 'neutral' }],
+        edges: [
+          {
+            id: 'e1',
+            kind: 'step',
+            arrow: 'end',
+            source: { nodeId: 'n1', side: 'top' },
+            target: { screenId: SCREEN_1.id, side: 'bottom' },
+          },
+        ],
+      };
+      render(<Workbench file={file} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate page' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const lastCall = fetchMock.mock.calls.at(-1) as [string, { body: string }] | undefined;
+      if (!lastCall) throw new Error('expected a PATCH after Duplicate page');
+      const body = JSON.parse(lastCall[1].body);
+      const copiedPage = body.pages.find((p: { name: string }) => p.name === 'Page 1 copy');
+      const copiedScreen = body.screens.find((s: { pageId: string }) => s.pageId === copiedPage.id);
+      expect(copiedPage.diagram.nodes).toHaveLength(1);
+      expect(copiedPage.diagram.nodes[0].id).not.toBe('n1');
+      expect(copiedPage.diagram.nodes[0].text).toBe('Go?');
+      expect(copiedPage.diagram.edges).toHaveLength(1);
+      expect(copiedPage.diagram.edges[0].source.nodeId).toBe(copiedPage.diagram.nodes[0].id);
+      expect(copiedPage.diagram.edges[0].target.screenId).toBe(copiedScreen.id);
+      // The original page keeps its own flow chart untouched.
+      const original = body.pages.find((p: { id: string }) => p.id === page1.id);
+      expect(original.diagram.edges[0].target.screenId).toBe(SCREEN_1.id);
+    });
+
     it('Delete page confirms naming the screen count, removes the page and switches away from it', async () => {
       render(<Workbench file={twoPageFile()} />);
 

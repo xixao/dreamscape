@@ -11,6 +11,7 @@ import {
   type DiagramEdge,
   type DiagramNode,
   type DiagramState,
+  cloneDiagram,
 } from './store';
 
 function node(overrides: Partial<DiagramNode> = {}): DiagramNode {
@@ -395,5 +396,35 @@ describe('selectionBounds', () => {
       selection: [{ type: 'edge' as const, id: 'e1' }],
     };
     expect(selectionBounds(state)).toBeNull();
+  });
+});
+
+describe('cloneDiagram', () => {
+  it('copies nodes with new ids, follows edges to the copies and re-points screen endpoints through the map', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const diagram = {
+      nodes: [
+        { id: 'a', kind: 'rect' as const, x: 0, y: 0, width: 160, height: 80, text: 'A', color: 'neutral' as const },
+        { id: 'b', kind: 'decision' as const, x: 300, y: 0, width: 160, height: 100, text: 'B', color: 'blue' as const },
+      ],
+      edges: [
+        { id: 'e1', kind: 'step' as const, arrow: 'end' as const, source: { nodeId: 'a', side: 'right' as const }, target: { nodeId: 'b', side: 'left' as const } },
+        { id: 'e2', kind: 'step' as const, arrow: 'end' as const, source: { nodeId: 'b', side: 'top' as const }, target: { screenId: 's1', side: 'bottom' as const } },
+        { id: 'e3', kind: 'straight' as const, arrow: 'none' as const, source: { nodeId: 'a', side: 'top' as const }, target: { screenId: 'gone', side: 'bottom' as const } },
+      ],
+    };
+
+    const copy = cloneDiagram(diagram, { s1: 's1copy' }, makeId);
+
+    expect(copy.nodes.map((node) => node.id)).toEqual(['new1', 'new2']);
+    expect(copy.nodes[0]).toMatchObject({ text: 'A', kind: 'rect' });
+    expect(copy.edges).toHaveLength(2);
+    expect(copy.edges[0]).toMatchObject({ source: { nodeId: 'new1' }, target: { nodeId: 'new2' } });
+    expect(copy.edges[1]).toMatchObject({ source: { nodeId: 'new2' }, target: { screenId: 's1copy' } });
+    expect(copy.edges.every((edge) => edge.id.startsWith('new'))).toBe(true);
+    // The original is untouched.
+    expect(diagram.nodes[0].id).toBe('a');
+    expect(diagram.edges).toHaveLength(3);
   });
 });

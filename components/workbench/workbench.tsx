@@ -8,7 +8,7 @@ import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
-import { createInitialDiagramState, diagramReducer, pruneEdgesForScreen, type DiagramData } from '@/lib/diagram/store';
+import { createInitialDiagramState, diagramReducer, pruneEdgesForScreen, type DiagramData, cloneDiagram } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Page, Screen } from '@/lib/files/repository';
@@ -465,12 +465,24 @@ export function Workbench({
     const index = pages.findIndex((page) => page.id === id);
     if (index === -1) return;
     const newPageId = nanoid(10);
-    const newPage: Page = { id: newPageId, name: `${pages[index].name} copy` };
-    const nextPages = [...pages.slice(0, index + 1), newPage, ...pages.slice(index + 1)];
-
+    const screenIdMap: Record<string, string> = {};
     const copiedScreens: Screen[] = screens
       .filter((screen) => screen.pageId === id)
-      .map((screen) => ({ ...screen, id: nanoid(10), pageId: newPageId, x: null, y: null }));
+      .map((screen) => {
+        const copyId = nanoid(10);
+        screenIdMap[screen.id] = copyId;
+        return { ...screen, id: copyId, pageId: newPageId, x: null, y: null };
+      });
+    // The page's flow chart comes along too, re-pointed at the copied
+    // screens, so a duplicated page is a complete, independent copy.
+    const sourceDiagram = pages[index].diagram;
+    const newPage: Page = {
+      id: newPageId,
+      name: `${pages[index].name} copy`,
+      ...(sourceDiagram ? { diagram: cloneDiagram(sourceDiagram, screenIdMap, () => nanoid(10)) } : {}),
+    };
+    const nextPages = [...pages.slice(0, index + 1), newPage, ...pages.slice(index + 1)];
+
     for (const copy of copiedScreens) {
       lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
     }
