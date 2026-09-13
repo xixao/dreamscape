@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalLayout, normalizeLayout, validateLayout, validateScreens, type ScreenInput } from './validate';
+import { canonicalLayout, normalizeLayout, validateLayout, validateScreens, type ScreenInput, hasRootNode } from './validate';
 
 describe('canonicalLayout', () => {
   it('treats two encodings that differ only in object key order as equal', () => {
@@ -300,5 +300,18 @@ describe('normalizeLayout', () => {
   it('leaves a node with no props alone', () => {
     const tree = JSON.stringify({ ROOT: { type: { resolvedName: 'LayoutBox' }, nodes: [] } });
     expect(normalizeLayout(tree)).toBe(tree);
+  });
+});
+
+describe('hasRootNode', () => {
+  it('is false for an empty tree, invalid JSON and non-objects', () => {
+    expect(hasRootNode('{}')).toBe(false);
+    expect(hasRootNode('not json')).toBe(false);
+    expect(hasRootNode('[]')).toBe(false);
+    expect(hasRootNode('null')).toBe(false);
+  });
+
+  it('is true when a ROOT node is present', () => {
+    expect(hasRootNode(JSON.stringify({ ROOT: { type: { resolvedName: 'LayoutBox' }, nodes: [] } }))).toBe(true);
   });
 });

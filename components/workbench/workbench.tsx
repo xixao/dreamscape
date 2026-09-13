@@ -8,7 +8,7 @@ import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
-import { canonicalLayout } from '@/lib/files/validate';
+import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
@@ -164,6 +164,17 @@ export function Workbench({
   const lastSavedLayoutsRef = useRef<Record<string, string>>(
     Object.fromEntries(screens.map((screen) => [screen.id, screen.layout])),
   );
+  // Screens whose baseline is Craft's OWN serialisation. The stored layout
+  // text is not comparable with what Craft serialises after deserialising
+  // it: Craft fills in block prop defaults and node fields that the stored
+  // JSON may lack (files created from the examples, or saved before a block
+  // gained a new default prop), so a text comparison against the stored
+  // layout reported a change the moment such a file opened and saved it
+  // untouched, which fought other tabs with 409s. Instead, the first
+  // onNodesChange after a screen's <Frame> mounts (initial load, or a
+  // screen switch, which remounts Frame) is recorded as that screen's
+  // baseline and never saved; only later firings are compared against it.
+  const baselinedScreenIdsRef = useRef<Set<string>>(new Set());
 
   // A stable function identity (useCallback with an empty dependency array,
   // rather than the ref-holds-a-reassigned-closure pattern), because Craft
@@ -178,6 +189,21 @@ export function Workbench({
   const onNodesChange = useCallback((query: MinimalQuery) => {
     const screenId = currentScreenIdRef.current;
     const json = query.serialize();
+    // Craft's store notifies before the screen's <Frame> has deserialised
+    // anything (the frame now lives in an iframe whose document is ready a
+    // moment after mount), and that firing serialises an empty tree. An
+    // empty tree is never something the user did (New frame produces a
+    // ROOT node), so it is never a baseline and never saved: persisting it
+    // would wipe the screen on the server.
+    if (!hasRootNode(json)) return;
+    if (!baselinedScreenIdsRef.current.has(screenId)) {
+      // First firing after this screen's Frame mounted: Craft's own
+      // serialisation of what it just deserialised. Record it and stop; see
+      // baselinedScreenIdsRef above.
+      baselinedScreenIdsRef.current.add(screenId);
+      lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
+      return;
+    }
     const previous = lastSavedLayoutsRef.current[screenId];
     if (previous !== undefined && canonicalLayout(json) === canonicalLayout(previous)) return;
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
@@ -235,6 +261,9 @@ export function Workbench({
   function switchScreen(id: string): void {
     if (id === currentScreenId) return;
     void saver.flush();
+    // The target screen's <Frame> is about to (re)mount and deserialise, so
+    // its next onNodesChange is a fresh baseline, not an edit.
+    baselinedScreenIdsRef.current.delete(id);
     // Undo/redo history is per screen, not global: Craft's <Editor> stays
     // mounted across every screen (only the <Frame> below it remounts, keyed
     // by screen id), so its history is one shared stack unless cleared here.

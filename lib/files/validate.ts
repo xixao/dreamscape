@@ -226,3 +226,18 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
 
   return { ok: true, screens };
 }
+
+/**
+ * True when a serialised Craft tree contains a ROOT node. Craft serialises
+ * `{}` when its store is empty (before a frame has deserialised, or after a
+ * teardown), and such a tree must never be treated as a layout worth
+ * saving.
+ */
+export function hasRootNode(json: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return typeof parsed === 'object' && parsed !== null && 'ROOT' in parsed;
+  } catch {
+    return false;
+  }
+}

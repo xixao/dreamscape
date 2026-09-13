@@ -5,6 +5,7 @@ import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Workbench } from './workbench';
+import loginExampleLayout from '@/lib/examples/login-screen.json';
 
 // The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
 // ToggleGroup is a radiogroup), not `role="button"`; matched by visible text
@@ -279,6 +280,30 @@ describe('Workbench', () => {
       // content matches what's already stored, so it must not be queued.
       selectRoot();
 
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('sends no PATCH on opening a file whose stored layout lacks the defaults Craft adds (an example file)', async () => {
+      vi.useFakeTimers();
+      const exampleLayout = JSON.stringify(loginExampleLayout);
+      render(<Workbench file={makeFile({ screens: [{ ...SCREEN_1, layout: exampleLayout }] })} />);
+      selectRoot();
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('sends no PATCH when switching screens and back without an edit', async () => {
+      vi.useFakeTimers();
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await vi.advanceTimersByTimeAsync(1500);
+      fireEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
       await vi.advanceTimersByTimeAsync(2000);
 
       expect(fetchMock).not.toHaveBeenCalled();
