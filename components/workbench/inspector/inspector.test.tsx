@@ -35,6 +35,7 @@ function mount(
     screens = ONE_SCREEN,
     selectedFrameIds,
     onAlignFrames,
+    onUpdateLayoutGrid,
   }: {
     panelMode?: PanelMode;
     onPanelModeChange?: (mode: PanelMode) => void;
@@ -45,6 +46,7 @@ function mount(
     screens?: Screen[];
     selectedFrameIds?: ReadonlySet<string>;
     onAlignFrames?: (positions: { id: string; x: number; y: number }[]) => void;
+    onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
   } = {},
 ) {
   return renderInEditor(
@@ -66,6 +68,7 @@ function mount(
         onDiagramAction={onDiagramAction}
         selectedFrameIds={selectedFrameIds}
         onAlignFrames={onAlignFrames}
+        onUpdateLayoutGrid={onUpdateLayoutGrid}
       />
       <WidthProbe />
     </>,
@@ -228,6 +231,75 @@ describe('Inspector', () => {
       await screen.findByText('Billing');
       const panel = screen.getByRole('complementary', { name: 'Design' });
       expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the Frame section (root only)', () => {
+    it('shows Columns/Gutter/Margin/Show layout grid, defaulting to 12/24/32/false', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const frameSection = within(panel).getByTestId('frame-section');
+
+      expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('12');
+      expect(within(frameSection).getByLabelText('Gutter')).toHaveTextContent('24 px');
+      expect(within(frameSection).getByLabelText('Margin')).toHaveTextContent('32 px');
+      expect(within(frameSection).getByLabelText('Show layout grid')).not.toBeChecked();
+    });
+
+    it('does not show for a non-root selection', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'button');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('frame-section')).not.toBeInTheDocument();
+    });
+
+    it('does not show when nothing is selected', async () => {
+      mount();
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('frame-section')).not.toBeInTheDocument();
+    });
+
+    it('toggling "Show layout grid" calls onUpdateLayoutGrid with the current screen id', async () => {
+      const onUpdateLayoutGrid = vi.fn();
+      const { editor } = mount(1440, { onUpdateLayoutGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Show layout grid'));
+
+      expect(onUpdateLayoutGrid).toHaveBeenCalledWith('s1', { visible: true });
+    });
+
+    it('changing Columns calls onUpdateLayoutGrid with the picked number', async () => {
+      const onUpdateLayoutGrid = vi.fn();
+      const { editor } = mount(1440, { onUpdateLayoutGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Columns'));
+      await userEvent.click(await screen.findByRole('option', { name: '6' }));
+
+      expect(onUpdateLayoutGrid).toHaveBeenCalledWith('s1', { columns: 6 });
+    });
+
+    it('reflects an already-saved layoutGrid instead of the defaults', async () => {
+      const screensWithGrid: Screen[] = [
+        { ...ONE_SCREEN[0], layoutGrid: { columns: 4, gutter: 8, margin: 16, visible: true } },
+      ];
+      const { editor } = mount(1440, { screens: screensWithGrid });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const frameSection = within(panel).getByTestId('frame-section');
+
+      expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('4');
+      expect(within(frameSection).getByLabelText('Show layout grid')).toBeChecked();
     });
   });
 

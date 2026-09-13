@@ -74,6 +74,14 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'zoom-reset', area: 'Canvas', keys: ['Mod', '0'], label: 'Zoom to 100%', always: true },
   { id: 'zoom-to-fit', area: 'Canvas', keys: ['Shift', '1'], label: 'Zoom to fit' },
   { id: 'zoom-to-selection', area: 'Canvas', keys: ['Shift', '2'], label: 'Zoom to selection' },
+  // Layout grid / pixel grid (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 5). Shift+G is a bare Shift+letter
+  // chord, guarded like every other one (tool-comment, screen-new, ...) -
+  // ignored while typing. Cmd+' is a Mod chord with no browser shortcut to
+  // fight, but marked `always` anyway for the same reason panel-collapse/
+  // toggle-ui are: a global display toggle should work regardless of focus.
+  { id: 'layout-grid-toggle', area: 'Canvas', keys: ['Shift', 'G'], label: 'Toggle the layout grid' },
+  { id: 'pixel-grid-toggle', area: 'Canvas', keys: ['Mod', "'"], label: 'Toggle the pixel grid', always: true },
   { id: 'screen-new', area: 'Screens', keys: ['Shift', 'N'], label: 'New screen' },
   { id: 'page-next', area: 'Screens', keys: ['Mod', 'Shift', ']'], label: 'Next page' },
   { id: 'page-prev', area: 'Screens', keys: ['Mod', 'Shift', '['], label: 'Previous page' },
@@ -243,6 +251,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // when one exists) - checked before the generic `if (mod) return null`
   // below, `!shift` so Cmd+Shift+D (unused here) does not also match it.
   if (mod && !shift && key === 'd') return 'diagram-duplicate';
+  if (mod && event.key === "'") return 'pixel-grid-toggle';
   if (mod) return null;
 
   // Shift-only chords (checked by `code` where digits are involved, not
@@ -254,6 +263,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && key === 'n') return 'screen-new';
   if (shift && key === 'c') return 'tool-comment';
   if (shift && key === 'd') return 'tool-diagram';
+  if (shift && key === 'g') return 'layout-grid-toggle';
   if (shift && event.key === '?') return 'shortcuts-help';
   // Arrow keys nudge the diagram selection or, when none is active, a
   // selected frame (keyboard.tsx decides which) - matched both with and

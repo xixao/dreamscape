@@ -208,6 +208,16 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'n' }))).toBeNull();
   });
 
+  it('matches Shift+G for the layout grid toggle, distinct from bare G', () => {
+    expect(matchShortcut(key({ key: 'g', shiftKey: true }))).toBe('layout-grid-toggle');
+    expect(matchShortcut(key({ key: 'g' }))).toBeNull();
+  });
+
+  it('matches Cmd+\' and Ctrl+\' for the pixel grid toggle', () => {
+    expect(matchShortcut(key({ key: "'", metaKey: true }))).toBe('pixel-grid-toggle');
+    expect(matchShortcut(key({ key: "'", ctrlKey: true }))).toBe('pixel-grid-toggle');
+  });
+
   it('matches Cmd+J and Ctrl+J for the chat toggle', () => {
     expect(matchShortcut(key({ key: 'j', metaKey: true }))).toBe('chat-toggle-mod');
     expect(matchShortcut(key({ key: 'j', ctrlKey: true }))).toBe('chat-toggle-mod');

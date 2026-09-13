@@ -87,6 +87,8 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ⌘0 | Zoom to 100% |
 | Canvas | ⇧1 | Zoom to fit |
 | Canvas | ⇧2 | Zoom to selection |
+| Canvas | ⇧G | Toggle the layout grid |
+| Canvas | ⌘' | Toggle the pixel grid |
 | Screens | ⇧N | New screen |
 | Screens | ⌘⇧] | Next page |
 | Screens | ⌘⇧[ | Previous page |

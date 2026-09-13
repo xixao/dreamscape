@@ -15,11 +15,13 @@ import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { schemaFor } from '@/components/blocks/registry';
-import type { SectionName } from '@/components/blocks/schema';
+import type { FieldSchema, SectionName } from '@/components/blocks/schema';
 import type { AlignableFrame, FramePosition } from '@/lib/canvas/align';
-import { distributeGapPx, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
+import { distributeGapPx, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
 import type { DiagramAction } from '@/lib/diagram/store';
-import type { Screen } from '@/lib/files/repository';
+// Aliased: this module already imports lucide's LayoutGrid icon (the
+// Elements rail tab) under that same bare name.
+import type { LayoutGrid as LayoutGridData, Screen } from '@/lib/files/repository';
 import { isResponsive, resolve, type Breakpoint } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
 import {
@@ -40,6 +42,7 @@ import type { PanelMode } from '../prototype-context';
 import { PrototypePanel } from '../prototype-panel';
 import { useSelectedNode } from '../selection';
 import { useStage } from '../stage-context';
+import { resolveLayoutGrid } from '../layout-grid';
 import { AlignmentFields, type DiagramAlignmentContext, type LayoutAlignmentContext } from './alignment-fields';
 import { NodeBreadcrumb } from './breadcrumb';
 import { Field } from './field';
@@ -68,6 +71,41 @@ const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 // frame selection - see components/workbench/canvas.tsx's own identical
 // DEFAULT_FRAME_SELECTION for the same "keep old callers working" precedent.
 const EMPTY_FRAME_SELECTION: ReadonlySet<string> = new Set();
+
+// The Frame section's own fields (spec docs/superpowers/specs/2026-09-13-
+// grid-snapping-alignment-design.md section 5), shown only when the root
+// frame is selected - plain, non-responsive FieldSchema objects reused
+// through field.tsx exactly like diagram-fields.tsx's own NODE_KIND_FIELD
+// and friends, since a screen's layoutGrid is not a Craft node prop and so
+// has no entry in any block's own schema.
+const LAYOUT_GRID_COLUMN_OPTIONS: readonly number[] = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+const LAYOUT_GRID_COLUMNS_FIELD: FieldSchema = {
+  prop: 'columns',
+  label: 'Columns',
+  kind: 'select',
+  section: 'Layout',
+  options: LAYOUT_GRID_COLUMN_OPTIONS.map((value) => ({ value, label: String(value) })),
+};
+const LAYOUT_GRID_GUTTER_FIELD: FieldSchema = {
+  prop: 'gutter',
+  label: 'Gutter',
+  kind: 'select',
+  section: 'Layout',
+  options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
+};
+const LAYOUT_GRID_MARGIN_FIELD: FieldSchema = {
+  prop: 'margin',
+  label: 'Margin',
+  kind: 'select',
+  section: 'Layout',
+  options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
+};
+const LAYOUT_GRID_VISIBLE_FIELD: FieldSchema = {
+  prop: 'visible',
+  label: 'Show layout grid',
+  kind: 'boolean',
+  section: 'Layout',
+};
 
 type MinimalEditor = { actions: ReturnType<typeof useEditor>['actions']; query: ReturnType<typeof useEditor>['query'] };
 
@@ -217,6 +255,7 @@ export function Inspector({
   selectedFrameIds = EMPTY_FRAME_SELECTION,
   onAlignFrames,
   diagramAlignment = null,
+  onUpdateLayoutGrid,
 }: {
   screens: Screen[];
   currentScreenId: string;
@@ -246,6 +285,11 @@ export function Inspector({
   // above (which would otherwise still point at the first of the several
   // selected shapes) but not over a frame selection.
   diagramAlignment?: DiagramAlignmentContext | null;
+  // The Design panel's Frame section (spec section 5: Columns, Gutter,
+  // Margin and a "Show layout grid" switch, shown when the root frame is
+  // selected) - merges a partial change into the current screen's
+  // layoutGrid, same as Shift+G's own onToggleLayoutGrid in workbench.tsx.
+  onUpdateLayoutGrid?: (id: string, patch: Partial<LayoutGridData>) => void;
 }) {
   const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
@@ -298,6 +342,12 @@ export function Inspector({
   const layoutAlignmentContext = layoutContainer
     ? buildLayoutAlignmentContext({ query, actions, layoutContainer, breakpoint })
     : null;
+
+  const currentScreen = screens.find((screen) => screen.id === currentScreenId);
+  const layoutGrid = resolveLayoutGrid(currentScreen?.layoutGrid);
+  function updateLayoutGridField(patch: Partial<LayoutGridData>): void {
+    onUpdateLayoutGrid?.(currentScreenId, patch);
+  }
 
   if (collapsed) {
     return (
@@ -383,6 +433,37 @@ export function Inspector({
                     </Badge>
                   )}
                 </div>
+                {isRoot && (
+                  <section className={SECTION} data-testid="frame-section">
+                    <h3 className={SECTION_TITLE}>Frame</h3>
+                    <div className="flex flex-col gap-3">
+                      <Field
+                        field={LAYOUT_GRID_COLUMNS_FIELD}
+                        value={layoutGrid.columns}
+                        breakpoint="mobile"
+                        onChange={(next) => updateLayoutGridField({ columns: Number(next) })}
+                      />
+                      <Field
+                        field={LAYOUT_GRID_GUTTER_FIELD}
+                        value={layoutGrid.gutter}
+                        breakpoint="mobile"
+                        onChange={(next) => updateLayoutGridField({ gutter: Number(next) })}
+                      />
+                      <Field
+                        field={LAYOUT_GRID_MARGIN_FIELD}
+                        value={layoutGrid.margin}
+                        breakpoint="mobile"
+                        onChange={(next) => updateLayoutGridField({ margin: Number(next) })}
+                      />
+                      <Field
+                        field={LAYOUT_GRID_VISIBLE_FIELD}
+                        value={layoutGrid.visible}
+                        breakpoint="mobile"
+                        onChange={(next) => updateLayoutGridField({ visible: Boolean(next) })}
+                      />
+                    </div>
+                  </section>
+                )}
                 {layoutAlignmentContext && <AlignmentFields context={layoutAlignmentContext} />}
                 {SECTION_ORDER.map((section) => {
                   const fields = schema.fields.filter(

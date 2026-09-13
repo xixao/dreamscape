@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, 
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
+import { loadPixelGridVisible, savePixelGridVisible } from '@/lib/canvas/pixel-grid-store';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
 import {
@@ -18,7 +19,7 @@ import {
 } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
-import type { FileRecord, Page, Screen } from '@/lib/files/repository';
+import type { FileRecord, LayoutGrid, Page, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
@@ -42,6 +43,7 @@ import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspe
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
+import { DEFAULT_LAYOUT_GRID, resolveLayoutGrid } from './layout-grid';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
@@ -683,6 +685,23 @@ export function Workbench({
     queuePatch({ screens: next });
   }
 
+  // The Design panel's Frame section (columns/gutter/margin fields and the
+  // "Show layout grid" switch, inspector.tsx) and Shift+G (onToggleLayoutGrid,
+  // below) both merge a partial change into whichever layoutGrid the target
+  // screen already has - defaulting to DEFAULT_LAYOUT_GRID (12/24/32/false)
+  // first, same as components/workbench/layout-grid.tsx's own
+  // resolveLayoutGrid, so toggling visibility on a screen that has never
+  // been customized still produces a complete, valid LayoutGrid rather than
+  // a half-filled patch.
+  function updateLayoutGrid(id: string, patch: Partial<LayoutGrid>): void {
+    const next = screens.map((screen) =>
+      screen.id === id ? { ...screen, layoutGrid: { ...DEFAULT_LAYOUT_GRID, ...screen.layoutGrid, ...patch } } : screen,
+    );
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
   function duplicateScreen(id: string): void {
     const index = screens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
@@ -917,6 +936,7 @@ export function Workbench({
           onRenameScreen={renameScreen}
           onMoveScreen={moveScreen}
           onMoveScreens={moveScreens}
+          onUpdateLayoutGrid={updateLayoutGrid}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
           onMoveScreenToPage={moveScreenToPage}
@@ -950,6 +970,7 @@ function WorkbenchShell({
   onRenameScreen,
   onMoveScreen,
   onMoveScreens,
+  onUpdateLayoutGrid,
   onDuplicateScreen,
   onDeleteScreen,
   onMoveScreenToPage,
@@ -982,6 +1003,7 @@ function WorkbenchShell({
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
+  onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage: (id: string, pageId: string) => void;
@@ -1024,6 +1046,13 @@ function WorkbenchShell({
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
+  // The canvas's pixel grid (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 5, Cmd+') - per browser, same
+  // lazy-useState-plus-effect pattern as chatOpen above.
+  const [pixelGridVisible, setPixelGridVisible] = useState(() => loadPixelGridVisible(window.localStorage));
+  useEffect(() => {
+    savePixelGridVisible(window.localStorage, pixelGridVisible);
+  }, [pixelGridVisible]);
   const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
@@ -1352,6 +1381,15 @@ function WorkbenchShell({
     onPageNext: () => onSwitchToAdjacentPage('next'),
     onPagePrev: () => onSwitchToAdjacentPage('previous'),
     onOpenShortcuts: () => setShortcutsOpen(true),
+    // Shift+G toggles the FOCUSED screen's own layout grid (spec section 5) -
+    // resolveLayoutGrid supplies the 12/24/32/false default for a screen
+    // that has never been customized, the same fallback the overlay itself
+    // renders with.
+    onToggleLayoutGrid: () => {
+      const focused = screens.find((screen) => screen.id === currentScreenId);
+      onUpdateLayoutGrid(currentScreenId, { visible: !resolveLayoutGrid(focused?.layoutGrid).visible });
+    },
+    onTogglePixelGrid: () => setPixelGridVisible((visible) => !visible),
   });
 
   // Make-room drag placeholder (docs/superpowers/specs/2026-09-12-drop-
@@ -1504,6 +1542,7 @@ function WorkbenchShell({
                 onToggleFrameSelection={toggleFrameSelection}
                 onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
                 onClearFrameSelection={() => setSelectedFrameIds(new Set())}
+                pixelGridVisible={pixelGridVisible}
               />
               {!uiHidden && (
                 <DiagramPalette
@@ -1560,6 +1599,7 @@ function WorkbenchShell({
                 selectedFrameIds={selectedFrameIds}
                 onAlignFrames={onMoveScreens}
                 diagramAlignment={diagramAlignmentContext}
+                onUpdateLayoutGrid={onUpdateLayoutGrid}
               />
             )}
             {!uiHidden && chatOpen && (

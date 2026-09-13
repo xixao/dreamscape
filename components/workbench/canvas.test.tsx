@@ -41,6 +41,7 @@ function Harness({
   onToggleFrameSelection,
   onSetFrameSelection,
   onClearFrameSelection,
+  pixelGridVisible,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -56,6 +57,7 @@ function Harness({
   onToggleFrameSelection?: (id: string) => void;
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
+  pixelGridVisible?: boolean;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
@@ -78,6 +80,7 @@ function Harness({
         onToggleFrameSelection={onToggleFrameSelection}
         onSetFrameSelection={onSetFrameSelection}
         onClearFrameSelection={onClearFrameSelection}
+        pixelGridVisible={pixelGridVisible}
       />
       {extra}
     </CanvasViewportProvider>
@@ -99,6 +102,7 @@ function renderCanvas({
   onToggleFrameSelection,
   onSetFrameSelection,
   onClearFrameSelection,
+  pixelGridVisible,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
@@ -114,6 +118,7 @@ function renderCanvas({
   onToggleFrameSelection?: (id: string) => void;
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
+  pixelGridVisible?: boolean;
 } = {}) {
   return renderInEditor(
     <Harness
@@ -131,6 +136,7 @@ function renderCanvas({
       onToggleFrameSelection={onToggleFrameSelection}
       onSetFrameSelection={onSetFrameSelection}
       onClearFrameSelection={onClearFrameSelection}
+      pixelGridVisible={pixelGridVisible}
     />,
   );
 }
@@ -1069,6 +1075,12 @@ describe('Canvas', () => {
       saveViewport(window.localStorage, 'zoomedout', 'page1', { x: 0, y: 0, zoom: 0.1 });
       renderCanvas({ fileId: 'zoomedout' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      expect(root.style.backgroundImage).toBeFalsy();
+    });
+
+    it('is hidden when pixelGridVisible is false, regardless of zoom', () => {
+      renderCanvas({ pixelGridVisible: false });
       const root = screen.getByTestId('canvas-root');
       expect(root.style.backgroundImage).toBeFalsy();
     });

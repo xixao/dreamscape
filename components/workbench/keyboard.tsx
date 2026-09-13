@@ -153,6 +153,13 @@ export function useWorkbenchKeyboard(
     // overlay shows (components/workbench/shortcuts-overlay.tsx) and the
     // same action the top bar's overflow menu item performs.
     onOpenShortcuts?: () => void;
+    // Shift+G / Cmd+' (spec docs/superpowers/specs/2026-09-13-grid-
+    // snapping-alignment-design.md section 5): toggles the focused screen's
+    // own layout grid, or the canvas's per-browser pixel grid - guarded
+    // like every other bare-letter/Mod-chord shortcut of its own kind (see
+    // each id's own `always` in lib/shortcuts.ts).
+    onToggleLayoutGrid?: () => void;
+    onTogglePixelGrid?: () => void;
   } = {},
 ): void {
   const {
@@ -187,6 +194,8 @@ export function useWorkbenchKeyboard(
     onPageNext,
     onPagePrev,
     onOpenShortcuts,
+    onToggleLayoutGrid,
+    onTogglePixelGrid,
   } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
@@ -355,6 +364,15 @@ export function useWorkbenchKeyboard(
           onOpenShortcuts?.();
           return;
 
+        case 'layout-grid-toggle':
+          onToggleLayoutGrid?.();
+          return;
+
+        case 'pixel-grid-toggle':
+          event.preventDefault();
+          onTogglePixelGrid?.();
+          return;
+
         case 'escape':
           if (commentMode) {
             onExitCommentMode?.();
@@ -445,6 +463,8 @@ export function useWorkbenchKeyboard(
     onPageNext,
     onPagePrev,
     onOpenShortcuts,
+    onToggleLayoutGrid,
+    onTogglePixelGrid,
     canvasDocument,
   ]);
 }

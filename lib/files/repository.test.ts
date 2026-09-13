@@ -417,6 +417,28 @@ describe('files repository', () => {
       expect(JSON.parse(after!.screens![0].layout)).toEqual(JSON.parse(LOGIN_SCREEN_JSON));
     });
 
+    it('round-trips a screen\'s layoutGrid through save and get', async () => {
+      const created = await repo.create();
+      const layoutGrid = { columns: 6, gutter: 16, margin: 40, visible: true };
+
+      await repo.save(created.id, { screens: [screen({ id: created.screens![0].id, layoutGrid })] });
+
+      const after = await repo.get(created.id);
+      expect(after?.screens?.[0].layoutGrid).toEqual(layoutGrid);
+    });
+
+    it('rejects an invalid layoutGrid and changes nothing', async () => {
+      const created = await repo.create();
+
+      const result = await repo.save(created.id, {
+        screens: [screen({ id: created.screens![0].id, layoutGrid: { columns: 0, gutter: 16, margin: 40, visible: true } })],
+      });
+
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      const after = await repo.get(created.id);
+      expect(after?.screens?.[0].layoutGrid).toBeUndefined();
+    });
+
     it('replaces the whole screens array, including adding or removing screens', async () => {
       const created = await repo.create();
 

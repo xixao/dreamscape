@@ -32,6 +32,7 @@ import {
   DEFAULT_STAGE_COMMENTS,
   type StageCommentsProps,
 } from "./comments/comment-layer";
+import { LayoutGridOverlay, resolveLayoutGrid } from "./layout-grid";
 import type { CanvasDocument } from "./stage-context";
 import { StageProvider, useStage } from './stage-context';
 
@@ -363,14 +364,27 @@ function StageImpl({
     comments.onPlacePin(point.x, point.y, anchorNodeId);
   }
 
-  // Memoized so CanvasFrame's own `children` prop stays referentially
-  // stable across a viewport-only re-render of this component (StageImpl's
-  // own body re-runs on every pan/zoom tick - see the comment on it above -
-  // so an inline `<Frame .../>` literal here would otherwise be a brand
-  // new element every tick, which would defeat CanvasFrame's memoization
-  // (canvas-frame.tsx) just as surely as an unstable prop would, even
-  // though the props visible to CanvasFrame itself never changed).
-  const frameChildren = useMemo(() => <Frame key={screen.id} data={screen.layout} />, [screen.id, screen.layout]);
+  // Memoized as ONE combined value (not two separate ones each interpolated
+  // as its own `{...}` in the JSX below) so CanvasFrame's own `children`
+  // prop stays referentially stable across a viewport-only re-render of
+  // this component (StageImpl's own body re-runs on every pan/zoom tick -
+  // see the comment on it above). Two sibling `{a}{b}` expressions inside
+  // <CanvasFrame> would make React build a brand new `[a, b]` array for
+  // `children` on every such render even when `a`/`b` are themselves each
+  // individually memoized - a plain JS array literal is never `===` to the
+  // previous render's own, which defeats CanvasFrame's memoization
+  // (canvas-frame.tsx) just as surely as an unstable child element would;
+  // wrapping both in one Fragment and memoizing THAT is what actually
+  // fixes it - canvas-preview-memoization.test.tsx catches this specifically.
+  const frameChildren = useMemo(
+    () => (
+      <>
+        <Frame key={screen.id} data={screen.layout} />
+        <LayoutGridOverlay grid={resolveLayoutGrid(screen.layoutGrid)} />
+      </>
+    ),
+    [screen.id, screen.layout, screen.layoutGrid],
+  );
 
   return (
     <div
@@ -574,23 +588,14 @@ function FramePreviewImpl({
     onFrameWheel,
   ]);
 
-  return (
-    <div
-      data-testid="artboard-preview"
-      className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
-      style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
-      onPointerDown={(event) => {
-        event.preventDefault();
-        onFocusScreen(screen.id);
-      }}
-    >
-      <CanvasFrame
-        width={screen.stageWidth}
-        height={screen.stageHeight ?? null}
-        zoom={1}
-        reportDocument={false}
-        onCanvasDocument={setFrameDocument}
-      >
+  // Same reasoning as Stage's own frameChildren above: this component is
+  // already outer-memoized (`export const FramePreview = memo(...)` below),
+  // so a pure viewport tick never re-runs this function body at all - but a
+  // genuine re-render for an unrelated screen change should still hand
+  // CanvasFrame ONE stable children value, not a fresh `[a, b]` array.
+  const previewChildren = useMemo(
+    () => (
+      <>
         {/* Every block resolves its responsive breakpoint through useStage(),
             and the nearest provider above a preview used to be the
             workbench-level one, whose width is the FOCUSED frame's - so a
@@ -613,6 +618,30 @@ function FramePreviewImpl({
             <Frame data={screen.layout} />
           </Editor>
         </StageProvider>
+        <LayoutGridOverlay grid={resolveLayoutGrid(screen.layoutGrid)} />
+      </>
+    ),
+    [screen.stageWidth, screen.stageHeight, screen.deviceName, screen.layout, screen.layoutGrid],
+  );
+
+  return (
+    <div
+      data-testid="artboard-preview"
+      className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+      style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onFocusScreen(screen.id);
+      }}
+    >
+      <CanvasFrame
+        width={screen.stageWidth}
+        height={screen.stageHeight ?? null}
+        zoom={1}
+        reportDocument={false}
+        onCanvasDocument={setFrameDocument}
+      >
+        {previewChildren}
       </CanvasFrame>
     </div>
   );

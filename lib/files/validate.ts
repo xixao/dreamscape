@@ -177,6 +177,28 @@ export type OverlayPresentationInput = Record<string, unknown>;
 // feature has both null; components/workbench/workbench.tsx runs
 // lib/files/layout.ts's layoutMissingPositions over the file's screens on
 // load to fill them in before the canvas ever renders one.
+// A frame's layout grid overlay (spec docs/superpowers/specs/2026-09-13-
+// grid-snapping-alignment-design.md section 5), like Figma's own per-frame
+// layout grids: columns evenly spaced by `gutter` px, inset `margin` px
+// from each edge, shown when `visible`. Optional on Screen (undefined, not
+// a stored default) - components/workbench/layout-grid.tsx's own
+// DEFAULT_LAYOUT_GRID (12 / 24 / 32 / false) is what a screen with none
+// renders as, the same "default lives at the read site, not in storage"
+// convention stageHeight/deviceName already use.
+export type LayoutGrid = { columns: number; gutter: number; margin: number; visible: boolean };
+
+// A file holds several of these (files.screens, migration 0002). `layout` is
+// the JSON string form here and everywhere in the API and repository; only
+// the database stores it parsed, inside the screens jsonb column (see
+// toStoredScreen/toApiScreens in lib/files/repository.ts).
+//
+// `x`/`y` are the frame's position on the infinite canvas (spec
+// docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 5):
+// canvas-space integer px, both present or both null together - never one
+// without the other (validateScreens enforces this). A screen predating this
+// feature has both null; components/workbench/workbench.tsx runs
+// lib/files/layout.ts's layoutMissingPositions over the file's screens on
+// load to fill them in before the canvas ever renders one.
 export type Screen = {
   id: string;
   name: string;
@@ -206,6 +228,7 @@ export type Screen = {
   // overlay defaults (createOverlayScreen).
   kind?: ScreenKind;
   presentation?: OverlayPresentation;
+  layoutGrid?: LayoutGrid;
 };
 
 // The shape validateScreens accepts: a screen as given by a caller (the API
@@ -224,6 +247,7 @@ export type ScreenInput = {
   pageId?: string;
   kind?: string;
   presentation?: OverlayPresentationInput;
+  layoutGrid?: LayoutGrid;
 };
 
 export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: false; reason: string };
@@ -231,6 +255,35 @@ export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: fals
 const SCREEN_NAME_MAX = 80;
 const SCREEN_ID_LENGTH = 10;
 const DEVICE_NAME_MAX = 80;
+const LAYOUT_GRID_COLUMNS_MAX = 24;
+const LAYOUT_GRID_GUTTER_MAX = 200;
+const LAYOUT_GRID_MARGIN_MAX = 400;
+
+/** All four fields are required together when `layoutGrid` is present at all - there is no per-field default at this layer (see the LayoutGrid type's own doc comment for where the actual 12/24/32/false defaults live). */
+function validateLayoutGrid(screenName: string, grid: LayoutGrid): { ok: true } | { ok: false; reason: string } {
+  if (!Number.isInteger(grid.columns) || grid.columns < 1 || grid.columns > LAYOUT_GRID_COLUMNS_MAX) {
+    return {
+      ok: false,
+      reason: `screen "${screenName}" layoutGrid columns must be an integer between 1 and ${LAYOUT_GRID_COLUMNS_MAX}`,
+    };
+  }
+  if (!Number.isInteger(grid.gutter) || grid.gutter < 0 || grid.gutter > LAYOUT_GRID_GUTTER_MAX) {
+    return {
+      ok: false,
+      reason: `screen "${screenName}" layoutGrid gutter must be an integer between 0 and ${LAYOUT_GRID_GUTTER_MAX}`,
+    };
+  }
+  if (!Number.isInteger(grid.margin) || grid.margin < 0 || grid.margin > LAYOUT_GRID_MARGIN_MAX) {
+    return {
+      ok: false,
+      reason: `screen "${screenName}" layoutGrid margin must be an integer between 0 and ${LAYOUT_GRID_MARGIN_MAX}`,
+    };
+  }
+  if (typeof grid.visible !== 'boolean') {
+    return { ok: false, reason: `screen "${screenName}" layoutGrid visible must be a boolean` };
+  }
+  return { ok: true };
+}
 
 // A file holds several pages (files.pages, migration 0003), each an ordered
 // `{ id, name }` - see the module comment on Screen.pageId above for how the
@@ -474,6 +527,11 @@ export function validateScreens(
       return { ok: false, reason: `screen "${name}" has a presentation but is not an overlay` };
     }
 
+    if (raw.layoutGrid !== undefined) {
+      const validatedGrid = validateLayoutGrid(name, raw.layoutGrid);
+      if (!validatedGrid.ok) return { ok: false, reason: validatedGrid.reason };
+    }
+
     screens.push({
       id: raw.id,
       name,
@@ -486,6 +544,7 @@ export function validateScreens(
       pageId: raw.pageId,
       ...(kind !== undefined ? { kind: kind as ScreenKind } : {}),
       ...(presentation !== undefined ? { presentation } : {}),
+      layoutGrid: raw.layoutGrid,
     });
   }
 

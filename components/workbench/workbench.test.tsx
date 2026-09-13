@@ -728,6 +728,47 @@ describe('Workbench', () => {
     });
   });
 
+  describe('layout grid / pixel grid', () => {
+    it('Shift+G toggles the focused screen\'s layout grid on and saves it', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.keyDown(window, { key: 'g', shiftKey: true });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as {
+        screens: Array<{ layoutGrid?: { columns: number; gutter: number; margin: number; visible: boolean } }>;
+      };
+      // Defaults (12/24/32) apply the first time a screen's grid is toggled.
+      expect(body.screens[0].layoutGrid).toEqual({ columns: 12, gutter: 24, margin: 32, visible: true });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Shift+G is ignored while typing', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name' }), { key: 'g', shiftKey: true });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('Cmd+\' hides the canvas pixel grid without saving anything, and shows it again', async () => {
+      render(<Workbench file={makeFile()} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      expect(root.style.backgroundImage).toContain('radial-gradient');
+
+      fireEvent.keyDown(window, { key: "'", metaKey: true });
+      expect(root.style.backgroundImage).toBeFalsy();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "'", metaKey: true });
+      expect(root.style.backgroundImage).toContain('radial-gradient');
+    });
+  });
+
   describe('device presets', () => {
     it('choosing a device from the top bar queues a save with stageWidth, stageHeight and deviceName', async () => {
       render(<Workbench file={makeFile()} />);

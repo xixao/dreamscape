@@ -36,6 +36,8 @@ type KeysOptions = {
   onPresent?: () => void;
   onAddScreen?: () => void;
   onOpenShortcuts?: () => void;
+  onToggleLayoutGrid?: () => void;
+  onTogglePixelGrid?: () => void;
 };
 
 function Keys({
@@ -67,6 +69,8 @@ function Keys({
   onPresent,
   onAddScreen,
   onOpenShortcuts,
+  onToggleLayoutGrid,
+  onTogglePixelGrid,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -97,6 +101,8 @@ function Keys({
     onPresent,
     onAddScreen,
     onOpenShortcuts,
+  onToggleLayoutGrid,
+  onTogglePixelGrid,
   });
   return (
     <>
@@ -1141,5 +1147,37 @@ describe('useWorkbenchKeyboard onOpenShortcuts', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: '?', shiftKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard layout grid / pixel grid toggles', () => {
+  it('calls onToggleLayoutGrid for Shift+G', async () => {
+    const onToggleLayoutGrid = vi.fn();
+    mount({ onToggleLayoutGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'g', shiftKey: true });
+    expect(onToggleLayoutGrid).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores Shift+G while typing', async () => {
+    const onToggleLayoutGrid = vi.fn();
+    mount({ onToggleLayoutGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'g', shiftKey: true });
+    expect(onToggleLayoutGrid).not.toHaveBeenCalled();
+  });
+
+  it('calls onTogglePixelGrid for Cmd+\' or Ctrl+\', even while typing', async () => {
+    const onTogglePixelGrid = vi.fn();
+    mount({ onTogglePixelGrid });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: "'", metaKey: true });
+    expect(onTogglePixelGrid).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: "'", ctrlKey: true });
+    expect(onTogglePixelGrid).toHaveBeenCalledTimes(2);
   });
 });

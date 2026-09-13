@@ -117,6 +117,19 @@ const screenField = z.object({
   // the repository (see stampMissingPageId in lib/files/repository.ts)
   // rather than being rejected for a merely absent field.
   pageId: z.string().min(1).optional(),
+  // The frame's layout grid overlay (spec docs/superpowers/specs/2026-09-
+  // 13-grid-snapping-alignment-design.md section 5): shape only here - the
+  // range checks on columns/gutter/margin and the boolean check on visible
+  // live in validateScreens (lib/files/validate.ts), same split every other
+  // content rule already has one level down from this zod check.
+  layoutGrid: z
+    .object({
+      columns: z.number().int(),
+      gutter: z.number().int(),
+      margin: z.number().int(),
+      visible: z.boolean(),
+    })
+    .optional(),
 });
 
 const screensField = z.array(screenField).min(1).max(50);

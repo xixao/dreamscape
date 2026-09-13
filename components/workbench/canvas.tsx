@@ -308,8 +308,13 @@ export function useCanvasViewportController({
 const GRID_FADE_ZOOM = 0.25;
 const GRID_SPACING = 8;
 
-function dotGridStyle(viewport: Viewport): CSSProperties {
-  if (viewport.zoom < GRID_FADE_ZOOM) return {};
+// `visible` is the pixel grid's own per-browser toggle (spec docs/
+// superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section 5,
+// Cmd+', lib/canvas/pixel-grid-store.ts) - defaults to true so every
+// existing caller/test that predates the toggle keeps seeing exactly what
+// the canvas always showed.
+function dotGridStyle(viewport: Viewport, visible: boolean): CSSProperties {
+  if (!visible || viewport.zoom < GRID_FADE_ZOOM) return {};
   const spacing = GRID_SPACING * viewport.zoom;
   return {
     backgroundImage: 'radial-gradient(circle, var(--line-soft) 1px, transparent 0)',
@@ -386,6 +391,7 @@ export function Canvas({
   onToggleFrameSelection = noop,
   onSetFrameSelection = noopIds,
   onClearFrameSelection = noop,
+  pixelGridVisible = true,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -422,6 +428,11 @@ export function Canvas({
   // just where the resulting id list lands.
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
+  // The canvas's own pixel grid (spec section 5, Cmd+', lib/canvas/pixel-
+  // grid-store.ts) - a per-browser toggle owned by WorkbenchShell, not
+  // canvas.tsx itself, the same split every other per-browser UI flag here
+  // already has (chatOpen, panelMode, ...).
+  pixelGridVisible?: boolean;
 }) {
   const { actions } = useEditor();
   const setStageZoom = useStage().setZoom;
@@ -892,7 +903,7 @@ export function Canvas({
         spaceDown && !panning && 'cursor-grab',
         panning && 'cursor-grabbing',
       )}
-      style={dotGridStyle(viewport)}
+      style={dotGridStyle(viewport, pixelGridVisible)}
       onPointerDown={handleRootPointerDown}
       onPointerMove={handleRootPointerMove}
       onPointerUp={(event) => {

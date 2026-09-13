@@ -99,6 +99,20 @@ describe('Stage', () => {
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
   });
 
+  it('renders the layout grid overlay inside the iframe when the screen has one visible', async () => {
+    const withGrid: Screen = { ...SCREEN_1, layoutGrid: { columns: 6, gutter: 16, margin: 24, visible: true } };
+    renderInEditor(<Stage screen={withGrid} viewport={IDENTITY_VIEWPORT} />);
+    const body = await frameBody();
+    const overlay = within(body).getByTestId('layout-grid');
+    expect(overlay.children).toHaveLength(6);
+  });
+
+  it('renders no layout grid overlay when the screen has none (defaults to hidden)', async () => {
+    renderInEditor(<Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} />);
+    const body = await frameBody();
+    expect(within(body).queryByTestId('layout-grid')).toBeNull();
+  });
+
   it('sizes the artboard in plain unscaled px regardless of the current zoom (the ancestor canvas layer scales it)', () => {
     renderInEditor(
       <>
@@ -418,6 +432,13 @@ describe('FramePreview', () => {
     expect(screen.queryByRole('separator')).toBeNull();
     const body = await previewFrameBody();
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
+  });
+
+  it('also renders the layout grid overlay when the screen has one visible', async () => {
+    const withGrid: Screen = { ...SCREEN_1, layoutGrid: { columns: 4, gutter: 8, margin: 16, visible: true } };
+    renderInEditor(<FramePreview screen={withGrid} onFocusScreen={vi.fn()} {...noPanProps()} />);
+    const body = await previewFrameBody();
+    expect(within(body).getByTestId('layout-grid').children).toHaveLength(4);
   });
 
   it('sizes to the screen\'s own stageHeight when set, else ARTBOARD_MIN_HEIGHT', () => {
