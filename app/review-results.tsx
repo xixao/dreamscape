@@ -1,6 +1,6 @@
 "use client";
 import { Button } from "@/components/ui/button";
-import type { Workspace } from "@/lib/model";
+import type { Workspace, Session } from "@/lib/model";
 import { Flag, RotateCcw, ArrowRight, Download } from "lucide-react";
 import { Empty } from "@/components/ui/empty";
 import SessionSignals from "./session-signals";
@@ -10,11 +10,13 @@ export default function ReviewResults({
   loaded,
   refresh,
   onCreateTest,
+  onReviewEvidence,
 }: {
   data: Workspace;
   loaded: boolean;
   refresh: () => Promise<unknown>;
   onCreateTest: () => void;
+  onReviewEvidence: (session: Session) => void;
 }) {
   return (
     <main className="wide-view">
@@ -99,6 +101,14 @@ export default function ReviewResults({
               </div>
               <SessionSignals session={s} />
               {s.feedback && <blockquote>{s.feedback}</blockquote>}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onReviewEvidence(s)}
+              >
+                Review this evidence
+                <ArrowRight size={14} />
+              </Button>
             </article>
           ))}
         </div>

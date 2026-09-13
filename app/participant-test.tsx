@@ -130,6 +130,7 @@ export default function ParticipantTest({
           className: "fuego-toast",
           icon: <span className="magic-fire">🔥</span>,
           position: "bottom-center",
+          duration: 1800,
         });
     } catch (e) {
       setError((e as Error).message);
@@ -198,7 +199,7 @@ export default function ParticipantTest({
             <Flag size={18} aria-hidden="true" />
             <div className="tester-task-copy">
               <h1 ref={heading} tabIndex={-1}>
-                Your task
+                Participant test · Your task
               </h1>
               <p id="active-test-task">{settings.task}</p>
               <details className="tester-instructions" open>

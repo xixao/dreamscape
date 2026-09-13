@@ -1,5 +1,31 @@
 # Flow Review: A five-minute demo
 
+## Presentation focus
+
+Keep the mock designer introduction brief. Flow Review's contribution is the
+connection between a version, an observed test session, feedback, and a proposed
+change that the designer controls.
+
+1. Enter **Review & Test**, show the failed state, and add an anchored comment.
+2. Use **Set up test** and a preset to prepare a version-pinned test. Review the
+   settings before creating the link. Try it, complete or abandon it, and add
+   feedback. Clearly identify presenter-run sessions as rehearsal data.
+3. Open **Test results > Review this evidence**. The evidence panel shows the
+   recorded outcome, unavailable-control attempts, and version-level comments.
+4. Select **Review recovery**, inspect the suggestion, and **Apply changes**.
+   The evidence panel collapses to leave room for the suggestion. The saved
+   version note includes the source version and session ID.
+5. Retest the new saved version, then **Back to design**. Do not claim that one
+   successful rehearsal proves an improvement or production readiness.
+
+Device, focus, zoom, and comment-visibility controls are under **View options**.
+Theme, presentation, notification preferences, comparison, and handoff export are
+under **Workspace options**. Presets fill prompts without sending; Tab or the
+completion control accepts the suggested remainder. The AI remains scripted.
+
+The evidence panel is an in-session aid; its expanded state and selection are not
+persisted across reloads. The saved revision note retains the evidence reference.
+
 ## The scenario
 
 The designer created one document uploader, not a full mortgage application. It uses a fictional, preselected PDF and three states: ready, failed, complete. It does not accept real files or personal mortgage information.
@@ -53,7 +79,7 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## A connection Matt can build against
 
-The prototype exports a versioned JSON handoff from **Checks**. Its stable component ID is `document-uploader`; its error anchor is `upload-error`.
+The prototype exports a versioned JSON handoff from **Workspace options > Export handoff**. Its stable component ID is `document-uploader`; its error anchor is `upload-error`.
 
 For an integration, an adapter should provide the rendered component, stable element IDs, explicit states, supported edit fields, version metadata, and named interaction events. The first supported edits are text, retry availability, and an error announcement flag. Avoid treating arbitrary generated HTML or an embedded URL as an instrumented app.
 
@@ -63,6 +89,12 @@ The central contract lives in `lib/model.ts`; the demonstrator lives in `app/dem
 
 Build the app and apply the generated local migration, then start the built Worker with `npm start -- --port 5186`. Run the focused API checks with `node tests/api.mjs http://localhost:5186`. They use a dedicated local test identity and do not seed demo feedback into the owner's workspace. The development server intentionally strips injected identity headers, so run these tests against the built Worker only.
 
-82 API requests and their payload assertions passed, including all five test cohorts, custom setup persistence, scenario validation, successful-upload and recovery completion paths, access checks, reactions, revision pinning, consent, event sequencing, link revocation, interaction isolation, and rating/comment/Fuego persistence. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
+96 API assertions and their payload checks passed. TypeScript, scoped lint,
+structure/domain checks, and the production build passed. The September 12 local
+browser rehearsal covered prompt completion, scripted setup, full-page success,
+component recovery, shared-link abandonment, ratings/Fuego/comments, review
+comments and likes, evidence-linked saving, presentation, zoom/Fit, and returning
+to the saved design. Mobile participant bounds had no horizontal document
+overflow. Physical Mac trackpad and assistive-technology testing remain open.
 
 WebMCP preview-state tools are feature-detected. Unsupported browsers ignore them. This is optional integration groundwork, not a requirement to use the prototype. No supported WebMCP execution context was available for contract validation, so those tools are not yet verified.

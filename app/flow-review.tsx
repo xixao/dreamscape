@@ -57,7 +57,15 @@ import {
   Scan,
   ZoomIn,
   ZoomOut,
+  MoreHorizontal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import EvidenceTrail, { type EvidenceContext } from "./evidence-trail";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -185,6 +193,8 @@ export default function FlowReview() {
     () => false,
   );
   const [presentation, setPresentation] = useState(false);
+  const [viewOptions, setViewOptions] = useState(false);
+  const [evidence, setEvidence] = useState<EvidenceContext | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [focus, setFocus] = useState<PreviewFocus>("page");
   const [zoom, setZoom] = useState<number | "fit">("fit");
@@ -358,6 +368,7 @@ export default function FlowReview() {
   }
   function chooseRevision(next: Revision) {
     if (dirty || mutationPending.current) return;
+    setEvidence(null);
     if (aiTimer.current) clearTimeout(aiTimer.current);
     setShareUrl("");
     setReadyTest(null);
@@ -413,9 +424,12 @@ export default function FlowReview() {
   async function applyFix() {
     const saved = await save(
       { ...draft, ...improvement },
-      "Scripted assistant: clearer error, retry action, and alert announcement.",
+      evidence
+        ? `Recovery change from v${evidence.source.number}; evidence session ${evidence.session.id}. Human review required.`
+        : "Scripted assistant: clearer error, retry action, and alert announcement.",
     );
     if (saved) {
+      if (evidence) setEvidence({ ...evidence, updated: saved });
       setState("failed");
       setAssistant("applied");
       setReply(recoveryAgent.applied);
@@ -600,21 +614,67 @@ export default function FlowReview() {
             Homepath <span className="dot">/</span> Document upload
           </span>
           <span className="badge amber">Scripted demo</span>
-          <IconButton
-            label={dark ? "Use light mode" : "Use dark mode"}
-            onClick={() => setTheme(dark ? "light" : "dark")}
-          >
-            {dark ? <Sun size={17} /> : <Moon size={17} />}
-          </IconButton>
-          <IconButton label="Present component" onClick={startPresentation}>
-            <Presentation size={17} />
-          </IconButton>
-          <IconButton
-            label="Notifications"
-            onClick={() => setDialog("notifications")}
-          >
-            <Bell size={17} />
-          </IconButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Workspace options"
+                title="Workspace options"
+              >
+                <MoreHorizontal size={19} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => setTheme(dark ? "light" : "dark")}
+              >
+                {dark ? <Sun /> : <Moon />}
+                {dark ? "Use light mode" : "Use dark mode"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={startPresentation}>
+                <Presentation />
+                Present component
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDialog("notifications")}>
+                <Bell />
+                Notifications
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!previous}
+                onSelect={() => {
+                  setCompare(!compare);
+                  setViewport("desktop");
+                  setView("review");
+                }}
+              >
+                <GitCompareArrows />
+                {compare ? "Stop comparing" : "Compare versions"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  download(
+                    "flow-review-handoff.json",
+                    JSON.stringify(
+                      createHandoff(
+                        revision,
+                        draft,
+                        data.comments,
+                        currentChecks,
+                        DEMO_IDS.upload,
+                        scenarioStates,
+                      ),
+                      null,
+                      2,
+                    ),
+                  )
+                }
+              >
+                <Download />
+                Export handoff
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             onClick={() => {
@@ -658,11 +718,21 @@ export default function FlowReview() {
         )}
         <div className="workspace-heading">
           <div>
-            <p className="eyebrow">REVIEW WORKSPACE</p>
+            <p className="eyebrow">
+              DESIGN REVIEW · {audienceNames[audience].toUpperCase()}
+            </p>
             <h1>Document upload</h1>
             <p>
               Recovery flow <span className="dot">·</span> v{revision.number}
               {dirty ? " · Unsaved draft" : " · Saved version"}
+              {" · "}
+              {
+                data.sessions.filter(
+                  (s) =>
+                    s.revisionId === revision.id && s.outcome !== "started",
+                ).length
+              }{" "}
+              finished tests · Human review required
             </p>
           </div>
           <div className="heading-actions">
@@ -819,8 +889,39 @@ export default function FlowReview() {
                       <RotateCcw size={15} />
                     </IconButton>
                     <span className={`status-dot ${playing ? "live" : ""}`} />
-                    <span>{playing ? "Live preview" : "Paused"}</span>
+                    <span>{playing ? "Preview" : "Paused"}</span>
                   </div>
+                  <div className="stage-primary-actions">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setPanel("feedback");
+                        setView("review");
+                        setAnnotations(true);
+                        if (presentation) exitPresentation();
+                      }}
+                    >
+                      <MessageSquare size={15} />
+                      Comment
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={viewOptions}
+                      aria-controls="preview-options"
+                      onClick={() => setViewOptions(!viewOptions)}
+                    >
+                      <Settings2 size={15} />
+                      View options
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  id="preview-options"
+                  className="preview-options"
+                  hidden={!viewOptions}
+                >
                   <div className="flex items-center gap-1">
                     <IconButton
                       label="Desktop"
@@ -859,158 +960,160 @@ export default function FlowReview() {
                       </IconButton>
                     )}
                   </div>
-                </div>
-                <div className="inspection-toolbar">
-                  {viewport !== "desktop" && (
-                    <>
-                      <Select
-                        value={phoneModel}
-                        onValueChange={(value) => {
-                          setPhoneModel(value);
-                          setZoom("fit");
-                        }}
-                      >
-                        <SelectTrigger aria-label="Phone model">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="iphone">iPhone</SelectItem>
-                          <SelectItem value="duo">iPhone Duo</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {phoneModel === "duo" && (
-                        <div
-                          className="fold-controls"
-                          role="group"
-                          aria-label="Phone posture"
+                  <div className="inspection-toolbar">
+                    {viewport !== "desktop" && (
+                      <>
+                        <Select
+                          value={phoneModel}
+                          onValueChange={(value) => {
+                            setPhoneModel(value);
+                            setZoom("fit");
+                          }}
                         >
-                          <Button
-                            size="sm"
-                            variant={phoneUnfolded ? "ghost" : "secondary"}
-                            aria-pressed={!phoneUnfolded}
-                            onClick={() => {
-                              setPhoneUnfolded(false);
-                              setZoom("fit");
-                            }}
+                          <SelectTrigger aria-label="Phone model">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="iphone">iPhone</SelectItem>
+                            <SelectItem value="duo">iPhone Duo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {phoneModel === "duo" && (
+                          <div
+                            className="fold-controls"
+                            role="group"
+                            aria-label="Phone posture"
                           >
-                            Folded
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={phoneUnfolded ? "secondary" : "ghost"}
-                            aria-pressed={phoneUnfolded}
-                            onClick={() => {
-                              setPhoneUnfolded(true);
-                              setZoom("fit");
-                            }}
-                          >
-                            Unfolded
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  <Select
-                    value={focus}
-                    onValueChange={(value) => {
-                      setFocus(value as PreviewFocus);
-                      setZoom("fit");
-                      if (value === "error") setState("failed");
-                    }}
-                  >
-                    <SelectTrigger aria-label="Preview focus">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="page">Full page</SelectItem>
-                      <SelectItem value="component">Component only</SelectItem>
-                      <SelectItem value="error">Error message</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="zoom-controls">
-                    <IconButton
-                      label="Zoom out"
-                      disabled={zoom !== "fit" && zoom <= 0.15}
-                      onClick={() =>
-                        setZoom(
-                          Math.max(
-                            0.15,
-                            (zoom === "fit" ? renderedScale.current : zoom) -
-                              0.25,
-                          ),
-                        )
-                      }
-                    >
-                      <ZoomOut size={17} />
-                    </IconButton>
+                            <Button
+                              size="sm"
+                              variant={phoneUnfolded ? "ghost" : "secondary"}
+                              aria-pressed={!phoneUnfolded}
+                              onClick={() => {
+                                setPhoneUnfolded(false);
+                                setZoom("fit");
+                              }}
+                            >
+                              Folded
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={phoneUnfolded ? "secondary" : "ghost"}
+                              aria-pressed={phoneUnfolded}
+                              onClick={() => {
+                                setPhoneUnfolded(true);
+                                setZoom("fit");
+                              }}
+                            >
+                              Unfolded
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
                     <Select
-                      value={String(zoom)}
+                      value={focus}
                       onValueChange={(value) => {
-                        setZoom(value === "fit" ? "fit" : Number(value));
-                        if (value === "fit") setCanvasReset((n) => n + 1);
+                        setFocus(value as PreviewFocus);
+                        setZoom("fit");
+                        if (value === "error") setState("failed");
                       }}
                     >
-                      <SelectTrigger aria-label="Preview zoom">
-                        <SelectValue>
-                          {zoom === "fit"
-                            ? "Fit"
-                            : `${Math.round(zoom * 100)}%`}
-                        </SelectValue>
+                      <SelectTrigger aria-label="Preview focus">
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="fit">Fit</SelectItem>
-                        {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3].map(
-                          (z) => (
-                            <SelectItem value={String(z)} key={z}>
-                              {Math.round(z * 100)}%
-                            </SelectItem>
-                          ),
-                        )}
+                        <SelectItem value="page">Full page</SelectItem>
+                        <SelectItem value="component">
+                          Component only
+                        </SelectItem>
+                        <SelectItem value="error">Error message</SelectItem>
                       </SelectContent>
                     </Select>
-                    <IconButton
-                      label="Zoom in"
-                      disabled={zoom !== "fit" && zoom >= 3}
-                      onClick={() =>
-                        setZoom(
-                          Math.min(
-                            3,
-                            (zoom === "fit" ? renderedScale.current : zoom) +
-                              0.25,
-                          ),
-                        )
-                      }
-                    >
-                      <ZoomIn size={17} />
-                    </IconButton>
-                    <IconButton
-                      label="Fit preview"
-                      onClick={() => {
-                        setZoom("fit");
-                        setCanvasReset((n) => n + 1);
-                      }}
-                    >
-                      <Scan size={17} />
-                    </IconButton>
+                    <div className="zoom-controls">
+                      <IconButton
+                        label="Zoom out"
+                        disabled={zoom !== "fit" && zoom <= 0.15}
+                        onClick={() =>
+                          setZoom(
+                            Math.max(
+                              0.15,
+                              (zoom === "fit" ? renderedScale.current : zoom) -
+                                0.25,
+                            ),
+                          )
+                        }
+                      >
+                        <ZoomOut size={17} />
+                      </IconButton>
+                      <Select
+                        value={String(zoom)}
+                        onValueChange={(value) => {
+                          setZoom(value === "fit" ? "fit" : Number(value));
+                          if (value === "fit") setCanvasReset((n) => n + 1);
+                        }}
+                      >
+                        <SelectTrigger aria-label="Preview zoom">
+                          <SelectValue>
+                            {zoom === "fit"
+                              ? "Fit"
+                              : `${Math.round(zoom * 100)}%`}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fit">Fit</SelectItem>
+                          {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3].map(
+                            (z) => (
+                              <SelectItem value={String(z)} key={z}>
+                                {Math.round(z * 100)}%
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <IconButton
+                        label="Zoom in"
+                        disabled={zoom !== "fit" && zoom >= 3}
+                        onClick={() =>
+                          setZoom(
+                            Math.min(
+                              3,
+                              (zoom === "fit" ? renderedScale.current : zoom) +
+                                0.25,
+                            ),
+                          )
+                        }
+                      >
+                        <ZoomIn size={17} />
+                      </IconButton>
+                      <IconButton
+                        label="Fit preview"
+                        onClick={() => {
+                          setZoom("fit");
+                          setCanvasReset((n) => n + 1);
+                        }}
+                      >
+                        <Scan size={17} />
+                      </IconButton>
+                    </div>
+                    {!participant && (
+                      <IconButton
+                        label={
+                          feedbackVisible
+                            ? "Hide feedback notifications"
+                            : "Show feedback notifications"
+                        }
+                        active={feedbackVisible}
+                        disabled={!data.preferences.comments}
+                        onClick={() => setShowFeedback(!showFeedback)}
+                      >
+                        {feedbackVisible ? (
+                          <Bell size={17} />
+                        ) : (
+                          <BellOff size={17} />
+                        )}
+                      </IconButton>
+                    )}
                   </div>
-                  {!participant && (
-                    <IconButton
-                      label={
-                        feedbackVisible
-                          ? "Hide feedback notifications"
-                          : "Show feedback notifications"
-                      }
-                      active={feedbackVisible}
-                      disabled={!data.preferences.comments}
-                      onClick={() => setShowFeedback(!showFeedback)}
-                    >
-                      {feedbackVisible ? (
-                        <Bell size={17} />
-                      ) : (
-                        <BellOff size={17} />
-                      )}
-                    </IconButton>
-                  )}
                 </div>
                 <div
                   className={`stage-body ${feedbackVisible ? "with-feedback" : ""}`}
@@ -1192,6 +1295,20 @@ export default function FlowReview() {
                 <aside
                   className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
                 >
+                  {evidence && (
+                    <EvidenceTrail
+                      key={evidence.session.id}
+                      evidence={evidence}
+                      comments={data.comments}
+                      busy={busy || dirty}
+                      onClose={() => setEvidence(null)}
+                      onReview={inspect}
+                      onVersion={(r) => {
+                        chooseRevision(r);
+                        setEvidence(evidence);
+                      }}
+                    />
+                  )}
                   <Tabs value={panel} onValueChange={setPanel}>
                     <TabsList className="inspector-tabs" variant="line">
                       {isDesigner && (
@@ -1250,7 +1367,7 @@ export default function FlowReview() {
                           {assistant === "proposed" && passed < 3 && (
                             <div className="proposal">
                               <div className="section-heading">
-                                <h3>Proposed change</h3>
+                                <h3>Suggested change</h3>
                                 <span className="badge">3 edits</span>
                               </div>
                               <div className="copy-diff">
@@ -1377,9 +1494,7 @@ export default function FlowReview() {
                       <div className="panel-section">
                         <div className="section-heading">
                           <h3>Readiness checks</h3>
-                          <span className="badge green">
-                            {passed}/3 configured
-                          </span>
+                          <span className="badge">{passed}/3 configured</span>
                         </div>
                         {currentChecks.map((c) => (
                           <div className="check-row" key={c.id}>
@@ -1419,47 +1534,12 @@ export default function FlowReview() {
                             out of scope.
                           </p>
                         </div>
-                        <Button
-                          className="w-full"
-                          variant="outline"
-                          onClick={() =>
-                            download(
-                              "flow-review-handoff.json",
-                              JSON.stringify(
-                                createHandoff(
-                                  revision,
-                                  draft,
-                                  data.comments,
-                                  currentChecks,
-                                  DEMO_IDS.upload,
-                                  scenarioStates,
-                                ),
-                                null,
-                                2,
-                              ),
-                            )
-                          }
-                        >
-                          <Download size={14} />
-                          Export handoff
-                        </Button>
                       </div>
                     </TabsContent>
                     <TabsContent value="history">
                       <div className="panel-section">
                         <div className="section-heading">
                           <h3>Version history</h3>
-                          <IconButton
-                            label="Compare versions"
-                            active={compare}
-                            disabled={!previous}
-                            onClick={() => {
-                              setCompare(!compare);
-                              setViewport("desktop");
-                            }}
-                          >
-                            <GitCompareArrows size={16} />
-                          </IconButton>
                         </div>
                         {data.revisions.map((r) => (
                           <button
@@ -1512,6 +1592,28 @@ export default function FlowReview() {
             data={data}
             loaded={loaded}
             refresh={refresh}
+            onReviewEvidence={(session) => {
+              if (dirty || busy) {
+                toast.error(
+                  "Save or discard your draft before reviewing another version.",
+                );
+                return;
+              }
+              const source = data.revisions.find(
+                (r) => r.id === session.revisionId,
+              );
+              if (!source) return;
+              chooseRevision(source);
+              setEvidence({ session, source });
+              setState(
+                session.events.some((e) => e.type === "upload_attempt")
+                  ? "failed"
+                  : "ready",
+              );
+              setView("review");
+              setPanel("assistant");
+              setAudience("designer");
+            }}
             onCreateTest={() => {
               setShareRole("participant");
               setShareUrl("");

@@ -3,6 +3,77 @@
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
+.preview-options {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  max-height: 240px;
+  overflow: auto;
+}
+.preview-options[hidden] {
+  display: none;
+}
+.preview-options > .flex {
+  padding: 6px 12px;
+}
+.stage-primary-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.evidence-trail {
+  flex-shrink: 0;
+  max-height: 260px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  font-size: 14px;
+}
+.evidence-trail > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.evidence-trail > header button:first-of-type {
+  margin-left: auto;
+}
+.evidence-trail ol {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 14px;
+}
+.evidence-trail li {
+  display: flex;
+  gap: 10px;
+}
+.evidence-trail li > div {
+  min-width: 0;
+}
+.evidence-trail strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.evidence-trail p,
+.evidence-trail blockquote {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.evidence-step {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.evidence-trail > .muted {
+  font-size: 12px;
+}
+
 .guided-prompt {
   min-width: 0;
   display: grid;

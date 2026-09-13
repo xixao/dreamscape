@@ -14,7 +14,7 @@
     "db:generate": "drizzle-kit generate",
     "test:structure": "node tests/structure.mjs",
     "test:api": "node tests/api.mjs http://localhost:5186",
-    "lint:review": "eslint app/flow-review.tsx app/participant-test.tsx app/feedback.tsx app/preview-canvas.tsx app/anchored-comments.tsx app/comment-reactions.tsx app/review-results.tsx app/test-setup-editor.tsx app/session-signals.tsx app/demo app/api lib app/s --max-warnings 0"
+    "lint:review": "eslint app/flow-review.tsx app/evidence-trail.tsx app/participant-test.tsx app/feedback.tsx app/preview-canvas.tsx app/anchored-comments.tsx app/comment-reactions.tsx app/review-results.tsx app/test-setup-editor.tsx app/session-signals.tsx app/demo app/api lib app/s --max-warnings 0"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

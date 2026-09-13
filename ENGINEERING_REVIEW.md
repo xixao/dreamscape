@@ -92,9 +92,18 @@ focus, and presentation overrides are intentional and have not been flattened.
 - Structure/domain checks passed: one stylesheet entry point, no exact duplicate
   CSS blocks, no retired imports, unique/used demo markers, scenario transitions,
   unordered version selection, viewport filtering, and draft-safe handoff data.
-- No browser interaction, screenshot, assistive-technology, real-device, or load
-  testing was performed. Code/API verification does not establish visual or
-  end-to-end browser correctness.
+- The September 12 follow-up included a local browser rehearsal and screenshots:
+  keyboard prompt completion, scripted test preparation, full-page success,
+  component-only recovery and completion, shared-link abandonment, feedback,
+  ratings/Fuego, attributed review comments and likes, evidence-linked version
+  saving, presentation in both themes, zoom/Fit, and return to the saved design.
+  Mobile participant views had no horizontal document overflow. Browser viewport
+  overrides were restored after testing; this is not physical-device validation.
+- Evidence is a collapsible review aid keyed by session. Saved change notes retain
+  source version/session references. It shows version-level comments without
+  asserting they caused the observed behavior, and never marks a change verified.
+- No screen-reader, physical trackpad, real-device, or load testing was performed.
+  This walkthrough is not a comprehensive automated browser regression suite.
 
 Repeatable commands: `npm run test:structure`, `npm run lint:review`, and
 `npx tsc --noEmit`. For API tests, build, start the built worker on port 5186,
