@@ -930,7 +930,9 @@ export default function FlowReview() {
             </div>
             {!participant &&
               (view === "build" ? (
-                <aside className="review-panel">
+                <aside
+                  className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
+                >
                   <div className="panel-title">
                     <Settings2 size={17} />
                     <strong>Component properties</strong>
@@ -1031,7 +1033,7 @@ export default function FlowReview() {
                       <TabsTrigger value="history">History</TabsTrigger>
                     </TabsList>
                     {isDesigner && (
-                      <TabsContent value="assistant">
+                      <TabsContent value="assistant" className="assistant-tab">
                         <div className="panel-title">
                           <Sparkles size={16} />
                           <strong>Flow assistant</strong>
@@ -1113,6 +1115,8 @@ export default function FlowReview() {
                               Retest updated flow
                             </Button>
                           )}
+                        </div>
+                        <div className="assistant-composer">
                           <form
                             className="assistant-prompt"
                             onSubmit={(e) => {

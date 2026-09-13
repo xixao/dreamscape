@@ -972,6 +972,46 @@ body {
     display: none;
   }
 }
+.review-panel.assistant-open {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.assistant-open > [data-slot="tabs"] {
+  flex: 1;
+  min-height: 0;
+}
+.assistant-open .inspector-tabs,
+.assistant-tab > .panel-title {
+  flex-shrink: 0;
+}
+.assistant-open .assistant-tab[data-state="active"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.assistant-tab .assistant-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assistant-composer {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+.assistant-composer .assistant-prompt {
+  margin-top: 0;
+}
+@media (max-width: 850px) {
+  .review-panel.assistant-open {
+    height: min(640px, 80dvh);
+    min-height: 360px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
