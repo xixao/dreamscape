@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getDb } from '@/db/client';
+import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS } from '@/lib/diagram/store';
 import { createFilesRepository } from './repository';
 
 export async function getRepository() {
@@ -16,6 +17,45 @@ const nameField = z.string().trim().min(1).max(120).optional();
 // ("move to the top level").
 const folderIdField = z.string().nullable().optional();
 
+// Shape only, for one edge endpoint's `{ nodeId | screenId, side? }` (spec
+// docs/superpowers/specs/2026-09-13-diagrams-design.md section 2) - the
+// "exactly one of nodeId/screenId, and a real side" content rule lives in
+// validateDiagram (lib/files/validate.ts), same split as everything below.
+const diagramEndpointField = z.object({
+  nodeId: z.string().min(1).optional(),
+  screenId: z.string().min(1).optional(),
+  side: z.enum(['top', 'right', 'bottom', 'left']).optional(),
+});
+
+const diagramNodeField = z.object({
+  id: z.string().min(1),
+  kind: z.enum(NODE_KINDS),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  text: z.string(),
+  color: z.enum(DIAGRAM_COLORS),
+});
+
+const diagramEdgeField = z.object({
+  id: z.string().min(1),
+  source: diagramEndpointField,
+  target: diagramEndpointField,
+  kind: z.enum(CONNECTOR_KINDS),
+  arrow: z.enum(ARROW_KINDS),
+  label: z.string().optional(),
+});
+
+// Shape only: a page's diagram is an optional `{ nodes, edges }` (spec
+// section 2) - ids unique, positive sizes, known kinds/colors and an edge's
+// node references are validateDiagram's own content rules, called from
+// validatePages (lib/files/validate.ts).
+const diagramField = z.object({
+  nodes: z.array(diagramNodeField).max(500),
+  edges: z.array(diagramEdgeField).max(1000),
+});
+
 // Shape only: id/name types, nothing about content. The content rules (ids
 // unique and exactly 10 characters, names trimmed to 1..80, at least one
 // page) live in validatePages (lib/files/validate.ts), called from the
@@ -23,6 +63,7 @@ const folderIdField = z.string().nullable().optional();
 const pageField = z.object({
   id: z.string().min(1),
   name: z.string(),
+  diagram: diagramField.optional(),
 });
 
 const pagesField = z.array(pageField).min(1).max(50);

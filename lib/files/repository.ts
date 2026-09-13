@@ -7,7 +7,7 @@ import { files, folders } from '@/db/schema';
 // repository is loaded from a plain server module such as a files API
 // route handler (see known-types.ts for the full explanation).
 import { KNOWN_TYPES, defaultScreen } from '@/components/blocks/known-types';
-import { validatePages, validateScreens, type Page, type Screen } from './validate';
+import { validateDiagramReferences, validatePages, validateScreens, type Page, type Screen } from './validate';
 
 // Re-exported so callers only need to know about lib/files/repository.ts,
 // the file-level domain module - Screen/Page themselves live in validate.ts
@@ -254,6 +254,15 @@ export function createFilesRepository(db: Db) {
       throw new Error(`Cannot create a file: ${validatedScreens.reason}.`);
     }
 
+    // Only now, with both slices validated on their own terms, can a
+    // diagram edge's screenId endpoint be checked against the screens that
+    // actually exist on its own page (see validateDiagram's own doc comment
+    // in lib/files/validate.ts for why this cannot happen any earlier).
+    const diagramReferences = validateDiagramReferences(validatedPages.pages, validatedScreens.screens);
+    if (!diagramReferences.ok) {
+      throw new Error(`Cannot create a file: ${diagramReferences.reason}.`);
+    }
+
     // A folderId that names no existing folder is rejected by the
     // files.folder_id foreign key at insert time (thrown as a plain
     // error), the same way invalid pages/screens are rejected just above:
@@ -311,6 +320,12 @@ export function createFilesRepository(db: Db) {
       );
       const validatedScreens = validateScreens(screensInput, KNOWN_TYPES, pageIds);
       if (!validatedScreens.ok) return { ok: false, invalid: validatedScreens.reason };
+
+      // Same cross-check as create() above, and for the same reason: only
+      // possible once this patch's pages and screens have each already
+      // validated on their own.
+      const diagramReferences = validateDiagramReferences(validatedPages.pages, validatedScreens.screens);
+      if (!diagramReferences.ok) return { ok: false, invalid: diagramReferences.reason };
 
       patch.pages = validatedPages.pages;
       patch.screens = validatedScreens.screens.map(toStoredScreen);

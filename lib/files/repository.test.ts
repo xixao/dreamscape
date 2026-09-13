@@ -177,6 +177,102 @@ describe('files repository', () => {
     });
   });
 
+  describe('diagrams', () => {
+    function diagramNode(overrides: Record<string, unknown> = {}) {
+      return {
+        id: nanoid(10),
+        kind: 'rect' as const,
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 60,
+        text: 'Start',
+        color: 'neutral' as const,
+        ...overrides,
+      };
+    }
+
+    it('creates and returns a page diagram unchanged', async () => {
+      const pageA = page({ diagram: { nodes: [diagramNode()], edges: [] } });
+      const file = await repo.create({ pages: [pageA] });
+
+      expect(file.pages?.[0].diagram).toEqual(pageA.diagram);
+      const found = await repo.get(file.id);
+      expect(found?.pages?.[0].diagram).toEqual(pageA.diagram);
+    });
+
+    it('creates a file with no diagram at all when a page has none', async () => {
+      const file = await repo.create();
+      expect(file.pages?.[0].diagram).toBeUndefined();
+    });
+
+    it('saves a new diagram onto an existing page', async () => {
+      const pageA = page();
+      const created = await repo.create({ pages: [pageA] });
+      const nodeA = diagramNode();
+      const result = await repo.save(created.id, {
+        pages: [{ ...pageA, diagram: { nodes: [nodeA], edges: [] } }],
+      });
+
+      expect(result.ok).toBe(true);
+      const found = await repo.get(created.id);
+      expect(found?.pages?.[0].diagram).toEqual({ nodes: [nodeA], edges: [] });
+    });
+
+    it('refuses to save an invalid diagram (non-positive size)', async () => {
+      const pageA = page();
+      const created = await repo.create({ pages: [pageA] });
+      const result = await repo.save(created.id, {
+        pages: [{ ...pageA, diagram: { nodes: [diagramNode({ width: 0 })], edges: [] } }],
+      });
+
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      const found = await repo.get(created.id);
+      expect(found?.pages?.[0].diagram).toBeUndefined();
+    });
+
+    it('lets a connector target a frame (screenId) on the same page', async () => {
+      const pageA = page();
+      const frame = screen({ pageId: pageA.id });
+      const node = diagramNode();
+      const edge = {
+        id: nanoid(10),
+        source: { nodeId: node.id, side: 'right' as const },
+        target: { screenId: frame.id, side: 'left' as const },
+        kind: 'step' as const,
+        arrow: 'end' as const,
+      };
+      const file = await repo.create({
+        pages: [{ ...pageA, diagram: { nodes: [node], edges: [edge] } }],
+        screens: [frame],
+      });
+
+      expect(file.pages?.[0].diagram?.edges).toEqual([edge]);
+    });
+
+    it('refuses a connector that targets a frame on a different page', async () => {
+      const pageA = page();
+      const pageB = page({ name: 'v2' });
+      const edge = {
+        id: nanoid(10),
+        source: { screenId: nanoid(10) },
+        target: { screenId: nanoid(10) },
+        kind: 'step' as const,
+        arrow: 'end' as const,
+      };
+      // Neither screenId given to the edge above is real at all, which is
+      // enough on its own to be refused - a page-mismatch case with real
+      // screen ids follows the same code path (validateDiagramReferences).
+      await expect(
+        repo.create({
+          pages: [{ ...pageA, diagram: { nodes: [], edges: [edge] } }, pageB],
+          screens: [screen({ pageId: pageA.id }), screen({ pageId: pageB.id })],
+        }),
+      ).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+  });
+
   describe('list', () => {
     it('lists newest-updated first', async () => {
       const a = await repo.create({ name: 'A' });

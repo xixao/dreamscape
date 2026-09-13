@@ -156,6 +156,37 @@ describe('files API route handlers', () => {
       expect(body.file.screens.find((s) => s.id === 'bbbbbbbbbb')?.pageId).toBe('page000002');
     });
 
+    it('creates a page diagram and returns it round-tripped, GET included', async () => {
+      const diagram = {
+        nodes: [
+          { id: 'node0000001', kind: 'terminal', x: 0, y: 0, width: 100, height: 40, text: 'Start', color: 'green' },
+          { id: 'node0000002', kind: 'rect', x: 200, y: 0, width: 120, height: 60, text: 'Step', color: 'neutral' },
+        ],
+        edges: [
+          {
+            id: 'edge0000001',
+            source: { nodeId: 'node0000001', side: 'right' },
+            target: { nodeId: 'node0000002', side: 'left' },
+            kind: 'step',
+            arrow: 'end',
+            label: 'go',
+          },
+        ],
+      };
+
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', { pages: [{ id: 'page000001', name: 'Page 1', diagram }] }),
+      );
+      const body = (await readBody(response)) as { file: { id: string; pages: Array<{ diagram?: unknown }> } };
+
+      expect(response.status).toBe(201);
+      expect(body.file.pages[0].diagram).toEqual(diagram);
+
+      const getResponse = await GET_FILE(new Request(`http://x/api/files/${body.file.id}`), withId(body.file.id));
+      const getBody = (await readBody(getResponse)) as { file: { pages: Array<{ diagram?: unknown }> } };
+      expect(getBody.file.pages[0].diagram).toEqual(diagram);
+    });
+
     // Matches the existing behavior for every other content-validation
     // failure on this path (a duplicate screen id, an invalid layout, ...):
     // create() throws rather than returning a typed invalid result (see the
@@ -437,6 +468,48 @@ describe('files API route handlers', () => {
       const stored = await repository.get(file.id);
       expect(stored?.pages).toEqual([{ id: 'page000001', name: 'Page 1' }]);
       expect(stored?.screens?.map((s) => s.name)).toEqual(['Keep']);
+    });
+
+    it('saves and returns a page diagram unchanged', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({ pages: [{ id: 'page000001', name: 'Page 1' }] });
+      const diagram = {
+        nodes: [
+          { id: 'node0000001', kind: 'decision', x: 40, y: 40, width: 120, height: 60, text: 'OK?', color: 'blue' },
+        ],
+        edges: [],
+      };
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          pages: [{ id: 'page000001', name: 'Page 1', diagram }],
+        }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      const stored = await repository.get(file.id);
+      expect(stored?.pages?.[0].diagram).toEqual(diagram);
+    });
+
+    it('rejects a diagram with a non-positive size as 400 and changes nothing', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({ pages: [{ id: 'page000001', name: 'Page 1' }] });
+      const badDiagram = {
+        nodes: [{ id: 'node0000001', kind: 'rect', x: 0, y: 0, width: 0, height: 60, text: '', color: 'neutral' }],
+        edges: [],
+      };
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          pages: [{ id: 'page000001', name: 'Page 1', diagram: badDiagram }],
+        }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(400);
+      const stored = await repository.get(file.id);
+      expect(stored?.pages?.[0].diagram).toBeUndefined();
     });
 
     it('returns 400 when deleting a page without also removing its screens', async () => {

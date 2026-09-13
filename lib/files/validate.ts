@@ -1,4 +1,18 @@
 import { snapToSpacing } from '@/lib/classes';
+import {
+  ARROW_KINDS,
+  CONNECTOR_KINDS,
+  DIAGRAM_COLORS,
+  MAX_TEXT_LENGTH as DIAGRAM_TEXT_MAX,
+  NODE_KINDS,
+  type ArrowKind,
+  type ConnectorKind,
+  type DiagramColor,
+  type DiagramData,
+  type DiagramNodeKind,
+  type EdgeEndpoint,
+  type Side,
+} from '@/lib/diagram/store';
 import { clampWidth } from '@/lib/stage';
 
 type SerializedNodeLike = { type?: { resolvedName?: string } | string };
@@ -164,11 +178,13 @@ const DEVICE_NAME_MAX = 80;
 
 // A file holds several pages (files.pages, migration 0003), each an ordered
 // `{ id, name }` - see the module comment on Screen.pageId above for how the
-// two connect. Deliberately the same shape for input and output (unlike
-// Screen/ScreenInput): a page has no nested content of its own to
-// normalize into a different representation, just an id and a trimmed name.
-export type Page = { id: string; name: string };
-export type PageInput = { id: string; name: string };
+// two connect. `diagram` (spec docs/superpowers/specs/2026-09-13-diagrams-
+// design.md section 2) is the page's own flow chart, living next to its
+// screens rather than inside any one of them - optional, so a file saved
+// before diagrams existed (or a page nobody has drawn on) keeps working
+// with no migration needed.
+export type Page = { id: string; name: string; diagram?: DiagramData };
+export type PageInput = { id: string; name: string; diagram?: DiagramInput };
 export type ValidatePagesResult = { ok: true; pages: Page[] } | { ok: false; reason: string };
 
 const PAGE_NAME_MAX = 80;
@@ -180,7 +196,17 @@ const PAGE_ID_LENGTH = 10;
  * this app uses), names trimmed to 1..80 characters, and at least one page
  * present - which is also, by construction, the entire enforcement of "the
  * last page cannot be deleted": a patch that would leave zero pages simply
- * never validates.
+ * never validates. A page's own `diagram`, when present, is validated
+ * through validateDiagram below and the failure reason is prefixed with the
+ * page's name, same as validateScreens already does for a screen's layout.
+ * validateDiagram only checks a diagram's OWN internal consistency (node
+ * ids, positive sizes, known kinds/colors, an edge's node references); it
+ * has no way to know which screens belong to this same page (screens are
+ * validated separately, and pages are validated before them - see
+ * lib/files/repository.ts), so a screenId edge endpoint is only checked
+ * here as "look like an id", not "names a real screen on this page" -
+ * validateDiagramReferences below is the cross-check for that, composed by
+ * the repository once both pages and screens are known.
  */
 export function validatePages(input: PageInput[]): ValidatePagesResult {
   if (input.length < 1) {
@@ -204,7 +230,16 @@ export function validatePages(input: PageInput[]): ValidatePagesResult {
       return { ok: false, reason: `page name must be between 1 and ${PAGE_NAME_MAX} characters` };
     }
 
-    pages.push({ id: raw.id, name });
+    let diagram: DiagramData | undefined;
+    if (raw.diagram !== undefined) {
+      const validatedDiagram = validateDiagram(raw.diagram);
+      if (!validatedDiagram.ok) {
+        return { ok: false, reason: `page "${name}" ${validatedDiagram.reason}` };
+      }
+      diagram = validatedDiagram.diagram;
+    }
+
+    pages.push({ id: raw.id, name, ...(diagram !== undefined ? { diagram } : {}) });
   }
 
   return { ok: true, pages };
@@ -316,4 +351,174 @@ export function hasRootNode(json: string): boolean {
   } catch {
     return false;
   }
+}
+
+// --- Diagrams (spec docs/superpowers/specs/2026-09-13-diagrams-design.md) ---
+
+// The shape validateDiagram accepts: loose primitive types only (zod, in
+// lib/files/http.ts, checks this much before validateDiagram ever runs) -
+// the content rules (unique ids, positive sizes, known kinds/colors, an
+// edge's endpoints) live here, the same split every other content rule in
+// this module already has one level below its own zod shape check.
+export type DiagramEdgeEndpointInput = { nodeId?: string; screenId?: string; side?: string };
+export type DiagramNodeInput = {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+  color: string;
+};
+export type DiagramEdgeInput = {
+  id: string;
+  source: DiagramEdgeEndpointInput;
+  target: DiagramEdgeEndpointInput;
+  kind: string;
+  arrow: string;
+  label?: string;
+};
+export type DiagramInput = { nodes: DiagramNodeInput[]; edges: DiagramEdgeInput[] };
+export type ValidateDiagramResult = { ok: true; diagram: DiagramData } | { ok: false; reason: string };
+
+const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
+
+function isKnownSide(side: string | undefined): side is Side | undefined {
+  return side === undefined || (SIDES as readonly string[]).includes(side);
+}
+
+// Exactly one of nodeId/screenId, never both or neither (spec section 2:
+// "source: { nodeId | screenId, side? }") and, when given, a real side.
+function isWellFormedEndpoint(endpoint: DiagramEdgeEndpointInput): boolean {
+  const hasNode = typeof endpoint.nodeId === 'string' && endpoint.nodeId.length > 0;
+  const hasScreen = typeof endpoint.screenId === 'string' && endpoint.screenId.length > 0;
+  if (hasNode === hasScreen) return false;
+  return isKnownSide(endpoint.side);
+}
+
+function toEndpoint(endpoint: DiagramEdgeEndpointInput): EdgeEndpoint {
+  return {
+    ...(endpoint.nodeId !== undefined ? { nodeId: endpoint.nodeId } : {}),
+    ...(endpoint.screenId !== undefined ? { screenId: endpoint.screenId } : {}),
+    ...(endpoint.side !== undefined ? { side: endpoint.side as Side } : {}),
+  };
+}
+
+/**
+ * Validates one page's diagram (lib/diagram/geometry.ts and store.ts hold
+ * the actual maths and reducer this data feeds): every node and edge id
+ * unique across BOTH collections together (the editor looks an id up by
+ * plain string, e.g. store.ts's setText/setKind - a node and an edge must
+ * never share one), every node's kind/color from their own enum, every
+ * node's size positive, every node's text and every edge's label at most
+ * 500 characters (spec: "text up to 500 chars"), every edge's endpoint
+ * exactly one of a nodeId or a screenId with a real side when given, an
+ * edge whose nodeId endpoint(s) reference a node that actually exists in
+ * THIS diagram, and every edge's own kind/arrow from their own enum. See
+ * the module comment on validatePages above for why a screenId endpoint is
+ * only shape-checked here, not cross-referenced against real screens.
+ */
+export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
+  const seenIds = new Set<string>();
+  const nodeIds = new Set(input.nodes.map((node) => node.id));
+
+  for (const node of input.nodes) {
+    if (seenIds.has(node.id)) return { ok: false, reason: `diagram id "${node.id}" is used more than once` };
+    seenIds.add(node.id);
+
+    if (!(NODE_KINDS as readonly string[]).includes(node.kind)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an unknown kind "${node.kind}"` };
+    }
+    if (!(DIAGRAM_COLORS as readonly string[]).includes(node.color)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an unknown color "${node.color}"` };
+    }
+    if (!(node.width > 0) || !(node.height > 0)) {
+      return { ok: false, reason: `diagram node "${node.id}" must have a positive width and height` };
+    }
+    if (node.text.length > DIAGRAM_TEXT_MAX) {
+      return { ok: false, reason: `diagram node "${node.id}" text is longer than ${DIAGRAM_TEXT_MAX} characters` };
+    }
+  }
+
+  for (const edge of input.edges) {
+    if (seenIds.has(edge.id)) return { ok: false, reason: `diagram id "${edge.id}" is used more than once` };
+    seenIds.add(edge.id);
+
+    if (!isWellFormedEndpoint(edge.source) || !isWellFormedEndpoint(edge.target)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" has an invalid source or target` };
+    }
+    if (edge.source.nodeId && !nodeIds.has(edge.source.nodeId)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" source references a node that does not exist` };
+    }
+    if (edge.target.nodeId && !nodeIds.has(edge.target.nodeId)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" target references a node that does not exist` };
+    }
+    if (!(CONNECTOR_KINDS as readonly string[]).includes(edge.kind)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" has an unknown kind "${edge.kind}"` };
+    }
+    if (!(ARROW_KINDS as readonly string[]).includes(edge.arrow)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" has an unknown arrow "${edge.arrow}"` };
+    }
+    if (edge.label !== undefined && edge.label.length > DIAGRAM_TEXT_MAX) {
+      return { ok: false, reason: `diagram edge "${edge.id}" label is longer than ${DIAGRAM_TEXT_MAX} characters` };
+    }
+  }
+
+  return {
+    ok: true,
+    diagram: {
+      nodes: input.nodes.map((node) => ({
+        ...node,
+        kind: node.kind as DiagramNodeKind,
+        color: node.color as DiagramColor,
+      })),
+      edges: input.edges.map((edge) => ({
+        ...edge,
+        source: toEndpoint(edge.source),
+        target: toEndpoint(edge.target),
+        kind: edge.kind as ConnectorKind,
+        arrow: edge.arrow as ArrowKind,
+      })),
+    },
+  };
+}
+
+/**
+ * The cross-check validatePages cannot do on its own (see its own doc
+ * comment above): every diagram edge whose source or target names a
+ * screenId must name a screen that both exists and belongs to that same
+ * page. Composed by the repository (lib/files/repository.ts) right after
+ * both validatePages and validateScreens have each already succeeded on
+ * their own slice, since only at that point are a file's pages AND its
+ * screens (with their own pageId) both known.
+ */
+export function validateDiagramReferences(
+  pages: readonly Page[],
+  screens: readonly Screen[],
+): { ok: true } | { ok: false; reason: string } {
+  const screenIdsByPage = new Map<string, Set<string>>();
+  for (const screen of screens) {
+    if (!screen.pageId) continue;
+    const set = screenIdsByPage.get(screen.pageId) ?? new Set<string>();
+    set.add(screen.id);
+    screenIdsByPage.set(screen.pageId, set);
+  }
+
+  for (const page of pages) {
+    if (!page.diagram) continue;
+    const screenIds = screenIdsByPage.get(page.id) ?? new Set<string>();
+    for (const edge of page.diagram.edges) {
+      for (const endpoint of [edge.source, edge.target]) {
+        if (endpoint.screenId && !screenIds.has(endpoint.screenId)) {
+          return {
+            ok: false,
+            reason: `page "${page.name}" diagram edge "${edge.id}" references a screen that is not on this page`,
+          };
+        }
+      }
+    }
+  }
+
+  return { ok: true };
 }

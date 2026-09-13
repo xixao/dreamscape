@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalLayout,
   normalizeLayout,
+  validateDiagram,
+  validateDiagramReferences,
   validateLayout,
   validatePages,
   validateScreens,
+  type DiagramInput,
+  type Page,
   type PageInput,
+  type Screen,
   type ScreenInput,
   hasRootNode,
 } from './validate';
@@ -327,6 +332,41 @@ describe('validatePages', () => {
     const result = validatePages([page({ name: 'x'.repeat(80) })]);
     expect(result.ok).toBe(true);
   });
+
+  describe('diagram', () => {
+    function diagramNode(overrides: Partial<DiagramInput['nodes'][number]> = {}) {
+      return {
+        id: 'node000001',
+        kind: 'rect',
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 60,
+        text: '',
+        color: 'neutral',
+        ...overrides,
+      };
+    }
+
+    it('is absent from the output when a page has none', () => {
+      const result = validatePages([page()]);
+      expect(result).toEqual({ ok: true, pages: [{ id: 'page000001', name: 'Page 1' }] });
+    });
+
+    it('validates and carries through a page\'s diagram', () => {
+      const result = validatePages([page({ diagram: { nodes: [diagramNode()], edges: [] } })]);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.pages[0].diagram).toEqual({ nodes: [diagramNode()], edges: [] });
+    });
+
+    it('rejects a page whose diagram is invalid, naming the page', () => {
+      const result = validatePages([
+        page({ name: 'Flows', diagram: { nodes: [diagramNode({ width: 0 })], edges: [] } }),
+      ]);
+      expect(result).toEqual({ ok: false, reason: expect.stringContaining('Flows') });
+    });
+  });
 });
 
 describe('normalizeLayout', () => {
@@ -406,5 +446,222 @@ describe('hasRootNode', () => {
 
   it('is true when a ROOT node is present', () => {
     expect(hasRootNode(JSON.stringify({ ROOT: { type: { resolvedName: 'LayoutBox' }, nodes: [] } }))).toBe(true);
+  });
+});
+
+describe('validateDiagram', () => {
+  function diagramNode(overrides: Partial<DiagramInput['nodes'][number]> = {}) {
+    return {
+      id: 'node000001',
+      kind: 'rect' as const,
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 60,
+      text: '',
+      color: 'neutral' as const,
+      ...overrides,
+    };
+  }
+
+  function diagramEdge(overrides: Partial<DiagramInput['edges'][number]> = {}) {
+    return {
+      id: 'edge0000001',
+      source: { nodeId: 'node000001', side: 'right' as const },
+      target: { nodeId: 'node000002', side: 'left' as const },
+      kind: 'step' as const,
+      arrow: 'end' as const,
+      ...overrides,
+    };
+  }
+
+  it('accepts an empty diagram', () => {
+    expect(validateDiagram({ nodes: [], edges: [] })).toEqual({ ok: true, diagram: { nodes: [], edges: [] } });
+  });
+
+  it('accepts nodes and a connecting edge', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge()],
+    };
+    const result = validateDiagram(input);
+    expect(result).toEqual({ ok: true, diagram: input });
+  });
+
+  it('rejects a duplicate id shared by two nodes', () => {
+    const result = validateDiagram({
+      nodes: [diagramNode({ id: 'dup0000001' }), diagramNode({ id: 'dup0000001' })],
+      edges: [],
+    });
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects an id shared between a node and an edge', () => {
+    const result = validateDiagram({
+      nodes: [diagramNode({ id: 'shared00001' })],
+      edges: [diagramEdge({ id: 'shared00001', source: { nodeId: 'shared00001', side: 'right' }, target: { screenId: 'screen00001' } })],
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects an unknown node kind', () => {
+    const result = validateDiagram({ nodes: [diagramNode({ kind: 'triangle' as never })], edges: [] });
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects an unknown node color', () => {
+    const result = validateDiagram({ nodes: [diagramNode({ color: 'chartreuse' as never })], edges: [] });
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects a non-positive width or height', () => {
+    expect(validateDiagram({ nodes: [diagramNode({ width: 0 })], edges: [] }).ok).toBe(false);
+    expect(validateDiagram({ nodes: [diagramNode({ height: -10 })], edges: [] }).ok).toBe(false);
+  });
+
+  it('rejects node text over 500 characters', () => {
+    const result = validateDiagram({ nodes: [diagramNode({ text: 'x'.repeat(501) })], edges: [] });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects edge label over 500 characters', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ label: 'x'.repeat(501) })],
+    };
+    expect(validateDiagram(input).ok).toBe(false);
+  });
+
+  it('rejects an edge referencing a node that does not exist', () => {
+    const result = validateDiagram({
+      nodes: [diagramNode({ id: 'node000001' })],
+      edges: [diagramEdge({ target: { nodeId: 'ghost0000001' } })],
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects an edge with neither a nodeId nor a screenId', () => {
+    const input = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ source: {} })],
+    };
+    expect(validateDiagram(input).ok).toBe(false);
+  });
+
+  it('rejects an edge endpoint with both a nodeId and a screenId', () => {
+    const input = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ source: { nodeId: 'node000001', screenId: 'screen00001' } })],
+    };
+    expect(validateDiagram(input).ok).toBe(false);
+  });
+
+  it('rejects an unknown connector kind or arrow', () => {
+    const input = (overrides: Partial<DiagramInput['edges'][number]>): DiagramInput => ({
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge(overrides)],
+    });
+    expect(validateDiagram(input({ kind: 'zigzag' as never })).ok).toBe(false);
+    expect(validateDiagram(input({ arrow: 'sparkles' as never })).ok).toBe(false);
+  });
+
+  it('rejects an unknown side', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ source: { nodeId: 'node000001', side: 'diagonal' as never } })],
+    };
+    expect(validateDiagram(input).ok).toBe(false);
+  });
+
+  it('accepts a screenId endpoint (a connector to a frame)', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' })],
+      edges: [diagramEdge({ target: { screenId: 'screen00001', side: 'left' } })],
+    };
+    expect(validateDiagram(input).ok).toBe(true);
+  });
+});
+
+describe('validateDiagramReferences', () => {
+  function screen(overrides: Partial<Screen> = {}): Screen {
+    return {
+      id: 'screen00001',
+      name: 'Frame 1',
+      layout: '{}',
+      stageWidth: 375,
+      pageId: 'page000001',
+      ...overrides,
+    };
+  }
+
+  function page(overrides: Partial<Page> = {}): Page {
+    return { id: 'page000001', name: 'Page 1', ...overrides };
+  }
+
+  it('passes when there is no diagram at all', () => {
+    expect(validateDiagramReferences([page()], [screen()])).toEqual({ ok: true });
+  });
+
+  it('passes when a diagram edge targets a screen on the same page', () => {
+    const withDiagram = page({
+      diagram: {
+        nodes: [],
+        edges: [
+          {
+            id: 'edge0000001',
+            source: { screenId: 'screen00001' },
+            target: { screenId: 'screen00002' },
+            kind: 'step',
+            arrow: 'end',
+          },
+        ],
+      },
+    });
+    const screens = [screen({ id: 'screen00001' }), screen({ id: 'screen00002' })];
+    expect(validateDiagramReferences([withDiagram], screens)).toEqual({ ok: true });
+  });
+
+  it('rejects a diagram edge that targets a screen belonging to a different page', () => {
+    const withDiagram = page({
+      id: 'page000001',
+      diagram: {
+        nodes: [],
+        edges: [
+          {
+            id: 'edge0000001',
+            source: { screenId: 'screen00001' },
+            target: { screenId: 'screen00002' },
+            kind: 'step',
+            arrow: 'end',
+          },
+        ],
+      },
+    });
+    const otherPage = page({ id: 'page000002', name: 'Page 2' });
+    const screens = [
+      screen({ id: 'screen00001', pageId: 'page000001' }),
+      screen({ id: 'screen00002', pageId: 'page000002' }),
+    ];
+    const result = validateDiagramReferences([withDiagram, otherPage], screens);
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects a diagram edge that targets a screen that does not exist at all', () => {
+    const withDiagram = page({
+      diagram: {
+        nodes: [],
+        edges: [
+          {
+            id: 'edge0000001',
+            source: { screenId: 'screen00001' },
+            target: { screenId: 'ghost0000001' },
+            kind: 'step',
+            arrow: 'end',
+          },
+        ],
+      },
+    });
+    const result = validateDiagramReferences([withDiagram], [screen({ id: 'screen00001' })]);
+    expect(result.ok).toBe(false);
   });
 });
