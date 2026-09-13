@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
@@ -29,25 +29,31 @@ function Harness({
   screens,
   focusedScreenId,
   onFocusScreen,
+  onRenameScreen,
+  onMoveScreen,
   fileId,
   extra,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   fileId: string;
   extra?: ReactNode;
 }) {
-  const { viewport, setViewport, viewportSize, rootRef } = useCanvasViewportController({
+  const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     frames: screens.map(frameRect),
   });
   return (
-    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
       <Canvas
         screens={screens}
         focusedScreenId={focusedScreenId}
         onFocusScreen={onFocusScreen}
+        onRenameScreen={onRenameScreen}
+        onMoveScreen={onMoveScreen}
         comments={DEFAULT_STAGE_COMMENTS}
         rootRef={rootRef}
       />
@@ -60,17 +66,29 @@ function renderCanvas({
   screens = [SCREEN_1],
   focusedScreenId = SCREEN_1.id,
   onFocusScreen = vi.fn(),
+  onRenameScreen = vi.fn(),
+  onMoveScreen = vi.fn(),
   fileId = 'file1',
   extra,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
   onFocusScreen?: (id: string) => void;
+  onRenameScreen?: (id: string, name: string) => void;
+  onMoveScreen?: (id: string, position: { x: number; y: number }) => void;
   fileId?: string;
   extra?: ReactNode;
 } = {}) {
   return renderInEditor(
-    <Harness screens={screens} focusedScreenId={focusedScreenId} onFocusScreen={onFocusScreen} fileId={fileId} extra={extra} />,
+    <Harness
+      screens={screens}
+      focusedScreenId={focusedScreenId}
+      onFocusScreen={onFocusScreen}
+      onRenameScreen={onRenameScreen}
+      onMoveScreen={onMoveScreen}
+      fileId={fileId}
+      extra={extra}
+    />,
   );
 }
 
@@ -141,6 +159,65 @@ describe('Canvas', () => {
     expect(onFocusScreen).not.toHaveBeenCalled();
   });
 
+  describe('frame titles', () => {
+    it('renders a title for every frame, above its top-left corner', async () => {
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2] });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      expect(screen.getByText(SCREEN_1.name)).toBeInTheDocument();
+      expect(screen.getByText(SCREEN_2.name)).toBeInTheDocument();
+    });
+
+    it('dragging the focused frame\'s title calls onMoveScreen for that screen, snapped to 8px', async () => {
+      // Pinned to zoom 1 (rather than relying on renderCanvas's own default
+      // fitAll, which would pick some other zoom for two 400px-wide frames
+      // 800px apart) so the drag delta below maps 1:1 to canvas px.
+      saveViewport(window.localStorage, 'dragtest', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], focusedScreenId: SCREEN_1.id, onMoveScreen, fileId: 'dragtest' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_1.id, { x: 24, y: 0 });
+    });
+
+    it('dragging a non-focused frame\'s title moves it without focusing it', async () => {
+      saveViewport(window.localStorage, 'dragtest2', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreen = vi.fn();
+      const onFocusScreen = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreen,
+        onFocusScreen,
+        fileId: 'dragtest2',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_2.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 8, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_2.id, { x: SCREEN_2.x! + 8, y: SCREEN_2.y! });
+      expect(onFocusScreen).not.toHaveBeenCalled();
+    });
+
+    it('double-clicking a title and pressing Enter calls onRenameScreen for that screen', async () => {
+      const onRenameScreen = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onRenameScreen });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      fireEvent.doubleClick(screen.getByText(SCREEN_1.name));
+      const input = screen.getByRole('textbox', { name: 'Screen name' });
+      fireEvent.change(input, { target: { value: 'Renamed frame' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onRenameScreen).toHaveBeenCalledWith(SCREEN_1.id, 'Renamed frame');
+    });
+  });
+
   describe('CanvasViewportProvider / useCanvasViewport', () => {
     it('throws when used outside the provider', () => {
       function Bad() {
@@ -160,7 +237,12 @@ describe('Canvas', () => {
         );
       }
       render(
-        <CanvasViewportProvider viewport={{ x: 1, y: 2, zoom: 1 }} setViewport={() => {}} viewportSize={{ width: 300, height: 200 }}>
+        <CanvasViewportProvider
+          viewport={{ x: 1, y: 2, zoom: 1 }}
+          setViewport={() => {}}
+          viewportSize={{ width: 300, height: 200 }}
+          animateTo={() => {}}
+        >
           <Probe />
         </CanvasViewportProvider>,
       );
@@ -333,5 +415,104 @@ describe('Canvas', () => {
       const root = screen.getByTestId('canvas-root');
       expect(root.style.backgroundImage).toBeFalsy();
     });
+  });
+});
+
+describe('useCanvasViewportController animateTo', () => {
+  // requestAnimationFrame, fully under this test's control: `flush` invokes
+  // whatever callback(s) are currently pending with a chosen timestamp,
+  // mirroring how a real browser would call back with the frame time -
+  // deterministic without depending on fake-timer/RAF integration details.
+  function mockRaf() {
+    let pending: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', ((cb: FrameRequestCallback) => {
+      pending.push(cb);
+      return pending.length;
+    }) as typeof requestAnimationFrame);
+    return {
+      flush(timestamp: number) {
+        // The callbacks call setState outside of any React-recognized event,
+        // so React does not necessarily commit synchronously afterward -
+        // act() forces the commit before the assertion right after this
+        // returns ever runs.
+        act(() => {
+          const callbacks = pending;
+          pending = [];
+          callbacks.forEach((cb) => cb(timestamp));
+        });
+      },
+    };
+  }
+
+  function AnimationHarness({ fileId = 'animfile' }: { fileId?: string }) {
+    const { viewport, animateTo, setViewport, rootRef } = useCanvasViewportController({ fileId, frames: [] });
+    return (
+      <div ref={rootRef}>
+        <output data-testid="readout">
+          {viewport.x.toFixed(2)},{viewport.y.toFixed(2)},{viewport.zoom.toFixed(3)}
+        </output>
+        <button type="button" onClick={() => animateTo({ x: 100, y: 200, zoom: 2 }, 200)}>
+          animate
+        </button>
+        <button type="button" onClick={() => setViewport((current) => ({ ...current, zoom: 5 }))}>
+          pan
+        </button>
+      </div>
+    );
+  }
+
+  beforeEach(() => {
+    // Every test below uses the same default fileId - without this, a
+    // viewport an earlier test animated to (and so persisted, via the
+    // controller's own save-on-change effect) would leak in as the NEXT
+    // test's starting point instead of the plain {x:0,y:0,zoom:1} default.
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('eases from the current viewport to the exact target over the given duration', () => {
+    const raf = mockRaf();
+    render(<AnimationHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'animate' }));
+
+    raf.flush(1000); // establishes the animation's own start time
+    expect(screen.getByTestId('readout')).toHaveTextContent('0.00,0.00,1.000');
+
+    raf.flush(1100); // 100 of 200ms => t=0.5, ease-out cubic(0.5) = 0.875
+    expect(screen.getByTestId('readout')).toHaveTextContent('87.50,175.00,1.875');
+
+    raf.flush(1200); // 200 of 200ms => t=1, exactly the target
+    expect(screen.getByTestId('readout')).toHaveTextContent('100.00,200.00,2.000');
+  });
+
+  it('stops scheduling frames once it reaches the target', () => {
+    const raf = mockRaf();
+    render(<AnimationHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'animate' }));
+    raf.flush(0);
+    raf.flush(200);
+    expect(screen.getByTestId('readout')).toHaveTextContent('100.00,200.00,2.000');
+
+    raf.flush(300);
+    expect(screen.getByTestId('readout')).toHaveTextContent('100.00,200.00,2.000');
+  });
+
+  it('is cancelled by a direct setViewport call - any pan or zoom input - leaving the viewport where the animation had reached', () => {
+    const raf = mockRaf();
+    render(<AnimationHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'animate' }));
+    raf.flush(0);
+    raf.flush(100); // t=0.5, zoom 1.875
+
+    fireEvent.click(screen.getByRole('button', { name: 'pan' }));
+    expect(screen.getByTestId('readout')).toHaveTextContent('87.50,175.00,5.000');
+
+    // The cancelled animation's own next frame (already scheduled before the
+    // pan) must not overwrite the pan with further eased values.
+    raf.flush(200);
+    expect(screen.getByTestId('readout')).toHaveTextContent('87.50,175.00,5.000');
   });
 });

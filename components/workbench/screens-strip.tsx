@@ -24,9 +24,12 @@ import type { Screen } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
 import { CHIP_INPUT, DANGER_GHOST, SEG_ITEM } from './chrome';
 
-const NAME_MAX = 80;
+// Exported for frame-title.tsx to reuse verbatim (spec: double-clicking a
+// frame title "reuses the screens strip's rename logic and its Enter/Escape
+// rules") rather than re-implementing the same input elsewhere.
+export const NAME_MAX = 80;
 
-function RenameInput({
+export function RenameInput({
   screen,
   onCommit,
   onCancel,

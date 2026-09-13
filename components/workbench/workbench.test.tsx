@@ -477,6 +477,38 @@ describe('Workbench', () => {
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
     });
+
+    // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
+    // section 5: clicking a tab focuses that screen (already covered above)
+    // and also starts animating the viewport to fit it.
+    it('clicking a screens tab starts an animation of the canvas viewport toward that frame', async () => {
+      const pending: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        ((cb: FrameRequestCallback) => {
+          pending.push(cb);
+          return pending.length;
+        }) as typeof requestAnimationFrame,
+      );
+      try {
+        render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+        const transformBefore = screen.getByTestId('canvas-layer').style.transform;
+
+        await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+
+        // The animation only actually moves the viewport once its own rAF
+        // loop is pumped - nothing else in this app calls
+        // requestAnimationFrame, so any callback queued here is animateTo's.
+        expect(pending.length).toBeGreaterThan(0);
+        act(() => {
+          pending.splice(0).forEach((cb) => cb(0));
+          pending.splice(0).forEach((cb) => cb(100));
+        });
+        expect(screen.getByTestId('canvas-layer').style.transform).not.toBe(transformBefore);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   describe('frame positions', () => {

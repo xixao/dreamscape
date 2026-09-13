@@ -32,7 +32,7 @@ function ViewportHarness({
 }) {
   const [viewport, setViewport] = useState(initialViewport);
   return (
-    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={() => {}}>
       {children}
       <output data-testid="viewport-probe">{viewport.zoom}</output>
     </CanvasViewportProvider>

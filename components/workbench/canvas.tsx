@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -21,6 +22,7 @@ import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import type { StageCommentsProps } from './comments/comment-layer';
+import { FrameTitle } from './frame-title';
 import { isEditableTarget } from './keyboard';
 import { FramePreview, Stage } from './stage';
 import { useStage } from './stage-context';
@@ -31,6 +33,11 @@ interface CanvasViewportContextValue {
   viewport: Viewport;
   setViewport: (update: Viewport | ((current: Viewport) => Viewport)) => void;
   viewportSize: ViewportSize;
+  // Eases the viewport to `target` over `durationMs` (spec: clicking a
+  // screens tab animates to fit that frame, 200ms ease-out) - cancelled the
+  // instant anything calls the plain setViewport above instead (any pan or
+  // zoom input), per the spec's "cancelled by any pan/zoom input".
+  animateTo: (target: Viewport, durationMs: number) => void;
 }
 
 const CanvasViewportContext = createContext<CanvasViewportContextValue | null>(null);
@@ -50,11 +57,12 @@ export function CanvasViewportProvider({
   viewport,
   setViewport,
   viewportSize,
+  animateTo,
   children,
 }: CanvasViewportContextValue & { children: ReactNode }) {
   const value = useMemo(
-    () => ({ viewport, setViewport, viewportSize }),
-    [viewport, setViewport, viewportSize],
+    () => ({ viewport, setViewport, viewportSize, animateTo }),
+    [viewport, setViewport, viewportSize, animateTo],
   );
   return <CanvasViewportContext.Provider value={value}>{children}</CanvasViewportContext.Provider>;
 }
@@ -89,6 +97,15 @@ export function frameRect(screen: Screen): FrameRect {
  * Canvas, the top bar's zoom menu, keyboard shortcuts and the layer stack
  * menu alike.
  */
+// Clicking a screens tab animates to fit that frame over this long, eased
+// out (spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
+// section 5's "200 ms ease-out").
+const TAB_FOCUS_ANIMATION_MS = 200;
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
 export function useCanvasViewportController({
   fileId,
   frames,
@@ -100,6 +117,7 @@ export function useCanvasViewportController({
   setViewport: (update: Viewport | ((current: Viewport) => Viewport)) => void;
   viewportSize: ViewportSize;
   rootRef: RefObject<HTMLDivElement | null>;
+  animateTo: (target: Viewport, durationMs?: number) => void;
 } {
   const rootRef = useRef<HTMLDivElement>(null);
   // Frames change constantly (a resize, a rename, a new screen) but the
@@ -116,9 +134,52 @@ export function useCanvasViewportController({
   }, [frames]);
 
   const [initialViewport] = useState(() => loadViewport(window.localStorage, fileId));
-  const [viewport, setViewport] = useState<Viewport>(initialViewport ?? { x: 0, y: 0, zoom: 1 });
+  const [viewport, setViewportState] = useState<Viewport>(initialViewport ?? { x: 0, y: 0, zoom: 1 });
   const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 0, height: 0 });
   const hasFitRef = useRef(initialViewport !== null);
+  const viewportRef = useRef(viewport);
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
+
+  // The in-flight tab-focus animation, if any - a plain mutable token
+  // (rather than state) since cancelling it must never itself trigger a
+  // render; `cancelled` is read by the animation's own rAF loop (animateTo,
+  // below) and set by the public setViewport (any direct pan/zoom input
+  // cancels whatever animation is running - spec: "cancelled by any pan/
+  // zoom input").
+  const animationRef = useRef<{ cancelled: boolean } | null>(null);
+
+  const setViewport = useCallback((update: Viewport | ((current: Viewport) => Viewport)) => {
+    if (animationRef.current) animationRef.current.cancelled = true;
+    setViewportState(update);
+  }, []);
+
+  const animateTo = useCallback((target: Viewport, durationMs: number = TAB_FOCUS_ANIMATION_MS) => {
+    const token = { cancelled: false };
+    animationRef.current = token;
+    const from = viewportRef.current;
+    let startTime: number | null = null;
+    function tick(timestamp: number) {
+      if (token.cancelled) return;
+      if (startTime === null) startTime = timestamp;
+      const t = durationMs <= 0 ? 1 : Math.min(1, (timestamp - startTime) / durationMs);
+      const eased = easeOutCubic(t);
+      // The internal setter, deliberately not the public setViewport above:
+      // the animation's own frames must never cancel themselves.
+      setViewportState({
+        x: from.x + (target.x - from.x) * eased,
+        y: from.y + (target.y - from.y) * eased,
+        zoom: from.zoom + (target.zoom - from.zoom) * eased,
+      });
+      if (t < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        animationRef.current = null;
+      }
+    }
+    requestAnimationFrame(tick);
+  }, []);
 
   // Measures the root's own size once (and on every resize); the very first
   // measurement also supplies the default viewport (fit every frame) when
@@ -142,7 +203,7 @@ export function useCanvasViewportController({
       // measure yet" case.
       if (!hasFitRef.current && size.width > 0 && size.height > 0) {
         hasFitRef.current = true;
-        setViewport(fitAll(framesRef.current, size));
+        setViewportState(fitAll(framesRef.current, size));
       }
     }
     update();
@@ -156,7 +217,7 @@ export function useCanvasViewportController({
     saveViewport(window.localStorage, fileId, viewport);
   }, [fileId, viewport]);
 
-  return { viewport, setViewport, viewportSize, rootRef };
+  return { viewport, setViewport, viewportSize, rootRef, animateTo };
 }
 
 // The dot grid fades out below this zoom (spec section 3) - dots that close
@@ -198,12 +259,16 @@ export function Canvas({
   screens,
   focusedScreenId,
   onFocusScreen,
+  onRenameScreen,
+  onMoveScreen,
   comments,
   rootRef,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   comments: StageCommentsProps;
   rootRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -437,20 +502,30 @@ export function Canvas({
           transformOrigin: '0 0',
         }}
       >
-        {screens.map((screen) => (
-          <div
-            key={screen.id}
-            data-frame
-            data-testid={`frame-${screen.id}`}
-            style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
-          >
-            {screen.id === focusedScreenId ? (
-              <Stage screen={screen} viewport={viewport} comments={comments} />
-            ) : (
-              <FramePreview screen={screen} onFocus={() => onFocusScreen(screen.id)} />
-            )}
-          </div>
-        ))}
+        {screens.map((screen) => {
+          const focused = screen.id === focusedScreenId;
+          return (
+            <div
+              key={screen.id}
+              data-frame
+              data-testid={`frame-${screen.id}`}
+              style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
+            >
+              <FrameTitle
+                screen={screen}
+                focused={focused}
+                zoom={viewport.zoom}
+                onRename={(name) => onRenameScreen(screen.id, name)}
+                onMove={(position) => onMoveScreen(screen.id, position)}
+              />
+              {focused ? (
+                <Stage screen={screen} viewport={viewport} comments={comments} />
+              ) : (
+                <FramePreview screen={screen} onFocus={() => onFocusScreen(screen.id)} />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

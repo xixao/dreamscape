@@ -292,6 +292,17 @@ export function Workbench({
     queuePatch({ screens: next });
   }
 
+  // Dragging a frame's title (components/workbench/frame-title.tsx) moves
+  // it - saved through this same path (spec docs/superpowers/specs/2026-09-
+  // 12-infinite-canvas-design.md section 6: "saves x, y through the existing
+  // save path"), debounced exactly like every other screen edit.
+  function moveScreen(id: string, position: { x: number; y: number }): void {
+    const next = screens.map((screen) => (screen.id === id ? { ...screen, x: position.x, y: position.y } : screen));
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
   function duplicateScreen(id: string): void {
     const index = screens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
@@ -431,6 +442,7 @@ export function Workbench({
           onSelectScreen={switchScreen}
           onAddScreen={addScreen}
           onRenameScreen={renameScreen}
+          onMoveScreen={moveScreen}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
         />
@@ -451,6 +463,7 @@ function WorkbenchShell({
   onSelectScreen,
   onAddScreen,
   onRenameScreen,
+  onMoveScreen,
   onDuplicateScreen,
   onDeleteScreen,
 }: {
@@ -465,6 +478,7 @@ function WorkbenchShell({
   onSelectScreen: (id: string) => void;
   onAddScreen: () => void;
   onRenameScreen: (id: string, name: string) => void;
+  onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
 }) {
@@ -500,10 +514,24 @@ function WorkbenchShell({
   // same instance can be shared - through CanvasViewportProvider, below -
   // with the top bar's zoom menu and the keyboard shortcuts wired just
   // after this, neither of which is a descendant of Canvas.
-  const { viewport, setViewport, viewportSize, rootRef } = useCanvasViewportController({
+  const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     frames: screens.map(frameRect),
   });
+
+  // Clicking a screens tab still switches the focused screen (onSelectScreen,
+  // from Workbench) and also animates the viewport to fit that frame (spec:
+  // "200 ms ease-out, cancelled by any pan/zoom input") - wrapping it here
+  // rather than in Workbench itself, since the viewport this animates is
+  // owned by this component, one level below where switchScreen lives.
+  // Deliberately NOT used for Canvas's own onFocusScreen (clicking a frame
+  // directly on the canvas): the user is already looking at that frame, so
+  // fitting it could jump the view somewhere they did not ask for.
+  function handleSelectScreenTab(id: string): void {
+    onSelectScreen(id);
+    const target = screens.find((screen) => screen.id === id);
+    if (target) animateTo(zoomToRect(frameRect(target), viewportSize, SELECTION_ZOOM_PADDING));
+  }
 
   // Shift+2: zooms to the selected layer's own bounds when something is
   // selected, else the focused frame's bounds - the DOM node's
@@ -682,7 +710,7 @@ function WorkbenchShell({
   return (
     <ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
-        <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize}>
+        <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           {/*
             No longer a grid (spec section 4): the canvas fills the window
             and every other piece of chrome floats above it, positioned by
@@ -717,6 +745,8 @@ function WorkbenchShell({
                 screens={screens}
                 focusedScreenId={currentScreenId}
                 onFocusScreen={onSelectScreen}
+                onRenameScreen={onRenameScreen}
+                onMoveScreen={onMoveScreen}
                 comments={commentsProps}
                 rootRef={rootRef}
               />
@@ -725,7 +755,7 @@ function WorkbenchShell({
                   <ScreensStrip
                     screens={screens}
                     currentScreenId={currentScreenId}
-                    onSelect={onSelectScreen}
+                    onSelect={handleSelectScreenTab}
                     onAdd={onAddScreen}
                     onRename={onRenameScreen}
                     onDuplicate={onDuplicateScreen}
