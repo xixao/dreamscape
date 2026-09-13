@@ -22,8 +22,21 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.closest(POPUP_SELECTOR) !== null;
 }
 
-export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}): void {
-  const { onToggleUi } = options;
+export function useWorkbenchKeyboard(
+  options: {
+    onToggleUi?: () => void;
+    // Comment tool (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+    // section 5): `onToggleCommentMode` fires on a bare "c"; `commentMode`
+    // tells Escape whether to leave the tool (via `onExitCommentMode`)
+    // instead of its usual deselect. The toggle logic itself lives with
+    // whoever owns the `commentMode` state (WorkbenchShell), same as
+    // `onToggleUi` never owns `uiHidden` itself.
+    onToggleCommentMode?: () => void;
+    commentMode?: boolean;
+    onExitCommentMode?: () => void;
+  } = {},
+): void {
+  const { onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode } = options;
   const { actions, query } = useEditor();
 
   useEffect(() => {
@@ -50,7 +63,18 @@ export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}):
         return;
       }
 
+      // Bare "c" only - Cmd/Ctrl+C stays the browser/OS copy shortcut.
+      if (!modifier && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        onToggleCommentMode?.();
+        return;
+      }
+
       if (event.key === 'Escape') {
+        if (commentMode) {
+          onExitCommentMode?.();
+          return;
+        }
         actions.selectNode();
         return;
       }
@@ -71,5 +95,5 @@ export function useWorkbenchKeyboard(options: { onToggleUi?: () => void } = {}):
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query, onToggleUi]);
+  }, [actions, query, onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode]);
 }

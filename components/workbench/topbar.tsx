@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   FilePlus2,
+  MessageCircle,
   Monitor,
   Play,
   Redo2,
@@ -45,17 +46,38 @@ function IconAction({
   icon: Icon,
   disabled,
   onClick,
+  pressed,
+  badge,
 }: {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
   onClick: () => void;
+  // Comment tool only: `aria-pressed` for the toggle state and a mono
+  // open-thread count shown as a small badge when there is at least one
+  // (spec docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+  // section 5, "the comment tool button shows the open thread count").
+  pressed?: boolean;
+  badge?: number;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} disabled={disabled} onClick={onClick}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={onClick}
+          className="relative"
+        >
           <Icon className="size-4" aria-hidden />
+          {!!badge && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-white">
+              {badge}
+            </span>
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -157,6 +179,9 @@ export function Topbar({
   fileId,
   folderId,
   currentScreenId,
+  commentMode = false,
+  onToggleCommentMode,
+  commentCount = 0,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -166,6 +191,9 @@ export function Topbar({
   fileId: string;
   folderId: string | null;
   currentScreenId: string;
+  commentMode?: boolean;
+  onToggleCommentMode?: () => void;
+  commentCount?: number;
 }) {
   const { width, breakpoint, preset, zoom, setPreset } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -224,6 +252,13 @@ export function Topbar({
         </span>
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
+        <IconAction
+          label="Comment tool"
+          icon={MessageCircle}
+          pressed={commentMode}
+          badge={commentCount}
+          onClick={() => onToggleCommentMode?.()}
+        />
         <Tooltip>
           <TooltipTrigger asChild>
             <a

@@ -2,13 +2,15 @@
 
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { canonicalLayout } from '@/lib/files/validate';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
 import { ComponentTray } from './component-tray';
+import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
@@ -379,10 +381,75 @@ function WorkbenchShell({
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
   const [panelMode, setPanelMode] = useState<PanelMode>('design');
-  useWorkbenchKeyboard({ onToggleUi: () => setUiHidden((hidden) => !hidden) });
   const { actions } = useEditor();
   const { setWidth } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+  // section 5): browser-only, one store per file, created once for this
+  // component's whole lifetime the same way `saver` is in Workbench above.
+  const [commentStore] = useState(() => createCommentStore(fileId));
+  const threads = useSyncExternalStore(commentStore.subscribe, () => commentStore.list());
+  const [commentMode, setCommentMode] = useState(false);
+  const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
+
+  // Shared by the composer's own Cancel button and Escape key (comment-composer.tsx
+  // handles Escape locally - focus is inside its textarea while it is open,
+  // which keyboard.tsx's isEditableTarget guard would otherwise swallow -
+  // see the comment there) and by Escape from useWorkbenchKeyboard below
+  // when comment mode is on but no composer is open yet.
+  function cancelPendingAndExitCommentMode(): void {
+    setPendingPin(null);
+    setCommentMode(false);
+  }
+
+  useWorkbenchKeyboard({
+    onToggleUi: () => setUiHidden((hidden) => !hidden),
+    onToggleCommentMode: () => setCommentMode((mode) => !mode),
+    commentMode,
+    onExitCommentMode: cancelPendingAndExitCommentMode,
+  });
+
+  const commentsProps: StageCommentsProps = {
+    commentMode,
+    threads,
+    pendingPin,
+    openThreadId,
+    authorName,
+    onPlacePin: (x, y, anchorNodeId) => {
+      setOpenThreadId(null);
+      setPendingPin({ x, y, anchorNodeId });
+    },
+    onCancelPending: cancelPendingAndExitCommentMode,
+    onSubmitComment: ({ author, text }) => {
+      if (!pendingPin) return;
+      if (!authorName) {
+        setAuthorName(author);
+        setAuthorNameState(author);
+      }
+      commentStore.add({ x: pendingPin.x, y: pendingPin.y, anchorNodeId: pendingPin.anchorNodeId, author, text });
+      setPendingPin(null);
+      setCommentMode(false);
+    },
+    onPinClick: (id) => {
+      setPendingPin(null);
+      setOpenThreadId(id);
+    },
+    onCloseThread: () => setOpenThreadId(null),
+    onSubmitReply: (threadId, { author, text }) => {
+      if (!authorName) {
+        setAuthorName(author);
+        setAuthorNameState(author);
+      }
+      commentStore.reply(threadId, { author, text });
+    },
+    onResolveThread: (id) => {
+      commentStore.resolve(id);
+      setOpenThreadId((current) => (current === id ? null : current));
+    },
+  };
 
   // StageProvider is intentionally not remounted per screen (see the comment
   // on <StageProvider> in Workbench), so without this its width/breakpoint
@@ -418,6 +485,9 @@ function WorkbenchShell({
             fileId={fileId}
             folderId={folderId}
             currentScreenId={currentScreenId}
+            commentMode={commentMode}
+            onToggleCommentMode={() => setCommentMode((mode) => !mode)}
+            commentCount={threads.length}
           />
         )}
         {!uiHidden && <ComponentTray key="tray" />}
@@ -431,6 +501,7 @@ function WorkbenchShell({
             onRenameScreen={onRenameScreen}
             onDuplicateScreen={onDuplicateScreen}
             onDeleteScreen={onDeleteScreen}
+            comments={commentsProps}
           />
         </StageErrorBoundary>
         {!uiHidden && (
