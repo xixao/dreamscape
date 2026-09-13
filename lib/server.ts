@@ -209,5 +209,6 @@ export async function getShare(token: string) {
     owner: string;
     revision_id: string;
     audience: "po" | "participant";
+    test_config: string | null;
   };
 }

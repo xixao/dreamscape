@@ -23,6 +23,9 @@ export async function GET(request: Request, context: Context) {
     const reviewer = link.audience === "po" ? await getChatGPTUser() : null;
     return {
       audience: link.audience,
+      ...(link.audience === "participant" && link.test_config
+        ? { testSetup: JSON.parse(link.test_config) }
+        : {}),
       revision:
         link.audience === "participant"
           ? {
@@ -157,7 +160,14 @@ export async function POST(request: Request, context: Context) {
     const revision = await getRevision(link.owner, link.revision_id);
     if (event === "upload_attempt" && prior)
       fail("Upload already started", 409);
-    if (event === "upload_success" && (prior || revision.config.retryEnabled))
+    const setup = link.test_config ? JSON.parse(link.test_config) : null;
+    if (event === "upload_attempt" && setup?.scenario === "success")
+      fail("This test uses the successful upload scenario", 409);
+    if (
+      event === "upload_success" &&
+      (prior ||
+        (setup ? setup.scenario !== "success" : revision.config.retryEnabled))
+    )
       fail("Direct upload success unavailable", 409);
     if (
       event === "retry_success" &&

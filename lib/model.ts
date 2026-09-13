@@ -48,6 +48,7 @@ export type Comment = {
   createdAt: string;
 };
 export type Session = {
+  testSetup?: import("./test-setup").TestSetup | null;
   id: string;
   revisionId: string;
   outcome: "started" | "complete" | "gave_up";

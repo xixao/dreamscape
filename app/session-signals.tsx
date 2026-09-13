@@ -13,6 +13,13 @@ export default function SessionSignals({ session }: { session: Session }) {
   const repeated = [...groups].filter(([, count]) => count >= 5);
   return (
     <div className="session-signals">
+      {session.testSetup && (
+        <p>
+          <strong>{session.testSetup.title}</strong> ·{" "}
+          {session.testSetup.audience} · {session.testSetup.viewport} ·{" "}
+          {session.testSetup.scenario}
+        </p>
+      )}
       <div className="signal-summary">
         <span>{clicks.length} prototype clicks</span>
         <span>{unavailable.length} unavailable-control attempts</span>

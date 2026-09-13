@@ -977,6 +977,68 @@ body {
   display: flex;
   flex-direction: column;
 }
+.test-setup-dialog {
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.studio > .studio-header { flex-wrap: wrap; height: auto; }
+.existing-links span { min-width: 0; overflow-wrap: anywhere; }
+.test-setup-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.test-setup-editor label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.setup-ai {
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+}
+.setup-ai label {
+  display: flex;
+  justify-content: space-between;
+}
+.setup-ai p {
+  font-size: 13px;
+}
+.setup-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 8px 0;
+}
+.setup-options > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.setup-options [data-slot="select-trigger"] {
+  width: 100%;
+}
+.test-ready {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--success-text);
+}
+.test-ready span {
+  font-size: 13px;
+  width: 100%;
+}
+.tester-product.tester-mobile {
+  max-width: 422px;
+}
+.test-instructions {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .tester-shell {
   min-height: 100dvh;
   background: var(--workspace);
@@ -1048,11 +1110,24 @@ body {
 .tester-fuego[aria-pressed="true"] {
   background: var(--accent);
 }
-[data-sonner-toast].fuego-toast { justify-content: center; }
-[data-sonner-toast].fuego-toast [data-content] { width: 100%; text-align: center; }
-[data-sonner-toast].fuego-toast [data-title] { color: #c62828; font-weight: 700; }
-[data-sonner-toast].fuego-toast [data-icon] { position: absolute; left: 18px; }
-.dark [data-sonner-toast].fuego-toast [data-title] { color: #ff7070; }
+[data-sonner-toast].fuego-toast {
+  justify-content: center;
+}
+[data-sonner-toast].fuego-toast [data-content] {
+  width: 100%;
+  text-align: center;
+}
+[data-sonner-toast].fuego-toast [data-title] {
+  color: #c62828;
+  font-weight: 700;
+}
+[data-sonner-toast].fuego-toast [data-icon] {
+  position: absolute;
+  left: 18px;
+}
+.dark [data-sonner-toast].fuego-toast [data-title] {
+  color: #ff7070;
+}
 .tester-stars .tester-fuego span {
   margin: 0;
   font-size: 25px;

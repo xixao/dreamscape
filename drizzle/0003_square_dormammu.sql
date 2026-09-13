@@ -1,0 +1,1 @@
+ALTER TABLE `shares` ADD `test_config` text;

@@ -16,6 +16,9 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## What is real
 
+- Set up test opens editable title, instructions, task reminder, participant cohort (Teammate, Business, Development, Research, Pilot), page/component surface, desktop/mobile viewport, and success/recovery scenario. Creating a link saves an immutable setup with its version. Ready confirmation, copy/share link, and Try test are available; trials record a session only after consent and Begin test. Cohorts label the test; they do not grant Site access.
+- Test setup appears in participant instructions and session analytics. Recovery setup is rejected when the selected version has no Retry action.
+
 - Participant tasks without a configured retry use a successful upload path so the test is completable. Retry-enabled versions retain the failure/recovery task. After the document is received, Continue or Complete Test records completion. Fuego is a flame-only button immediately after the fifth star.
 
 - Participant completion and explicit abandonment records, plus a click timeline (target, state, availability, elapsed time). Five or more unavailable-control attempts on the same target/state are flagged. Non-action clicks are counted separately; these signals do not establish that a tester clicked the wrong thing or was confused.
@@ -33,6 +36,8 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 - Deterministic checks of this component's configured behavior and a copy-length heuristic. No overall accessibility or production-readiness certification.
 
 ## What is scripted or limited
+
+- The simulated setup prompt recognizes audience names, mobile/phone, component, and recovery/retry/failure keywords and fills a prepared draft. It does not interpret arbitrary workflow requests. Example: "Set up a Research mobile component test for the document upload." The designer reviews and creates the link before the test is marked ready. The main assistant input also routes test/study/pilot/research requests into setup.
 
 - Phone preview includes iPhone and iPhone Duo folded/unfolded. The 390px and 740px layout widths are illustrative CSS viewports, not certified hardware dimensions or an iOS emulator. Switching posture preserves the upload state and mobile feedback; it does not create a new revision.
 
@@ -56,6 +61,6 @@ The central contract lives in `lib/model.ts`; the demonstrator lives in `app/upl
 
 Build the app and apply the generated local migration, then start the built Worker with `npm start -- --port 5186`. Run the focused API checks with `node tests/api.mjs http://localhost:5186`. They use a dedicated local test identity and do not seed demo feedback into the owner's workspace. The development server intentionally strips injected identity headers, so run these tests against the built Worker only.
 
-66 API requests and their payload assertions passed, including both successful-upload and recovery completion paths, access checks, persistence, named reviewer attribution, reactions, revision pinning, consent, event sequencing, link revocation, interaction deduplication/validation/isolation, and rating/comment/Fuego persistence after completion or abandonment. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
+82 API requests and their payload assertions passed, including all five test cohorts, custom setup persistence, scenario validation, successful-upload and recovery completion paths, access checks, reactions, revision pinning, consent, event sequencing, link revocation, interaction isolation, and rating/comment/Fuego persistence. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
 
 WebMCP preview-state tools are feature-detected. Unsupported browsers ignore them. This is optional integration groundwork, not a requirement to use the prototype. No supported WebMCP execution context was available for contract validation, so those tools are not yet verified.

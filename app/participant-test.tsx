@@ -8,15 +8,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { request } from "@/lib/client";
 import type { Revision, UploadState } from "@/lib/model";
 import Uploader from "./uploader";
+import { defaultTestSetup, type TestSetup } from "@/lib/test-setup";
 
 export default function ParticipantTest({
   token,
   revision,
   onReturn,
+  setup,
 }: {
   token: string;
   revision: Revision;
   onReturn?: () => void;
+  setup?: TestSetup;
 }) {
   const [consent, setConsent] = useState(false),
     [sessionId, setSessionId] = useState("");
@@ -32,6 +35,10 @@ export default function ParticipantTest({
     pending = useRef(false),
     chain = useRef<Promise<unknown>>(Promise.resolve());
   const path = `/api/share/${token}`;
+  const settings = setup ?? {
+    ...defaultTestSetup,
+    scenario: revision.config.retryEnabled ? "recovery" : "success",
+  };
   function enqueue<T>(payload: Record<string, unknown>): Promise<T> {
     const next = chain.current
       .catch(() => undefined)
@@ -132,13 +139,11 @@ export default function ParticipantTest({
       )}
       {!sessionId ? (
         <main className="consent-screen">
-          <span className="badge">PROTOTYPE TEST · v{revision.number}</span>
-          <h1>Try a document upload.</h1>
-          <p>
-            Imagine you are getting a home application ready. Upload the sample
-            pay statement, then continue. If you get stuck, try what feels
-            natural.
-          </p>
+          <span className="badge">
+            {settings.audience} TEST · v{revision.number}
+          </span>
+          <h1>{settings.title}</h1>
+          <p className="test-instructions">{settings.instructions}</p>
           <div className="consent-details">
             <h2>Before you begin</h2>
             <p>
@@ -179,10 +184,7 @@ export default function ParticipantTest({
         <>
           <header className="tester-task">
             <Flag size={18} />
-            <p>
-              Upload the sample pay statement and continue. You can stop if you
-              cannot finish.
-            </p>
+            <p>{settings.task}</p>
             {state === "complete" && (
               <Button
                 disabled={busy}
@@ -202,13 +204,18 @@ export default function ParticipantTest({
               Abandon Test
             </Button>
           </header>
-          <main className="tester-product" onClickCapture={capture}>
+          <main
+            className={`tester-product ${settings.viewport === "mobile" ? "tester-mobile" : ""}`}
+            onClickCapture={capture}
+          >
             <Uploader
               config={revision.config}
               state={state}
               playing={!busy}
               observeDisabled
-              simulateFailure={revision.config.retryEnabled}
+              focus={settings.focus}
+              compact={settings.viewport === "mobile"}
+              simulateFailure={settings.scenario === "recovery"}
               onState={(s, e) => void act(s, e)}
             />
           </main>

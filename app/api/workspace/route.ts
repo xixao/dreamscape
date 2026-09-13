@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { testSetupSchema } from "@/lib/test-setup";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
   addComment,
@@ -32,7 +33,7 @@ export async function GET() {
       .all();
     const s = await db()
       .prepare(
-        "SELECT * FROM sessions WHERE owner=? ORDER BY created_at DESC LIMIT 100",
+        "SELECT sessions.*,shares.test_config FROM sessions LEFT JOIN shares ON sessions.token=shares.token WHERE sessions.owner=? ORDER BY sessions.created_at DESC LIMIT 100",
       )
       .bind(u.userId)
       .all();
@@ -42,7 +43,7 @@ export async function GET() {
       .first();
     const links = await db()
       .prepare(
-        "SELECT token,revision_id AS revisionId,audience,revoked FROM shares WHERE owner=? ORDER BY created_at DESC LIMIT 30",
+        "SELECT token,revision_id AS revisionId,audience,revoked,test_config FROM shares WHERE owner=? ORDER BY created_at DESC LIMIT 30",
       )
       .bind(u.userId)
       .all();
@@ -63,9 +64,15 @@ export async function GET() {
         interactions: JSON.parse(row.interactions as string),
         rating: row.rating,
         fuego: !!row.fuego,
+        testSetup: row.test_config
+          ? JSON.parse(row.test_config as string)
+          : null,
         createdAt: row.created_at,
       })),
-      links: links.results,
+      links: links.results.map(({ test_config, ...link }) => ({
+        ...link,
+        testSetup: test_config ? JSON.parse(test_config as string) : null,
+      })),
     };
   });
 }
@@ -143,14 +150,29 @@ export async function POST(request: Request) {
       }
       case "share": {
         const id = z.string().uuid().parse(data.revisionId);
-        await getRevision(owner, id);
+        const selected = await getRevision(owner, id);
         const audience = z.enum(["po", "participant"]).parse(data.audience);
+        const setup =
+          audience === "participant" && data.testSetup !== undefined
+            ? testSetupSchema.parse(data.testSetup)
+            : null;
+        if (setup?.scenario === "recovery" && !selected.config.retryEnabled)
+          fail(
+            "This version has no Retry action. Choose successful upload or save a version with Retry enabled.",
+          );
         const token = uuid() + uuid();
         await db()
           .prepare(
-            "INSERT INTO shares (token,owner,revision_id,audience,created_at) VALUES (?,?,?,?,?)",
+            "INSERT INTO shares (token,owner,revision_id,audience,created_at,test_config) VALUES (?,?,?,?,?,?)",
           )
-          .bind(token, owner, id, audience, now())
+          .bind(
+            token,
+            owner,
+            id,
+            audience,
+            now(),
+            setup ? JSON.stringify(setup) : null,
+          )
           .run();
         return { path: `/s/${token}`, token };
       }

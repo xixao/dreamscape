@@ -85,6 +85,12 @@ import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
 import SessionSignals from "./session-signals";
+import TestSetupEditor from "./test-setup-editor";
+import {
+  defaultTestSetup,
+  scriptedTestSetup,
+  type TestSetup,
+} from "@/lib/test-setup";
 
 type Data = Workspace & {
   links: {
@@ -92,6 +98,7 @@ type Data = Workspace & {
     audience: string;
     revisionId: string;
     revoked: number;
+    testSetup?: TestSetup | null;
   }[];
 };
 const preview: Revision = {
@@ -196,6 +203,12 @@ export default function FlowReview() {
   const [dialog, setDialog] = useState<"share" | "notifications" | null>(null);
   const [shareRole, setShareRole] = useState("participant");
   const [shareUrl, setShareUrl] = useState("");
+  const [linkError, setLinkError] = useState("");
+  const [testSetup, setTestSetup] = useState<TestSetup>(defaultTestSetup);
+  const [readyTestToken, setReadyTestToken] = useState("");
+  const [activeTestSetup, setActiveTestSetup] = useState<
+    TestSetup | undefined
+  >();
   const [saveNote, setSaveNote] = useState("Manual design update");
   const initialized = useRef(false);
   const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -372,21 +385,28 @@ export default function FlowReview() {
       toast.success("Scenario completed. No application was submitted.");
   }
   async function createLink() {
+    setLinkError("");
     if (dirty) {
       toast.error("Save the draft before sharing");
       return;
     }
     setBusy(true);
     try {
-      const r = await request<{ path: string }>("/api/workspace", {
-        action: "share",
-        revisionId: revision.id,
-        audience: shareRole,
-      });
+      const r = await request<{ path: string; token: string }>(
+        "/api/workspace",
+        {
+          action: "share",
+          revisionId: revision.id,
+          audience: shareRole,
+          ...(shareRole === "participant" ? { testSetup } : {}),
+        },
+      );
       setShareUrl(window.location.origin + r.path);
+      setReadyTestToken(r.token);
+      if (shareRole === "participant") toast.success("Your test is ready.");
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setLinkError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -489,6 +509,7 @@ export default function FlowReview() {
   if (participantToken)
     return (
       <ParticipantTest
+        setup={activeTestSetup}
         token={participantToken}
         revision={revision}
         onReturn={() => {
@@ -540,6 +561,17 @@ export default function FlowReview() {
             <Share2 size={15} />
             Share
           </Button>
+          <Button
+            disabled={!loaded}
+            onClick={() => {
+              setShareRole("participant");
+              setShareUrl("");
+              setDialog("share");
+            }}
+          >
+            <Settings2 size={15} />
+            Set up test
+          </Button>
         </header>
         {presentation && (
           <header className="presentation-bar">
@@ -584,6 +616,7 @@ export default function FlowReview() {
               value={audience}
               onValueChange={async (v) => {
                 if (v === "participant") {
+                  setActiveTestSetup(undefined);
                   setBusy(true);
                   try {
                     const link = await request<{ token: string }>(
@@ -1233,7 +1266,20 @@ export default function FlowReview() {
                             className="assistant-prompt"
                             onSubmit={(e) => {
                               e.preventDefault();
-                              if (
+                              if (/test|study|pilot|research/i.test(prompt)) {
+                                setTestSetup(
+                                  scriptedTestSetup(
+                                    prompt,
+                                    revision.config.retryEnabled,
+                                  ),
+                                );
+                                setShareRole("participant");
+                                setShareUrl("");
+                                setDialog("share");
+                                setReply(
+                                  "Your test draft is prepared. Review its audience and instructions, then create the test to get a share link and try it.",
+                                );
+                              } else if (
                                 /review|fix|upload|error|accessib|retry/i.test(
                                   prompt,
                                 )
@@ -1629,7 +1675,7 @@ export default function FlowReview() {
             if (!v) setDialog(null);
           }}
         >
-          <DialogContent>
+          <DialogContent className="test-setup-dialog">
             <DialogHeader>
               <DialogTitle>Share version {revision.number}</DialogTitle>
               <DialogDescription>
@@ -1657,9 +1703,26 @@ export default function FlowReview() {
                 ? "Product, task, consent, and feedback. No internal comments, assistant, or change notes."
                 : "Saved product, anchored feedback, replies, and reactions. No editing or participant results."}
             </p>
+            {shareRole === "participant" && (
+              <TestSetupEditor
+                value={testSetup}
+                canRetry={revision.config.retryEnabled}
+                disabled={busy}
+                onChange={(value) => {
+                  setTestSetup(value);
+                  setShareUrl("");
+                  setReadyTestToken("");
+                }}
+              />
+            )}
             {dirty && (
               <p className="text-destructive text-sm">
                 Save the draft before creating a link.
+              </p>
+            )}
+            {linkError && (
+              <p role="alert" className="text-destructive text-sm">
+                {linkError}
               </p>
             )}
             <Button
@@ -1670,23 +1733,44 @@ export default function FlowReview() {
               Create {shareRole === "participant" ? "test" : "review"} link
             </Button>
             {shareUrl && (
-              <div className="share-result">
-                <Input aria-label="Share link" readOnly value={shareUrl} />
-                <IconButton
-                  label="Copy link"
-                  onClick={() => void copy(shareUrl)}
-                >
-                  <Clipboard size={16} />
-                </IconButton>
-                <a
-                  href={shareUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Open shared view"
-                >
-                  <ExternalLink size={17} />
-                </a>
-              </div>
+              <>
+                {shareRole === "participant" && (
+                  <div className="test-ready" role="status">
+                    <strong>Your test is ready</strong>
+                    <span>
+                      {testSetup.audience} · {testSetup.viewport} ·{" "}
+                      {testSetup.focus === "page" ? "Full page" : "Component"}
+                    </span>
+                    <Button
+                      onClick={() => {
+                        setActiveTestSetup(testSetup);
+                        setParticipantToken(readyTestToken);
+                        setDialog(null);
+                      }}
+                    >
+                      <Play size={15} />
+                      Try test
+                    </Button>
+                  </div>
+                )}
+                <div className="share-result">
+                  <Input aria-label="Share link" readOnly value={shareUrl} />
+                  <IconButton
+                    label="Copy link"
+                    onClick={() => void copy(shareUrl)}
+                  >
+                    <Clipboard size={16} />
+                  </IconButton>
+                  <a
+                    href={shareUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open shared view"
+                  >
+                    <ExternalLink size={17} />
+                  </a>
+                </div>
+              </>
             )}
             <div className="existing-links">
               <h3>Active links</h3>
@@ -1699,7 +1783,11 @@ export default function FlowReview() {
                 .map((l) => (
                   <div key={l.token}>
                     <span>
-                      {l.audience === "participant" ? "Participant" : "Review"}{" "}
+                      {l.testSetup
+                        ? `${l.testSetup.title} · ${l.testSetup.audience}`
+                        : l.audience === "participant"
+                          ? "Participant"
+                          : "Review"}{" "}
                       · v
                       {
                         data.revisions.find((r) => r.id === l.revisionId)

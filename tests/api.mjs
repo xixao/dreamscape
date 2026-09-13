@@ -314,6 +314,73 @@ assert.equal(
     .outcome,
   "complete",
 );
+const setup = {
+  audience: "Teammate",
+  title: "Custom test",
+  instructions: "Read these custom instructions.",
+  task: "Upload and finish.",
+  focus: "component",
+  viewport: "mobile",
+  scenario: "success",
+};
+let configured;
+for (const audience of [
+  "Teammate",
+  "Business",
+  "Development",
+  "Research",
+  "Pilot",
+]) {
+  configured = await api("/api/workspace", {
+    action: "share",
+    revisionId: fixed.revision.id,
+    audience: "participant",
+    testSetup: { ...setup, audience },
+  });
+  const opened = await api(`/api/share/${configured.token}`, null, {});
+  assert.equal(opened.testSetup.audience, audience);
+  assert.equal(opened.testSetup.instructions, setup.instructions);
+  assert.equal(opened.testSetup.focus, "component");
+  assert.equal(opened.comments, undefined);
+}
+await api(
+  "/api/workspace",
+  {
+    action: "share",
+    revisionId: first.id,
+    audience: "participant",
+    testSetup: { ...setup, scenario: "recovery" },
+  },
+  headers,
+  400,
+);
+const configuredSession = await api(
+  `/api/share/${configured.token}`,
+  { action: "start", consent: true },
+  {},
+);
+await api(
+  `/api/share/${configured.token}`,
+  { action: "event", sessionId: configuredSession.id, event: "upload_attempt" },
+  {},
+  409,
+);
+await api(
+  `/api/share/${configured.token}`,
+  { action: "event", sessionId: configuredSession.id, event: "upload_success" },
+  {},
+);
+await api(
+  `/api/share/${configured.token}`,
+  { action: "event", sessionId: configuredSession.id, event: "continue" },
+  {},
+);
+assert.equal(
+  (await api("/api/workspace")).sessions.find(
+    (s) => s.id === configuredSession.id,
+  ).testSetup.audience,
+  "Pilot",
+);
 const review = await api("/api/workspace", {
   action: "share",
   revisionId: first.id,

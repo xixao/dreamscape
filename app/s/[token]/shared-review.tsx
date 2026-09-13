@@ -7,10 +7,12 @@ import { request } from "@/lib/client";
 import Uploader from "@/app/uploader";
 import Feedback from "@/app/feedback";
 import ParticipantTest from "@/app/participant-test";
+import type { TestSetup } from "@/lib/test-setup";
 type SharedData = {
   audience: "po" | "participant";
   revision: Revision;
   comments?: Comment[];
+  testSetup?: TestSetup;
 };
 export default function SharedReview({ token }: { token: string }) {
   const [data, setData] = useState<SharedData | null>(null),
@@ -62,7 +64,12 @@ export default function SharedReview({ token }: { token: string }) {
     );
   if (data.audience === "participant")
     return (
-      <ParticipantTest key={token} token={token} revision={data.revision} />
+      <ParticipantTest
+        key={token}
+        token={token}
+        revision={data.revision}
+        setup={data.testSetup}
+      />
     );
   return (
     <div className="shared-page">

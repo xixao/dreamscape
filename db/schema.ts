@@ -57,6 +57,7 @@ export const shares = sqliteTable(
     owner: text("owner").notNull(),
     revisionId: text("revision_id").notNull(),
     audience: text("audience").notNull(),
+    testConfig: text("test_config"),
     createdAt: text("created_at").notNull(),
     revoked: integer("revoked").notNull().default(0),
   },
