@@ -1367,16 +1367,66 @@ body {
   background: var(--workspace);
   color: var(--foreground);
 }
+.tester-shell.test-active {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.test-active > .error-banner {
+  flex-shrink: 0;
+}
 .tester-task {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
+  max-height: 40dvh;
+  overflow-y: auto;
   z-index: 10;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--background);
+}
+.tester-task-copy {
+  flex: 1 1 280px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tester-task-copy h1 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.tester-task .tester-task-copy > p {
+  font-size: 16px;
+  line-height: 1.5;
+}
+.tester-instructions {
+  margin-top: 10px;
+}
+.tester-instructions summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.tester-instructions .test-instructions {
+  margin-top: 8px;
+  max-width: 80ch;
+  line-height: 1.5;
+}
+.tester-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tester-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  padding: 24px 16px;
 }
 .tester-task p {
   flex: 1;
@@ -1388,9 +1438,9 @@ body {
   flex-shrink: 0;
 }
 .tester-product {
-  max-width: 960px;
-  margin: 24px auto;
-  padding: 0 16px 32px;
+  width: min(100%, 960px);
+  flex-shrink: 0;
+  margin: auto;
 }
 .tester-product .product {
   width: 100%;
@@ -1498,8 +1548,8 @@ body {
   .tester-task > svg {
     display: none;
   }
-  .tester-product {
-    padding-inline: 8px;
+  .tester-stage {
+    padding: 16px 8px;
   }
   .tester-product .product-main {
     padding: 24px 16px;

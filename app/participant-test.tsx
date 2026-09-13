@@ -131,7 +131,9 @@ export default function ParticipantTest({
     }
   }
   return (
-    <div className={`tester-shell ${!sessionId || outcome !== "started" ? "test-centered" : ""}`}>
+    <div
+      className={`tester-shell ${!sessionId || outcome !== "started" ? "test-centered" : "test-active"}`}
+    >
       {error && (
         <div className="error-banner" role="alert">
           {error}
@@ -183,41 +185,56 @@ export default function ParticipantTest({
       ) : outcome === "started" ? (
         <>
           <header className="tester-task">
-            <Flag size={18} />
-            <p>{settings.task}</p>
-            {state === "complete" && (
+            <Flag size={18} aria-hidden="true" />
+            <div className="tester-task-copy">
+              <h1>Your task</h1>
+              <p id="active-test-task">{settings.task}</p>
+              <details className="tester-instructions" open>
+                <summary>Test instructions</summary>
+                <p className="test-instructions">{settings.instructions}</p>
+              </details>
+            </div>
+            <div className="tester-task-actions">
+              {state === "complete" && (
+                <Button
+                  disabled={busy}
+                  onClick={() => void act(state, "continue")}
+                >
+                  Complete Test
+                </Button>
+              )}
               <Button
-                disabled={busy}
-                onClick={() => void act(state, "continue")}
+                variant="outline"
+                onClick={() =>
+                  void chain.current
+                    .catch(() => undefined)
+                    .then(() => act(state, "gave_up"))
+                }
               >
-                Complete Test
+                Abandon Test
               </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() =>
-                void chain.current
-                  .catch(() => undefined)
-                  .then(() => act(state, "gave_up"))
-              }
-            >
-              Abandon Test
-            </Button>
+            </div>
           </header>
           <main
-            className={`tester-product ${settings.viewport === "mobile" ? "tester-mobile" : ""}`}
-            onClickCapture={capture}
+            className="tester-stage"
+            aria-label="Test prototype"
+            aria-describedby="active-test-task"
           >
-            <Uploader
-              config={revision.config}
-              state={state}
-              playing={!busy}
-              observeDisabled
-              focus={settings.focus}
-              compact={settings.viewport === "mobile"}
-              simulateFailure={settings.scenario === "recovery"}
-              onState={(s, e) => void act(s, e)}
-            />
+            <div
+              className={`tester-product ${settings.viewport === "mobile" ? "tester-mobile" : ""}`}
+              onClickCapture={capture}
+            >
+              <Uploader
+                config={revision.config}
+                state={state}
+                playing={!busy}
+                observeDisabled
+                focus={settings.focus}
+                compact={settings.viewport === "mobile"}
+                simulateFailure={settings.scenario === "recovery"}
+                onState={(s, e) => void act(s, e)}
+              />
+            </div>
           </main>
         </>
       ) : (
