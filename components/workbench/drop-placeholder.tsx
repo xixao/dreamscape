@@ -58,6 +58,22 @@ function suppressUnhandledRejection(animation: Animation): void {
   animation.finished.catch(() => {});
 }
 
+// Every real, current browser this app targets implements the Web
+// Animations API - this guard exists for the same reason lib/dom.ts's
+// capturePointer/releasePointer check `typeof element.setPointerCapture ===
+// 'function'` before calling it: jsdom (this repo's test environment) has
+// no `Element.prototype.animate` at all unless a test stubs it onto the
+// specific document it renders into, so a test exercising this hook through
+// a real Editor it does not itself control (workbench.test.tsx's own,
+// end-to-end drag test, rather than this file's own component test, which
+// stubs it) would otherwise throw. Falls back to the same treatment as
+// `prefers-reduced-motion` - the final state is already set synchronously
+// wherever this is checked; skipping `.animate()` just means it appears
+// immediately instead of transitioning in.
+function canAnimate(element: Element): boolean {
+  return typeof element.animate === 'function';
+}
+
 /**
  * `useDropPlaceholder()` (docs/superpowers/specs/2026-09-12-drop-placeholder-
  * design.md): while a Craft drag is in progress, keeps a plain
@@ -233,7 +249,7 @@ export function useDropPlaceholder(): void {
     if (activeRef.current) {
       const closing = activeRef.current;
       closing.growAnimation?.cancel();
-      if (reduced) {
+      if (reduced || !canAnimate(closing.element)) {
         closing.element.remove();
       } else {
         const rect = closing.element.getBoundingClientRect();
@@ -291,7 +307,7 @@ export function useDropPlaceholder(): void {
     parentDom.insertBefore(placeholder, childDoms[slotIndex] ?? null);
 
     let growAnimation: Animation | null = null;
-    if (!reduced) {
+    if (!reduced && canAnimate(placeholder)) {
       const from: Keyframe = {};
       const to: Keyframe = {};
       if (size.width !== null) {
@@ -323,7 +339,7 @@ export function useDropPlaceholder(): void {
       for (const [id, delta] of Object.entries(deltas)) {
         if (delta.dx === 0 && delta.dy === 0) continue;
         const dom = nodes[id]?.dom;
-        if (!dom) continue;
+        if (!dom || !canAnimate(dom)) continue;
         // The inverse FLIP transform, cleared once the animation below ends.
         // eslint-disable-next-line react-hooks/immutability
         dom.style.transform = `translate(${delta.dx}px, ${delta.dy}px)`;

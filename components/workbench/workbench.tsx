@@ -30,6 +30,7 @@ import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
+import { useDropPlaceholder } from './drop-placeholder';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
@@ -797,7 +798,13 @@ export function Workbench({
     <Editor
       resolver={resolver}
       onRender={NodeIndicator}
-      indicator={{ success: 'var(--acc)', error: 'var(--bad)' }}
+      // The drag placeholder (components/workbench/drop-placeholder.tsx)
+      // replaces Craft's own coloured indicator bar for a valid placement -
+      // success is transparent so that bar never shows; the red error bar
+      // is untouched (spec docs/superpowers/specs/2026-09-12-drop-
+      // placeholder-design.md section 2: "the success colour becomes
+      // transparent so the green bar never shows").
+      indicator={{ success: 'transparent', error: 'var(--bad)' }}
       onNodesChange={onNodesChange}
     >
       <EditorActionsBridge actionsRef={editorActionsRef} />
@@ -1233,6 +1240,16 @@ function WorkbenchShell({
     onPagePrev: () => onSwitchToAdjacentPage('previous'),
     onOpenShortcuts: () => setShortcutsOpen(true),
   });
+
+  // Make-room drag placeholder (docs/superpowers/specs/2026-09-12-drop-
+  // placeholder-design.md): a bare hook, mounted here alongside
+  // useWorkbenchKeyboard above and LayerStackMenu below - the same
+  // "editor-wide drag/keyboard behaviour, not any one screen's" level
+  // useLayerStack's own reach into the focused frame's document already
+  // relies on. It renders nothing of its own; every DOM change it makes is
+  // imperative (insertBefore/remove on the real artboard), never a Craft
+  // node.
+  useDropPlaceholder();
 
   const commentsProps: StageCommentsProps = {
     commentMode,

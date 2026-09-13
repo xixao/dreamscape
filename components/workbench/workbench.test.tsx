@@ -1081,6 +1081,37 @@ describe('Workbench', () => {
     });
   });
 
+  // useDropPlaceholder (components/workbench/drop-placeholder.tsx) has its
+  // own thorough unit tests driving Craft's indicator/dragged state
+  // directly; this confirms only that WorkbenchShell actually mounts it and
+  // that the Editor is configured with a transparent success colour, wired
+  // end to end through a real drag over the real, rendered tray and
+  // artboard (spec docs/superpowers/specs/2026-09-12-drop-placeholder-
+  // design.md).
+  describe('Drag placeholder', () => {
+    it('opens a drop slot in the artboard when a tray component is dragged over it, and removes it on drop', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+
+      const trayButton = document.querySelector('[data-tray-item="Button"]');
+      if (!trayButton) throw new Error('Button tray item not found');
+      const root = frameBody().querySelector('[data-block="LayoutBox"]');
+      if (!root) throw new Error('root LayoutBox not found');
+
+      // jsdom's synthetic DragEvent has no real DataTransfer of its own;
+      // Craft's own `create` connector calls `dataTransfer.setDragImage(...)`
+      // in its dragstart handler (the custom drag-ghost image), which
+      // throws without one.
+      const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
+      fireEvent.dragStart(trayButton, { dataTransfer });
+      fireEvent.dragOver(root, { clientX: 50, clientY: 50 });
+      expect(frameBody().querySelector('[data-drop-placeholder]')).not.toBeNull();
+
+      fireEvent.drop(root);
+      expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
+    });
+  });
+
   describe('Minimize panel', () => {
     it('the minimize button collapses the panel to a 40px rail and the expand button restores it to 320px', async () => {
       render(<Workbench file={makeFile()} />);
