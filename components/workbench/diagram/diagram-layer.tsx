@@ -144,6 +144,37 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   const [connect, setConnect] = useState<ConnectState>(null);
   const [place, setPlace] = useState<PlaceState>(null);
   const [editing, setEditing] = useState<EditState>(null);
+  // Option/Alt-drag duplicate's cursor affordance (Build step 2: "the cursor
+  // shows copy while Option is held over a shape"): tracked globally via
+  // keydown/keyup rather than read off each pointer event, since the key can
+  // go up or down while the pointer sits still over a shape. Window-level
+  // only - this component has no reference to a responsive-preview frame's
+  // own iframe window (canvas.tsx/canvas-frame.tsx own that), so Alt held
+  // while the cursor is over an iframe's own document will not be seen here;
+  // narrow, and called out in this task's report.
+  const [altHeld, setAltHeld] = useState(false);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Alt') setAltHeld(true);
+    }
+    function onKeyUp(event: KeyboardEvent) {
+      if (event.key === 'Alt') setAltHeld(false);
+    }
+    // Belt-and-suspenders: if the window loses focus while Alt is physically
+    // held (switching apps, a devtools panel stealing focus), no keyup ever
+    // arrives - without this the copy cursor/affordance would stay stuck on.
+    function onBlur() {
+      setAltHeld(false);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
 
   function clientToCanvas(clientX: number, clientY: number): Point {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -246,14 +277,50 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       selectShape('node', node.id, true);
       return;
     }
-    const alreadyMultiSelected = isSelected(diagram.selection, 'node', node.id) && diagram.selection.length > 1;
+    const alreadySelected = isSelected(diagram.selection, 'node', node.id);
+    const alreadyMultiSelected = alreadySelected && diagram.selection.length > 1;
     const ids = alreadyMultiSelected
       ? diagram.selection.filter((item) => item.type === 'node').map((item) => item.id)
       : [node.id];
+
+    // Option-drag duplicate (Build step 2): only when the drag starts on a
+    // shape that is ALREADY selected (spec follow-up section 7: "holding
+    // Option (Alt) when a drag starts on a selected shape") - Option-clicking
+    // an unselected shape falls through to the plain select+drag below,
+    // exactly as if Alt had not been held.
+    if (event.altKey && alreadySelected) {
+      startOptionDragDuplicate(ids, event);
+      return;
+    }
+
     if (!alreadyMultiSelected) selectShape('node', node.id, false);
 
     capturePointer(event.currentTarget, event.pointerId);
     setDrag({ pointerId: event.pointerId, ids, start: clientToCanvas(event.clientX, event.clientY) });
+  }
+
+  // Dispatches a zero-offset duplicate of `ids` (the whole selection) plus
+  // any connector whose both endpoints are among them, then immediately
+  // starts the SAME drag gesture already in progress against the new
+  // copies instead of the originals (spec follow-up: "leaves the originals
+  // in place and drags copies"). Every id here is minted up front, in this
+  // component - same convention as `add`/`connect` above - so the reducer
+  // never has to invent one and this can select the copies for the drag
+  // without waiting for a render to read anything back out of `diagram`.
+  function startOptionDragDuplicate(ids: string[], event: ReactPointerEvent<SVGElement>): void {
+    const idSet = new Set(ids);
+    const pairs = ids.map((id) => ({ sourceId: id, newId: nanoid(10) }));
+    const edgePairs = diagram.edges
+      .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
+      .map((e) => ({ sourceId: e.id, newId: nanoid(10) }));
+    dispatch({ type: 'duplicate', pairs, edgePairs, offset: { x: 0, y: 0 } });
+
+    capturePointer(event.currentTarget, event.pointerId);
+    setDrag({
+      pointerId: event.pointerId,
+      ids: pairs.map((p) => p.newId),
+      start: clientToCanvas(event.clientX, event.clientY),
+    });
   }
 
   function handleDragMove(event: ReactPointerEvent<SVGElement>): void {
@@ -555,6 +622,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     }
 
     const isEditing = editing?.id === rawNode.id;
+    // Build step 2's cursor affordance ("the cursor shows copy while Option
+    // is held over a shape"): scoped to a shape that is both hovered AND
+    // already selected, since that is exactly the condition
+    // startOptionDragDuplicate above actually acts on - showing it more
+    // broadly would promise a duplicate-drag Option+click on an unselected
+    // shape does not deliver. A literal Tailwind class (not an inline style)
+    // so it can win over the inline `cursor` style below, which is omitted
+    // whenever this applies.
+    const showCopyCursor = altHeld && selected && hover?.type === 'node' && hover.id === rawNode.id;
 
     return (
       <g
@@ -562,9 +638,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         data-testid={`diagram-node-${rawNode.id}`}
         data-diagram-kind={rawNode.kind}
         data-selected={selected || undefined}
+        className={showCopyCursor ? 'cursor-copy' : undefined}
         style={{
           pointerEvents: tool.kind === 'pointer' || tool.kind === 'connector' ? 'all' : 'none',
-          cursor: tool.kind === 'connector' ? 'crosshair' : 'move',
+          cursor: showCopyCursor ? undefined : tool.kind === 'connector' ? 'crosshair' : 'move',
         }}
         onPointerDown={(event) => handleNodePointerDown(rawNode, event)}
         onPointerMove={handleDragMove}

@@ -390,6 +390,160 @@ describe('DiagramLayer live connector redraw during drag/resize', () => {
   });
 });
 
+describe('DiagramLayer option-drag duplicate', () => {
+  it('dispatches a zero-offset duplicate of the selection when a drag starts on a selected shape with Alt held', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [{ sourceId: 'node000001', newId: expect.any(String) }],
+        offset: { x: 0, y: 0 },
+      }),
+    );
+  });
+
+  it('drags the copy, not the original, on subsequent pointer moves', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    const newId = (dispatch.mock.calls[0][0] as { pairs: { newId: string }[] }).pairs[0].newId;
+    dispatch.mockClear();
+
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 170, clientY: 135 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 170, clientY: 135 });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: [newId], dx: 20, dy: 5 });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ ids: ['node000001'] }));
+  });
+
+  it('duplicates the whole multi-selection with zero offset', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [
+          { sourceId: 'a', newId: expect.any(String) },
+          { sourceId: 'b', newId: expect.any(String) },
+        ],
+        offset: { x: 0, y: 0 },
+      }),
+    );
+  });
+
+  it('duplicates a connector whose both endpoints are in the dragged selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+
+    const call = dispatch.mock.calls[0][0] as { edgePairs: { sourceId: string; newId: string }[] };
+    expect(call.edgePairs).toEqual([{ sourceId: 'e1', newId: expect.any(String) }]);
+  });
+
+  it('does not duplicate a connector whose other endpoint is not in the dragged selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [{ type: 'node', id: 'a' }],
+      }),
+    });
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+
+    const call = dispatch.mock.calls[0][0] as { edgePairs: { sourceId: string; newId: string }[] };
+    expect(call.edgePairs).toEqual([]);
+  });
+
+  it('ignores Alt on a shape that is not already selected (plain select+drag instead)', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'node000001' }] });
+  });
+});
+
+describe('DiagramLayer option-drag cursor affordance', () => {
+  it('adds a cursor-copy class to a hovered, selected shape while Alt is held, removed on keyup', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    hoverAt(50, 25);
+
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).toHaveClass('cursor-copy');
+
+    fireEvent.keyUp(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  it('does not add cursor-copy to a hovered shape that is not selected', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  it('clears the held state on window blur, so it never gets stuck on', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    hoverAt(50, 25);
+    fireEvent.keyDown(window, { key: 'Alt' });
+    fireEvent(window, new Event('blur'));
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  it('removes its keydown/keyup listeners on unmount', () => {
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const { unmount } = renderLayer();
+    unmount();
+    expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
+    expect(removeSpy).toHaveBeenCalledWith('keyup', expect.any(Function));
+    removeSpy.mockRestore();
+  });
+});
+
 describe('DiagramLayer connecting', () => {
   it('drags from a node handle to another node to create a connector', () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
