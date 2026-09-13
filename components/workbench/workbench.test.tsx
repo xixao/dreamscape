@@ -419,6 +419,20 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
 
+    it('Shift+N adds a screen and switches to it, same as the New screen button', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      fireEvent.keyDown(window, { key: 'n', shiftKey: true });
+
+      const tablist = screen.getByRole('tablist', { name: 'Screens' });
+      expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
+      expect(within(tablist).getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+
+      // Drains this screen's own save traffic - see the comment on "New
+      // screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
     it('writes the URL hash to the switched-to screen id', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
@@ -721,6 +735,29 @@ describe('Workbench', () => {
         'href',
         `/f/${BASE_FILE.id}/play?screen=${SCREEN_2.id}`,
       );
+    });
+
+    it('Cmd+R opens the same URL in a new tab, and prevents the browser reload', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      const notCancelled = fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_1.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+      expect(notCancelled).toBe(false);
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_2.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+
+      openSpy.mockRestore();
     });
   });
 

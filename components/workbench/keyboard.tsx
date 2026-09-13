@@ -80,6 +80,15 @@ export function useWorkbenchKeyboard(
     // V: leaves the comment tool (and, once it exists, the diagram tool) -
     // the pointer is the default state, not a tool of its own to enter.
     onPointerTool?: () => void;
+    // Cmd+R (spec section 2, "always, preventDefault"): presents the
+    // focused screen the same way the top bar's Present link does. Always,
+    // like the zoom chords above, since it deliberately takes over the
+    // browser's own reload shortcut inside the editor (Cmd+Shift+R is left
+    // alone - see matchShortcut in lib/shortcuts.ts).
+    onPresent?: () => void;
+    // Shift+N: adds a screen, same as the screens strip's own "New screen"
+    // button.
+    onAddScreen?: () => void;
   } = {},
 ): void {
   const {
@@ -96,6 +105,8 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onPresent,
+    onAddScreen,
   } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
@@ -151,6 +162,11 @@ export function useWorkbenchKeyboard(
           onZoomReset?.();
           return;
 
+        case 'present':
+          event.preventDefault();
+          onPresent?.();
+          return;
+
         case 'zoom-to-fit':
           event.preventDefault();
           onZoomToFit?.();
@@ -190,6 +206,10 @@ export function useWorkbenchKeyboard(
 
         case 'tool-pointer':
           onPointerTool?.();
+          return;
+
+        case 'screen-new':
+          onAddScreen?.();
           return;
 
         case 'escape':
@@ -247,6 +267,8 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onPresent,
+    onAddScreen,
     canvasDocument,
   ]);
 }

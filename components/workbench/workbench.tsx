@@ -656,6 +656,13 @@ function WorkbenchShell({
     setPanelCollapsed(false);
   }
 
+  // Cmd+R (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
+  // design.md section 2): the same URL, in the same new tab, as the top
+  // bar's own Present link (see presentHref in topbar.tsx).
+  function presentFocusedScreen(): void {
+    window.open(`/f/${fileId}/play?screen=${currentScreenId}`, '_blank', 'noopener,noreferrer');
+  }
+
   // The viewport centre (screen space, relative to the canvas's own origin -
   // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
   // position for a keyboard shortcut to anchor to the way a wheel gesture
@@ -679,6 +686,8 @@ function WorkbenchShell({
     // the comment tool exists today, so this is the same cleanup Escape and
     // the Comment tool button's own toggle-off already do.
     onPointerTool: cancelPendingAndExitCommentMode,
+    onPresent: presentFocusedScreen,
+    onAddScreen,
   });
 
   const commentsProps: StageCommentsProps = {

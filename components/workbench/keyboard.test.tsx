@@ -21,6 +21,8 @@ type KeysOptions = {
   onZoomToSelection?: () => void;
   onSelectPanelTab?: (mode: 'design' | 'prototype' | 'components') => void;
   onPointerTool?: () => void;
+  onPresent?: () => void;
+  onAddScreen?: () => void;
 };
 
 function Keys({
@@ -37,6 +39,8 @@ function Keys({
   onZoomToSelection,
   onSelectPanelTab,
   onPointerTool,
+  onPresent,
+  onAddScreen,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -52,6 +56,8 @@ function Keys({
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onPresent,
+    onAddScreen,
   });
   return (
     <>
@@ -770,5 +776,99 @@ describe('useWorkbenchKeyboard onPointerTool', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'v' })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onPresent', () => {
+  it('calls onPresent and prevents default for Cmd+R', async () => {
+    const onPresent = vi.fn();
+    mount({ onPresent });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'r', metaKey: true });
+    expect(onPresent).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onPresent for Ctrl+R', async () => {
+    const onPresent = vi.fn();
+    mount({ onPresent });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'r', ctrlKey: true });
+    expect(onPresent).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when the target is an input, or a popup or dialog owns the interaction', async () => {
+    const onPresent = vi.fn();
+    mount({ onPresent });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'r', metaKey: true });
+    expect(onPresent).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'r', metaKey: true });
+    expect(onPresent).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fire for Cmd+Shift+R, so the browser hard-reload still works', async () => {
+    const onPresent = vi.fn();
+    mount({ onPresent });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'r', metaKey: true, shiftKey: true });
+    expect(onPresent).not.toHaveBeenCalled();
+  });
+
+  it('does not call onPresent for a bare r', async () => {
+    const onPresent = vi.fn();
+    mount({ onPresent });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(onPresent).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onPresent is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'r', metaKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onAddScreen', () => {
+  it('calls onAddScreen for Shift+N', async () => {
+    const onAddScreen = vi.fn();
+    mount({ onAddScreen });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'n', shiftKey: true });
+    expect(onAddScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('is case-insensitive', async () => {
+    const onAddScreen = vi.fn();
+    mount({ onAddScreen });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'N', shiftKey: true });
+    expect(onAddScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a bare n, and Shift+N while typing or while a popup or dialog owns the interaction', async () => {
+    const onAddScreen = vi.fn();
+    mount({ onAddScreen });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'n' });
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'n', shiftKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'n', shiftKey: true });
+    expect(onAddScreen).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onAddScreen is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'n', shiftKey: true })).not.toThrow();
   });
 });
