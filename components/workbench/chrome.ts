@@ -1,6 +1,9 @@
 // SF2 §7 card + §10.1 bevel, used for the tray, inspector and topbar surfaces.
+// Standing panels and the topbar take SF2's `--shadow`, not `--shadow-lg`
+// (that one is for modals and toasts); Matt asked for lighter panel shadows
+// on 2026-09-13 and both tokens were tightened in globals.css at the same time.
 export const PANEL =
-  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--sf-shadow-lg)]';
+  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--sf-shadow)]';
 
 // SF2 §10.2 grip header of a vertical panel.
 export const PANEL_HEADER =

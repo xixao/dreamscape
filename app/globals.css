@@ -103,8 +103,8 @@
   --ok: #4CAF7D;
   --warn: #E8B34B;
   --bad: #E05D5D;
-  --sf-shadow: 0 14px 36px rgba(16, 14, 22, 0.55);
-  --sf-shadow-lg: 0 18px 44px rgba(16, 14, 22, 0.55);
+  --sf-shadow: 0 8px 22px rgba(16, 14, 22, 0.45);
+  --sf-shadow-lg: 0 12px 32px rgba(16, 14, 22, 0.5);
   --canvas: #14121B;
   --chip: rgba(255, 255, 255, 0.055);
   --bevel-line: rgba(255, 255, 255, 0.09);
