@@ -6,8 +6,16 @@ import { LayoutBox } from '@/components/blocks/layout-box';
 import { renderInEditor } from '@/test/craft-harness';
 import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
-function Keys({ onToggleUi, onToggleChat }: { onToggleUi?: () => void; onToggleChat?: () => void }) {
-  useWorkbenchKeyboard({ onToggleUi, onToggleChat });
+type KeysOptions = {
+  onToggleUi?: () => void;
+  onToggleChat?: () => void;
+  onToggleCommentMode?: () => void;
+  commentMode?: boolean;
+  onExitCommentMode?: () => void;
+};
+
+function Keys({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode }: KeysOptions) {
+  useWorkbenchKeyboard({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode });
   return (
     <>
       <input aria-label="typing" />
@@ -18,7 +26,14 @@ function Keys({ onToggleUi, onToggleChat }: { onToggleUi?: () => void; onToggleC
   );
 }
 
-function mount(onToggleUi?: () => void, onToggleChat?: () => void) {
+// Accepts either a bare `onToggleUi` callback (every pre-existing call site
+// below), optionally followed by `onToggleChat`, or a full options object
+// (for the comment-mode options), so adding options here never has to touch
+// existing call sites.
+function mount(optionsOrOnToggleUi?: (() => void) | KeysOptions, onToggleChat?: () => void) {
+  const base: KeysOptions =
+    typeof optionsOrOnToggleUi === 'function' ? { onToggleUi: optionsOrOnToggleUi } : (optionsOrOnToggleUi ?? {});
+  const options: KeysOptions = onToggleChat ? { ...base, onToggleChat } : base;
   const utils = renderInEditor(
     <>
       <Frame>
@@ -26,7 +41,7 @@ function mount(onToggleUi?: () => void, onToggleChat?: () => void) {
           <Button label="Doomed" />
         </Element>
       </Frame>
-      <Keys onToggleUi={onToggleUi} onToggleChat={onToggleChat} />
+      <Keys {...options} />
     </>,
   );
   return utils;
@@ -189,6 +204,75 @@ describe('useWorkbenchKeyboard onToggleUi', () => {
   });
 });
 
+
+describe('useWorkbenchKeyboard onToggleCommentMode', () => {
+  it('toggles comment mode with the "c" key', async () => {
+    const onToggleCommentMode = vi.fn();
+    mount({ onToggleCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'c' });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('is case-insensitive and ignores Cmd/Ctrl+C (copy)', async () => {
+    const onToggleCommentMode = vi.fn();
+    mount({ onToggleCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'C' });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: 'c', metaKey: true });
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores "c" while typing in a field', async () => {
+    const onToggleCommentMode = vi.fn();
+    mount({ onToggleCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'c' });
+    expect(onToggleCommentMode).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onToggleCommentMode is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'c' })).not.toThrow();
+  });
+
+  it('calls onExitCommentMode instead of deselecting when Escape is pressed in comment mode', async () => {
+    const onExitCommentMode = vi.fn();
+    const { editor } = mount({ commentMode: true, onExitCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onExitCommentMode).toHaveBeenCalledTimes(1);
+    // Selection is untouched - Escape's job in comment mode is to leave the
+    // tool, not to touch the canvas selection.
+    expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true);
+  });
+
+  it('deselects as usual with Escape when not in comment mode', async () => {
+    const onExitCommentMode = vi.fn();
+    const { editor } = mount({ commentMode: false, onExitCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onExitCommentMode).not.toHaveBeenCalled();
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(false));
+  });
+});
 describe('useWorkbenchKeyboard onToggleChat', () => {
   it('calls onToggleChat and prevents default for Cmd+J', async () => {
     const onToggleChat = vi.fn();

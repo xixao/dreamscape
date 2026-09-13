@@ -2,9 +2,10 @@
 
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { canonicalLayout } from '@/lib/files/validate';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
@@ -13,6 +14,7 @@ import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persisten
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { ComponentTray } from './component-tray';
+import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
@@ -439,13 +441,91 @@ function WorkbenchShell({
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
-  useWorkbenchKeyboard({
-    onToggleUi: () => setUiHidden((hidden) => !hidden),
-    onToggleChat: () => setChatOpen((open) => !open),
-  });
   const { actions } = useEditor();
   const { setWidth, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+  // section 5): browser-only, one store per file, created once for this
+  // component's whole lifetime the same way `saver` is in Workbench above.
+  const [commentStore] = useState(() => createCommentStore(fileId));
+  const threads = useSyncExternalStore(commentStore.subscribe, () => commentStore.list());
+  const [commentMode, setCommentMode] = useState(false);
+  const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
+
+  // Shared by the composer's own Cancel button and Escape key (comment-composer.tsx
+  // handles Escape locally - focus is inside its textarea while it is open,
+  // which keyboard.tsx's isEditableTarget guard would otherwise swallow -
+  // see the comment there) and by Escape from useWorkbenchKeyboard below
+  // when comment mode is on but no composer is open yet.
+  function cancelPendingAndExitCommentMode(): void {
+    setPendingPin(null);
+    setCommentMode(false);
+  }
+
+  // Shared by the topbar's Comment tool button and the "c" key: turning
+  // comment mode ON is a plain toggle, but turning it OFF must also cancel a
+  // pending pin and close its composer, the same cleanup Escape and Cancel
+  // already do via cancelPendingAndExitCommentMode - otherwise a pin placed
+  // and then left mid-composer by toggling the tool off (rather than
+  // pressing Escape or Cancel) stays behind, orphaned, with no tool active
+  // to finish or discard it.
+  function toggleCommentMode(): void {
+    if (commentMode) {
+      cancelPendingAndExitCommentMode();
+    } else {
+      setCommentMode(true);
+    }
+  }
+
+  useWorkbenchKeyboard({
+    onToggleUi: () => setUiHidden((hidden) => !hidden),
+    onToggleChat: () => setChatOpen((open) => !open),
+    onToggleCommentMode: toggleCommentMode,
+    commentMode,
+    onExitCommentMode: cancelPendingAndExitCommentMode,
+  });
+
+  const commentsProps: StageCommentsProps = {
+    commentMode,
+    threads,
+    pendingPin,
+    openThreadId,
+    authorName,
+    onPlacePin: (x, y, anchorNodeId) => {
+      setOpenThreadId(null);
+      setPendingPin({ x, y, anchorNodeId });
+    },
+    onCancelPending: cancelPendingAndExitCommentMode,
+    onSubmitComment: ({ author, text }) => {
+      if (!pendingPin) return;
+      if (!authorName) {
+        setAuthorName(author);
+        setAuthorNameState(author);
+      }
+      commentStore.add({ x: pendingPin.x, y: pendingPin.y, anchorNodeId: pendingPin.anchorNodeId, author, text });
+      setPendingPin(null);
+      setCommentMode(false);
+    },
+    onPinClick: (id) => {
+      setPendingPin(null);
+      setOpenThreadId(id);
+    },
+    onCloseThread: () => setOpenThreadId(null),
+    onSubmitReply: (threadId, { author, text }) => {
+      if (!authorName) {
+        setAuthorName(author);
+        setAuthorNameState(author);
+      }
+      commentStore.reply(threadId, { author, text });
+    },
+    onResolveThread: (id) => {
+      commentStore.resolve(id);
+      setOpenThreadId((current) => (current === id ? null : current));
+    },
+  };
 
   // StageProvider is intentionally not remounted per screen (see the comment
   // on <StageProvider> in Workbench), so without this its width/height/
@@ -495,6 +575,9 @@ function WorkbenchShell({
               currentScreenId={currentScreenId}
               chatOpen={chatOpen}
               onToggleChat={() => setChatOpen((open) => !open)}
+              commentMode={commentMode}
+              onToggleCommentMode={toggleCommentMode}
+              commentCount={threads.length}
             />
           )}
           {!uiHidden && <ComponentTray key="tray" />}
@@ -508,6 +591,7 @@ function WorkbenchShell({
               onRenameScreen={onRenameScreen}
               onDuplicateScreen={onDuplicateScreen}
               onDeleteScreen={onDeleteScreen}
+              comments={commentsProps}
             />
           </StageErrorBoundary>
           {!uiHidden && (
