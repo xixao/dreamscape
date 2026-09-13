@@ -150,13 +150,13 @@ describe('Inspector', () => {
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
   });
 
-  describe('Design / Prototype / Components panel mode', () => {
-    it('shows a Design | Prototype | Components segmented control, Design active by default', () => {
+  describe('Design / Prototype / Elements panel mode', () => {
+    it('shows a Design | Prototype | Elements segmented control, Design active by default', () => {
       mount();
       const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'off');
-      expect(within(seg).getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'off');
+      expect(within(seg).getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'off');
     });
 
     it('calls onPanelModeChange when Prototype is clicked', async () => {
@@ -166,10 +166,10 @@ describe('Inspector', () => {
       expect(onPanelModeChange).toHaveBeenCalledWith('prototype');
     });
 
-    it('calls onPanelModeChange when Components is clicked', async () => {
+    it('calls onPanelModeChange when Elements is clicked', async () => {
       const onPanelModeChange = vi.fn();
       mount(1440, { onPanelModeChange });
-      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
     });
 
@@ -186,12 +186,12 @@ describe('Inspector', () => {
       expect(within(panel).queryByTestId('inspector-type')).toBeNull();
     });
 
-    it('shows the Components tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
+    it('shows the Elements tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
       mount(1440, { panelMode: 'components' });
       await screen.findByText('Billing');
-      const panel = screen.getByRole('complementary', { name: 'Components' });
+      const panel = screen.getByRole('complementary', { name: 'Elements' });
 
-      expect(within(panel).getByLabelText('Search components')).toBeInTheDocument();
+      expect(within(panel).getByLabelText('Search elements')).toBeInTheDocument();
       expect(within(panel).getByText('Layout')).toBeInTheDocument();
       expect(within(panel).getByText('Frame')).toBeInTheDocument();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
@@ -202,7 +202,7 @@ describe('Inspector', () => {
       mount();
       const design = screen.getByRole('radio', { name: 'Design' });
       const prototype = screen.getByRole('radio', { name: 'Prototype' });
-      const components = screen.getByRole('radio', { name: 'Components' });
+      const elements = screen.getByRole('radio', { name: 'Elements' });
 
       design.focus();
       expect(design).toHaveFocus();
@@ -211,7 +211,7 @@ describe('Inspector', () => {
       expect(prototype).toHaveFocus();
 
       await userEvent.keyboard('{ArrowRight}');
-      expect(components).toHaveFocus();
+      expect(elements).toHaveFocus();
 
       await userEvent.keyboard('{ArrowLeft}');
       expect(prototype).toHaveFocus();
@@ -237,7 +237,7 @@ describe('Inspector', () => {
       expect(expandButton).toHaveAttribute('aria-expanded', 'false');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
       expect(within(panel).queryByRole('radiogroup', { name: 'Panel mode' })).toBeNull();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
     });
@@ -253,13 +253,13 @@ describe('Inspector', () => {
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
 
-    it('clicking the Components rail icon selects Components and expands', async () => {
+    it('clicking the Elements rail icon selects Elements and expands', async () => {
       const onPanelModeChange = vi.fn();
       const onToggleCollapsed = vi.fn();
       mount(1440, { collapsed: true, onPanelModeChange, onToggleCollapsed });
       const panel = screen.getByRole('complementary', { name: 'Design' });
 
-      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
+      await userEvent.click(within(panel).getByRole('button', { name: 'Elements' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });

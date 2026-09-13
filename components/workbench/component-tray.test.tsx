@@ -16,15 +16,15 @@ describe('ComponentTray', () => {
     }
   });
 
-  // The Components tab now renders this content inside the right panel's own
+  // The Elements tab now renders this content inside the right panel's own
   // <aside> (Inspector owns that panel chrome and its header) - see
   // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1.
   // ComponentTray must not bring a second, nested landmark or panel title of
   // its own.
-  it('renders no panel chrome of its own: no landmark, no "Components" title', () => {
+  it('renders no panel chrome of its own: no landmark, no "Elements" title', () => {
     renderInEditor(<ComponentTray />);
     expect(screen.queryByRole('complementary')).toBeNull();
-    expect(screen.queryByText('Components')).toBeNull();
+    expect(screen.queryByText('Elements')).toBeNull();
   });
 
   it('renders the five group headings in the spec order', () => {
@@ -74,7 +74,7 @@ describe('ComponentTray', () => {
 
   it('hides a group entirely when the search filters out all of its items', async () => {
     const { container } = renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Search components');
+    const input = screen.getByLabelText('Search elements');
 
     await userEvent.type(input, 'table');
     const sections = Array.from(container.querySelectorAll<HTMLElement>('[data-tray-section]'));
@@ -85,7 +85,7 @@ describe('ComponentTray', () => {
 
   it('filters the rendered rows as the user types, and clears back to the full list', async () => {
     const { container } = renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Search components');
+    const input = screen.getByLabelText('Search elements');
 
     await userEvent.type(input, 'dia');
     const matched = container.querySelectorAll('[data-tray-item]');
@@ -96,10 +96,10 @@ describe('ComponentTray', () => {
     await userEvent.type(input, 'zzz');
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-tray-section]')).toHaveLength(0);
-    expect(screen.getByText('No components match.')).toBeInTheDocument();
+    expect(screen.getByText('No elements match.')).toBeInTheDocument();
 
     await userEvent.clear(input);
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(trayItems.length);
-    expect(screen.queryByText('No components match.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
   });
 });

@@ -38,12 +38,12 @@ import { NodeBreadcrumb } from './breadcrumb';
 import { Field } from './field';
 
 // The panel names itself after the active tab so assistive technology
-// announces what is actually shown (Design, Prototype or Components), for
+// announces what is actually shown (Design, Prototype or Elements), for
 // the expanded panel and the minimized rail alike.
 const PANEL_LABEL: Record<PanelMode, string> = {
   design: 'Design',
   prototype: 'Prototype',
-  components: 'Components',
+  components: 'Elements',
 };
 
 export type { PanelMode };
@@ -63,7 +63,7 @@ const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 const RAIL_ITEMS: { mode: PanelMode; label: string; icon: LucideIcon }[] = [
   { mode: 'design', label: 'Design', icon: SlidersHorizontal },
   { mode: 'prototype', label: 'Prototype', icon: Workflow },
-  { mode: 'components', label: 'Components', icon: LayoutGrid },
+  { mode: 'components', label: 'Elements', icon: LayoutGrid },
 ];
 
 function MinimizeButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
@@ -195,7 +195,7 @@ export function Inspector({
               Prototype
             </ToggleGroupItem>
             <ToggleGroupItem value="components" className={SEG_ITEM}>
-              Components
+              Elements
             </ToggleGroupItem>
           </ToggleGroup>
           <MinimizeButton collapsed={false} onClick={onToggleCollapsed} />

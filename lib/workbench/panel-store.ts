@@ -1,5 +1,5 @@
 // Per-browser UI state for the right panel: which tab is active (Design,
-// Prototype or Components) and whether the panel is minimized to a rail.
+// Prototype or Elements) and whether the panel is minimized to a rail.
 // Neither is part of the file itself, so both live in localStorage the same
 // way lib/chat/store.ts's loadChatPanelOpen/saveChatPanelOpen keep the chat
 // panel's own open state - not the file's document.

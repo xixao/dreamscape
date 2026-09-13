@@ -596,7 +596,7 @@ function WorkbenchShell({
   }
 
   // Figma's own behaviour: picking a layer on the canvas while the
-  // Components tab is showing jumps the panel to Design, the same way
+  // Elements tab is showing jumps the panel to Design, the same way
   // Figma does when you select something while its Assets panel is open.
   // Adjusted during render (the same pattern FileNameField in topbar.tsx
   // uses for syncedFileName) rather than in an effect: comparing against a
@@ -604,8 +604,8 @@ function WorkbenchShell({
   // just changed" apart from "this component merely re-rendered" (e.g.
   // because panelMode changed). That distinction is exactly why this
   // cannot be an effect keyed on panelMode too - choosing Prototype or
-  // Components is always explicit, and reacting to panelMode here would
-  // immediately switch a just-chosen Components tab back to Design the
+  // Elements is always explicit, and reacting to panelMode here would
+  // immediately switch a just-chosen Elements tab back to Design the
   // moment it renders, defeating the click.
   const { id: selectedNodeId } = useSelectedNode();
   const [lastSelectedNodeId, setLastSelectedNodeId] = useState(selectedNodeId);

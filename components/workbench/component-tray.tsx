@@ -19,10 +19,10 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   );
 }
 
-// The Components tab's content: search field, grouped list, Craft drag
+// The Elements tab's content: search field, grouped list, Craft drag
 // sources (`connectors.create`). Rendered inside the right panel's own
 // <aside> by Inspector, which already owns that panel's chrome and header
-// (the Design/Prototype/Components tabs) - this renders no landmark or
+// (the Design/Prototype/Elements tabs) - this renders no landmark or
 // title of its own, so the two are never nested or duplicated (see
 // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1).
 export function ComponentTray() {
@@ -38,8 +38,8 @@ export function ComponentTray() {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Search components"
-            aria-label="Search components"
+            placeholder="Search elements"
+            aria-label="Search elements"
             className={SEARCH_INPUT}
           />
         </div>
@@ -73,7 +73,7 @@ export function ComponentTray() {
         })}
       </div>
       {filteredItems.length === 0 && (
-        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No components match.</p>
+        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No elements match.</p>
       )}
     </div>
   );

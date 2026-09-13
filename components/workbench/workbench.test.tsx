@@ -820,27 +820,27 @@ describe('Workbench', () => {
   });
 
   describe('editor UI state persists across a screen switch', () => {
-    // Design, Prototype and Components are one panel's mutually exclusive
+    // Design, Prototype and Elements are one panel's mutually exclusive
     // tabs now (docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md
-    // section 1), so a search filter typed on the Components tab and a
+    // section 1), so a search filter typed on the Elements tab and a
     // Prototype-mode selection can no longer be checked in the same moment
     // the way the pre-tab version of this test did - each is its own tab's
     // own state, and both, like panelMode itself, belong to the editor
     // session rather than the document, so neither may reset from a plain
     // screen switch alone.
-    it('keeps the Components search filter across a screen switch, distinct from the per-screen width readout', async () => {
+    it('keeps the Elements search filter across a screen switch, distinct from the per-screen width readout', async () => {
       const narrowScreen2: Screen = { ...SCREEN_2, stageWidth: 375 };
       render(<Workbench file={makeFile({ screens: [SCREEN_1, narrowScreen2] })} />);
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
-      await userEvent.type(screen.getByLabelText('Search components'), 'Button');
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.type(screen.getByLabelText('Search elements'), 'Button');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
-      expect(screen.getByLabelText('Search components')).toHaveValue('Button');
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByLabelText('Search elements')).toHaveValue('Button');
       // The width readout, in contrast, IS per screen and must update.
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px'));
     });
@@ -867,7 +867,7 @@ describe('Workbench', () => {
 
       fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Elements' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
     });
   });
@@ -987,58 +987,58 @@ describe('Workbench', () => {
     });
   });
 
-  describe('Components tab', () => {
+  describe('Elements tab', () => {
     function selectRoot(): void {
       const root = frameBody().querySelector('[data-block="LayoutBox"]');
       if (!root) throw new Error('root LayoutBox not found');
       fireEvent.mouseDown(root);
     }
 
-    it('renders a third Components tab alongside Design and Prototype', () => {
+    it('renders a third Elements tab alongside Design and Prototype', () => {
       render(<Workbench file={makeFile()} />);
       const panel = screen.getByRole('complementary', { name: 'Design' });
       const seg = within(panel).getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(seg).getByRole('radio', { name: 'Components' })).toBeInTheDocument();
+      expect(within(seg).getByRole('radio', { name: 'Elements' })).toBeInTheDocument();
     });
 
-    it('shows the search field and grouped list with drag sources on the Components tab', async () => {
+    it('shows the search field and grouped list with drag sources on the Elements tab', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
 
-      expect(screen.getByLabelText('Search components')).toBeInTheDocument();
+      expect(screen.getByLabelText('Search elements')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-group]')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
     });
 
-    it('there is no left column (Components lives in the right panel); the chat panel still floats in when opened', async () => {
+    it('there is no left column (Elements lives in the right panel); the chat panel still floats in when opened', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Elements' })).toBeNull();
 
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
     });
 
-    it('selecting a layer while on Components switches to Design', async () => {
+    it('selecting a layer while on Elements switches to Design', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
 
       selectRoot();
 
       await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
     });
 
-    it('choosing Components while a layer is already selected is explicit and does not bounce back to Design', async () => {
+    it('choosing Elements while a layer is already selected is explicit and does not bounce back to Design', async () => {
       render(<Workbench file={makeFile()} />);
       selectRoot();
       await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
 
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
     });
 
     it('remembers the selected tab across a remount', async () => {
@@ -1068,7 +1068,7 @@ describe('Workbench', () => {
       expect(panel).toHaveClass('w-10');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
@@ -1091,10 +1091,10 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
       const panel = screen.getByRole('complementary', { name: 'Design' });
 
-      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
+      await userEvent.click(within(panel).getByRole('button', { name: 'Elements' }));
 
-      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('complementary', { name: 'Elements' })).toHaveClass('w-80');
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
     });
 
     it('collapsed state persists across a remount', async () => {
@@ -1116,7 +1116,7 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'e' });
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'd' });
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
@@ -1129,8 +1129,8 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'e' });
 
-      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
-      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('complementary', { name: 'Elements' })).toHaveClass('w-80');
+      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
     });
 
     it('are ignored while typing, such as renaming the file', () => {
