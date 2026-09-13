@@ -9,13 +9,28 @@ import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 type KeysOptions = {
   onToggleUi?: () => void;
   onToggleChat?: () => void;
+  onTogglePanelCollapsed?: () => void;
   onToggleCommentMode?: () => void;
   commentMode?: boolean;
   onExitCommentMode?: () => void;
 };
 
-function Keys({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode }: KeysOptions) {
-  useWorkbenchKeyboard({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode });
+function Keys({
+  onToggleUi,
+  onToggleChat,
+  onTogglePanelCollapsed,
+  onToggleCommentMode,
+  commentMode,
+  onExitCommentMode,
+}: KeysOptions) {
+  useWorkbenchKeyboard({
+    onToggleUi,
+    onToggleChat,
+    onTogglePanelCollapsed,
+    onToggleCommentMode,
+    commentMode,
+    onExitCommentMode,
+  });
   return (
     <>
       <input aria-label="typing" />
@@ -340,5 +355,81 @@ describe('useWorkbenchKeyboard onToggleChat', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'j', metaKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onTogglePanelCollapsed', () => {
+  it('calls onTogglePanelCollapsed and prevents default for Cmd+.', async () => {
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: '.', metaKey: true });
+    expect(onTogglePanelCollapsed).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onTogglePanelCollapsed for Ctrl+.', async () => {
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '.', ctrlKey: true });
+    expect(onTogglePanelCollapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when the target is an input', async () => {
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: '.', metaKey: true });
+    expect(onTogglePanelCollapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when a popup or dialog owns the interaction', async () => {
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: '.', metaKey: true });
+    expect(onTogglePanelCollapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onTogglePanelCollapsed for other keys or a bare period', async () => {
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '.' });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(onTogglePanelCollapsed).not.toHaveBeenCalled();
+  });
+
+  it('does not fire for Cmd+\\ or Cmd+J, and those do not fire it', async () => {
+    const onToggleUi = vi.fn();
+    const onToggleChat = vi.fn();
+    const onTogglePanelCollapsed = vi.fn();
+    mount({ onToggleUi, onToggleChat, onTogglePanelCollapsed });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(onTogglePanelCollapsed).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+    expect(onTogglePanelCollapsed).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: '.', metaKey: true });
+    expect(onTogglePanelCollapsed).toHaveBeenCalledTimes(1);
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when onTogglePanelCollapsed is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: '.', metaKey: true })).not.toThrow();
   });
 });

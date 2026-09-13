@@ -286,7 +286,7 @@ export function Topbar({
         className={cn(
           PANEL,
           'shadow-panel',
-          chatOpen ? 'col-span-4' : 'col-span-3',
+          chatOpen ? 'col-span-3' : 'col-span-2',
           'flex h-[54px] items-center gap-2 px-3.5',
         )}
       >

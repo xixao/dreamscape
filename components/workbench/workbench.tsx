@@ -11,9 +11,14 @@ import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
+import {
+  loadPanelCollapsed,
+  loadPanelMode,
+  savePanelCollapsed,
+  savePanelMode,
+} from '@/lib/workbench/panel-store';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
-import { ComponentTray } from './component-tray';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -21,7 +26,7 @@ import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
-import { useZoneRedirect } from './selection';
+import { useSelectedNode, useZoneRedirect } from './selection';
 import { Stage } from './stage';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
@@ -432,7 +437,19 @@ function WorkbenchShell({
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
-  const [panelMode, setPanelMode] = useState<PanelMode>('design');
+  // Per browser, not per file - same lazy-useState-plus-effect pattern as
+  // chatOpen just below (and see lib/chat/store.ts for the precedent this
+  // mirrors: lib/workbench/panel-store.ts's loadPanelMode/savePanelMode).
+  const [panelMode, setPanelMode] = useState<PanelMode>(() => loadPanelMode(window.localStorage));
+  useEffect(() => {
+    savePanelMode(window.localStorage, panelMode);
+  }, [panelMode]);
+  // The right panel's minimized state, same per-browser persistence as
+  // panelMode above.
+  const [panelCollapsed, setPanelCollapsed] = useState(() => loadPanelCollapsed(window.localStorage));
+  useEffect(() => {
+    savePanelCollapsed(window.localStorage, panelCollapsed);
+  }, [panelCollapsed]);
   // Per browser, not per file (unlike the chat log itself) - see
   // lib/chat/store.ts. Lazy useState so this reads localStorage exactly
   // once, the same pattern as currentScreenId's hash-derived initial value
@@ -444,6 +461,27 @@ function WorkbenchShell({
   const { actions } = useEditor();
   const { setWidth, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // Figma's own behaviour: picking a layer on the canvas while the
+  // Components tab is showing jumps the panel to Design, the same way
+  // Figma does when you select something while its Assets panel is open.
+  // Adjusted during render (the same pattern FileNameField in topbar.tsx
+  // uses for syncedFileName) rather than in an effect: comparing against a
+  // mirrored `lastSelectedNodeId` is how this tells "the selection itself
+  // just changed" apart from "this component merely re-rendered" (e.g.
+  // because panelMode changed). That distinction is exactly why this
+  // cannot be an effect keyed on panelMode too - choosing Prototype or
+  // Components is always explicit, and reacting to panelMode here would
+  // immediately switch a just-chosen Components tab back to Design the
+  // moment it renders, defeating the click.
+  const { id: selectedNodeId } = useSelectedNode();
+  const [lastSelectedNodeId, setLastSelectedNodeId] = useState(selectedNodeId);
+  if (selectedNodeId !== lastSelectedNodeId) {
+    setLastSelectedNodeId(selectedNodeId);
+    if (selectedNodeId && panelMode === 'components') {
+      setPanelMode('design');
+    }
+  }
 
   // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
   // section 5): browser-only, one store per file, created once for this
@@ -468,6 +506,7 @@ function WorkbenchShell({
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
+    onTogglePanelCollapsed: () => setPanelCollapsed((collapsed) => !collapsed),
     onToggleCommentMode: () => setCommentMode((mode) => !mode),
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
@@ -537,11 +576,22 @@ function WorkbenchShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 
+  // The left column (the Components tray) is gone - the right panel now
+  // covers Design, Prototype and Components as tabs of one column, which
+  // narrows to a 40px rail instead of disappearing when minimized (see
+  // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md sections 1
+  // and 2). Every branch below is a complete, literal Tailwind class list
+  // (not built by interpolating a variable into the arbitrary-value bracket)
+  // so the build's class scanner can see each one.
   const gridClass = uiHidden
     ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
-    : chatOpen
-      ? 'grid h-screen grid-cols-[280px_1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-      : 'grid h-screen grid-cols-[280px_1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
+    : panelCollapsed
+      ? chatOpen
+        ? 'grid h-screen grid-cols-[1fr_40px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+        : 'grid h-screen grid-cols-[1fr_40px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+      : chatOpen
+        ? 'grid h-screen grid-cols-[1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
+        : 'grid h-screen grid-cols-[1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
 
   return (
     <ChatTransportProvider transport={placeholderTransport}>
@@ -565,7 +615,6 @@ function WorkbenchShell({
               commentCount={threads.length}
             />
           )}
-          {!uiHidden && <ComponentTray key="tray" />}
           <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
             <Stage
               data={currentScreenLayout}
@@ -586,6 +635,8 @@ function WorkbenchShell({
               currentScreenId={currentScreenId}
               panelMode={panelMode}
               onPanelModeChange={setPanelMode}
+              collapsed={panelCollapsed}
+              onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
             />
           )}
           {!uiHidden && chatOpen && (

@@ -2,8 +2,9 @@
 
 import { createContext, useContext, type ReactNode } from 'react';
 import type { Screen } from '@/lib/files/repository';
+import type { PanelMode } from '@/lib/workbench/panel-store';
 
-export type PanelMode = 'design' | 'prototype';
+export type { PanelMode };
 
 export interface PrototypeContextValue {
   panelMode: PanelMode;

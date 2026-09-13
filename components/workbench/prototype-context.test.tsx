@@ -27,4 +27,14 @@ describe('usePrototypeContext', () => {
     );
     expect(screen.getByTestId('probe')).toHaveTextContent('prototype:Login');
   });
+
+  it('accepts the components panel mode', () => {
+    const screens: Screen[] = [{ id: 's1', name: 'Login', layout: '{}', stageWidth: 1440 }];
+    render(
+      <PrototypeProvider value={{ panelMode: 'components', screens }}>
+        <Probe />
+      </PrototypeProvider>,
+    );
+    expect(screen.getByTestId('probe')).toHaveTextContent('components:Login');
+  });
 });

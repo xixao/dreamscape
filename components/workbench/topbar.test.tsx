@@ -242,13 +242,19 @@ describe('Topbar', () => {
       expect(onToggleChat).toHaveBeenCalledTimes(1);
     });
 
-    it('spans 3 columns when chat is closed and 4 when it is open', () => {
+    // The left column (the Components tray) went away in
+    // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1,
+    // so the top bar now spans 2 columns without chat and 3 with it (one
+    // fewer than before either way), regardless of whether the right panel
+    // is minimized - collapsing it only narrows that column, it does not
+    // remove it.
+    it('spans 2 columns when chat is closed and 3 when it is open', () => {
       const { unmount } = renderTopbar({ chatOpen: false });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-2');
       unmount();
 
       renderTopbar({ chatOpen: true });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-4');
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
     });
   });
 

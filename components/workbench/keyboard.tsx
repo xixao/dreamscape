@@ -26,6 +26,11 @@ export function useWorkbenchKeyboard(
   options: {
     onToggleUi?: () => void;
     onToggleChat?: () => void;
+    // Minimize/expand the right panel (docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md
+    // section 2), same precedence as Show/Hide UI and the chat toggle below:
+    // Cmd+. (Ctrl+. elsewhere) must still work while a text field, select or
+    // dialog owns the interaction.
+    onTogglePanelCollapsed?: () => void;
     // Comment tool (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
     // section 5): `onToggleCommentMode` fires on a bare "c"; `commentMode`
     // tells Escape whether to leave the tool (via `onExitCommentMode`)
@@ -37,7 +42,8 @@ export function useWorkbenchKeyboard(
     onExitCommentMode?: () => void;
   } = {},
 ): void {
-  const { onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode } = options;
+  const { onToggleUi, onToggleChat, onTogglePanelCollapsed, onToggleCommentMode, commentMode, onExitCommentMode } =
+    options;
   const { actions, query } = useEditor();
 
   useEffect(() => {
@@ -57,6 +63,13 @@ export function useWorkbenchKeyboard(
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
         event.preventDefault();
         onToggleChat?.();
+        return;
+      }
+
+      // Minimize/expand the right panel, same precedence as above.
+      if ((event.metaKey || event.ctrlKey) && event.key === '.') {
+        event.preventDefault();
+        onTogglePanelCollapsed?.();
         return;
       }
 
@@ -105,5 +118,5 @@ export function useWorkbenchKeyboard(
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query, onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode]);
+  }, [actions, query, onToggleUi, onToggleChat, onTogglePanelCollapsed, onToggleCommentMode, commentMode, onExitCommentMode]);
 }

@@ -89,6 +89,12 @@ describe('Workbench', () => {
     fetchMock = vi.fn().mockImplementation(() => Promise.resolve(ok('T1')));
     vi.stubGlobal('fetch', fetchMock);
     window.location.hash = '';
+    // The right panel's tab and minimized state are now remembered per
+    // browser (assembly-workbench:panel-mode / :panel-collapsed, like
+    // chatOpen's own assembly-workbench:chat-open) - cleared so every test
+    // starts from the same default (Design, expanded) regardless of what an
+    // earlier test in this file persisted.
+    localStorage.clear();
   });
 
   // Deliberately does not call vi.unstubAllGlobals(): this file's own
@@ -283,16 +289,14 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the Components and Design panels and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the right panel and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
@@ -300,7 +304,6 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
@@ -559,36 +562,50 @@ describe('Workbench', () => {
   });
 
   describe('editor UI state persists across a screen switch', () => {
-    it('keeps Prototype mode, the Components search filter and hidden UI, and updates the width readout', async () => {
+    // Design, Prototype and Components are one panel's mutually exclusive
+    // tabs now (docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md
+    // section 1), so a search filter typed on the Components tab and a
+    // Prototype-mode selection can no longer be checked in the same moment
+    // the way the pre-tab version of this test did - each is its own tab's
+    // own state, and both, like panelMode itself, belong to the editor
+    // session rather than the document, so neither may reset from a plain
+    // screen switch alone.
+    it('keeps the Components search filter across a screen switch, distinct from the per-screen width readout', async () => {
       const narrowScreen2: Screen = { ...SCREEN_2, stageWidth: 375 };
       render(<Workbench file={makeFile({ screens: [SCREEN_1, narrowScreen2] })} />);
 
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
       await userEvent.type(screen.getByLabelText('Search components'), 'Button');
-      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
-      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
       expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
-      // Neither the search filter nor the panel mode is specific to a
-      // screen - both belong to the editor session, not the document, so
-      // they must survive the switch untouched.
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
       expect(screen.getByLabelText('Search components')).toHaveValue('Button');
-      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
       // The width readout, in contrast, IS per screen and must update.
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px'));
+    });
+
+    it('keeps Prototype mode and hidden UI across a screen switch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+
+      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       // Hiding the UI and switching again must not bring it back by itself.
       // The screens strip stays visible even with the rest of the UI
       // hidden (see the "Show/Hide UI" tests above), so switching is still
       // possible without it.
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
       await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
       expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
     });
   });
@@ -598,23 +615,23 @@ describe('Workbench', () => {
       localStorage.clear();
     });
 
-    it('is closed by default; the topbar button opens it as a fourth column, reflected in aria-pressed', async () => {
+    it('is closed by default; the topbar button opens it as a third column, reflected in aria-pressed', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       const chatButton = screen.getByRole('button', { name: 'Chat' });
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
 
       await userEvent.click(chatButton);
 
       expect(chatButton).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px_360px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
 
       await userEvent.click(chatButton);
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[280px_1fr_320px]');
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
     });
 
     it('Cmd+J toggles the chat panel open and closed', () => {
@@ -636,11 +653,132 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByRole('complementary', { name: 'Components' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+    });
+  });
+
+  describe('Components tab', () => {
+    function selectRoot(container: HTMLElement): void {
+      const root = container.querySelector('[data-block="LayoutBox"]');
+      if (!root) throw new Error('root LayoutBox not found');
+      fireEvent.mouseDown(root);
+    }
+
+    it('renders a third Components tab alongside Design and Prototype', () => {
+      render(<Workbench file={makeFile()} />);
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const seg = within(panel).getByRole('radiogroup', { name: 'Panel mode' });
+      expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(seg).getByRole('radio', { name: 'Prototype' })).toBeInTheDocument();
+      expect(within(seg).getByRole('radio', { name: 'Components' })).toBeInTheDocument();
+    });
+
+    it('shows the search field and grouped list with drag sources on the Components tab', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+
+      expect(screen.getByLabelText('Search components')).toBeInTheDocument();
+      expect(document.querySelector('[data-tray-group]')).toBeInTheDocument();
+      expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
+    });
+
+    it('the grid has no left column; the chat column still appends', async () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+    });
+
+    it('selecting a layer while on Components switches to Design', async () => {
+      const { container } = render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+
+      selectRoot(container);
+
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+    });
+
+    it('choosing Components while a layer is already selected is explicit and does not bounce back to Design', async () => {
+      const { container } = render(<Workbench file={makeFile()} />);
+      selectRoot(container);
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('remembers the selected tab across a remount', async () => {
+      const { unmount } = render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
+      unmount();
+
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('tolerates a corrupt panel-mode value in localStorage, defaulting to Design', () => {
+      localStorage.setItem('assembly-workbench:panel-mode', 'not-a-mode');
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+    });
+  });
+
+  describe('Minimize panel', () => {
+    it('the minimize button collapses the panel to a rail and the expand button restores it', async () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+    });
+
+    it('Cmd+. toggles the panel collapsed, with the chat column still appending when collapsed', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+
+      fireEvent.keyDown(window, { key: '.', metaKey: true });
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px_360px]');
+
+      fireEvent.keyDown(window, { key: '.', metaKey: true });
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+    });
+
+    it('clicking a rail icon expands the panel on that tab', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
+
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('collapsed state persists across a remount', async () => {
+      const { unmount } = render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      unmount();
+
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument();
     });
   });
 });
