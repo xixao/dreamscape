@@ -218,9 +218,6 @@ function clampText(text: string): string {
   return text.slice(0, MAX_TEXT_LENGTH);
 }
 
-function snapSize(value: number): number {
-  return Math.max(MIN_SIZE, snapToGrid(value));
-}
 
 /** Pushes `{ nodes, edges }` of the state BEFORE this edit onto `past` (capped at HISTORY_LIMIT) and clears `future` - every action that changes the document, other than selection/undo/redo/load, commits through this. */
 function commit(state: DiagramState, next: DiagramData, selection: DiagramSelection = state.selection): DiagramState {
@@ -274,6 +271,13 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return commit(state, { nodes, edges: state.edges });
     }
 
+    // Re-review finding 21: one rule across move/resize/duplicate - the
+    // layer snaps a gesture's delta to the grid before it ever dispatches
+    // (diagram-layer.tsx's handleResizeMove), so the live preview and the
+    // landing box always agree; the reducer stores exactly what it is
+    // given, same as move. MIN_SIZE is still floored here - a floor
+    // against a degenerate (zero/negative) shape, not a grid snap, so it
+    // stays a reducer-level invariant regardless of what called it.
     case 'resize': {
       const index = state.nodes.findIndex((n) => n.id === action.id);
       if (index === -1) return state;
@@ -281,10 +285,10 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const current = nodes[index];
       nodes[index] = {
         ...current,
-        width: snapSize(action.width),
-        height: snapSize(action.height),
-        x: action.x === undefined ? current.x : snapToGrid(action.x),
-        y: action.y === undefined ? current.y : snapToGrid(action.y),
+        width: Math.max(MIN_SIZE, action.width),
+        height: Math.max(MIN_SIZE, action.height),
+        x: action.x === undefined ? current.x : action.x,
+        y: action.y === undefined ? current.y : action.y,
       };
       return commit(state, { nodes, edges: state.edges });
     }
@@ -375,7 +379,11 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         const source = state.nodes.find((n) => n.id === sourceId);
         if (!source) continue;
         idMap[sourceId] = newId;
-        copies.push({ ...source, id: newId, x: snapToGrid(source.x + offset.x), y: snapToGrid(source.y + offset.y) });
+        // Re-review finding 20: exact offset, no re-snap - the caller (a
+        // drag's already-snapped delta, or Cmd+D's plain 16px) already
+        // decided the movement; re-snapping the RESULT here disagreed with
+        // it the moment the source itself was off-grid.
+        copies.push({ ...source, id: newId, x: source.x + offset.x, y: source.y + offset.y });
         selection.push({ type: 'node', id: newId });
       }
       if (copies.length === 0) return state;
@@ -480,25 +488,29 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         if (!targetIds.has(n.id)) return n;
         const axis: 'x' | 'y' =
           action.mode === 'left' || action.mode === 'right' || action.mode === 'centerX' ? 'x' : 'y';
+        // Re-review finding 21: exact, no grid snapping of the result
+        // (Figma behaviour - shapes can sit off-grid now, e.g. after a 1px
+        // nudge, and aligning the rest of a selection to one should not
+        // silently un-nudge it by up to 4px).
         let value: number;
         switch (action.mode) {
           case 'left':
-            value = snapToGrid(box.x);
+            value = box.x;
             break;
           case 'right':
-            value = snapToGrid(box.x + box.width - n.width);
+            value = box.x + box.width - n.width;
             break;
           case 'centerX':
-            value = snapToGrid(box.x + (box.width - n.width) / 2);
+            value = box.x + (box.width - n.width) / 2;
             break;
           case 'top':
-            value = snapToGrid(box.y);
+            value = box.y;
             break;
           case 'bottom':
-            value = snapToGrid(box.y + box.height - n.height);
+            value = box.y + box.height - n.height;
             break;
           case 'centerY':
-            value = snapToGrid(box.y + (box.height - n.height) / 2);
+            value = box.y + (box.height - n.height) / 2;
             break;
         }
         if (value === n[axis]) return n;
@@ -545,10 +557,12 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const interior = targets.filter((n) => n !== first && n !== anchorEnd).sort((a, b) => start(a) - start(b));
       const ordered = first === anchorEnd ? [first, ...interior] : [first, ...interior, anchorEnd];
 
+      // Re-review finding 21: exact, no grid snapping of the result -
+      // same reasoning as align, above.
       const updates = new Map<string, number>();
       let cursor = minStart;
       for (const current of ordered) {
-        if (current !== first && current !== anchorEnd) updates.set(current.id, snapToGrid(cursor));
+        if (current !== first && current !== anchorEnd) updates.set(current.id, cursor);
         cursor += size(current) + gap;
       }
 

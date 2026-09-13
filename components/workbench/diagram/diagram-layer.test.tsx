@@ -407,8 +407,17 @@ describe('DiagramLayer resize', () => {
     dispatch.mockClear();
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 80, clientY: 90 });
 
+    // Re-review finding 21: the layer now snaps the raw pointer delta
+    // (-20, -10) to the grid BEFORE computing the box, same as a drag
+    // snaps its own delta - dx -20 -> -16, dy -10 -> -8, giving
+    // width 100-(-16)=116, height 50-(-8)=58, x/y shifted by the same
+    // snapped amount (100-16=84, 100-8... - x=box.x+box.width-width=
+    // 100+100-116=84, y=box.y+box.height-height=100+50-58=92). Before this
+    // fix the RAW delta was dispatched unsnapped (120, 60, 80, 90) and the
+    // reducer silently re-snapped y alone to 88, which is exactly the
+    // preview/landing mismatch finding 21 is about.
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 120, height: 60, x: 80, y: 90 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 116, height: 58, x: 84, y: 92 });
   });
 
   it('does not report x/y at all when a corner resize does not move the box (bottom-right)', () => {
@@ -427,6 +436,42 @@ describe('DiagramLayer resize', () => {
 
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 140, height: 90 });
+  });
+
+  // Re-review finding 21 (also pins 26's "unpinned" off-grid resize case):
+  // "what the preview shows is what lands" - proved here against the REAL
+  // reducer, not the mocked dispatch every other test in this block uses,
+  // so a re-snap anywhere between the live preview and the committed node
+  // would actually be caught.
+  it('lands the real reducer state exactly where its own live preview showed it, from an off-grid box', () => {
+    const initial = stateWith({
+      nodes: [node({ x: 101, y: 53, width: 100, height: 50 })],
+      selection: [{ type: 'node', id: 'node000001' }],
+    });
+    render(<RealReducerHarness initial={initial} />);
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 0 });
+    // Raw delta (13, 7) - neither component a multiple of 8.
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 13, clientY: 7 });
+
+    const previewRect = screen.getByTestId('diagram-node-node000001').querySelector('rect')!;
+    const previewed = {
+      x: previewRect.getAttribute('x'),
+      y: previewRect.getAttribute('y'),
+      width: previewRect.getAttribute('width'),
+      height: previewRect.getAttribute('height'),
+    };
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 13, clientY: 7 });
+
+    const landedRect = screen.getByTestId('diagram-node-node000001').querySelector('rect')!;
+    expect({
+      x: landedRect.getAttribute('x'),
+      y: landedRect.getAttribute('y'),
+      width: landedRect.getAttribute('width'),
+      height: landedRect.getAttribute('height'),
+    }).toEqual(previewed);
   });
 });
 

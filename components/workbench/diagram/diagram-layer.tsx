@@ -820,8 +820,16 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   function handleResizeMove(event: ReactPointerEvent<SVGElement>): void {
     if (!resize || resize.pointerId !== event.pointerId) return;
     const point = clientToCanvas(event.clientX, event.clientY);
-    const dx = point.x - resize.start.x;
-    const dy = point.y - resize.start.y;
+    // Re-review finding 21: the delta is snapped here, once, same as a
+    // drag snaps its own dx/dy before ever setting the live preview - the
+    // reducer now stores exactly whatever box this preview (and endResize
+    // below) hands it, so there is nowhere left for the preview and the
+    // landing box to disagree. Quantizing the DELTA rather than the
+    // resulting absolute width/height/x/y is what keeps an off-grid box
+    // (e.g. one nudged 1px) off-grid by the same amount after a resize,
+    // instead of snapping it back to an absolute grid line.
+    const dx = snapToGrid(point.x - resize.start.x);
+    const dy = snapToGrid(point.y - resize.start.y);
     const { box, corner } = resize;
     const growsRight = corner === 'ne' || corner === 'se';
     const growsDown = corner === 'sw' || corner === 'se';

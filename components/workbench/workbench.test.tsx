@@ -1793,7 +1793,13 @@ describe('Workbench', () => {
       expect(afterBigNudge - afterOneNudge).toBe(8);
     });
 
-    it('a mouse drag still snaps to the 8px grid even after a 1px nudge moved the shape off it', async () => {
+    // Re-review finding 21: renamed from "...still snaps to the 8px grid"
+    // - that overclaimed it. The DRAG'S OWN DELTA snaps to a multiple of
+    // 8px; the shape's landing position does not snap back to an absolute
+    // grid line, so a shape already 1px off-grid (from the nudge above)
+    // stays exactly 1px off-grid after the drag too, not un-nudged onto
+    // the grid.
+    it('a mouse drag adds its own 8px-quantized delta, even to a shape a 1px nudge left off the grid', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
       fireEvent.keyDown(window, { key: 'ArrowRight' }); // off-grid by 1px now

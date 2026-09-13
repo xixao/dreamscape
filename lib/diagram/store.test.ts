@@ -107,24 +107,34 @@ describe('diagramReducer: move', () => {
 });
 
 describe('diagramReducer: resize', () => {
-  it('snaps width/height to the grid', () => {
+  // Re-review finding 21: one rule across move/resize/duplicate - the
+  // LAYER snaps a gesture's delta to the grid before it ever dispatches
+  // (so the live preview and the landing box always agree), and the
+  // reducer stores exactly what it is given, same as move already does.
+  // Re-snapping the result HERE, on top of an already-snapped dispatch,
+  // is what let a shape's preview and its landing box disagree the moment
+  // the shape itself started off-grid.
+  it('applies width/height exactly, with no re-snap of its own - grid alignment is the caller\'s job', () => {
     const state = stateWith({ nodes: [node({ width: 120, height: 60 })] });
     const next = diagramReducer(state, { type: 'resize', id: 'n1', width: 101, height: 59 });
-    expect(next.nodes[0]).toMatchObject({ width: 104, height: 56 });
+    expect(next.nodes[0]).toMatchObject({ width: 101, height: 59 });
   });
 
-  it('never lets a shape collapse to zero or negative size', () => {
+  it('never lets a shape collapse to zero or negative size (a floor, not a grid snap)', () => {
     const state = stateWith({ nodes: [node()] });
     const next = diagramReducer(state, { type: 'resize', id: 'n1', width: -20, height: 2 });
     expect(next.nodes[0].width).toBeGreaterThan(0);
     expect(next.nodes[0].height).toBeGreaterThan(0);
   });
 
-  it('also repositions the node, snapped to the grid, when x/y are given (a corner resize)', () => {
+  it('also repositions the node exactly, with no re-snap, when x/y are given (a corner resize)', () => {
     const state = stateWith({ nodes: [node({ x: 100, y: 100, width: 100, height: 50 })] });
     const next = diagramReducer(state, { type: 'resize', id: 'n1', width: 120, height: 64, x: 80, y: 90 });
-    // y:90 is not a multiple of 8 - snapped the same way move() snaps x/y.
-    expect(next.nodes[0]).toMatchObject({ x: 80, y: 88, width: 120, height: 64 });
+    // y:90 is off the 8px grid - stored exactly, not snapped to 88. The
+    // layer is what decides whether a resize's OWN delta is grid-quantized
+    // (it is - see diagram-layer.test.tsx), which for a node that started
+    // off-grid does not necessarily land back on an absolute grid line.
+    expect(next.nodes[0]).toMatchObject({ x: 80, y: 90, width: 120, height: 64 });
   });
 
   it('leaves x/y untouched when they are not given (bottom-right corner, or a plain width/height resize)', () => {
@@ -282,7 +292,7 @@ describe('diagramReducer: duplicate', () => {
     expect(next.edges).toHaveLength(1);
   });
 
-  it('accepts an explicit offset (e.g. zero, for an option-drag duplicate), snapped to the grid', () => {
+  it('accepts an explicit offset (e.g. zero, for an option-drag duplicate)', () => {
     const state = stateWith({ nodes: [node({ id: 'n1', x: 40, y: 40 })] });
     const next = diagramReducer(state, {
       type: 'duplicate',
@@ -290,6 +300,51 @@ describe('diagramReducer: duplicate', () => {
       offset: { x: 0, y: 0 },
     });
     expect(next.nodes.find((n) => n.id === 'copy1')).toMatchObject({ x: 40, y: 40 });
+  });
+
+  // Re-review finding 20 (should fix): the reducer used to re-snap the
+  // copy's absolute position (snapToGrid(source.x + offset.x)), which
+  // disagreed with the offset the caller actually asked for the moment the
+  // source was off-grid - the same "layer snaps deltas, reducer stores
+  // exact values" rule as `move` and (as of this fix wave) `resize`.
+  it('adds the exact offset given, with no re-snap - the copy lands exactly where an option-drag ghost showed it', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', x: 100, y: 100 })] });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [{ sourceId: 'n1', newId: 'copy1' }],
+      offset: { x: 24, y: 0 },
+    });
+    // Before the fix this landed at (128, 104): snapToGrid(124) rounds up to
+    // 128, and snapToGrid(100) (the y the caller never asked to move at
+    // all) rounds up to 104 - a purely horizontal drag moved the copy
+    // vertically too.
+    expect(next.nodes.find((n) => n.id === 'copy1')).toMatchObject({ x: 124, y: 100 });
+  });
+
+  it('keeps two duplicated shapes the same distance apart as their sources, even off the grid', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'n1', x: 100, y: 0 }), node({ id: 'n2', x: 104, y: 0 })],
+    });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [
+        { sourceId: 'n1', newId: 'copy1' },
+        { sourceId: 'n2', newId: 'copy2' },
+      ],
+      offset: { x: 20, y: 0 },
+    });
+    const copy1 = next.nodes.find((n) => n.id === 'copy1')!;
+    const copy2 = next.nodes.find((n) => n.id === 'copy2')!;
+    expect(copy2.x - copy1.x).toBe(4);
+  });
+
+  it("Cmd+D's default offset is exactly 16, even from an off-grid source", () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', x: 100, y: 100 })] });
+    // No `offset` given - the default DUPLICATE_OFFSET path Cmd+D uses.
+    const next = diagramReducer(state, { type: 'duplicate', pairs: [{ sourceId: 'n1', newId: 'copy1' }] });
+    // Before the fix this landed at (120, 120): snapToGrid(116) rounds up
+    // to 120, an offset of 20, not the 16 Cmd+D has always advertised.
+    expect(next.nodes.find((n) => n.id === 'copy1')).toMatchObject({ x: 116, y: 116 });
   });
 
   it('duplicates a connector whose both endpoints are being duplicated', () => {
@@ -467,7 +522,7 @@ describe('diagramReducer: align', () => {
     expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 80 });
   });
 
-  it('centers horizontally on the selection bounding box, snapped to 8px', () => {
+  it('centers horizontally on the selection bounding box', () => {
     const state = stateWith({ nodes: [a, b] });
     const next = diagramReducer(state, { type: 'align', ids: ['a', 'b'], mode: 'centerX' });
     // box center x = 48. a (width 48): 48-24=24. b (width 16): 48-8=40.
@@ -518,6 +573,20 @@ describe('diagramReducer: align', () => {
     const state = stateWith({ nodes: [alreadyLeft, alreadyLeftToo] });
     const next = diagramReducer(state, { type: 'align', ids: ['x', 'y'], mode: 'left' });
     expect(next).toBe(state);
+  });
+
+  // Re-review finding 21: align no longer snaps its result to the grid
+  // (Figma behaviour - shapes can sit off-grid now, e.g. after a 1px
+  // nudge, and "align" should not silently un-nudge them by up to 4px).
+  it('lands exactly on the bounding box edge, off the grid, with no snap of its own', () => {
+    const off1 = node({ id: 'x', x: 3, y: 0, width: 48, height: 32 });
+    const off2 = node({ id: 'y', x: 83, y: 0, width: 16, height: 96 });
+    const state = stateWith({ nodes: [off1, off2] });
+    const next = diagramReducer(state, { type: 'align', ids: ['x', 'y'], mode: 'left' });
+    // Bounding box left edge is 3 (off the grid) - before this fix,
+    // snapToGrid(3) rounded down to 0 for both shapes.
+    expect(next.nodes.find((n) => n.id === 'x')).toMatchObject({ x: 3 });
+    expect(next.nodes.find((n) => n.id === 'y')).toMatchObject({ x: 3 });
   });
 });
 
@@ -596,6 +665,20 @@ describe('diagramReducer: distribute', () => {
     expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ x: 0 });
     expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 60 });
     expect(next.nodes.find((n) => n.id === 'c')).toMatchObject({ x: 40 });
+  });
+
+  // Re-review finding 21: distribute no longer snaps an interior shape's
+  // computed position to the grid.
+  it('places an interior shape at its exact computed position, off the grid, with no snap of its own', () => {
+    const wideA = node({ id: 'a', x: 0, y: 0, width: 10, height: 20 });
+    const middle = node({ id: 'b', x: 20, y: 0, width: 10, height: 20 });
+    const wideC = node({ id: 'c', x: 100, y: 0, width: 10, height: 20 }); // right edge 110, the anchor
+    const state = stateWith({ nodes: [wideA, middle, wideC] });
+    const next = diagramReducer(state, { type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+    // span 110, total size 30, gap (110-30)/2=40; b lands at 0+10+40=50,
+    // not a multiple of 8 - before this fix, snapToGrid(50) rounded down
+    // to 48.
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 50 });
   });
 });
 
