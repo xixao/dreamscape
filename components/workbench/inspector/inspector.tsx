@@ -470,7 +470,16 @@ export function Inspector({
                     (field) =>
                       field.section === section &&
                       (!field.showWhen || field.showWhen(props)) &&
-                      !(isRoot && field.prop === 'grow'),
+                      !(isRoot && field.prop === 'grow') &&
+                      // Review fix wave item 7: a flex LayoutBox's own
+                      // Alignment/Distribution selects are now redundant
+                      // with the icon row rendered just above (from
+                      // layoutAlignmentContext) whenever THIS node is the
+                      // one that row edits - layout-box.tsx's schema stays
+                      // untouched (a grid LayoutBox, which never gets an
+                      // icon row, still shows its own plain Alignment
+                      // select), this only hides them at the render site.
+                      !((field.prop === 'align' || field.prop === 'justify') && id === layoutContainer?.id),
                   );
                   if (fields.length === 0) return null;
                   return (

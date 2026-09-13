@@ -1,15 +1,20 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import {
   AlignCenterHorizontal,
   AlignCenterVertical,
   AlignEndHorizontal,
   AlignEndVertical,
   AlignHorizontalDistributeCenter,
+  AlignHorizontalSpaceBetween,
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalDistributeCenter,
+  AlignVerticalSpaceBetween,
   LayoutGrid,
+  StretchHorizontal,
+  StretchVertical,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -83,17 +88,24 @@ function AlignButton({
   label,
   icon: Icon,
   disabled,
+  active,
   onClick,
 }: {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  // Review fix wave item 7: only the Auto layout context has a persisted
+  // "current value" to reflect (align/justify on the container) - frames
+  // and diagram selections are one-shot actions with nothing to toggle, so
+  // they simply never pass this, and aria-pressed is omitted for them
+  // (React drops an undefined attribute) rather than forced to false.
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} disabled={disabled} onClick={onClick}>
+        <Button variant="ghost" size="icon" aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick}>
           <Icon className="size-3.5" aria-hidden />
         </Button>
       </TooltipTrigger>
@@ -121,7 +133,10 @@ const ALIGN_LABELS: Record<AlignMode, string> = {
   centerX: 'Align horizontal centers',
   right: 'Align right',
   top: 'Align top',
-  centerY: 'Align vertical middles',
+  // Figma wording (review fix wave nit 14): "vertical centers" pairs with
+  // "horizontal centers" (centerX, above) - "middles" was this row's own
+  // one-off term for the identical concept.
+  centerY: 'Align vertical centers',
   bottom: 'Align bottom',
 };
 
@@ -169,11 +184,20 @@ function AlignmentRow({
   onDistribute,
   onTidyUp,
   enabled,
+  active,
+  extra,
 }: {
   onAlign: (mode: AlignMode) => void;
   onDistribute: (axis: DistributeAxis) => void;
   onTidyUp?: () => void;
   enabled: AlignmentRowEnabled;
+  // Review fix wave item 7 - see AlignButton's own `active` doc comment.
+  active?: Partial<Record<AlignMode, boolean>>;
+  // The Auto layout context's own Stretch/Space-between buttons (below) -
+  // neither frames nor a diagram selection has an equivalent, so this is a
+  // slot rather than a fixed part of the shared row, the same way onTidyUp
+  // is already an optional, frames-only addition to it.
+  extra?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-0.5">
@@ -183,21 +207,23 @@ function AlignmentRow({
           label={ALIGN_LABELS[mode]}
           icon={ALIGN_ICONS[mode]}
           disabled={!enabled[mode]}
+          active={active?.[mode]}
           onClick={() => onAlign(mode)}
         />
       ))}
       <AlignButton
-        label="Distribute horizontally"
+        label="Distribute horizontal spacing"
         icon={AlignHorizontalDistributeCenter}
         disabled={!enabled.distributeHorizontal}
         onClick={() => onDistribute('horizontal')}
       />
       <AlignButton
-        label="Distribute vertically"
+        label="Distribute vertical spacing"
         icon={AlignVerticalDistributeCenter}
         disabled={!enabled.distributeVertical}
         onClick={() => onDistribute('vertical')}
       />
+      {extra}
       {onTidyUp && (
         <AlignButton label="Tidy up" icon={LayoutGrid} disabled={!enabled.tidyUp} onClick={onTidyUp} />
       )}
@@ -269,6 +295,31 @@ function LayoutAlignmentFields({ context }: { context: LayoutAlignmentContext })
     if (isMainAxis && context.distributeGapPx !== null) context.onChange({ gapPx: context.distributeGapPx });
   }
 
+  // Review fix wave item 7: this is the only context with a persisted
+  // "current value" (the container's own align/justify) for the row to
+  // reflect - the same axis mapping handleAlign uses above, run in
+  // reverse to ask "does THIS mode's value match what the container is
+  // set to right now".
+  const active: Partial<Record<AlignMode, boolean>> = Object.fromEntries(
+    ALIGN_ORDER.map((mode) => {
+      const isMainAxis = (AXIS_OF_ALIGN_MODE[mode] === 'x') === isRow;
+      const current = isMainAxis ? context.justify : context.align;
+      return [mode, current === VALUE_OF_ALIGN_MODE[mode]];
+    }),
+  );
+
+  // Stretch (align: 'stretch') fills the CROSS axis - vertical for a row,
+  // horizontal for a column; Space between (justify: 'between') spreads
+  // along the MAIN axis - horizontal for a row, vertical for a column.
+  // Icon choice verified against each one's own path data: stretch-vertical
+  // draws two full-height bars (fills height, i.e. the cross axis of a
+  // row); align-horizontal-space-between draws two bars pinned to vertical
+  // guide lines at the far left/right (spread along the main axis of a
+  // row) - so a row container gets StretchVertical + AlignHorizontalSpaceBetween,
+  // a column the opposite pairing.
+  const StretchIcon = isRow ? StretchVertical : StretchHorizontal;
+  const SpaceBetweenIcon = isRow ? AlignHorizontalSpaceBetween : AlignVerticalSpaceBetween;
+
   return (
     <AlignmentRow
       onAlign={handleAlign}
@@ -278,6 +329,23 @@ function LayoutAlignmentFields({ context }: { context: LayoutAlignmentContext })
         isRow && context.distributeGapPx !== null,
         !isRow && context.distributeGapPx !== null,
       )}
+      active={active}
+      extra={
+        <>
+          <AlignButton
+            label="Stretch"
+            icon={StretchIcon}
+            active={context.align === 'stretch'}
+            onClick={() => context.onChange({ align: 'stretch' })}
+          />
+          <AlignButton
+            label="Space between"
+            icon={SpaceBetweenIcon}
+            active={context.justify === 'between'}
+            onClick={() => context.onChange({ justify: 'between' })}
+          />
+        </>
+      }
     />
   );
 }

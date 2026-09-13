@@ -222,8 +222,8 @@ describe('Inspector', () => {
       const alignmentRow = within(panel).getByTestId('alignment-fields');
 
       // Row direction (desktop default): horizontal is the main axis.
-      expect(within(alignmentRow).getByRole('button', { name: 'Distribute horizontally' })).not.toBeDisabled();
-      expect(within(alignmentRow).getByRole('button', { name: 'Distribute vertically' })).toBeDisabled();
+      expect(within(alignmentRow).getByRole('button', { name: 'Distribute horizontal spacing' })).not.toBeDisabled();
+      expect(within(alignmentRow).getByRole('button', { name: 'Distribute vertical spacing' })).toBeDisabled();
     });
 
     it('does not show the alignment row when nothing is selected', async () => {
@@ -231,6 +231,39 @@ describe('Inspector', () => {
       await screen.findByText('Billing');
       const panel = screen.getByRole('complementary', { name: 'Design' });
       expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+    });
+
+    // Review fix wave item 7: the icon row above already writes align/
+    // justify for a flex container, so its own plain Alignment/Distribution
+    // selects further down the SAME panel are now a redundant second
+    // control for the identical two props - hidden at the render site
+    // (inspector.tsx), not by touching layout-box.tsx's own schema.
+    it('hides the flex LayoutBox\'s own Alignment and Distribution selects once the icon row covers them', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).getByTestId('alignment-fields')).toBeInTheDocument();
+      expect(within(panel).queryByText('Alignment')).not.toBeInTheDocument();
+      expect(within(panel).queryByText('Distribution')).not.toBeInTheDocument();
+    });
+
+    it('still shows the plain Alignment select (and no icon row) for a grid LayoutBox', async () => {
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      act(() => {
+        editor().actions.setProp(ROOT_NODE, (draft: { mode?: string }) => {
+          draft.mode = 'grid';
+        });
+      });
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).queryByTestId('alignment-fields')).not.toBeInTheDocument();
+      expect(within(panel).getByText('Alignment')).toBeInTheDocument();
+      // Distribution was already grid-hidden before this fix wave (showWhen: isFlex).
+      expect(within(panel).queryByText('Distribution')).not.toBeInTheDocument();
     });
   });
 

@@ -58,10 +58,10 @@ describe('AlignmentFields - frame selection context', () => {
       'Align horizontal centers',
       'Align right',
       'Align top',
-      'Align vertical middles',
+      'Align vertical centers',
       'Align bottom',
-      'Distribute horizontally',
-      'Distribute vertically',
+      'Distribute horizontal spacing',
+      'Distribute vertical spacing',
       'Tidy up',
     ]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
@@ -97,10 +97,10 @@ describe('AlignmentFields - frame selection context', () => {
     expect(positionsById(context.onAlign as ReturnType<typeof vi.fn>).b).toEqual({ x: 200, y: 0 });
   });
 
-  it('Align vertical middles centres every frame on the bounds midpoint', () => {
+  it('Align vertical centers aligns every frame on the bounds midpoint', () => {
     const context = frameContext();
     renderFields(context);
-    fireEvent.click(screen.getByRole('button', { name: 'Align vertical middles' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Align vertical centers' }));
     expect(positionsById(context.onAlign as ReturnType<typeof vi.fn>).a).toEqual({ x: 0, y: 90 });
   });
 
@@ -111,17 +111,17 @@ describe('AlignmentFields - frame selection context', () => {
     expect(positionsById(context.onAlign as ReturnType<typeof vi.fn>).c).toEqual({ x: 400, y: 210 });
   });
 
-  it('Distribute horizontally spaces the gaps evenly on x', () => {
+  it('Distribute horizontal spacing spaces the gaps evenly on x', () => {
     const context = frameContext();
     renderFields(context);
-    fireEvent.click(screen.getByRole('button', { name: 'Distribute horizontally' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Distribute horizontal spacing' }));
     expect(positionsById(context.onAlign as ReturnType<typeof vi.fn>).b).toEqual({ x: 225, y: 80 });
   });
 
-  it('Distribute vertically spaces the gaps evenly on y', () => {
+  it('Distribute vertical spacing spaces the gaps evenly on y', () => {
     const context = frameContext();
     renderFields(context);
-    fireEvent.click(screen.getByRole('button', { name: 'Distribute vertically' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Distribute vertical spacing' }));
     expect(positionsById(context.onAlign as ReturnType<typeof vi.fn>).c).toEqual({ x: 400, y: 55 });
   });
 
@@ -143,8 +143,8 @@ describe('AlignmentFields - frame selection context', () => {
 
   it('disables the distribute buttons with fewer than three frames', () => {
     renderFields(frameContext({ frames: [A, B] }));
-    expect(screen.getByRole('button', { name: 'Distribute horizontally' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Distribute vertically' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute horizontal spacing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute vertical spacing' })).toBeDisabled();
     // Plain align still works with just two.
     expect(screen.getByRole('button', { name: 'Align left' })).not.toBeDisabled();
   });
@@ -169,7 +169,7 @@ describe('AlignmentFields - Auto layout context', () => {
     expect(context.onChange).toHaveBeenLastCalledWith({ justify: 'end' });
     fireEvent.click(screen.getByRole('button', { name: 'Align top' }));
     expect(context.onChange).toHaveBeenLastCalledWith({ align: 'start' });
-    fireEvent.click(screen.getByRole('button', { name: 'Align vertical middles' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Align vertical centers' }));
     expect(context.onChange).toHaveBeenLastCalledWith({ align: 'center' });
     fireEvent.click(screen.getByRole('button', { name: 'Align bottom' }));
     expect(context.onChange).toHaveBeenLastCalledWith({ align: 'end' });
@@ -193,8 +193,8 @@ describe('AlignmentFields - Auto layout context', () => {
     const context = layoutContext({ direction: 'row', distributeGapPx: 24 });
     renderFields(context);
 
-    const horizontal = screen.getByRole('button', { name: 'Distribute horizontally' });
-    const vertical = screen.getByRole('button', { name: 'Distribute vertically' });
+    const horizontal = screen.getByRole('button', { name: 'Distribute horizontal spacing' });
+    const vertical = screen.getByRole('button', { name: 'Distribute vertical spacing' });
     expect(horizontal).not.toBeDisabled();
     expect(vertical).toBeDisabled();
 
@@ -206,8 +206,8 @@ describe('AlignmentFields - Auto layout context', () => {
     const context = layoutContext({ direction: 'column', distributeGapPx: 16 });
     renderFields(context);
 
-    const horizontal = screen.getByRole('button', { name: 'Distribute horizontally' });
-    const vertical = screen.getByRole('button', { name: 'Distribute vertically' });
+    const horizontal = screen.getByRole('button', { name: 'Distribute horizontal spacing' });
+    const vertical = screen.getByRole('button', { name: 'Distribute vertical spacing' });
     expect(horizontal).toBeDisabled();
     expect(vertical).not.toBeDisabled();
 
@@ -217,7 +217,92 @@ describe('AlignmentFields - Auto layout context', () => {
 
   it('disables the on-axis distribute button when distributeGapPx is null (fewer than two children)', () => {
     renderFields(layoutContext({ direction: 'row', distributeGapPx: null }));
-    expect(screen.getByRole('button', { name: 'Distribute horizontally' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute horizontal spacing' })).toBeDisabled();
+  });
+
+  // Review fix wave item 7: only this context has a persisted align/justify
+  // to reflect - frames and diagram selections are one-shot actions with
+  // nothing to toggle (covered below, in their own describe blocks).
+  describe('aria-pressed reflects the container\'s current align/justify (review fix wave item 7)', () => {
+    it('marks the buttons matching the current justify (main axis) and align (cross axis) for a row', () => {
+      renderFields(layoutContext({ direction: 'row', align: 'center', justify: 'end' }));
+
+      // Main axis (x, justify='end'): only Align right matches.
+      expect(screen.getByRole('button', { name: 'Align left' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Align horizontal centers' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Align right' })).toHaveAttribute('aria-pressed', 'true');
+      // Cross axis (y, align='center'): only Align vertical centers matches.
+      expect(screen.getByRole('button', { name: 'Align top' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Align vertical centers' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Align bottom' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('flips main/cross axis for a column, the same way handleAlign itself does', () => {
+      renderFields(layoutContext({ direction: 'column', align: 'end', justify: 'center' }));
+
+      // Cross axis for a column is x (align='end'): only Align right matches.
+      expect(screen.getByRole('button', { name: 'Align left' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Align right' })).toHaveAttribute('aria-pressed', 'true');
+      // Main axis for a column is y (justify='center'): only Align vertical centers matches.
+      expect(screen.getByRole('button', { name: 'Align top' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Align vertical centers' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('never pressed for a one-shot frames context', () => {
+      renderFields(frameContext());
+      expect(screen.getByRole('button', { name: 'Align left' })).not.toHaveAttribute('aria-pressed');
+    });
+
+    it('never pressed for a one-shot diagram context', () => {
+      renderFields(diagramContext());
+      expect(screen.getByRole('button', { name: 'Align left' })).not.toHaveAttribute('aria-pressed');
+    });
+  });
+
+  // Review fix wave item 7: Stretch (align: 'stretch', the cross axis) and
+  // Space between (justify: 'between', the main axis) fill out the two
+  // flexbox values the row previously had no button for at all.
+  describe('Stretch and Space between (review fix wave item 7)', () => {
+    it('Stretch sets align to stretch and reflects it in aria-pressed', () => {
+      const context = layoutContext({ align: 'start' });
+      renderFields(context);
+      const stretch = screen.getByRole('button', { name: 'Stretch' });
+      expect(stretch).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(stretch);
+      expect(context.onChange).toHaveBeenLastCalledWith({ align: 'stretch' });
+    });
+
+    it('Stretch reads pressed when the container is already stretched', () => {
+      renderFields(layoutContext({ align: 'stretch' }));
+      expect(screen.getByRole('button', { name: 'Stretch' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('Space between sets justify to between and reflects it in aria-pressed', () => {
+      const context = layoutContext({ justify: 'start' });
+      renderFields(context);
+      const spaceBetween = screen.getByRole('button', { name: 'Space between' });
+      expect(spaceBetween).toHaveAttribute('aria-pressed', 'false');
+
+      fireEvent.click(spaceBetween);
+      expect(context.onChange).toHaveBeenLastCalledWith({ justify: 'between' });
+    });
+
+    it('Space between reads pressed when the container already justifies with space-between', () => {
+      renderFields(layoutContext({ justify: 'between' }));
+      expect(screen.getByRole('button', { name: 'Space between' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('renders for both row and column containers', () => {
+      const { unmount } = renderFields(layoutContext({ direction: 'row' }));
+      expect(screen.getByRole('button', { name: 'Stretch' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Space between' })).toBeInTheDocument();
+      unmount();
+
+      renderFields(layoutContext({ direction: 'column' }));
+      expect(screen.getByRole('button', { name: 'Stretch' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Space between' })).toBeInTheDocument();
+    });
   });
 });
 
@@ -236,7 +321,7 @@ describe('AlignmentFields - diagram selection context', () => {
       ['Align horizontal centers', 'centerX'],
       ['Align right', 'right'],
       ['Align top', 'top'],
-      ['Align vertical middles', 'centerY'],
+      ['Align vertical centers', 'centerY'],
       ['Align bottom', 'bottom'],
     ];
     for (const [label, mode] of cases) {
@@ -249,9 +334,9 @@ describe('AlignmentFields - diagram selection context', () => {
     const onDistribute = vi.fn();
     renderFields(diagramContext({ onDistribute }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Distribute horizontally' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Distribute horizontal spacing' }));
     expect(onDistribute).toHaveBeenLastCalledWith('horizontal');
-    fireEvent.click(screen.getByRole('button', { name: 'Distribute vertically' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Distribute vertical spacing' }));
     expect(onDistribute).toHaveBeenLastCalledWith('vertical');
   });
 
@@ -267,15 +352,15 @@ describe('AlignmentFields - diagram selection context', () => {
 
   it('disables the distribute buttons with fewer than three shapes selected', () => {
     renderFields(diagramContext({ count: 2 }));
-    expect(screen.getByRole('button', { name: 'Distribute horizontally' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Distribute vertically' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute horizontal spacing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute vertical spacing' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Align left' })).not.toBeDisabled();
   });
 
   it('enables align and distribute with three or more shapes selected', () => {
     renderFields(diagramContext({ count: 3 }));
     expect(screen.getByRole('button', { name: 'Align left' })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Distribute horizontally' })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Distribute vertically' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute horizontal spacing' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Distribute vertical spacing' })).not.toBeDisabled();
   });
 });
