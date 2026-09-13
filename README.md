@@ -18,7 +18,7 @@ The app needs a `DATABASE_URL`. Pull the one Vercel manages (you must be signed 
 npx vercel env pull .env.local
 ```
 
-Any other Postgres connection string works too; put it in `.env.local` as `DATABASE_URL=...`. Then:
+Any other Postgres connection string works too; put it in `.env.local` as `DATABASE_URL=...`. For local work without a database at all (a coworker on a work computer, say), leave `DATABASE_URL` unset: the app then runs on an in-memory database that starts empty and resets whenever the server restarts. Then:
 
 ```bash
 npm run dev
