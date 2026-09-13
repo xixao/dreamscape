@@ -317,6 +317,31 @@ describe('Canvas', () => {
 
       expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 404, y: 0 });
     });
+
+    // One of the review's named missing tests (task-grid-review.md):
+    // frame-title.test.tsx already proves Alt reports nearest-neighbour
+    // distances in isolation - this confirms they actually reach the
+    // screen as rendered snap-chip elements through the real Canvas ->
+    // SnapGuides wiring, not just through FrameTitle's own onSnapGuides
+    // callback.
+    it('Alt held while dragging renders a nearest-neighbour distance chip through the full Canvas', async () => {
+      saveViewport(window.localStorage, 'altchip', 'page1', { x: 0, y: 0, zoom: 1 });
+      const far: Screen = { ...SCREEN_2, id: 'far', x: 2000 };
+      renderCanvas({ screens: [SCREEN_1, far], focusedScreenId: SCREEN_1.id, fileId: 'altchip' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      // Raw (0+4)=4 grid-snaps to 8 (the only candidate within tolerance -
+      // 'far' is much too distant to be an edge match). SCREEN_1's right
+      // edge lands at 8+400=408; the gap to `far`'s left edge (2000) is
+      // 1592, reported on its right side (no left/top/bottom neighbour).
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 4, clientY: 0, altKey: true });
+
+      const chips = screen.getAllByTestId('snap-chip');
+      expect(chips).toHaveLength(1);
+      expect(chips[0]).toHaveTextContent('1592');
+    });
   });
 
   describe('multi-select of frames', () => {

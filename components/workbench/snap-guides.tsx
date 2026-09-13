@@ -25,9 +25,26 @@ function lineFor(guide: SnapGuide): { x1: number; y1: number; x2: number; y2: nu
     : { x1: guide.from, y1: guide.position, x2: guide.to, y2: guide.position };
 }
 
-function Chip({ x, y, value }: { x: number; y: number; value: number }) {
+// Review fix wave item 4: this whole SVG lives inside canvas.tsx's own
+// canvas-layer div, which already carries the ambient `scale(viewport.zoom)`
+// CSS transform - so a foreignObject's real (CSS/DOM) content is scaled
+// right along with the frames it floats above unless something here
+// actively cancels that out. `translate(x,y) scale(1/zoom) translate(-x,-y)`
+// pivots the counter-scale around the chip's own anchor point (x,y, already
+// in canvas space): that point stays exactly where the ambient transform
+// puts it, while the 40x22 box's SIZE and its -20/-11 offset from that
+// point shrink or grow by 1/zoom first, so the ambient zoom scales them
+// straight back to a constant on-screen size at any zoom level.
+function Chip({ x, y, value, zoom }: { x: number; y: number; value: number; zoom: number }) {
   return (
-    <foreignObject x={x - 20} y={y - 11} width={40} height={22} style={{ overflow: 'visible', pointerEvents: 'none' }}>
+    <foreignObject
+      x={x - 20}
+      y={y - 11}
+      width={40}
+      height={22}
+      transform={`translate(${x} ${y}) scale(${1 / zoom}) translate(${-x} ${-y})`}
+      style={{ overflow: 'visible', pointerEvents: 'none' }}
+    >
       <div
         data-testid="snap-chip"
         className={`${CHIP} min-h-0 w-fit justify-center px-1.5 py-0.5 text-center font-mono text-[10.5px]`}
@@ -71,10 +88,18 @@ export function SnapGuides({
   guides,
   distances,
   movingFrame,
+  zoom,
 }: {
   guides: SnapGuide[];
   distances: SnapDistance[];
   movingFrame: SnapBox | null;
+  // Review fix wave item 4: this SVG is drawn in canvas space, inside the
+  // same ambient `scale(zoom)` layer as the frames themselves - both the
+  // guide lines' strokeWidth and each chip's own counter-scale need the
+  // current zoom to keep looking like a constant 1 screen px line / a
+  // constant-size label at any zoom level, the same way Figma's own guides
+  // never get thicker or thinner as you zoom.
+  zoom: number;
 }) {
   return (
     <svg
@@ -93,20 +118,26 @@ export function SnapGuides({
             data-kind={guide.kind}
             {...line}
             stroke={GUIDE_COLOR}
-            strokeWidth={1}
+            strokeWidth={1 / zoom}
           />
         );
       })}
       {guides.map(
         (guide, index) =>
           guide.distance !== undefined && (
-            <Chip key={`chip-${index}`} x={(lineFor(guide).x1 + lineFor(guide).x2) / 2} y={(lineFor(guide).y1 + lineFor(guide).y2) / 2} value={guide.distance} />
+            <Chip
+              key={`chip-${index}`}
+              x={(lineFor(guide).x1 + lineFor(guide).x2) / 2}
+              y={(lineFor(guide).y1 + lineFor(guide).y2) / 2}
+              value={guide.distance}
+              zoom={zoom}
+            />
           ),
       )}
       {movingFrame &&
         distances.map((distance) => {
           const position = distanceChipPosition(movingFrame, distance.side);
-          return <Chip key={distance.side} x={position.x} y={position.y} value={distance.value} />;
+          return <Chip key={distance.side} x={position.x} y={position.y} value={distance.value} zoom={zoom} />;
         })}
     </svg>
   );

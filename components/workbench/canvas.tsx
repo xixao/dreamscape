@@ -1021,6 +1021,7 @@ export function Canvas({
           guides={snapResult?.guides ?? []}
           distances={snapResult?.distances ?? []}
           movingFrame={snappingScreen ? snapBoxFor(snappingScreen) : null}
+          zoom={viewport.zoom}
         />
       </div>
     </div>

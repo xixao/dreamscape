@@ -127,6 +127,25 @@ describe('FrameTitle', () => {
       expect(onMove).toHaveBeenLastCalledWith({ x: 500, y: 200 }, { dx: 400, dy: 0 });
     });
 
+    // One of the review's named missing tests (task-grid-review.md): the
+    // existing "snaps to another frame edge" case above only ever ran at
+    // the default zoom of 1 - this confirms the screen-px-delta/zoom
+    // division (already proven for the plain 8px grid by "divides the
+    // screen-pixel delta by the current zoom" above) also happens BEFORE
+    // matching against another frame's edge, not just before the grid.
+    it('snaps to another frame edge at a zoom other than 1, dividing the screen-px delta by zoom first', () => {
+      // 802 screen px / zoom 2 = 401 canvas px; start (100,200) + (401,0) =
+      // raw (501,200) - the same raw position (and so the same result) as
+      // the zoom-1 case above, reached with double the screen-px delta.
+      const { onMove } = renderTitle({ zoom: 2, otherFrames: [OTHER] });
+      const title = screen.getByText('Frame 1');
+
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 802, clientY: 0 });
+
+      expect(onMove).toHaveBeenLastCalledWith({ x: 500, y: 200 }, { dx: 400, dy: 0 });
+    });
+
     it('reports the resulting guides through onSnapGuides on every move', () => {
       const { onSnapGuides } = renderTitle({ otherFrames: [OTHER] });
       const title = screen.getByText('Frame 1');
