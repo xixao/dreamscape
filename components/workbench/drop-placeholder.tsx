@@ -16,11 +16,36 @@ import {
 } from '@/lib/drop-placeholder';
 import { useCanvasDocument } from './canvas-frame';
 
-// Marks the plain DOM element this hook inserts - never a Craft node, so
-// Craft's own placement maths (which walks `parent.data.nodes`, its own
-// tracked child-id list - see lib/craft-positioner.ts's header comment and
-// the vendored 0.2.12 bundle's Positioner.getChildDimensions) never sees or
-// counts it. Also what tests query for.
+// Marks the plain DOM element this hook inserts - never a Craft node. Also
+// what tests query for.
+//
+// Verified against the vendored 0.2.12 bundle (node_modules/@craftjs/core/
+// dist/esm/index.js) that this placeholder cannot confuse Craft's own
+// dragover/dragend placement maths, so no fallback (sizing the slot from a
+// neighbouring child's margins instead of its own box, as the task brief
+// allows for) is needed:
+// - `Positioner.getChildDimensions(parent)` - what `dragover`'s
+//   `computeIndicator` measures against on every pointer move - builds its
+//   list by reducing over `parent.data.nodes` (Craft's OWN ordered child-id
+//   array) and looking up each id's `dom` via `store.query.node(id).get()`.
+//   It never reads `parentDom.children`/`childNodes`, so a plain DOM node
+//   with no Craft id - this placeholder - is structurally invisible to it,
+//   regardless of where in the DOM it actually sits.
+// - The `drag`/`create` connectors' own `dragend` handlers
+//   (`dropElement`) call `actions.move(nodes, placement.parent.id,
+//   placement.index + (where === "after" ? 1 : 0))` /
+//   `actions.addNodeTree(tree, placement.parent.id, ...)` - again indexing
+//   into `parent.data.nodes`, never the real DOM child count. Removing this
+//   placeholder before that handler runs (the capture-phase dragend/drop
+//   listeners below) is still correct to do - React does not know this
+//   manually inserted node exists and would never clean it up itself -
+//   just not required for Craft's OWN index math to stay correct.
+// - `getChildDimensions` also caches its result per `currentTargetId`
+//   (cleared only by a real scroll, or lib/craft-positioner.ts's
+//   invalidateDropCache) - already true before this feature existed, so
+//   Craft's computed placement was always based on the rects at first entry
+//   into a container for the WHOLE hover session, placeholder or not. This
+//   hook never needs to invalidate that cache itself.
 const PLACEHOLDER_ATTR = 'data-drop-placeholder';
 
 // component-tray.tsx stamps this on the exact <li> its connectors.create
