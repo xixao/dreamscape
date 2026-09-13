@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ROOT_NODE } from '@craftjs/core';
@@ -9,8 +10,22 @@ import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { LayerStackMenu } from './layer-stack-menu';
 import { Stage } from './stage';
+import { useStage } from './stage-context';
 
-const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }];
+const ONE_SCREEN: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 };
+
+// Stage no longer computes its own fit-to-column zoom (that lived in the
+// pre-infinite-canvas Stage; zoom now belongs to the canvas viewport,
+// components/workbench/canvas.tsx, which keeps useStage().zoom in sync with
+// it) - a test that needs a non-1 zoom sets it directly through the same
+// context instead of faking a column width.
+function ZoomSetter({ zoom }: { zoom: number }) {
+  const { setZoom } = useStage();
+  useEffect(() => {
+    setZoom(zoom);
+  }, [zoom, setZoom]);
+  return null;
+}
 
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
 // a separate document `screen` (bound to the outer one) cannot see into -
@@ -30,19 +45,19 @@ async function frameBody(): Promise<HTMLElement> {
 // components/blocks/card.test.tsx and dialog.test.tsx (Card's own render
 // never reads a `children` prop, so JSX nesting under <Card> would not
 // actually place a node in its content zone).
-async function setup() {
+async function setup(zoom = 1) {
   const utils = renderInEditor(
     <>
-      <Stage
-        data={emptyLayoutJson()}
-        screens={ONE_SCREEN}
-        currentScreenId="s1"
-        onSelectScreen={() => {}}
-        onAddScreen={() => {}}
-        onRenameScreen={() => {}}
-        onDuplicateScreen={() => {}}
-        onDeleteScreen={() => {}}
-      />
+      {/*
+        data-testid="stage-column" stands in for the real infinite canvas's
+        own root element (components/workbench/canvas.tsx) - the only thing
+        LayerStackMenu's press-and-hold gesture detection needs from an
+        ancestor, queried by that test id rather than received as a prop.
+      */}
+      <div data-testid="stage-column">
+        <ZoomSetter zoom={zoom} />
+        <Stage screen={ONE_SCREEN} viewport={{ x: 0, y: 0, zoom }} />
+      </div>
       <LayerStackMenu />
     </>,
   );
@@ -375,10 +390,6 @@ describe('LayerStackMenu', () => {
     });
 
     it('offsets and scales the anchor by the iframe rect and the current zoom', async () => {
-      // Stage computes zoom from the column's clientWidth versus the stage
-      // width (lib/stage.ts's computeZoom); 720 available for a 1440 px
-      // frame (craft-harness's renderInEditor default) is exactly zoom 0.5.
-      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
         if (this.dataset.testid === 'canvas-frame') {
           return { left: 100, top: 40, width: 720, height: 320, right: 820, bottom: 360, x: 100, y: 40, toJSON() {} } as DOMRect;
@@ -389,7 +400,7 @@ describe('LayerStackMenu', () => {
         return { left: 0, top: 0, width: 40, height: 20, right: 40, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
       });
 
-      const { button } = await setup();
+      const { button } = await setup(0.5);
       // Pressing at (10, 20) inside the frame, whose rect is offset by
       // (100, 40) in the parent document and currently rendered at zoom
       // 0.5, must anchor the menu at (100 + 10*0.5, 40 + 20*0.5) = (105, 50)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Frame, useEditor, type EditorState } from "@craftjs/core";
+import { Editor, Frame, useEditor, type EditorState } from "@craftjs/core";
 import {
   useEffect,
   useLayoutEffect,
@@ -10,10 +10,12 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { resolver } from "@/components/blocks/registry";
 import type { Screen } from "@/lib/files/repository";
+import type { Viewport } from "@/lib/canvas/viewport";
 import { toArtboardPoint, type Rect } from "@/lib/comments/geometry";
 import { stackUnder, type LayerStackNode } from "@/lib/layer-stack";
-import { ARTBOARD_MIN_HEIGHT, STAGE_PADDING, computeZoom } from "@/lib/stage";
+import { ARTBOARD_MIN_HEIGHT } from "@/lib/stage";
 import {
   MAX_STAGE_HEIGHT,
   MAX_STAGE_WIDTH,
@@ -27,7 +29,7 @@ import {
   DEFAULT_STAGE_COMMENTS,
   type StageCommentsProps,
 } from "./comments/comment-layer";
-import { ScreensStrip } from "./screens-strip";
+import type { CanvasDocument } from "./stage-context";
 import { useStage } from "./stage-context";
 
 const ARTBOARD_SELECTOR = "[data-artboard]";
@@ -242,35 +244,35 @@ function ResizeHandle({
   );
 }
 
+/**
+ * The focused frame: the one live Craft editing session, hosting the actual
+ * three resize handles, the comment cover and the drop-cache bridge (through
+ * CanvasFrame). Sized in plain, UNSCALED canvas px (`width`/`effectiveHeight`,
+ * no `* zoom`) - components/workbench/canvas.tsx positions and scales every
+ * frame, focused or not, from one ancestor transform, so nothing at this
+ * level pre-scales its own box the way the old fit-to-column stage did.
+ * `viewport` is read only to force the artboardRect re-measure effect below
+ * to re-run on pan/zoom (an ancestor CSS transform change fires neither a
+ * ResizeObserver nor a window resize/scroll event on its own); the actual
+ * zoom VALUE used for handle math and comment placement still comes from
+ * useStage().zoom, which canvas.tsx keeps in sync with the viewport.
+ */
 export function Stage({
-  data,
-  screens,
-  currentScreenId,
-  onSelectScreen,
-  onAddScreen,
-  onRenameScreen,
-  onDuplicateScreen,
-  onDeleteScreen,
+  screen,
+  viewport,
   comments = DEFAULT_STAGE_COMMENTS,
 }: {
-  data: string;
-  screens: Screen[];
-  currentScreenId: string;
-  onSelectScreen: (id: string) => void;
-  onAddScreen: () => void;
-  onRenameScreen: (id: string, name: string) => void;
-  onDuplicateScreen: (id: string) => void;
-  onDeleteScreen: (id: string) => void;
+  screen: Screen;
+  viewport: Viewport;
   // Everything the comments placeholder needs (spec
   // docs/superpowers/specs/2026-09-12-folders-and-comments-design.md section 5);
   // optional so callers written before comments existed keep rendering an
   // inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
 }) {
-  const { width, height, zoom, setWidth, setSize, setZoom } = useStage();
-  const { actions, query } = useEditor();
+  const { width, height, zoom, setWidth, setSize } = useStage();
+  const { query } = useEditor();
   const canvas = useCanvasDocument();
-  const columnRef = useRef<HTMLDivElement>(null);
   const artboardRef = useRef<HTMLDivElement>(null);
   const [artboardRect, setArtboardRect] = useState<Rect | null>(null);
   // The frame's real, current unscaled height, whether that comes from a
@@ -280,46 +282,29 @@ export function Stage({
   const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
   const effectiveHeight = height ?? contentHeight;
 
-  useEffect(() => {
-    const column = columnRef.current;
-    if (!column) return;
-    const update = () =>
-      setZoom(computeZoom(column.clientWidth - STAGE_PADDING * 2, width));
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(column);
-    return () => observer.disconnect();
-  }, [width, setZoom]);
-
-  // Feeds CommentLayer's pin/popover positioning (toScreenPoint). Measured in
-  // a layout effect keyed on zoom/width/height so the rect always matches the
-  // scaled box on screen right now (reading it in the same tick as the
-  // setZoom call above would be one zoom change stale). The ResizeObserver on
-  // the column and the artboard, plus the scroll and resize listeners, catch
-  // every other way the box can move (a panel opening, the column scrolling,
-  // the window resizing, the frame's auto height changing).
+  // Feeds CommentLayer's pin/popover positioning (toScreenPoint). A plain
+  // ResizeObserver plus window resize/scroll only catch a same-document size
+  // or scroll change; viewport.x/y/zoom are added purely to force a
+  // re-measure on every pan or zoom too (see this function's own doc comment
+  // above) since neither of those fires any of the events above.
   useLayoutEffect(() => {
-    const column = columnRef.current;
     const artboardEl = artboardRef.current;
-    if (!column || !artboardEl) return;
+    if (!artboardEl) return;
     const update = () => {
       const rect = artboardRef.current?.getBoundingClientRect();
       if (rect) setArtboardRect(rect);
     };
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(column);
     observer.observe(artboardEl);
-    column.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update);
     return () => {
       observer.disconnect();
-      column.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update);
     };
-  }, [zoom, width, effectiveHeight]);
+  }, [width, effectiveHeight, viewport.x, viewport.y, viewport.zoom]);
 
   // Comment mode (spec section 5): a press on the artboard places a pin
   // instead of selecting a layer. The cover element rendered over the iframe
@@ -360,95 +345,138 @@ export function Stage({
 
   return (
     <div
-      ref={columnRef}
-      data-testid="stage-column"
-      className="flex min-w-0 flex-col overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
-      onPointerDown={(event) => {
-        const target = event.target as HTMLElement;
-        if (!target.closest("[data-artboard]")) actions.selectNode();
-      }}
+      data-artboard
+      data-testid="artboard-zoom"
+      className={cn(
+        "relative shrink-0",
+        comments.commentMode && "cursor-crosshair",
+      )}
+      onMouseDownCapture={handleArtboardMouseDownCapture}
+      onClickCapture={interceptForCommentMode}
     >
-      <div className="flex shrink-0 items-center border-b border-line-soft bg-canvas px-3 py-2">
-        <ScreensStrip
-          screens={screens}
-          currentScreenId={currentScreenId}
-          onSelect={onSelectScreen}
-          onAdd={onAddScreen}
-          onRename={onRenameScreen}
-          onDuplicate={onDuplicateScreen}
-          onDelete={onDeleteScreen}
+      <div
+        ref={artboardRef}
+        data-testid="artboard"
+        className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+        style={{ width, height: effectiveHeight }}
+      >
+        <CanvasFrame
+          width={width}
+          height={height}
+          // Always 1, never the viewport zoom: canvas.tsx's single ancestor
+          // transform already scales this whole frame (position and size
+          // together, along with every other frame) - scaling the iframe a
+          // second time here would double-apply it. Resize-handle math and
+          // comment placement below still use the real zoom, from
+          // useStage() (kept in sync with the viewport by canvas.tsx).
+          zoom={1}
+          onContentHeightChange={setContentHeight}
+        >
+          <Frame key={screen.id} data={screen.layout} />
+        </CanvasFrame>
+        {/*
+          Comment mode: the frame lives in its own document, so a click on
+          it would never reach the parent's handlers and Craft would select
+          whatever is under the pointer. This transparent cover sits above
+          the iframe while the tool is active, so the press lands in the
+          parent document and the capture handlers on the wrapper turn it
+          into a pin.
+        */}
+        {comments.commentMode && (
+          <div
+            data-testid="comment-cover"
+            className="absolute inset-0 cursor-crosshair"
+            aria-hidden
+          />
+        )}
+        <ResizeHandle
+          axis="width"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onWidthChange={setWidth}
+        />
+        <ResizeHandle
+          axis="height"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onResize={setSize}
+          onDoubleClick={() => setSize({ width, height: null })}
+        />
+        <ResizeHandle
+          axis="corner"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onResize={setSize}
         />
       </div>
-      <div
-        className="flex flex-1 justify-center"
-        style={{ padding: STAGE_PADDING }}
+      {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
+      <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
+    </div>
+  );
+}
+
+/**
+ * A non-focused frame: a read-only preview of a screen that is not currently
+ * being edited (spec: "reuse the Play renderer approach"), rendered through a
+ * second, disabled Craft `Editor` - no selection outlines, no handles, no
+ * comments. Pressing anywhere inside it focuses that screen (the click is
+ * swallowed; selecting normally on the canvas only ever happens on a LATER
+ * click, once this frame is the focused one and the real, enabled `Stage`
+ * above is what is actually mounted there).
+ *
+ * Deliberately does not go through the shared StageContext.canvasDocument
+ * slot (CanvasFrame's `reportDocument={false}`) - that slot is scoped to the
+ * one focused frame. `onCanvasDocument` gives this component its OWN, local
+ * reference to its iframe's document/window instead, just for the
+ * click-to-focus listener below (a plain onPointerDown on the wrapper catches
+ * a press that lands on the border/background around the iframe, but not one
+ * that lands on the iframe's own rendered content - a separate document, per
+ * lib/craft-positioner.ts's explanation of why every cross-frame listener in
+ * this codebase is doubled up the same way).
+ */
+export function FramePreview({
+  screen,
+  onFocus,
+}: {
+  screen: Screen;
+  onFocus: () => void;
+}) {
+  const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
+
+  useEffect(() => {
+    if (!frameDocument) return;
+    function focusOnce(event: PointerEvent) {
+      event.preventDefault();
+      onFocus();
+    }
+    frameDocument.window.addEventListener("pointerdown", focusOnce, { capture: true });
+    return () => frameDocument.window.removeEventListener("pointerdown", focusOnce, { capture: true });
+  }, [frameDocument, onFocus]);
+
+  return (
+    <div
+      data-testid="artboard-preview"
+      className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+      style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onFocus();
+      }}
+    >
+      <CanvasFrame
+        width={screen.stageWidth}
+        height={screen.stageHeight ?? null}
+        zoom={1}
+        reportDocument={false}
+        onCanvasDocument={setFrameDocument}
       >
-        <div
-          data-artboard
-          data-testid="artboard-zoom"
-          className={cn(
-            "relative shrink-0",
-            comments.commentMode && "cursor-crosshair",
-          )}
-          onMouseDownCapture={handleArtboardMouseDownCapture}
-          onClickCapture={interceptForCommentMode}
-        >
-          <div
-            ref={artboardRef}
-            data-testid="artboard"
-            className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
-            style={{ width: width * zoom, height: effectiveHeight * zoom }}
-          >
-            <CanvasFrame
-              width={width}
-              height={height}
-              zoom={zoom}
-              onContentHeightChange={setContentHeight}
-            >
-              <Frame key={currentScreenId} data={data} />
-            </CanvasFrame>
-            {/*
-              Comment mode: the frame lives in its own document, so a click on
-              it would never reach the parent's handlers and Craft would select
-              whatever is under the pointer. This transparent cover sits above
-              the iframe while the tool is active, so the press lands in the
-              parent document and the capture handlers on the wrapper turn it
-              into a pin.
-            */}
-            {comments.commentMode && (
-              <div
-                data-testid="comment-cover"
-                className="absolute inset-0 cursor-crosshair"
-                aria-hidden
-              />
-            )}
-            <ResizeHandle
-              axis="width"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onWidthChange={setWidth}
-            />
-            <ResizeHandle
-              axis="height"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onResize={setSize}
-              onDoubleClick={() => setSize({ width, height: null })}
-            />
-            <ResizeHandle
-              axis="corner"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onResize={setSize}
-            />
-          </div>
-          {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
-          <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
-        </div>
-      </div>
+        <Editor resolver={resolver} enabled={false}>
+          <Frame data={screen.layout} />
+        </Editor>
+      </CanvasFrame>
     </div>
   );
 }

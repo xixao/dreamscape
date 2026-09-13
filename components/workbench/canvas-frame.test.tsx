@@ -416,4 +416,86 @@ describe('useCanvasDocument', () => {
     );
     await waitFor(() => expect(screen.getByTestId('outside-probe')).toHaveTextContent('set'));
   });
+
+  // The infinite canvas mounts several CanvasFrame instances at once (one per
+  // screen - components/workbench/canvas.tsx), but StageContext's
+  // canvasDocument is a single slot meant for the ONE focused frame (read by
+  // useWorkbenchKeyboard, useLayerStack and NodeIndicator, none of which are
+  // scoped per frame). Without reportDocument, every mounted instance would
+  // call setStageCanvasDocument, and whichever mounted or unmounted last
+  // would silently win - reportDocument={false} is how a non-focused
+  // read-only preview opts out of that shared slot entirely.
+  it('does not report into the shared StageContext when reportDocument is false', async () => {
+    function OutsideProbe() {
+      const { canvasDocument } = useStage();
+      return <output data-testid="outside-probe">{canvasDocument ? 'set' : 'none'}</output>;
+    }
+    render(
+      <StageProvider>
+        <CanvasFrame width={800} height={null} zoom={1} reportDocument={false}>
+          <div>content</div>
+        </CanvasFrame>
+        <OutsideProbe />
+      </StageProvider>,
+    );
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
+    expect(screen.getByTestId('outside-probe')).toHaveTextContent('none');
+  });
+
+  it('still calls onCanvasDocument with its own document when reportDocument is false', async () => {
+    const onCanvasDocument = vi.fn();
+    render(
+      <StageProvider>
+        <CanvasFrame width={800} height={null} zoom={1} reportDocument={false} onCanvasDocument={onCanvasDocument}>
+          <div>content</div>
+        </CanvasFrame>
+      </StageProvider>,
+    );
+    await waitFor(() => {
+      expect(onCanvasDocument).toHaveBeenCalledWith(expect.objectContaining({ document: expect.anything(), window: expect.anything() }));
+    });
+  });
+
+  it('calls onCanvasDocument(null) on unmount', async () => {
+    const onCanvasDocument = vi.fn();
+    const { unmount } = render(
+      <StageProvider>
+        <CanvasFrame width={800} height={null} zoom={1} onCanvasDocument={onCanvasDocument}>
+          <div>content</div>
+        </CanvasFrame>
+      </StageProvider>,
+    );
+    await waitFor(() => expect(onCanvasDocument).toHaveBeenCalledWith(expect.anything()));
+    onCanvasDocument.mockClear();
+    unmount();
+    expect(onCanvasDocument).toHaveBeenCalledWith(null);
+  });
+
+  it('unmounting a non-reporting instance never clears a reporting sibling\'s shared StageContext entry', async () => {
+    function OutsideProbe() {
+      const { canvasDocument } = useStage();
+      return <output data-testid="outside-probe">{canvasDocument ? 'set' : 'none'}</output>;
+    }
+    function Wrapper({ showPreview }: { showPreview: boolean }) {
+      return (
+        <StageProvider>
+          <CanvasFrame width={800} height={null} zoom={1} reportDocument>
+            <div>focused</div>
+          </CanvasFrame>
+          {showPreview && (
+            <CanvasFrame width={400} height={null} zoom={1} reportDocument={false}>
+              <div>preview</div>
+            </CanvasFrame>
+          )}
+          <OutsideProbe />
+        </StageProvider>
+      );
+    }
+    const { rerender } = render(<Wrapper showPreview />);
+    await waitFor(() => expect(screen.getByTestId('outside-probe')).toHaveTextContent('set'));
+
+    rerender(<Wrapper showPreview={false} />);
+    expect(screen.getByTestId('outside-probe')).toHaveTextContent('set');
+  });
 });

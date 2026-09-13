@@ -24,9 +24,17 @@ function presetButton(label: string) {
 // this file already relied on for the pre-iframe artboard. Throws instead of
 // silently returning an empty body so a real timing regression fails fast
 // with a clear message rather than a confusing "element not found" later.
+//
+// The infinite canvas (canvas.tsx) mounts every screen's own CanvasFrame at
+// once, so `canvas-frame` is no longer unique once a file has more than one
+// screen - scoped to the one inside `[data-testid="artboard"]` (the focused,
+// live-editing Stage), never a `[data-testid="artboard-preview"]` (a
+// non-focused, read-only FramePreview).
 function frameBody(): HTMLElement {
-  const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
-  const body = iframe.contentDocument?.body;
+  const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+    | HTMLIFrameElement
+    | null;
+  const body = iframe?.contentDocument?.body;
   if (!body) throw new Error('canvas frame body not ready');
   return body;
 }

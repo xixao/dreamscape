@@ -40,6 +40,8 @@ export function CanvasFrame({
   height,
   zoom,
   title = 'Frame',
+  reportDocument = true,
+  onCanvasDocument,
   onContentHeightChange,
   children,
 }: {
@@ -47,6 +49,21 @@ export function CanvasFrame({
   height: number | null;
   zoom: number;
   title?: string;
+  // Whether this instance publishes its document/window into the shared
+  // StageContext (useStage().canvasDocument / useCanvasDocument()) - true by
+  // default, matching every use of CanvasFrame before the infinite canvas.
+  // The infinite canvas (canvas.tsx) mounts one CanvasFrame per screen at
+  // once, but that shared slot is read by consumers scoped to a single,
+  // FOCUSED frame (useWorkbenchKeyboard, useLayerStack, NodeIndicator) - a
+  // non-focused read-only preview passes false so it never contends for it
+  // (whichever instance last called setStageCanvasDocument would otherwise
+  // silently win, regardless of which frame a user actually meant).
+  reportDocument?: boolean;
+  // This instance's own document/window, independent of reportDocument -
+  // how a caller that does NOT report into the shared slot (a preview) still
+  // gets at its own iframe's document, e.g. to attach a click-to-focus
+  // listener scoped to just that frame.
+  onCanvasDocument?: (canvasDocument: CanvasDocument | null) => void;
   // The applied (unscaled) iframe height, whenever it changes - whether set
   // directly by the `height` prop or, when `height` is null, measured from
   // the content. stage.tsx uses this to reserve the right amount of space
@@ -88,11 +105,17 @@ export function CanvasFrame({
 
   // Published up through StageContext too (see the type's own comment in
   // stage-context.tsx): useLayerStack and useWorkbenchKeyboard need it and
-  // are not descendants of this component's own children.
+  // are not descendants of this component's own children. Gated on
+  // reportDocument (see its own comment above) - a non-reporting instance
+  // still calls onCanvasDocument, just never touches the shared slot.
   useEffect(() => {
-    setStageCanvasDocument(canvasDoc);
-    return () => setStageCanvasDocument(null);
-  }, [canvasDoc, setStageCanvasDocument]);
+    if (reportDocument) setStageCanvasDocument(canvasDoc);
+    onCanvasDocument?.(canvasDoc);
+    return () => {
+      if (reportDocument) setStageCanvasDocument(null);
+      onCanvasDocument?.(null);
+    };
+  }, [canvasDoc, reportDocument, setStageCanvasDocument, onCanvasDocument]);
 
   useEffect(() => {
     const iframe = iframeRef.current;

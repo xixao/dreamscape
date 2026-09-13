@@ -18,6 +18,7 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
+import { Canvas } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
@@ -27,8 +28,8 @@ import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
+import { ScreensStrip } from './screens-strip';
 import { useSelectedNode, useZoneRedirect } from './selection';
-import { Stage } from './stage';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
 import { Topbar } from './topbar';
@@ -419,7 +420,6 @@ export function Workbench({
           notice={notice}
           screens={screens}
           currentScreenId={currentScreenId}
-          currentScreenLayout={currentScreen.layout}
           onSelectScreen={switchScreen}
           onAddScreen={addScreen}
           onRenameScreen={renameScreen}
@@ -440,7 +440,6 @@ function WorkbenchShell({
   notice,
   screens,
   currentScreenId,
-  currentScreenLayout,
   onSelectScreen,
   onAddScreen,
   onRenameScreen,
@@ -455,7 +454,6 @@ function WorkbenchShell({
   notice?: string;
   screens: Screen[];
   currentScreenId: string;
-  currentScreenLayout: string;
   onSelectScreen: (id: string) => void;
   onAddScreen: () => void;
   onRenameScreen: (id: string, name: string) => void;
@@ -663,16 +661,36 @@ function WorkbenchShell({
             />
           )}
           <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
-            <Stage
-              data={currentScreenLayout}
+            <Canvas
+              fileId={fileId}
               screens={screens}
-              currentScreenId={currentScreenId}
-              onSelectScreen={onSelectScreen}
-              onAddScreen={onAddScreen}
-              onRenameScreen={onRenameScreen}
-              onDuplicateScreen={onDuplicateScreen}
-              onDeleteScreen={onDeleteScreen}
+              focusedScreenId={currentScreenId}
+              onFocusScreen={onSelectScreen}
               comments={commentsProps}
+              overlays={
+                <>
+                  {/*
+                    Not yet the floating chip row the spec describes (section
+                    4 - that lands with the rest of the floating chrome); for
+                    now this sits at the top of Canvas's own grid cell, the
+                    same visual area Stage used to render it in, so screen
+                    switching keeps working unchanged while the surrounding
+                    layout is still a grid.
+                  */}
+                  <div className="absolute top-2 left-2 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
+                    <ScreensStrip
+                      screens={screens}
+                      currentScreenId={currentScreenId}
+                      onSelect={onSelectScreen}
+                      onAdd={onAddScreen}
+                      onRename={onRenameScreen}
+                      onDuplicate={onDuplicateScreen}
+                      onDelete={onDeleteScreen}
+                    />
+                  </div>
+                  <LayerStackMenu />
+                </>
+              }
             />
           </StageErrorBoundary>
           {!uiHidden && (
@@ -699,7 +717,6 @@ function WorkbenchShell({
               actions.history.clear();
             }}
           />
-          <LayerStackMenu key="layer-stack-menu" />
         </div>
       </PrototypeProvider>
     </ChatTransportProvider>

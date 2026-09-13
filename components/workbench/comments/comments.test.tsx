@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { saveViewport } from '@/lib/canvas/viewport-store';
 import { getAuthorName } from '@/lib/comments/store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
@@ -13,9 +14,9 @@ import { Workbench } from '../workbench';
 // props against that component's craft.props defaults, and a hand-built or
 // empty layout is not guaranteed to already match that normalized form, so
 // its very first mount can look like a real edit and queue an unwanted
-// save. zoom stays 1 regardless of stageWidth (jsdom's clientWidth defaults
-// to 0, and lib/stage.ts's computeZoom falls back to 1 whenever the column
-// measures 0), so the example's own width works fine for these tests.
+// save. Zoom is pinned to 1 below (a stored viewport, so Canvas never runs
+// its own fitAll) rather than left to default, so the example's own width
+// works fine for these tests regardless of stageWidth.
 const SCREEN: Screen = { id: 'screen0001', name: 'Frame 1', layout: EXAMPLES[0].layout, stageWidth: EXAMPLES[0].stageWidth };
 const FILE_ID = 'file0000ab';
 const BASE_FILE: FileRecord = {
@@ -84,6 +85,13 @@ describe('comments placeholder', () => {
     vi.stubGlobal('fetch', fetchMock);
     window.location.hash = '';
     window.localStorage.clear();
+    // Pins the canvas viewport to zoom 1 with no pan, so Canvas's own
+    // fitAll-on-first-measure (components/workbench/canvas.tsx) never runs -
+    // without this, ARTBOARD_RECT below (mocked on every HTMLElement, so it
+    // also answers for the canvas's own root) would get fitAll'd into a
+    // resulting zoom far from 1, throwing off every artboard-coordinate math
+    // this file checks.
+    saveViewport(window.localStorage, FILE_ID, { x: 0, y: 0, zoom: 1 });
     rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(ARTBOARD_RECT);
   });
 
