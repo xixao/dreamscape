@@ -98,10 +98,21 @@ function distribute(frames: readonly AlignableFrame[], axis: DistributeAxis): Fr
   }
   const sorted = [...frames].sort((a, b) => axis.start(a) - axis.start(b));
   const first = sorted[0];
-  const last = sorted[sorted.length - 1];
-  const span = axis.start(last) + axis.size(last) - axis.start(first);
+  // Review fix wave nit 11: the frame with the greatest END is not
+  // necessarily the one with the greatest START - a wide frame that starts
+  // early can still end later than every frame that starts after it (e.g.
+  // A(0,w500)/B(100,w50)/C(200,w50): C starts latest, but A alone already
+  // reaches x=500, past C's own end at 250). Keying span on sorted's own
+  // last element's end - the "last by START" frame - used to compute a
+  // span far too small whenever some OTHER frame's width made IT the true
+  // rightmost edge instead.
+  const maxEnd = Math.max(...sorted.map((frame) => axis.start(frame) + axis.size(frame)));
+  const span = maxEnd - axis.start(first);
   const totalSize = sorted.reduce((sum, frame) => sum + axis.size(frame), 0);
-  const gap = (span - totalSize) / (sorted.length - 1);
+  // Clamped at 0 (nit 11): frames that already overlap enough to make the
+  // "equal gap" math go negative lay out flush against each other instead
+  // of a distribute that would overlap them even further.
+  const gap = Math.max(0, (span - totalSize) / (sorted.length - 1));
 
   // The running cursor stays unrounded between steps (only each frame's own
   // OUTPUT position is rounded) so per-frame rounding never accumulates

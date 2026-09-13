@@ -111,6 +111,42 @@ describe('distributeHorizontally / distributeVertically', () => {
     expect(result.c).toEqual({ x: 400, y: 55 });
     expect(result.b).toEqual({ x: 200, y: 80 });
   });
+
+  // Review fix wave nit 11: the span must be keyed on the greatest END
+  // across every frame, not the end of whichever frame merely has the
+  // greatest START.
+  it('keys the span on the greatest end, not the frame with the greatest start', () => {
+    // A(0,w500) ends at 500 - past C's own end (250), even though C starts
+    // latest (200). The old code sorted by start and used sorted[last]'s
+    // (C's) own end, computing a span of only 250.
+    const wideA: AlignableFrame = { id: 'a', x: 0, y: 0, width: 500, height: 50 };
+    const narrowB: AlignableFrame = { id: 'b', x: 100, y: 0, width: 50, height: 50 };
+    const narrowC: AlignableFrame = { id: 'c', x: 200, y: 0, width: 50, height: 50 };
+
+    const result = byId(distributeHorizontally([wideA, narrowB, narrowC]));
+
+    // true span = maxEnd(500) - minStart(0) = 500; totalSize = 600; raw gap
+    // = (500-600)/2 = -50, clamped to 0 (nit 11) - laid out flush, in
+    // start order, with no overlap.
+    expect(result.a).toEqual({ x: 0, y: 0 });
+    expect(result.b).toEqual({ x: 500, y: 0 });
+    expect(result.c).toEqual({ x: 550, y: 0 });
+  });
+
+  it('clamps a negative gap to 0 instead of overlapping frames further', () => {
+    // Two frames each 100 wide, already overlapping (B starts at 50,
+    // squarely inside A's own 0-100 span) - a naive equal-gap split would
+    // go negative.
+    const wideA: AlignableFrame = { id: 'a', x: 0, y: 0, width: 100, height: 50 };
+    const overlapB: AlignableFrame = { id: 'b', x: 50, y: 0, width: 100, height: 50 };
+    const wideC: AlignableFrame = { id: 'c', x: 60, y: 0, width: 100, height: 50 };
+
+    const result = byId(distributeHorizontally([wideA, overlapB, wideC]));
+
+    expect(result.a).toEqual({ x: 0, y: 0 });
+    expect(result.b).toEqual({ x: 100, y: 0 });
+    expect(result.c).toEqual({ x: 200, y: 0 });
+  });
 });
 
 describe('tidyUp', () => {
