@@ -7,7 +7,7 @@ Status: queued (Matt, 2026-09-12: "i'm also going to want a grid feature with ob
 
 - A layout grid overlay per frame (columns, gutter, margin) and a pixel grid on the canvas, both toggleable, like Figma's layout grids.
 - Snapping while dragging frames on the canvas: to the 8 px canvas grid, to other frames' edges and centres, and to equal spacing between frames, with red guide lines and distance labels like Figma.
-- Alignment controls in the Design panel for a selected layer inside Auto layout (align to start, centre, end on the cross axis; distribute with equal gap; "Fill container"), and for selected frames on the canvas (align left, centre, right, top, middle, bottom; distribute horizontally or vertically; tidy up into a row or grid).
+- Alignment controls in the Design panel for two or more selected diagram shapes (align to the selection's edges or centres, distribute with equal gaps; the actions live in the diagram store), for a selected layer inside Auto layout (align to start, centre, end on the cross axis; distribute with equal gap; "Fill container"), and for selected frames on the canvas (align left, centre, right, top, middle, bottom; distribute horizontally or vertically; tidy up into a row or grid).
 - Keyboard: Shift+G toggles the layout grid, Cmd+' toggles the pixel grid, arrow keys nudge the selection (frames on the canvas, or diagram shapes) by 1 px and Shift+arrows by the 8 px grid increment (Matt, 2026-09-13), Alt held while dragging shows distances to neighbours.
 
 ## 2. Model
