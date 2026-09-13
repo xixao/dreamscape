@@ -134,21 +134,20 @@ interface AxisCandidate {
   guides: SnapGuide[];
 }
 
+// Review fix wave item 3: a grid snap draws no guide. Figma itself never
+// draws a line for the background grid - only a match against another
+// frame's edge or an equal-spacing gap is worth calling out, since the
+// grid is already visible on the canvas (or, with the pixel grid hidden,
+// isn't something a guide should invent a line for). `guides` stays part
+// of AxisCandidate's shape purely so gridCandidate can be merged into the
+// same candidate array edgeCandidates/equalSpacingCandidate populate.
 function gridCandidate(axis: Axis, moving: SnapBox): AxisCandidate {
   const start = axis.start(moving);
   const snapped = nearestGrid(start);
   return {
     distance: Math.abs(snapped - start),
     start: snapped,
-    guides: [
-      {
-        orientation: axis.orientation,
-        kind: 'grid',
-        position: snapped,
-        from: axis.crossStart(moving),
-        to: axis.crossStart(moving) + axis.crossSize(moving),
-      },
-    ],
+    guides: [],
   };
 }
 
@@ -254,9 +253,16 @@ function resolveAxis(
   others: readonly SnapBox[],
   tolerance: number,
 ): { start: number; guides: SnapGuide[] } {
-  const candidates: AxisCandidate[] = [gridCandidate(axis, moving), ...edgeCandidates(axis, moving, others)];
+  // Review fix wave item 3: edges are checked before spacing, and the grid
+  // goes last - resolveAxis's own tie-break below (strictly `<`, so an
+  // exact tie keeps whichever candidate was already winning) means the
+  // FIRST candidate at a given distance wins. Other frames are more
+  // specific/intentional than the background grid, so an edge (or an
+  // equal-spacing match) at the same distance as a grid line should win.
+  const candidates: AxisCandidate[] = [...edgeCandidates(axis, moving, others)];
   const spacing = equalSpacingCandidate(axis, moving, others);
   if (spacing) candidates.push(spacing);
+  candidates.push(gridCandidate(axis, moving));
 
   let winner: AxisCandidate | null = null;
   for (const candidate of candidates) {

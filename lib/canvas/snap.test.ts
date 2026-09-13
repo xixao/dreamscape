@@ -58,14 +58,14 @@ describe('resolveSnap - the 8 px grid', () => {
     expect(result.position).toEqual({ x: 200, y: 400 });
   });
 
-  it('reports a grid guide for each axis that actually snapped', () => {
+  // Review fix wave item 3: a grid snap draws no guide - only another
+  // frame's edge or an equal-spacing gap is worth a drawn line, since the
+  // background grid is already visible (or, hidden, isn't something a
+  // guide should invent a line for).
+  it('draws no guide for a snap to the grid, on either axis', () => {
     const result = resolveSnap(box(126, 48, 50, 100), [], 1);
-    const vertical = result.guides.find((g) => g.orientation === 'vertical');
-    expect(vertical).toMatchObject({ kind: 'grid', position: 128 });
-    // y (48) was already grid-aligned, so nothing needed to move there - still
-    // reported so a guide can flash confirming the alignment.
-    const horizontal = result.guides.find((g) => g.orientation === 'horizontal');
-    expect(horizontal).toMatchObject({ kind: 'grid', position: 48 });
+    expect(result.position).toEqual({ x: 128, y: 48 });
+    expect(result.guides).toHaveLength(0);
   });
 
   it('scales the tolerance by zoom: the same 3px-from-grid offset snaps at zoom 1 but not at zoom 3', () => {
@@ -128,6 +128,25 @@ describe('resolveSnap - other frames edges', () => {
     const other = box(1000, 0, 100, 100, 'other');
     const result = resolveSnap(box(126, 0, 50, 100), [other], 1);
     expect(result.position.x).toBe(128);
+  });
+
+  // Review fix wave item 3: candidates are checked edges -> spacing -> grid,
+  // so an exact tie (resolveAxis's own winner search only replaces the
+  // current winner on a STRICTLY smaller distance) goes to the edge, not
+  // the grid.
+  it('an edge match wins an exact tie against the grid', () => {
+    // moving.x=4 is 4px from both the nearest grid line (8) and another
+    // frame's own left edge (other.x=8) - matching widths (1000) put every
+    // other moving/other edge pair (center-center, right-right) at the
+    // same +4 delta too, and every non-matching pair (e.g. moving's right
+    // to other's left) well outside the zoom-1 tolerance of 6.
+    const other = box(8, 0, 1000, 1000, 'other');
+    const result = resolveSnap(box(4, 0, 1000, 1000), [other], 1);
+    expect(result.position.x).toBe(8);
+    // The grid alone would have produced the same position but no guide -
+    // an edge-kind guide is the only observable proof the edge (not the
+    // grid) actually won.
+    expect(result.guides.some((guide) => guide.kind === 'edge' && guide.orientation === 'vertical')).toBe(true);
   });
 });
 
