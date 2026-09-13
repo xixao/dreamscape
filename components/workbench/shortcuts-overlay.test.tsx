@@ -257,8 +257,8 @@ describe('ShortcutsOverlay', () => {
       // "sm:" variant scope, later in the cascade) - only a same-variant
       // override actually takes effect. See components/ui/dialog.tsx
       // (read-only) for the base classes this must out-rank.
-      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[calc(100vw-4rem)]');
-      expect(dialog.className.split(/\s+/)).toContain('xl:max-w-[1240px]');
+      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[calc(100vw-48px)]');
+      expect(dialog.className.split(/\s+/)).toContain('xl:max-w-[1800px]');
     });
 
     it('renders nothing else when open is false', () => {
