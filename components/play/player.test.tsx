@@ -203,6 +203,28 @@ describe('Player', () => {
     expect(screen.queryByTestId('selection-outline')).toBeNull();
   });
 
+  it('ignores a page diagram entirely (spec: "Play mode ignores diagrams")', async () => {
+    const file = makeFile();
+    file.pages = [
+      {
+        id: 'page1',
+        name: 'Page 1',
+        diagram: {
+          nodes: [
+            { id: 'node1', kind: 'rect', x: 0, y: 0, width: 120, height: 60, text: 'Decision', color: 'blue' },
+          ],
+          edges: [],
+        },
+      },
+    ];
+    render(<Player file={file} initialScreenId="screen1" />);
+
+    expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-layer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-node-node1')).not.toBeInTheDocument();
+    expect(screen.queryByText('Decision')).not.toBeInTheDocument();
+  });
+
   it('paints the artboard text in the basic theme foreground, not the chrome text colour', async () => {
     const { container } = render(<Player file={makeFile()} initialScreenId="screen1" />);
     await screen.findByRole('button', { name: 'Go to second screen' });

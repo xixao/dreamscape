@@ -80,6 +80,35 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'undo', area: 'Edit', keys: ['Mod', 'Z'], label: 'Undo' },
   { id: 'redo', area: 'Edit', keys: ['Shift', 'Mod', 'Z'], label: 'Redo' },
   { id: 'delete-layer', area: 'Edit', keys: ['Delete'], label: 'Delete the selected layer' },
+  // Diagram-selection-only (spec docs/superpowers/specs/2026-09-13-diagrams-
+  // design.md section 3): keyboard.tsx only acts on these when a diagram
+  // element is selected, but they are registered unconditionally like every
+  // other shortcut so the overlay/dialog/README always list them.
+  { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  {
+    id: 'diagram-nudge-up',
+    area: 'Canvas',
+    keys: ['↑'],
+    label: 'Nudge the diagram selection (Shift: 64px)',
+  },
+  {
+    id: 'diagram-nudge-down',
+    area: 'Canvas',
+    keys: ['↓'],
+    label: 'Nudge the diagram selection (Shift: 64px)',
+  },
+  {
+    id: 'diagram-nudge-left',
+    area: 'Canvas',
+    keys: ['←'],
+    label: 'Nudge the diagram selection (Shift: 64px)',
+  },
+  {
+    id: 'diagram-nudge-right',
+    area: 'Canvas',
+    keys: ['→'],
+    label: 'Nudge the diagram selection (Shift: 64px)',
+  },
   { id: 'escape', area: 'Edit', keys: ['Escape'], label: 'Deselect, leave a tool, close a menu' },
   // Labelled "Shortcuts dialog" rather than "Keyboard shortcuts" (the
   // dialog's own title, and the overflow menu item's own text - spec
@@ -189,6 +218,10 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (mod && shift && (PAGE_PREV_KEYS.has(event.key) || event.code === PAGE_PREV_CODE)) return 'page-prev';
   if (mod && shift && key === 'z') return 'redo';
   if (mod && key === 'z') return 'undo';
+  // Cmd+D duplicates the diagram selection (keyboard.tsx only acts on it
+  // when one exists) - checked before the generic `if (mod) return null`
+  // below, `!shift` so Cmd+Shift+D (unused here) does not also match it.
+  if (mod && !shift && key === 'd') return 'diagram-duplicate';
   if (mod) return null;
 
   // Shift-only chords (checked by `code` where digits are involved, not
@@ -201,6 +234,15 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && key === 'c') return 'tool-comment';
   if (shift && key === 'd') return 'tool-diagram';
   if (shift && event.key === '?') return 'shortcuts-help';
+  // Arrow keys nudge the diagram selection (keyboard.tsx only acts on this
+  // when one exists) - matched both with and without Shift (Shift is a
+  // bigger nudge, decided by keyboard.tsx from event.shiftKey directly, not
+  // a different id), so these four checks sit on both sides of the
+  // `if (shift) return null` gate just below.
+  if (shift && event.key === 'ArrowUp') return 'diagram-nudge-up';
+  if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down';
+  if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left';
+  if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right';
   if (shift) return null;
 
   if (key === 'd') return 'panel-design';
@@ -211,6 +253,10 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (event.key === 'Delete' || event.key === 'Backspace') return 'delete-layer';
   if (event.key === 'Escape') return 'escape';
   if (event.key === '?') return 'shortcuts-help';
+  if (event.key === 'ArrowUp') return 'diagram-nudge-up';
+  if (event.key === 'ArrowDown') return 'diagram-nudge-down';
+  if (event.key === 'ArrowLeft') return 'diagram-nudge-left';
+  if (event.key === 'ArrowRight') return 'diagram-nudge-right';
 
   return null;
 }

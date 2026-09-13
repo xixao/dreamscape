@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { LayoutBox } from '@/components/blocks/layout-box';
@@ -15,6 +15,15 @@ type KeysOptions = {
   commentMode?: boolean;
   onExitCommentMode?: () => void;
   onDiagramTool?: () => void;
+  diagramToolActive?: boolean;
+  onExitDiagramTool?: () => void;
+  diagramSelectionActive?: boolean;
+  onDeselectDiagram?: () => void;
+  onDiagramDelete?: () => void;
+  onDiagramDuplicate?: () => void;
+  onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
+  onDiagramUndo?: () => void;
+  onDiagramRedo?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
@@ -35,6 +44,15 @@ function Keys({
   commentMode,
   onExitCommentMode,
   onDiagramTool,
+  diagramToolActive,
+  onExitDiagramTool,
+  diagramSelectionActive,
+  onDeselectDiagram,
+  onDiagramDelete,
+  onDiagramDuplicate,
+  onDiagramNudge,
+  onDiagramUndo,
+  onDiagramRedo,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -54,6 +72,15 @@ function Keys({
     commentMode,
     onExitCommentMode,
     onDiagramTool,
+    diagramToolActive,
+    onExitDiagramTool,
+    diagramSelectionActive,
+    onDeselectDiagram,
+    onDiagramDelete,
+    onDiagramDuplicate,
+    onDiagramNudge,
+    onDiagramUndo,
+    onDiagramRedo,
     onZoomIn,
     onZoomOut,
     onZoomReset,
@@ -443,6 +470,120 @@ describe('useWorkbenchKeyboard onDiagramTool', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'd', shiftKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard diagram selection routing', () => {
+  it('Escape leaves an active diagram tool before deselecting', async () => {
+    const onExitDiagramTool = vi.fn();
+    const { editor } = mount({ diagramToolActive: true, onExitDiagramTool });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onExitDiagramTool).toHaveBeenCalledTimes(1);
+    expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true);
+  });
+
+  it('Escape clears the diagram selection when no tool is active', async () => {
+    const onDeselectDiagram = vi.fn();
+    mount({ diagramSelectionActive: true, onDeselectDiagram });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+  });
+
+  it('Delete calls onDiagramDelete instead of deleting the Craft selection', async () => {
+    const onDiagramDelete = vi.fn();
+    const { editor } = mount({ diagramSelectionActive: true, onDiagramDelete });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Delete' });
+
+    expect(onDiagramDelete).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Doomed' })).toBeInTheDocument();
+  });
+
+  it('Cmd+D duplicates the diagram selection only while one is active', async () => {
+    const onDiagramDuplicate = vi.fn();
+    mount({ diagramSelectionActive: false, onDiagramDuplicate });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'd', metaKey: true });
+    expect(onDiagramDuplicate).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+D duplicates the diagram selection when one is active', async () => {
+    const onDiagramDuplicate = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramDuplicate });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'd', metaKey: true });
+
+    expect(onDiagramDuplicate).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('arrow keys nudge the diagram selection, reporting Shift for a bigger nudge', async () => {
+    const onDiagramNudge = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramNudge });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowDown', shiftKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+    expect(onDiagramNudge).toHaveBeenNthCalledWith(1, 'up', false);
+    expect(onDiagramNudge).toHaveBeenNthCalledWith(2, 'down', true);
+    expect(onDiagramNudge).toHaveBeenNthCalledWith(3, 'left', false);
+    expect(onDiagramNudge).toHaveBeenNthCalledWith(4, 'right', false);
+  });
+
+  it('ignores arrow keys with no diagram selection (so text cursor movement is untouched)', async () => {
+    const onDiagramNudge = vi.fn();
+    mount({ diagramSelectionActive: false, onDiagramNudge });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(onDiagramNudge).not.toHaveBeenCalled();
+  });
+
+  it('ignores arrow keys while typing in a field even with a diagram selection', async () => {
+    const onDiagramNudge = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramNudge });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'ArrowUp' });
+    expect(onDiagramNudge).not.toHaveBeenCalled();
+  });
+
+  it('routes Cmd+Z/Shift+Cmd+Z to the diagram history instead of Craft while a diagram element is selected', async () => {
+    const onDiagramUndo = vi.fn();
+    const onDiagramRedo = vi.fn();
+    const { editor } = mount({ diagramSelectionActive: true, onDiagramUndo, onDiagramRedo });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+    act(() => editor().actions.setProp(buttonId, (props: Record<string, unknown>) => (props.label = 'Changed')));
+    await waitFor(() => expect(editor().query.node(buttonId).get().data.props.label).toBe('Changed'));
+
+    fireEvent.keyDown(window, { key: 'z', metaKey: true });
+    fireEvent.keyDown(window, { key: 'z', metaKey: true, shiftKey: true });
+
+    expect(onDiagramUndo).toHaveBeenCalledTimes(1);
+    expect(onDiagramRedo).toHaveBeenCalledTimes(1);
+    // The Craft edit made above is untouched - undo went to the diagram instead.
+    expect(editor().query.node(buttonId).get().data.props.label).toBe('Changed');
   });
 });
 

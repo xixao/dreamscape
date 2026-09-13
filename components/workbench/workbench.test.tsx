@@ -1476,4 +1476,150 @@ describe('Workbench', () => {
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
     });
   });
+
+  describe('diagrams', () => {
+    function diagramNodes(): HTMLElement[] {
+      return screen.queryAllByTestId(/^diagram-node-/);
+    }
+
+    async function placeRectangle(at: { x: number; y: number }): Promise<void> {
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+      const surface = screen.getByTestId('diagram-placement-surface');
+      fireEvent.pointerDown(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
+    }
+
+    it('the top bar Diagram tool button opens the palette, reflected in aria-pressed', async () => {
+      render(<Workbench file={makeFile()} />);
+      const button = screen.getByRole('button', { name: 'Diagram tool' });
+      expect(button).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
+
+      await userEvent.click(button);
+
+      expect(button).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toBeInTheDocument();
+    });
+
+    it('placing a shape adds it to the canvas, selects it, closes the palette, and saves it', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await placeRectangle({ x: 500, y: 500 });
+
+      expect(diagramNodes()).toHaveLength(1);
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'false');
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.pages[0].diagram.nodes).toHaveLength(1);
+      expect(body.pages[0].diagram.nodes[0]).toMatchObject({ kind: 'rect', color: 'neutral' });
+    });
+
+    it('Delete removes the selected shape instead of touching the Craft selection', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(diagramNodes()).toHaveLength(1);
+
+      fireEvent.keyDown(window, { key: 'Delete' });
+
+      expect(diagramNodes()).toHaveLength(0);
+      // The frame's own content survived - only the diagram shape was hit.
+      expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+
+    it('Cmd+D duplicates the selected shape with a 16px offset', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+
+      fireEvent.keyDown(window, { key: 'd', metaKey: true });
+
+      expect(diagramNodes()).toHaveLength(2);
+    });
+
+    it('arrow keys nudge the selected shape by 8px, 64px with Shift', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      // Read as a plain number now, before anything moves - the element
+      // itself stays mounted across the nudge (React updates its x
+      // attribute in place), so a live reference read again afterward would
+      // just report the NEW value both times.
+      const xBefore = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      const afterOneNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+      expect(afterOneNudge - xBefore).toBe(8);
+
+      fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
+      const afterBigNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+      expect(afterBigNudge - afterOneNudge).toBe(64);
+    });
+
+    it('Cmd+Z undoes a diagram edit without touching Craft history, while a diagram element is selected', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(diagramNodes()).toHaveLength(1);
+
+      fireEvent.keyDown(window, { key: 'z', metaKey: true });
+
+      expect(diagramNodes()).toHaveLength(0);
+    });
+
+    it('clicking empty canvas clears the diagram selection so Delete falls back to Craft', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(diagramNodes()).toHaveLength(1);
+
+      fireEvent.pointerDown(screen.getByTestId('canvas-root'));
+      fireEvent.keyDown(window, { key: 'Delete' });
+
+      // The shape is untouched - Delete no longer had a diagram selection to
+      // act on, and nothing was selected in Craft either.
+      expect(diagramNodes()).toHaveLength(1);
+    });
+
+    it('keeps each page\'s diagram independent', async () => {
+      const file = makeFile({
+        pages: [
+          { id: PAGE_ID, name: 'Page 1' },
+          { id: PAGE_2_ID, name: 'v2' },
+        ],
+        screens: [SCREEN_1, SCREEN_4],
+      });
+      render(<Workbench file={file} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(diagramNodes()).toHaveLength(1);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Pages' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      await within(frameBody()).findByText('Dashboard');
+
+      expect(diagramNodes()).toHaveLength(0);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Pages' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 1' }));
+      await within(frameBody()).findByRole('button', { name: 'Sign in' });
+
+      expect(diagramNodes()).toHaveLength(1);
+    });
+
+    it('Zoom to fit widens to include a diagram shape placed far outside every frame', async () => {
+      render(<Workbench file={makeFile()} />);
+      // Comfortably outside SCREEN_1's own box (stageWidth from EXAMPLES[0],
+      // origin (0,0)) - the readout below can only be this small if fitAll
+      // was asked to fit this shape too, not just the frame.
+      await placeRectangle({ x: 4000, y: 3000 });
+
+      // A real US-layout keyboard reports Shift+1 with key "!" and
+      // code "Digit1" - matchShortcut (lib/shortcuts.ts) matches on `code`
+      // for exactly that reason (see its own comment there).
+      fireEvent.keyDown(window, { key: '!', code: 'Digit1', shiftKey: true });
+
+      const readout = screen.getByTestId('stage-readout').textContent ?? '';
+      const percentMatch = /(\d+)%/.exec(readout);
+      expect(percentMatch).not.toBeNull();
+      expect(Number(percentMatch![1])).toBeLessThan(50);
+    });
+  });
 });

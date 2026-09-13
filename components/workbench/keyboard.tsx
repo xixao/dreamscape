@@ -60,6 +60,27 @@ export function useWorkbenchKeyboard(
     // toggle shape as onToggleCommentMode above - the palette-open/armed-
     // tool state itself lives with WorkbenchShell.
     onDiagramTool?: () => void;
+    // Whether the diagram palette is open/a placement tool is armed -
+    // Escape (like commentMode above) leaves it instead of its usual
+    // deselect; checked after commentMode and before the plain diagram
+    // selection check just below, matching the "leave a tool before you
+    // touch the canvas" precedence commentMode already has.
+    diagramToolActive?: boolean;
+    onExitDiagramTool?: () => void;
+    // Whether a diagram shape or connector (not a Craft block) is currently
+    // selected: Delete/Cmd+D/arrow-nudge/Undo/Redo all act on the diagram
+    // instead of the focused frame while this is true (spec section 6:
+    // "when a diagram element is selected, ... undo applies to the diagram;
+    // otherwise to the focused frame, as today"), and a plain Escape (no
+    // tool, no comment mode) clears it via onDeselectDiagram instead of
+    // falling through to actions.selectNode().
+    diagramSelectionActive?: boolean;
+    onDeselectDiagram?: () => void;
+    onDiagramDelete?: () => void;
+    onDiagramDuplicate?: () => void;
+    onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
+    onDiagramUndo?: () => void;
+    onDiagramRedo?: () => void;
     // Canvas zoom (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
     // design.md section 3). onZoomIn/onZoomOut/onZoomReset are Cmd/Ctrl
     // chords that double as the browser's own page-zoom shortcut, so - like
@@ -114,6 +135,15 @@ export function useWorkbenchKeyboard(
     commentMode,
     onExitCommentMode,
     onDiagramTool,
+    diagramToolActive,
+    onExitDiagramTool,
+    diagramSelectionActive,
+    onDeselectDiagram,
+    onDiagramDelete,
+    onDiagramDuplicate,
+    onDiagramNudge,
+    onDiagramUndo,
+    onDiagramRedo,
     onZoomIn,
     onZoomOut,
     onZoomReset,
@@ -198,12 +228,38 @@ export function useWorkbenchKeyboard(
 
         case 'undo':
           event.preventDefault();
+          if (diagramSelectionActive) {
+            onDiagramUndo?.();
+            return;
+          }
           if (query.history.canUndo()) actions.history.undo();
           return;
 
         case 'redo':
           event.preventDefault();
+          if (diagramSelectionActive) {
+            onDiagramRedo?.();
+            return;
+          }
           if (query.history.canRedo()) actions.history.redo();
+          return;
+
+        case 'diagram-duplicate':
+          if (!diagramSelectionActive) return;
+          event.preventDefault();
+          onDiagramDuplicate?.();
+          return;
+
+        case 'diagram-nudge-up':
+        case 'diagram-nudge-down':
+        case 'diagram-nudge-left':
+        case 'diagram-nudge-right':
+          if (!diagramSelectionActive) return;
+          event.preventDefault();
+          onDiagramNudge?.(
+            id.slice('diagram-nudge-'.length) as 'up' | 'down' | 'left' | 'right',
+            event.shiftKey,
+          );
           return;
 
         case 'tool-comment':
@@ -261,10 +317,23 @@ export function useWorkbenchKeyboard(
             onExitCommentMode?.();
             return;
           }
+          if (diagramToolActive) {
+            onExitDiagramTool?.();
+            return;
+          }
+          if (diagramSelectionActive) {
+            onDeselectDiagram?.();
+            return;
+          }
           actions.selectNode();
           return;
 
         case 'delete-layer': {
+          if (diagramSelectionActive) {
+            event.preventDefault();
+            onDiagramDelete?.();
+            return;
+          }
           // Read the selection live from `query` rather than from a hook snapshot: Craft.js's
           // `useEditor` collector re-renders lag behind `query`'s live state by a render or more,
           // so a snapshot id can still be the previously selected node when this fires.
@@ -304,6 +373,15 @@ export function useWorkbenchKeyboard(
     commentMode,
     onExitCommentMode,
     onDiagramTool,
+    diagramToolActive,
+    onExitDiagramTool,
+    diagramSelectionActive,
+    onDeselectDiagram,
+    onDiagramDelete,
+    onDiagramDuplicate,
+    onDiagramNudge,
+    onDiagramUndo,
+    onDiagramRedo,
     onZoomIn,
     onZoomOut,
     onZoomReset,

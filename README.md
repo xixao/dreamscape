@@ -87,12 +87,17 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ⌘0 (Ctrl+0 elsewhere) | Zoom to 100% |
 | Canvas | ⇧1 (Shift+1 elsewhere) | Zoom to fit |
 | Canvas | ⇧2 (Shift+2 elsewhere) | Zoom to selection |
+| Canvas | ↑ | Nudge the diagram selection (Shift: 64px) |
+| Canvas | ↓ | Nudge the diagram selection (Shift: 64px) |
+| Canvas | ← | Nudge the diagram selection (Shift: 64px) |
+| Canvas | → | Nudge the diagram selection (Shift: 64px) |
 | Screens | ⇧N (Shift+N elsewhere) | New screen |
 | Screens | ⌘⇧] (Ctrl+Shift+] elsewhere) | Next page |
 | Screens | ⌘⇧[ (Ctrl+Shift+[ elsewhere) | Previous page |
 | Edit | ⌘Z (Ctrl+Z elsewhere) | Undo |
 | Edit | ⇧⌘Z (Shift+Ctrl+Z elsewhere) | Redo |
 | Edit | Delete (or Backspace) | Delete the selected layer |
+| Edit | ⌘D (Ctrl+D elsewhere) | Duplicate the diagram selection |
 | Edit | Escape | Deselect, leave a tool, close a menu |
 | Help | ? | Shortcuts dialog |
 | Help | Hold ⌘ (Hold Ctrl elsewhere) | Shortcuts overlay |

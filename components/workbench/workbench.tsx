@@ -2,11 +2,13 @@
 
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
+import { bounds as diagramBounds } from '@/lib/diagram/geometry';
+import { createInitialDiagramState, diagramReducer, type DiagramData } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Page, Screen } from '@/lib/files/repository';
@@ -25,6 +27,9 @@ import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP } from './chrome';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
+import { DiagramPalette } from './diagram/diagram-palette';
+import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
+import type { DiagramFieldsSelection } from './diagram/diagram-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
 import { LayerStackMenu } from './layer-stack-menu';
@@ -380,6 +385,18 @@ export function Workbench({
     queuePatch({ pages: next });
   }
 
+  // Persists a page's own diagram (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md): called by WorkbenchShell whenever its live diagram
+  // reducer's nodes/edges actually change - the reducer's own selection and
+  // history stay in WorkbenchShell, only the persisted `{ nodes, edges }`
+  // shape ever reaches here, the same split screens/layout already has
+  // between Craft's live editing state and what queuePatch saves.
+  function updatePageDiagram(pageId: string, diagram: DiagramData): void {
+    const next = pages.map((page) => (page.id === pageId ? { ...page, diagram } : page));
+    setPages(next);
+    queuePatch({ pages: next });
+  }
+
   // Copies a page's own screens onto the copy with fresh ids and positions
   // (layoutMissingPositions places them relative to the copy's own,
   // initially-empty page - see its own doc comment), the same "new,
@@ -725,6 +742,7 @@ export function Workbench({
           onDuplicatePage={duplicatePage}
           onDeletePage={deletePage}
           onMovePage={movePage}
+          onDiagramChange={updatePageDiagram}
           screens={screens}
           currentScreenId={currentScreenId}
           onSelectScreen={switchScreen}
@@ -756,6 +774,7 @@ function WorkbenchShell({
   onDuplicatePage,
   onDeletePage,
   onMovePage,
+  onDiagramChange,
   screens,
   currentScreenId,
   onSelectScreen,
@@ -781,6 +800,7 @@ function WorkbenchShell({
   onDuplicatePage: (id: string) => void;
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: 'up' | 'down') => void;
+  onDiagramChange: (pageId: string, diagram: DiagramData) => void;
   // The whole file's screens, every page's own - WorkbenchShell itself
   // filters to the current page's screens (pageScreens, below) for Canvas,
   // ScreensStrip and the viewport controller's frames; the full array is
@@ -837,6 +857,92 @@ function WorkbenchShell({
   // `screens` (spec: "the screens strip shows only the current page's
   // screens"; "the canvas... frames of the current page only").
   const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
+
+  // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md): a fresh reducer instance for the whole file's
+  // session (not remounted per page, matching every other piece of state
+  // in this component), re-hydrated from `pages` whenever `currentPageId`
+  // changes - "adjusted during render" the same way workbench.tsx's own
+  // lastSelectedNodeId pattern already handles "a prop I do not own just
+  // changed", rather than an effect, so the newly-focused page's diagram
+  // paints on the very first frame it is visible.
+  const [diagram, dispatchDiagram] = useReducer(diagramReducer, undefined, () =>
+    createInitialDiagramState(pages.find((page) => page.id === currentPageId)?.diagram),
+  );
+  const [lastDiagramPageId, setLastDiagramPageId] = useState(currentPageId);
+  if (currentPageId !== lastDiagramPageId) {
+    setLastDiagramPageId(currentPageId);
+    dispatchDiagram({ type: 'load', data: pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] } });
+  }
+
+  // Persists a real edit (onDiagramChange, ultimately queuePatch) without
+  // ever saving the load a page switch/first mount itself just performed -
+  // the same "first firing is a baseline, not an edit" split
+  // baselinedScreenIdsRef gives onNodesChange, below, for exactly the same
+  // reason: hydrating from already-saved data is not something to save
+  // again. Effect (not adjusted-during-render, unlike the hydration above):
+  // notifying the PARENT of a change is a side effect, not a value this
+  // component itself renders with.
+  const diagramBaselineRef = useRef<{ pageId: string; nodes: typeof diagram.nodes; edges: typeof diagram.edges } | null>(
+    null,
+  );
+  useEffect(() => {
+    const baseline = diagramBaselineRef.current;
+    if (!baseline || baseline.pageId !== currentPageId) {
+      diagramBaselineRef.current = { pageId: currentPageId, nodes: diagram.nodes, edges: diagram.edges };
+      return;
+    }
+    if (baseline.nodes === diagram.nodes && baseline.edges === diagram.edges) return;
+    diagramBaselineRef.current = { pageId: currentPageId, nodes: diagram.nodes, edges: diagram.edges };
+    onDiagramChange(currentPageId, { nodes: diagram.nodes, edges: diagram.edges });
+  }, [currentPageId, diagram.nodes, diagram.edges, onDiagramChange]);
+
+  const diagramSelectionActive = diagram.selection.length > 0;
+
+  // The Design tab's fields (inspector.tsx) show whichever diagram element
+  // was selected most recently - the first entry in `selection` (a plain
+  // array, not a Set, so insertion order is exactly that).
+  function selectedDiagramFields(): DiagramFieldsSelection | null {
+    const [first] = diagram.selection;
+    if (!first) return null;
+    if (first.type === 'node') {
+      const node = diagram.nodes.find((candidate) => candidate.id === first.id);
+      return node ? { type: 'node', node } : null;
+    }
+    const edge = diagram.edges.find((candidate) => candidate.id === first.id);
+    return edge ? { type: 'edge', edge } : null;
+  }
+
+  // The diagram tool/palette (diagram-palette.tsx, diagram-layer.tsx):
+  // `diagramPaletteOpen` is the floating panel's own visibility, toggled by
+  // Shift+D or the top bar's Diagram tool button; `diagramTool` is
+  // whichever shape or the connector is currently armed within it, reset to
+  // plain pointer both when the palette closes and the moment a placement/
+  // connection actually completes (DiagramLayer's onToolConsumed) - spec:
+  // "click a shape... to place it", a one-shot gesture per open, not a
+  // sticky mode.
+  const [diagramPaletteOpen, setDiagramPaletteOpen] = useState(false);
+  const [diagramTool, setDiagramTool] = useState<DiagramTool>(POINTER_TOOL);
+
+  function closeDiagramTool(): void {
+    setDiagramPaletteOpen(false);
+    setDiagramTool(POINTER_TOOL);
+  }
+
+  function toggleDiagramPalette(): void {
+    if (diagramPaletteOpen) closeDiagramTool();
+    else setDiagramPaletteOpen(true);
+  }
+
+  // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
+  // diagram bounds") - folds the current page's diagram nodes' bounding box
+  // in alongside every frame's own, when the diagram has any.
+  function zoomToFitTargets(): FrameRect[] {
+    const targets: FrameRect[] = pageScreens.map(frameRect);
+    const diagramBox = diagramBounds(diagram.nodes);
+    if (diagramBox) targets.push(diagramBox);
+    return targets;
+  }
 
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
@@ -974,16 +1080,46 @@ function WorkbenchShell({
     onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
+    onDiagramTool: toggleDiagramPalette,
+    diagramToolActive: diagramPaletteOpen || diagramTool.kind !== 'pointer',
+    onExitDiagramTool: closeDiagramTool,
+    diagramSelectionActive,
+    onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
+    onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
+    onDiagramDuplicate: () =>
+      dispatchDiagram({
+        type: 'duplicate',
+        pairs: diagram.selection
+          .filter((item) => item.type === 'node')
+          .map((item) => ({ sourceId: item.id, newId: nanoid(10) })),
+      }),
+    onDiagramNudge: (direction, big) => {
+      const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+      if (ids.length === 0) return;
+      const amount = big ? 64 : 8;
+      const [dx, dy] =
+        direction === 'up'
+          ? [0, -amount]
+          : direction === 'down'
+            ? [0, amount]
+            : direction === 'left'
+              ? [-amount, 0]
+              : [amount, 0];
+      dispatchDiagram({ type: 'move', ids, dx, dy });
+    },
+    onDiagramUndo: () => dispatchDiagram({ type: 'undo' }),
+    onDiagramRedo: () => dispatchDiagram({ type: 'redo' }),
     onZoomIn: () => setViewport((current) => stepZoom(current, viewportCenter, 'in')),
     onZoomOut: () => setViewport((current) => stepZoom(current, viewportCenter, 'out')),
     onZoomReset: () => setViewport((current) => zoomTo(current, viewportCenter, 1)),
-    onZoomToFit: () => setViewport(fitAll(pageScreens.map(frameRect), viewportSize)),
+    onZoomToFit: () => setViewport(fitAll(zoomToFitTargets(), viewportSize)),
     onZoomToSelection: zoomToSelectionOrFocusedFrame,
     onSelectPanelTab: selectPanelTab,
-    // V (spec section 2, "Pointer: leaves the comment or diagram tool"): only
-    // the comment tool exists today, so this is the same cleanup Escape and
-    // the Comment tool button's own toggle-off already do.
-    onPointerTool: cancelPendingAndExitCommentMode,
+    // V (spec section 2, "Pointer: leaves the comment or diagram tool").
+    onPointerTool: () => {
+      cancelPendingAndExitCommentMode();
+      closeDiagramTool();
+    },
     onPresent: presentFocusedScreen,
     onAddScreen,
     onPageNext: () => onSwitchToAdjacentPage('next'),
@@ -1103,9 +1239,11 @@ function WorkbenchShell({
                 commentMode={commentMode}
                 onToggleCommentMode={toggleCommentMode}
                 commentCount={threads.length}
+                diagramPaletteOpen={diagramPaletteOpen}
+                onToggleDiagramPalette={toggleDiagramPalette}
                 onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
-                onZoomToFit={() => setViewport(fitAll(pageScreens.map(frameRect), viewportSize))}
+                onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
               />
@@ -1119,7 +1257,15 @@ function WorkbenchShell({
                 onMoveScreen={onMoveScreen}
                 comments={commentsProps}
                 rootRef={rootRef}
+                diagram={diagram}
+                onDiagramAction={dispatchDiagram}
+                diagramTool={diagramTool}
+                onDiagramToolConsumed={closeDiagramTool}
+                onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
               />
+              {!uiHidden && (
+                <DiagramPalette open={diagramPaletteOpen} tool={diagramTool} onSelectTool={setDiagramTool} />
+              )}
               {/*
                 Spec docs/superpowers/specs/2026-09-12-pages-design.md
                 section 3: creating a screen for an empty page is never
@@ -1162,6 +1308,8 @@ function WorkbenchShell({
                 onPanelModeChange={setPanelMode}
                 collapsed={panelCollapsed}
                 onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
+                diagramSelection={selectedDiagramFields()}
+                onDiagramAction={dispatchDiagram}
               />
             )}
             {!uiHidden && chatOpen && (

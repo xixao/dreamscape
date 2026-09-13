@@ -114,6 +114,19 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
   // never as `key: '1'`; matchShortcut matches on `code` for exactly that
   // reason (see its own comment), so this builds the same shape a real
   // browser would rather than a `key` no browser could ever actually send.
+  // The diagram nudge rows display an arrow glyph (matching formatKeys'
+  // pass-through of any token it does not recognize as a modifier), but a
+  // real KeyboardEvent never reports that glyph as `key` - it reports
+  // "ArrowUp" etc. Same idea as the shifted-digit handling just below for
+  // "!"/"@": the display token and the real event value can differ, so this
+  // helper maps the ones that do.
+  const ARROW_KEY_BY_GLYPH: Record<string, string> = {
+    '↑': 'ArrowUp',
+    '↓': 'ArrowDown',
+    '←': 'ArrowLeft',
+    '→': 'ArrowRight',
+  };
+
   function eventFromKeys(keys: string[]): ShortcutKeyEvent {
     let eventKey = '';
     let metaKey = false;
@@ -122,7 +135,7 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
       if (token === 'Mod') metaKey = true;
       else if (token === 'Shift') shiftKey = true;
       else if (token === 'Alt') continue;
-      else eventKey = token;
+      else eventKey = ARROW_KEY_BY_GLYPH[token] ?? token;
     }
     const code = shiftKey && /^\d$/.test(eventKey) ? `Digit${eventKey}` : '';
     return key({ key: eventKey, metaKey, shiftKey, code });
@@ -146,13 +159,27 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
 });
 
 describe('matchShortcut', () => {
-  it('matches the bare panel-tab letters, and ignores them with a modifier or shift held', () => {
+  it('matches the bare panel-tab letters, and ignores them with shift held', () => {
     expect(matchShortcut(key({ key: 'd' }))).toBe('panel-design');
     expect(matchShortcut(key({ key: 'D' }))).toBe('panel-design');
     expect(matchShortcut(key({ key: 'p' }))).toBe('panel-prototype');
     expect(matchShortcut(key({ key: 'e' }))).toBe('panel-elements');
-    expect(matchShortcut(key({ key: 'd', metaKey: true }))).toBeNull();
     expect(matchShortcut(key({ key: 'p', shiftKey: true }))).toBeNull();
+  });
+
+  it('matches Cmd+D for the diagram duplicate, distinct from the bare "d" panel-tab shortcut', () => {
+    expect(matchShortcut(key({ key: 'd', metaKey: true }))).toBe('diagram-duplicate');
+    expect(matchShortcut(key({ key: 'd', ctrlKey: true }))).toBe('diagram-duplicate');
+    expect(matchShortcut(key({ key: 'd', metaKey: true, shiftKey: true }))).toBeNull();
+  });
+
+  it('matches the four arrow keys for the diagram nudge, with or without Shift', () => {
+    expect(matchShortcut(key({ key: 'ArrowUp' }))).toBe('diagram-nudge-up');
+    expect(matchShortcut(key({ key: 'ArrowDown' }))).toBe('diagram-nudge-down');
+    expect(matchShortcut(key({ key: 'ArrowLeft' }))).toBe('diagram-nudge-left');
+    expect(matchShortcut(key({ key: 'ArrowRight' }))).toBe('diagram-nudge-right');
+    expect(matchShortcut(key({ key: 'ArrowUp', shiftKey: true }))).toBe('diagram-nudge-up');
+    expect(matchShortcut(key({ key: 'ArrowUp', metaKey: true }))).toBeNull();
   });
 
   it('matches bare C for the chat toggle, and Shift+C for the comment tool', () => {
