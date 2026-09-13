@@ -111,7 +111,6 @@ export const SHORTCUTS: Shortcut[] = [
   // section 3): a row inside that dialog reading the same words as the
   // dialog's title would be an ambiguous, confusing duplicate of it.
   { id: 'shortcuts-help', area: 'Help', keys: ['?'], label: 'Shortcuts dialog' },
-  { id: 'shortcuts-overlay-hold', area: 'Help', keys: ['Hold', 'Mod'], label: 'Shortcuts overlay' },
 ];
 
 export const SHORTCUTS_BY_ID: Record<string, Shortcut> = Object.fromEntries(

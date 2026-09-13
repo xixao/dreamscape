@@ -67,7 +67,7 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 
 ## Keyboard shortcuts in the editor
 
-Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, the top bar's zoom menu and the hold-Cmd overlay all read from (`lib/shortcuts.test.ts` fails if this table and the registry ever disagree). A bare letter or Shift+letter is ignored while typing in a text field or while a menu or dialog is open; the rest work everywhere, including from inside the chat composer.
+Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, the top bar's zoom menu and the shortcuts dialog (the ⌘ button in the top bar, or "?") all read from (`lib/shortcuts.test.ts` fails if this table and the registry ever disagree). A bare letter or Shift+letter is ignored while typing in a text field or while a menu or dialog is open; the rest work everywhere, including from inside the chat composer.
 
 | Area | Keys | Action |
 | --- | --- | --- |
@@ -97,7 +97,6 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ↑ or ↓ or ← or → | Nudge the selection, Shift for 64 px |
 | Edit | Escape | Deselect, leave a tool, close a menu |
 | Help | ? | Shortcuts dialog |
-| Help | Hold ⌘ | Shortcuts overlay |
 
 Cmd+R deliberately takes over the browser's own reload shortcut inside the editor; Cmd+Shift+R still hard-reloads. The root frame and the content zones cannot be deleted.
 

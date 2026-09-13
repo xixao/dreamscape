@@ -486,6 +486,15 @@ describe('Topbar', () => {
     });
   });
 
+  describe('keyboard shortcuts button', () => {
+    it('shows a ⌘ button that opens the shortcuts dialog through onOpenShortcuts', async () => {
+      const onOpenShortcuts = vi.fn();
+      renderTopbar({ onOpenShortcuts });
+      await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+      expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('overflow menu', () => {
     it('has a More button that opens a menu with a Keyboard shortcuts item', async () => {
       renderTopbar();

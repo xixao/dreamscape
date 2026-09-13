@@ -46,192 +46,28 @@ describe('ShortcutsOverlay', () => {
   });
 
   describe('holding the modifier key', () => {
-    it('shows the overlay, grouped by area, after 600ms', async () => {
+    it('never shows anything: the top bar\'s ⌘ button and "?" open the dialog instead', async () => {
       vi.useFakeTimers();
       renderOverlay();
-
       fireEvent.keyDown(window, { key: 'Meta' });
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-
-      await advance(600);
-
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-      expect(screen.getByText('Panels')).toBeInTheDocument();
-      expect(screen.getByText('Design tab')).toBeInTheDocument();
-      expect(screen.getByText('D')).toBeInTheDocument();
-      expect(screen.getByText('Present the focused screen')).toBeInTheDocument();
-      expect(screen.getByText('⌘R')).toBeInTheDocument();
-      // The Space+drag and middle-mouse-drag pan gestures (canvas.tsx) are
-      // registered in SHORTCUTS under Canvas even though matchShortcut
-      // never returns their ids, specifically so they show up here.
-      // One merged row for both pan gestures, with two key chips.
-      expect(screen.getAllByText('Pan the canvas')).toHaveLength(1);
-      expect(screen.getByText('Hold Space + drag')).toBeInTheDocument();
-      expect(screen.getByText('Middle mouse drag')).toBeInTheDocument();
-    });
-
-    it('does not show before 600ms', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(500);
-
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('a repeat:true keydown of the hold modifier neither restarts nor doubles the 600ms timer', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      expect(vi.getTimerCount()).toBe(1);
-
-      await advance(400);
-      // Simulates the OS auto-repeating a still-held-down key.
-      fireEvent.keyDown(window, { key: 'Meta', repeat: true });
-      // Still exactly one pending timer: the repeat neither cleared and
-      // rescheduled it (a "restart") nor left a second one running
-      // alongside it (a "double").
-      expect(vi.getTimerCount()).toBe(1);
-
-      // Not restarted: the ORIGINAL timer (started at t=0) still fires
-      // 600ms after that keydown, not 600ms after the repeat at t=400.
-      await advance(200);
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-
-      // Not doubled: releasing the modifier hides it, and no leftover
-      // second timer from the repeat flips it back on later.
-      fireEvent.keyUp(window, { key: 'Meta' });
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
       await advance(1000);
       expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('cancels the pending hold when another key is pressed, so a combo never shows it', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(300);
-      fireEvent.keyDown(window, { key: 'z', metaKey: true });
-      await advance(600);
-
+      fireEvent.keyDown(window, { key: 'Control' });
+      await advance(1000);
       expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('a shortcut fired during the hold still runs (this overlay never calls preventDefault)', () => {
-      renderOverlay();
-      const notCancelled = fireEvent.keyDown(window, { key: 'z', metaKey: true });
-
-      expect(notCancelled).toBe(true);
-    });
-
-    it('hides on keyup of the modifier', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-
-      fireEvent.keyUp(window, { key: 'Meta' });
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('cancels a still-pending hold on keyup, before it ever shows', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(300);
-      fireEvent.keyUp(window, { key: 'Meta' });
-      await advance(600);
-
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('hides on window blur', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-
-      fireEvent.blur(window);
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('hides on Escape', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-
-      fireEvent.keyDown(window, { key: 'Escape' });
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('never opens while a text field has focus', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'Meta' });
-      await advance(600);
-
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('never opens while a dialog or menu owns the interaction', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(screen.getByRole('button', { name: 'Inside dialog' }), { key: 'Meta' });
-      await advance(600);
-
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-    });
-
-    it('is display-only: the scrim has pointer-events-none', async () => {
-      vi.useFakeTimers();
-      const { container } = renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-
-      expect(container.querySelector('.pointer-events-none')).not.toBeNull();
     });
   });
 
   describe('platform detection', () => {
-    it('watches Control (not Meta) and shows the Ctrl caption on a non-mac platform', async () => {
+    it('formats key caps with Ctrl on a non-mac platform', () => {
       mockPlatform('Win32');
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
-
-      fireEvent.keyDown(window, { key: 'Control' });
-      await advance(600);
-
-      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
-      expect(screen.getByText('Release Ctrl to close')).toBeInTheDocument();
+      renderOverlay(true);
       expect(screen.getByText('Ctrl+R')).toBeInTheDocument();
     });
 
-    it('shows the Release Cmd caption on a mac platform', async () => {
-      vi.useFakeTimers();
-      renderOverlay();
-
-      fireEvent.keyDown(window, { key: 'Meta' });
-      await advance(600);
-
-      expect(screen.getByText('Release ⌘ to close')).toBeInTheDocument();
+    it('formats key caps with ⌘ on a mac platform', () => {
+      renderOverlay(true);
+      expect(screen.getByText('⌘R')).toBeInTheDocument();
     });
   });
 
