@@ -20,7 +20,7 @@ import { Field } from '../inspector/field';
 export type DiagramFieldsSelection = { type: 'node'; node: DiagramNode } | { type: 'edge'; edge: DiagramEdge };
 
 // Exported so the right-click context menu (diagram-layer.tsx's "Change
-// shape"/"Colour"/"Connector"/"Arrowheads" submenus) shows the exact same
+// shape"/"Color"/"Connector"/"Arrowheads" submenus) shows the exact same
 // wording as this panel, instead of a second, driftable copy of the same
 // six/six/three/three labels.
 export const KIND_LABELS: Record<DiagramNodeKind, string> = {

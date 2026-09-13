@@ -32,6 +32,7 @@ import {
   ARROW_KINDS,
   CONNECTOR_KINDS,
   DIAGRAM_COLORS,
+  duplicatePairs,
   MAX_TEXT_LENGTH,
   MIN_SIZE,
   NODE_KINDS,
@@ -46,10 +47,9 @@ import {
   type DiagramSelection,
   type DiagramState,
   type EdgeEndpoint,
-  type Side as StoreSide,
 } from '@/lib/diagram/store';
 import type { Viewport } from '@/lib/canvas/viewport';
-import { capturePointer } from '@/lib/dom';
+import { capturePointer, releasePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { CHIP, MENU_HINT, MENU_POPOVER, MENU_ROW } from '../chrome';
 import { ARROW_LABELS, CONNECTOR_LABELS, COLOR_LABELS, KIND_LABELS } from './diagram-fields';
@@ -125,6 +125,17 @@ const QUICK_ADD_GAP_SCREEN = 20;
 
 const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
 
+// Review nit 18: replaces a redundant `type Side as StoreSide` re-import
+// plus an `as StoreSide` cast at the one call site that checked an
+// EdgeEndpoint's optional `side` against SIDES - `(SIDES as readonly
+// string[]).includes(...)` does not by itself narrow TypeScript's type for
+// `endpoint.side` (a plain `readonly string[]` check never narrows to a
+// literal union), which was the actual reason for the cast; a real type
+// guard does, with no cast and no second import of the same type needed.
+function isSide(value: string): value is Side {
+  return (SIDES as readonly string[]).includes(value);
+}
+
 const COLOR_CLASSES: Record<DiagramNode['color'], { fill: string; stroke: string }> = {
   neutral: { fill: 'fill-white/10', stroke: 'stroke-white/50' },
   blue: { fill: 'fill-blue-500/25', stroke: 'stroke-blue-400' },
@@ -173,17 +184,32 @@ function isOverQuickAddCircle(box: Box, point: Point, zoom: number): boolean {
 
 type HoverTarget = { type: 'node' | 'frame'; id: string } | null;
 
-type DragState = { pointerId: number; ids: string[]; start: Point } | null;
+// Every in-flight gesture keeps the element pointer capture was taken on
+// (`target`), so Escape (review finding 5) can release it explicitly from a
+// plain `window` keydown handler, which has no pointer event of its own to
+// read a capture target off.
+// `duplicate: true` marks an Option-drag (review finding 1): the originals
+// stay put (renderedNodeBox only offsets a plain drag), a ghost previews
+// the copies (renderGhosts), and endDrag mints and dispatches the actual
+// `duplicate` only once, at pointer up, instead of writing anything here.
+type DragState = { pointerId: number; ids: string[]; start: Point; target: SVGElement; duplicate?: boolean } | null;
 type ResizeState = {
   pointerId: number;
   id: string;
   corner: 'nw' | 'ne' | 'sw' | 'se';
   start: Point;
   box: Box;
+  target: SVGElement;
 } | null;
 type ConnectSource = { type: 'node' | 'frame'; id: string; side: Side };
-type ConnectState = { pointerId: number; source: ConnectSource; anchor: Point; current: Point } | null;
-type PlaceState = { pointerId: number; start: Point; current: Point } | null;
+type ConnectState = {
+  pointerId: number;
+  source: ConnectSource;
+  anchor: Point;
+  current: Point;
+  target: SVGElement;
+} | null;
+type PlaceState = { pointerId: number; start: Point; current: Point; target: SVGElement } | null;
 type EditState = { id: string; draft: string } | null;
 
 function endpointFor(target: { type: 'node' | 'frame'; id: string }, side: Side): EdgeEndpoint {
@@ -292,15 +318,28 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editing, tool.kind, diagram.selection]);
 
-  // Escape hides the quick-add circles (Build step 4) - clearing hover is
-  // enough, since they only ever render for the currently-hovered node.
+  // Escape cancels any in-flight gesture (review finding 5) - drag, resize,
+  // connect, place, and an Option-drag's ghost among them, since it is just
+  // a `drag` with `duplicate: true` and, like every other gesture here,
+  // writes nothing to the store until its own end handler runs - and hides
+  // the quick-add circles (Build step 4); clearing hover covers the
+  // latter, since they only ever render for the currently-hovered node.
+  // cancelDrag/cancelResize/cancelConnect/cancelPlace (below) reset state
+  // and release pointer capture WITHOUT dispatching, unlike the endX
+  // handlers a real pointerup/pointercancel calls.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setHover((current) => (current === null ? current : null));
+      if (event.key !== 'Escape') return;
+      cancelDrag();
+      cancelResize();
+      cancelConnect();
+      cancelPlace();
+      setHover((current) => (current === null ? current : null));
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag, resize, connect, place]);
 
   // Right-clicking (or Shift+F10-ing) a shape or connector that is NOT
   // already part of the current selection replaces the selection with just
@@ -325,6 +364,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const newEdgeId = nanoid(10);
     dispatch({ type: 'quickAdd', sourceId: source.id, side, newNodeId, newEdgeId });
     setEditing({ id: newNodeId, draft: '' });
+    // Review nit 15: hides the circles immediately once one has fired, so
+    // the second half of an accidental double-click (two separate `click`
+    // events - the dblclick itself is stopped from bubbling further up
+    // above) does not land on a circle that is still there and create a
+    // second, stacked shape. The pointer has not moved, so nothing else
+    // would otherwise clear hover.
+    setHover(null);
   }
 
   // Shared by Cmd+D-equivalent menu items and (soon) nothing else in THIS
@@ -368,7 +414,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         </ContextMenuSub>
 
         <ContextMenuSub>
-          <ContextMenuSubTrigger className={MENU_ROW}>Colour</ContextMenuSubTrigger>
+          <ContextMenuSubTrigger className={MENU_ROW}>Color</ContextMenuSubTrigger>
           <ContextMenuSubContent className={MENU_POPOVER}>
             <ContextMenuRadioGroup
               value={node.color}
@@ -635,49 +681,46 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       selectShape('node', node.id, true);
       return;
     }
-    const alreadySelected = isSelected(diagram.selection, 'node', node.id);
-    const alreadyMultiSelected = alreadySelected && diagram.selection.length > 1;
+    const alreadyMultiSelected = isSelected(diagram.selection, 'node', node.id) && diagram.selection.length > 1;
     const ids = alreadyMultiSelected
       ? diagram.selection.filter((item) => item.type === 'node').map((item) => item.id)
       : [node.id];
 
-    // Option-drag duplicate (Build step 2): only when the drag starts on a
-    // shape that is ALREADY selected (spec follow-up section 7: "holding
-    // Option (Alt) when a drag starts on a selected shape") - Option-clicking
-    // an unselected shape falls through to the plain select+drag below,
-    // exactly as if Alt had not been held.
-    if (event.altKey && alreadySelected) {
-      startOptionDragDuplicate(ids, event);
+    // A plain click (no Alt) replaces the selection with just this shape,
+    // unless it is already part of a larger one, exactly as before. Option-
+    // drag (review nits 11/12: Figma drags/duplicates ANY shape under the
+    // pointer, selected or not - not just an already-selected one) needs
+    // this same selection settled BEFORE it decides which ids to drag, so
+    // it always runs, alt or not.
+    if (!alreadyMultiSelected) selectShape('node', node.id, false);
+
+    if (event.altKey) {
+      startOptionDrag(ids, event);
       return;
     }
 
-    if (!alreadyMultiSelected) selectShape('node', node.id, false);
-
     capturePointer(event.currentTarget, event.pointerId);
-    setDrag({ pointerId: event.pointerId, ids, start: clientToCanvas(event.clientX, event.clientY) });
+    setDrag({ pointerId: event.pointerId, ids, start: clientToCanvas(event.clientX, event.clientY), target: event.currentTarget });
   }
 
-  // Dispatches a zero-offset duplicate of `ids` (the whole selection) plus
-  // any connector whose both endpoints are among them, then immediately
-  // starts the SAME drag gesture already in progress against the new
-  // copies instead of the originals (spec follow-up: "leaves the originals
-  // in place and drags copies"). Every id here is minted up front, in this
-  // component - same convention as `add`/`connect` above - so the reducer
-  // never has to invent one and this can select the copies for the drag
-  // without waiting for a render to read anything back out of `diagram`.
-  function startOptionDragDuplicate(ids: string[], event: ReactPointerEvent<SVGElement>): void {
-    const idSet = new Set(ids);
-    const pairs = ids.map((id) => ({ sourceId: id, newId: nanoid(10) }));
-    const edgePairs = diagram.edges
-      .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
-      .map((e) => ({ sourceId: e.id, newId: nanoid(10) }));
-    dispatch({ type: 'duplicate', pairs, edgePairs, offset: { x: 0, y: 0 } });
-
+  // Review finding 1 (blocker): starts a drag flagged `duplicate: true` and
+  // dispatches NOTHING - the originals are never touched (renderedNodeBox
+  // below only offsets a plain, non-duplicate drag) and a ghost of each
+  // dragged shape (renderGhosts) previews where the copies would land.
+  // endDrag mints the copies and dispatches exactly one `duplicate`, with
+  // the final snapped offset, only once the gesture actually ends with real
+  // movement - so an Option-click, an Option-right-click, or Escape/
+  // pointercancel mid-drag write nothing at all, and a real drag is one
+  // history step instead of a duplicate-at-pointer-down plus a move-at-
+  // pointer-up.
+  function startOptionDrag(ids: string[], event: ReactPointerEvent<SVGElement>): void {
     capturePointer(event.currentTarget, event.pointerId);
     setDrag({
       pointerId: event.pointerId,
-      ids: pairs.map((p) => p.newId),
+      ids,
       start: clientToCanvas(event.clientX, event.clientY),
+      target: event.currentTarget,
+      duplicate: true,
     });
   }
 
@@ -687,18 +730,46 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setDragOffset({ dx: point.x - drag.start.x, dy: point.y - drag.start.y });
   }
 
+  // Review finding 10 (Matt's nudge rule): move no longer snaps its own
+  // delta (lib/diagram/store.ts), so the drag snaps its pointer delta HERE,
+  // once, right before dispatching - the single source of truth for both
+  // the final dispatch and (via renderedNodeBox/renderGhosts, which apply
+  // the exact same snapToGrid(dragOffset.dx/dy)) the live preview, so what
+  // the user sees moving is always exactly what gets written.
   function endDrag(event: ReactPointerEvent<SVGElement>): void {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (dragOffset && (dragOffset.dx !== 0 || dragOffset.dy !== 0)) {
-      dispatch({ type: 'move', ids: drag.ids, dx: dragOffset.dx, dy: dragOffset.dy });
+    if (dragOffset) {
+      const dx = snapToGrid(dragOffset.dx);
+      const dy = snapToGrid(dragOffset.dy);
+      if (dx !== 0 || dy !== 0) {
+        if (drag.duplicate) {
+          const { pairs, edgePairs } = duplicatePairs(diagram, drag.ids, () => nanoid(10));
+          if (pairs.length > 0) dispatch({ type: 'duplicate', pairs, edgePairs, offset: { x: dx, y: dy } });
+        } else {
+          dispatch({ type: 'move', ids: drag.ids, dx, dy });
+        }
+      }
     }
     setDrag(null);
     setDragOffset(null);
   }
 
+  // Review finding 5: resets the gesture WITHOUT dispatching (unlike endX
+  // above, which a real pointerup/pointercancel calls) and releases pointer
+  // capture - called with no pointerId from the Escape handler (cancel
+  // whatever is active, regardless of which pointer owns it) and with the
+  // event's own pointerId from onPointerCancel (only cancel if it is really
+  // THIS gesture's pointer that got cancelled).
+  function cancelDrag(pointerId?: number): void {
+    if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
+    releasePointer(drag.target, drag.pointerId);
+    setDrag(null);
+    setDragOffset(null);
+  }
+
   function renderedNodeBox(node: DiagramNode): Box {
-    if (drag && drag.ids.includes(node.id) && dragOffset) {
-      return { ...node, x: snapToGrid(node.x + dragOffset.dx), y: snapToGrid(node.y + dragOffset.dy) };
+    if (drag && !drag.duplicate && drag.ids.includes(node.id) && dragOffset) {
+      return { ...node, x: node.x + snapToGrid(dragOffset.dx), y: node.y + snapToGrid(dragOffset.dy) };
     }
     if (resize && resize.id === node.id && resizeBox) return resizeBox;
     return node;
@@ -717,7 +788,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (event.button !== 0) return;
     event.stopPropagation();
     capturePointer(event.currentTarget, event.pointerId);
-    setResize({ pointerId: event.pointerId, id: node.id, corner, start: clientToCanvas(event.clientX, event.clientY), box: node });
+    setResize({
+      pointerId: event.pointerId,
+      id: node.id,
+      corner,
+      start: clientToCanvas(event.clientX, event.clientY),
+      box: node,
+      target: event.currentTarget,
+    });
   }
 
   function handleResizeMove(event: ReactPointerEvent<SVGElement>): void {
@@ -757,6 +835,16 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setResizeBox(null);
   }
 
+  // Review finding 5: resets the resize WITHOUT dispatching - same
+  // no-arg-cancels-regardless / pointerId-checks-it-is-this-gesture split
+  // as cancelDrag above.
+  function cancelResize(pointerId?: number): void {
+    if (!resize || (pointerId !== undefined && resize.pointerId !== pointerId)) return;
+    releasePointer(resize.target, resize.pointerId);
+    setResize(null);
+    setResizeBox(null);
+  }
+
   // --- Connect ------------------------------------------------------------
 
   function startConnect(source: { type: 'node' | 'frame'; id: string }, side: Side, event: ReactPointerEvent<SVGElement>): void {
@@ -766,7 +854,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     event.stopPropagation();
     capturePointer(event.currentTarget, event.pointerId);
     const anchor = getHandlePosition(box, side);
-    setConnect({ pointerId: event.pointerId, source: { ...source, side }, anchor, current: clientToCanvas(event.clientX, event.clientY) });
+    setConnect({
+      pointerId: event.pointerId,
+      source: { ...source, side },
+      anchor,
+      current: clientToCanvas(event.clientX, event.clientY),
+      target: event.currentTarget,
+    });
   }
 
   function handleConnectMove(event: ReactPointerEvent<SVGElement>): void {
@@ -801,13 +895,21 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (tool.kind === 'connector') onToolConsumed();
   }
 
+  // Review finding 5: resets the connector drag WITHOUT dispatching, same
+  // pattern as cancelDrag/cancelResize above.
+  function cancelConnect(pointerId?: number): void {
+    if (!connect || (pointerId !== undefined && connect.pointerId !== pointerId)) return;
+    releasePointer(connect.target, connect.pointerId);
+    setConnect(null);
+  }
+
   // --- Placement (palette shape tool) --------------------------------------
 
   function handlePlacePointerDown(event: ReactPointerEvent<SVGElement>): void {
     if (event.button !== 0 || tool.kind !== 'shape') return;
     capturePointer(event.currentTarget, event.pointerId);
     const point = clientToCanvas(event.clientX, event.clientY);
-    setPlace({ pointerId: event.pointerId, start: point, current: point });
+    setPlace({ pointerId: event.pointerId, start: point, current: point, target: event.currentTarget });
   }
 
   function handlePlaceMove(event: ReactPointerEvent<SVGElement>): void {
@@ -845,6 +947,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     });
     setPlace(null);
     onToolConsumed();
+  }
+
+  // Review finding 5: resets an in-progress placement WITHOUT adding a
+  // shape, same pattern as cancelDrag/cancelResize/cancelConnect above.
+  function cancelPlace(pointerId?: number): void {
+    if (!place || (pointerId !== undefined && place.pointerId !== pointerId)) return;
+    releasePointer(place.target, place.pointerId);
+    setPlace(null);
   }
 
   // --- Edge pointer handling ------------------------------------------------
@@ -908,8 +1018,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const box = endpointBox(endpoint);
     if (!box) return null;
     const anchorForOther = (other: Box) => anchorOnBox(box, { x: other.x + other.width / 2, y: other.y + other.height / 2 });
-    if (endpoint.side && (SIDES as readonly string[]).includes(endpoint.side)) {
-      return { box, side: endpoint.side as StoreSide };
+    if (endpoint.side && isSide(endpoint.side)) {
+      return { box, side: endpoint.side };
     }
     // No stored side: face whichever side of `box` points toward the OTHER
     // endpoint - `otherBox`, not `box` itself. Passing `box` here (the bug
@@ -953,7 +1063,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           onPointerDown={(event) => startConnect(target, side, event)}
           onPointerMove={handleConnectMove}
           onPointerUp={endConnect}
-          onPointerCancel={endConnect}
+          onPointerCancel={(event) => cancelConnect(event.pointerId)}
         />
       );
     });
@@ -977,7 +1087,9 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         <g
           key={side}
           transform={`translate(${center.x}, ${center.y})`}
-          role="button"
+          // Review nit 16: role="button" with no tabIndex/keyboard path was
+          // an unfocusable button, promising keyboard access this never
+          // had - dropped rather than adding a full keyboard path.
           aria-label={`Add a shape to the ${side}`}
           data-testid={`diagram-quick-add-${node.id}-${side}`}
           style={{ cursor: 'pointer', pointerEvents: 'all' }}
@@ -986,6 +1098,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             event.stopPropagation();
             handleQuickAdd(node, side);
           }}
+          // Review nit 15: without this, a double-click's dblclick bubbled
+          // to the shape's own onDoubleClick and moved the editor onto the
+          // SOURCE shape instead of the new one.
+          onDoubleClick={(event) => event.stopPropagation()}
         >
           <circle r={radius} className="fill-(--acc) stroke-white" style={{ strokeWidth: 1 / viewport.zoom }} />
           <Plus aria-hidden x={-iconSize / 2} y={-iconSize / 2} width={iconSize} height={iconSize} className="stroke-white" />
@@ -994,23 +1110,26 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     });
   }
 
-  function renderNode(rawNode: DiagramNode): ReactNode {
-    const box = renderedNodeBox(rawNode);
-    const colors = COLOR_CLASSES[rawNode.color];
-    const selected = isSelected(diagram.selection, 'node', rawNode.id);
+  // Review finding 1: extracted out of renderNode so renderGhosts (below)
+  // can draw the exact same shape body - fill, stroke, decision diamond/
+  // terminal pill/rounded-rect/plain-rect switch - at an offset box, with
+  // no interactive wrapper, foreignObject text, selection outline, resize
+  // handles, connect handles or quick-add circles (a ghost is a preview,
+  // never a target for any of those).
+  function renderShapeBody(node: DiagramNode, box: Box): ReactNode {
+    const colors = COLOR_CLASSES[node.color];
     const strokeWidth = 1.5 / viewport.zoom;
-
-    let shape: ReactNode;
-    if (rawNode.kind === 'decision') {
+    if (node.kind === 'decision') {
       const points = [
         `${box.x + box.width / 2},${box.y}`,
         `${box.x + box.width},${box.y + box.height / 2}`,
         `${box.x + box.width / 2},${box.y + box.height}`,
         `${box.x},${box.y + box.height / 2}`,
       ].join(' ');
-      shape = <polygon points={points} className={`${colors.fill} ${colors.stroke}`} style={{ strokeWidth }} />;
-    } else if (rawNode.kind === 'terminal') {
-      shape = (
+      return <polygon points={points} className={`${colors.fill} ${colors.stroke}`} style={{ strokeWidth }} />;
+    }
+    if (node.kind === 'terminal') {
+      return (
         <rect
           x={box.x}
           y={box.y}
@@ -1021,36 +1140,94 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           style={{ strokeWidth }}
         />
       );
-    } else if (rawNode.kind === 'text') {
-      shape = <rect x={box.x} y={box.y} width={box.width} height={box.height} fill="transparent" />;
-    } else {
-      shape = (
-        <rect
-          x={box.x}
-          y={box.y}
-          width={box.width}
-          height={box.height}
-          rx={rawNode.kind === 'rounded' ? 12 : rawNode.kind === 'note' ? 2 : 0}
-          className={`${colors.fill} ${colors.stroke}`}
-          style={{ strokeWidth }}
-        />
-      );
     }
+    if (node.kind === 'text') {
+      return <rect x={box.x} y={box.y} width={box.width} height={box.height} fill="transparent" />;
+    }
+    return (
+      <rect
+        x={box.x}
+        y={box.y}
+        width={box.width}
+        height={box.height}
+        rx={node.kind === 'rounded' ? 12 : node.kind === 'note' ? 2 : 0}
+        className={`${colors.fill} ${colors.stroke}`}
+        style={{ strokeWidth }}
+      />
+    );
+  }
 
+  // Review finding 1: the Option-drag preview - a translucent copy of each
+  // dragged shape's body at the snapped offset, plus the edges wholly
+  // inside the dragged set (so a connector between two ghosts previews
+  // exactly what duplicatePairs/endDrag will actually create). Resolves
+  // sides independently of pathFor/resolveEndpoint, which read the REAL,
+  // un-offset diagram state - a ghost's box only ever exists here, never in
+  // `diagram` itself, until endDrag actually dispatches.
+  function renderGhosts(): ReactNode {
+    if (!drag?.duplicate || !dragOffset) return null;
+    const dx = snapToGrid(dragOffset.dx);
+    const dy = snapToGrid(dragOffset.dy);
+    if (dx === 0 && dy === 0) return null;
+    const idSet = new Set(drag.ids);
+    const ghostBox = (id: string): Box | null => {
+      const source = diagram.nodes.find((n) => n.id === id);
+      return source ? { ...source, x: source.x + dx, y: source.y + dy } : null;
+    };
+    const ghostEdges = diagram.edges.filter(
+      (e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId),
+    );
+    return (
+      <g data-testid="diagram-option-drag-ghosts" aria-hidden style={{ opacity: 0.6, pointerEvents: 'none' }}>
+        {ghostEdges.map((e) => {
+          const sourceBox = ghostBox(e.source.nodeId!);
+          const targetBox = ghostBox(e.target.nodeId!);
+          if (!sourceBox || !targetBox) return null;
+          const targetCenter = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+          const sourceCenter = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
+          const sourceSide = e.source.side && isSide(e.source.side) ? e.source.side : sideFromPoint(sourceBox, targetCenter);
+          const targetSide = e.target.side && isSide(e.target.side) ? e.target.side : sideFromPoint(targetBox, sourceCenter);
+          const sourcePoint = getHandlePosition(sourceBox, sourceSide);
+          const targetPoint = getHandlePosition(targetBox, targetSide);
+          const result =
+            e.kind === 'straight'
+              ? getStraightPath(sourcePoint, targetPoint)
+              : e.kind === 'curve'
+                ? getBezierPath(sourcePoint, sourceSide, targetPoint, targetSide)
+                : getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
+          return (
+            <path key={e.id} d={result.path} fill="none" className="stroke-white/60" style={{ strokeWidth: 1.5 / viewport.zoom }} />
+          );
+        })}
+        {drag.ids.map((id) => {
+          const source = diagram.nodes.find((n) => n.id === id);
+          const box = ghostBox(id);
+          if (!source || !box) return null;
+          return <g key={id}>{renderShapeBody(source, box)}</g>;
+        })}
+      </g>
+    );
+  }
+
+  function renderNode(rawNode: DiagramNode): ReactNode {
+    const box = renderedNodeBox(rawNode);
+    const selected = isSelected(diagram.selection, 'node', rawNode.id);
+    const shape = renderShapeBody(rawNode, box);
     const isEditing = editing?.id === rawNode.id;
     // Build step 2's cursor affordance ("the cursor shows copy while Option
-    // is held over a shape"): scoped to a shape that is both hovered AND
-    // already selected, since that is exactly the condition
-    // startOptionDragDuplicate above actually acts on - showing it more
-    // broadly would promise a duplicate-drag Option+click on an unselected
-    // shape does not deliver. A literal Tailwind class (not an inline style)
-    // so it can win over the inline `cursor` style below, which is omitted
-    // whenever this applies.
-    const showCopyCursor = altHeld && selected && hover?.type === 'node' && hover.id === rawNode.id;
+    // is held over a shape") - review nits 11/12: Figma shows it (and lets
+    // Option-drag act) on ANY hovered shape, not only an already-selected
+    // one, matching startOptionDrag above (which no longer requires the
+    // shape be pre-selected either). A literal Tailwind class (not an
+    // inline style) so it can win over the inline `cursor` style below,
+    // which is omitted whenever this applies.
+    const showCopyCursor = altHeld && hover?.type === 'node' && hover.id === rawNode.id;
 
     return (
       <ContextMenu key={rawNode.id}>
-        <ContextMenuTrigger asChild onContextMenu={() => ensureSelected('node', rawNode.id)}>
+        {/* Review nit 17: unlike the Shift+F10 path, this had no tool.kind
+            guard, so the menu also opened mid-connector-tool/placement. */}
+        <ContextMenuTrigger asChild disabled={tool.kind !== 'pointer'} onContextMenu={() => ensureSelected('node', rawNode.id)}>
           <g
             data-testid={`diagram-node-${rawNode.id}`}
             data-diagram-kind={rawNode.kind}
@@ -1063,7 +1240,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             onPointerDown={(event) => handleNodePointerDown(rawNode, event)}
             onPointerMove={handleDragMove}
             onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            onPointerCancel={(event) => cancelDrag(event.pointerId)}
             onDoubleClick={() => beginEditing(rawNode)}
           >
             {shape}
@@ -1127,7 +1304,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                       onPointerDown={(event) => handleResizePointerDown(rawNode, key, event)}
                       onPointerMove={handleResizeMove}
                       onPointerUp={endResize}
-                      onPointerCancel={endResize}
+                      onPointerCancel={(event) => cancelResize(event.pointerId)}
                     />
                   );
                 })}
@@ -1152,7 +1329,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
     return (
       <ContextMenu key={edge.id}>
-        <ContextMenuTrigger asChild onContextMenu={() => ensureSelected('edge', edge.id)}>
+        <ContextMenuTrigger asChild disabled={tool.kind !== 'pointer'} onContextMenu={() => ensureSelected('edge', edge.id)}>
           <g data-testid={`diagram-edge-${edge.id}`}>
             {/* A fat, invisible stroke carries the click/hover target so a thin
                 connector line is still easy to select - the visible path below
@@ -1254,7 +1431,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           onPointerDown={handlePlacePointerDown}
           onPointerMove={handlePlaceMove}
           onPointerUp={endPlace}
-          onPointerCancel={endPlace}
+          onPointerCancel={(event) => cancelPlace(event.pointerId)}
         />
       )}
 
@@ -1263,6 +1440,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       {frames.map((frame) => (
         <g key={frame.id}>{renderHandles({ type: 'frame', id: frame.id }, frame)}</g>
       ))}
+      {renderGhosts()}
 
       {connect && (
         <path
