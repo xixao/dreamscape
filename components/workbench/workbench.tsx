@@ -1028,13 +1028,13 @@ function WorkbenchShell({
   }
 
   // The diagram tool/palette (diagram-palette.tsx, diagram-layer.tsx):
-  // `diagramPaletteOpen` is the floating panel's own visibility, toggled by
-  // Shift+D or the top bar's Diagram tool button; `diagramTool` is
-  // whichever shape or the connector is currently armed within it, reset to
-  // plain pointer both when the palette closes and the moment a placement/
-  // connection actually completes (DiagramLayer's onToolConsumed) - spec:
-  // "click a shape... to place it", a one-shot gesture per open, not a
-  // sticky mode.
+  // `diagramPaletteOpen` is the floating bar's own visibility, toggled by
+  // Shift+D or the top bar's Diagram tool button and closed by its own
+  // close button; `diagramTool` is whichever shape or the connector is
+  // currently armed within it. Completing a placement or a connection
+  // re-arms the plain pointer but keeps the bar open (Matt: "once i've
+  // enabled that, the bar of shape options should be visible immediately
+  // and closeable"), so the next shape is one click away.
   const [diagramPaletteOpen, setDiagramPaletteOpen] = useState(false);
   const [diagramTool, setDiagramTool] = useState<DiagramTool>(POINTER_TOOL);
 
@@ -1046,6 +1046,11 @@ function WorkbenchShell({
   function toggleDiagramPalette(): void {
     if (diagramPaletteOpen) closeDiagramTool();
     else setDiagramPaletteOpen(true);
+  }
+
+  // A finished placement or connection only disarms the shape; the bar stays.
+  function onDiagramToolConsumed(): void {
+    setDiagramTool(POINTER_TOOL);
   }
 
   // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
@@ -1384,11 +1389,16 @@ function WorkbenchShell({
                 diagram={diagram}
                 onDiagramAction={dispatchDiagram}
                 diagramTool={diagramTool}
-                onDiagramToolConsumed={closeDiagramTool}
+                onDiagramToolConsumed={onDiagramToolConsumed}
                 onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
               />
               {!uiHidden && (
-                <DiagramPalette open={diagramPaletteOpen} tool={diagramTool} onSelectTool={setDiagramTool} />
+                <DiagramPalette
+                  open={diagramPaletteOpen}
+                  tool={diagramTool}
+                  onSelectTool={setDiagramTool}
+                  onClose={closeDiagramTool}
+                />
               )}
               {/*
                 Spec docs/superpowers/specs/2026-09-12-pages-design.md

@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DiagramPalette } from './diagram-palette';
+
+const onClose = vi.fn();
 import { POINTER_TOOL, type DiagramTool } from './diagram-layer';
 
 function renderPalette(overrides: { open?: boolean; tool?: DiagramTool } = {}) {
   const onSelectTool = vi.fn();
   const props = { open: true, tool: POINTER_TOOL, onSelectTool, ...overrides };
-  const result = render(<DiagramPalette {...props} />);
+  const result = render(<DiagramPalette onClose={onClose} {...props} />);
   return { ...result, onSelectTool };
 }
 
@@ -49,5 +51,14 @@ describe('DiagramPalette', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Note' }));
 
     expect(onSelectTool).toHaveBeenCalledWith(POINTER_TOOL);
+  });
+});
+
+describe('DiagramPalette close button', () => {
+  it('shows a close button that calls onClose', async () => {
+    const close = vi.fn();
+    render(<DiagramPalette open tool={{ kind: 'pointer' }} onSelectTool={vi.fn()} onClose={close} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Close diagram palette' }));
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });

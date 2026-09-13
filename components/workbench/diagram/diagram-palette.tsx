@@ -1,6 +1,6 @@
 'use client';
 
-import { Diamond, Pill, Spline, Square, Squircle, StickyNote, Type, type LucideIcon } from 'lucide-react';
+import { Diamond, Pill, Spline, Square, Squircle, StickyNote, Type, type LucideIcon, X } from 'lucide-react';
 import type { DiagramNodeKind } from '@/lib/diagram/store';
 import { cn } from '@/lib/utils';
 import { PANEL } from '../chrome';
@@ -62,10 +62,12 @@ export function DiagramPalette({
   open,
   tool,
   onSelectTool,
+  onClose,
 }: {
   open: boolean;
   tool: DiagramTool;
   onSelectTool: (tool: DiagramTool) => void;
+  onClose: () => void;
 }) {
   if (!open) return null;
 
@@ -95,6 +97,8 @@ export function DiagramPalette({
         active={tool.kind === 'connector'}
         onClick={() => toggle({ kind: 'connector' })}
       />
+      <div className="mx-0.5 h-6 w-px bg-border" aria-hidden />
+      <PaletteButton label="Close diagram palette" icon={X} active={false} onClick={onClose} />
     </div>
   );
 }

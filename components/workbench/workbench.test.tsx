@@ -1665,19 +1665,34 @@ describe('Workbench', () => {
       expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toBeInTheDocument();
     });
 
-    it('placing a shape adds it to the canvas, selects it, closes the palette, and saves it', async () => {
+    it('placing a shape adds it to the canvas, selects it, keeps the palette open with the pointer re-armed, and saves it', async () => {
       render(<Workbench file={makeFile()} />);
 
       await placeRectangle({ x: 500, y: 500 });
 
       expect(diagramNodes()).toHaveLength(1);
-      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'false');
+      // The bar stays for the next shape (Matt: "visible immediately and
+      // closeable"); only the armed shape resets, so no palette button is
+      // pressed and the Diagram tool itself still reads active.
+      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
+      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'true');
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.pages[0].diagram.nodes).toHaveLength(1);
       expect(body.pages[0].diagram.nodes[0]).toMatchObject({ kind: 'rect', color: 'neutral' });
+    });
+
+    it('the palette\'s close button hides it and releases the Diagram tool', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
+
+      await userEvent.click(within(palette).getByRole('button', { name: 'Close diagram palette' }));
+
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     it('Delete removes the selected shape instead of touching the Craft selection', async () => {
