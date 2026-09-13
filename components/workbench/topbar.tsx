@@ -17,6 +17,7 @@ import {
   Smartphone,
   Tablet,
   Undo2,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -363,6 +364,8 @@ export function Topbar({
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
+  diagramPaletteOpen = false,
+  onToggleDiagramPalette,
   chatOpen,
   onToggleChat,
   onZoomIn,
@@ -391,6 +394,12 @@ export function Topbar({
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
+  // Diagram tool (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+  // section 3): opens/closes the floating shape palette, next to the
+  // Comment tool - same on/off toggle shape as commentMode/
+  // onToggleCommentMode above, owned by WorkbenchShell.
+  diagramPaletteOpen?: boolean;
+  onToggleDiagramPalette?: () => void;
   chatOpen: boolean;
   onToggleChat: () => void;
   onZoomIn: () => void;
@@ -491,6 +500,12 @@ export function Topbar({
           pressed={commentMode}
           badge={commentCount}
           onClick={() => onToggleCommentMode?.()}
+        />
+        <IconAction
+          label="Diagram tool"
+          icon={Workflow}
+          pressed={diagramPaletteOpen}
+          onClick={() => onToggleDiagramPalette?.()}
         />
         <Tooltip>
           <TooltipTrigger asChild>

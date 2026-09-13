@@ -55,6 +55,11 @@ export function useWorkbenchKeyboard(
     onToggleCommentMode?: () => void;
     commentMode?: boolean;
     onExitCommentMode?: () => void;
+    // Diagram tool (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+    // section 3): Shift+D opens/closes the floating shape palette, same
+    // toggle shape as onToggleCommentMode above - the palette-open/armed-
+    // tool state itself lives with WorkbenchShell.
+    onDiagramTool?: () => void;
     // Canvas zoom (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
     // design.md section 3). onZoomIn/onZoomOut/onZoomReset are Cmd/Ctrl
     // chords that double as the browser's own page-zoom shortcut, so - like
@@ -108,6 +113,7 @@ export function useWorkbenchKeyboard(
     onToggleCommentMode,
     commentMode,
     onExitCommentMode,
+    onDiagramTool,
     onZoomIn,
     onZoomOut,
     onZoomReset,
@@ -205,6 +211,11 @@ export function useWorkbenchKeyboard(
           onToggleCommentMode?.();
           return;
 
+        case 'tool-diagram':
+          event.preventDefault();
+          onDiagramTool?.();
+          return;
+
         case 'panel-design':
           onSelectPanelTab?.('design');
           return;
@@ -268,10 +279,9 @@ export function useWorkbenchKeyboard(
         }
 
         default:
-          // Ids with no case above are either not wired to a handler yet
-          // (new shortcuts land in later commits) or, like 'tool-diagram',
-          // registered for the overlay/README only on purpose. Either way,
-          // this is a no-op: nothing before this point called
+          // Ids with no case above are not wired to a handler yet - new
+          // shortcuts land in later commits. This is a no-op: nothing
+          // before this point called
           // preventDefault, so the key's default browser behavior proceeds
           // untouched.
           return;
@@ -293,6 +303,7 @@ export function useWorkbenchKeyboard(
     onToggleCommentMode,
     commentMode,
     onExitCommentMode,
+    onDiagramTool,
     onZoomIn,
     onZoomOut,
     onZoomReset,

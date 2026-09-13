@@ -294,6 +294,25 @@ describe('Topbar', () => {
     });
   });
 
+  describe('Diagram tool', () => {
+    it('is not pressed by default', () => {
+      renderTopbar();
+      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('reflects diagramPaletteOpen through aria-pressed', () => {
+      renderTopbar({ diagramPaletteOpen: true });
+      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('calls onToggleDiagramPalette when clicked', async () => {
+      const onToggleDiagramPalette = vi.fn();
+      renderTopbar({ onToggleDiagramPalette });
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      expect(onToggleDiagramPalette).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Chat toggle', () => {
     it('reflects chatOpen through aria-pressed', () => {
       renderTopbar({ chatOpen: false });

@@ -14,6 +14,7 @@ type KeysOptions = {
   onToggleCommentMode?: () => void;
   commentMode?: boolean;
   onExitCommentMode?: () => void;
+  onDiagramTool?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
@@ -33,6 +34,7 @@ function Keys({
   onToggleCommentMode,
   commentMode,
   onExitCommentMode,
+  onDiagramTool,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -51,6 +53,7 @@ function Keys({
     onToggleCommentMode,
     commentMode,
     onExitCommentMode,
+    onDiagramTool,
     onZoomIn,
     onZoomOut,
     onZoomReset,
@@ -404,6 +407,45 @@ describe('useWorkbenchKeyboard onToggleCommentMode', () => {
     await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(false));
   });
 });
+
+describe('useWorkbenchKeyboard onDiagramTool', () => {
+  it('opens the diagram palette with Shift+D', async () => {
+    const onDiagramTool = vi.fn();
+    mount({ onDiagramTool });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'd', shiftKey: true });
+    expect(onDiagramTool).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('is distinct from the bare "d" panel-tab shortcut', async () => {
+    const onDiagramTool = vi.fn();
+    const onSelectPanelTab = vi.fn();
+    mount({ onDiagramTool, onSelectPanelTab });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'd' });
+    expect(onDiagramTool).not.toHaveBeenCalled();
+    expect(onSelectPanelTab).toHaveBeenCalledWith('design');
+  });
+
+  it('ignores Shift+D while typing in a field', async () => {
+    const onDiagramTool = vi.fn();
+    mount({ onDiagramTool });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'd', shiftKey: true });
+    expect(onDiagramTool).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onDiagramTool is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'd', shiftKey: true })).not.toThrow();
+  });
+});
+
 describe('useWorkbenchKeyboard onToggleChat', () => {
   it('calls onToggleChat and prevents default for Cmd+J', async () => {
     const onToggleChat = vi.fn();
