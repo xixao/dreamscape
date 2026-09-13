@@ -105,6 +105,42 @@ describe('formatKeys', () => {
   });
 });
 
+describe('matchShortcut and SHORTCUTS never drift apart', () => {
+  // The registry's own `keys` tokens, turned back into the event
+  // matchShortcut expects - the reverse of formatKeys. Modifier tokens set
+  // their flag; the one remaining token (every entry has exactly one) is
+  // the key itself - except a Shift+digit combo, which a real keyboard
+  // reports as `code: 'DigitN'` with `key` already shifted to "!"/"@"/...,
+  // never as `key: '1'`; matchShortcut matches on `code` for exactly that
+  // reason (see its own comment), so this builds the same shape a real
+  // browser would rather than a `key` no browser could ever actually send.
+  function eventFromKeys(keys: string[]): ShortcutKeyEvent {
+    let eventKey = '';
+    let metaKey = false;
+    let shiftKey = false;
+    for (const token of keys) {
+      if (token === 'Mod') metaKey = true;
+      else if (token === 'Shift') shiftKey = true;
+      else if (token === 'Alt') continue;
+      else eventKey = token;
+    }
+    const code = shiftKey && /^\d$/.test(eventKey) ? `Digit${eventKey}` : '';
+    return key({ key: eventKey, metaKey, shiftKey, code });
+  }
+
+  it('resolves every matchable registry entry back to its own id from its own keys', () => {
+    for (const shortcut of SHORTCUTS) {
+      // The Cmd-hold row describes a hold gesture, not a keydown chord -
+      // shortcuts-overlay.tsx's own listener handles it, never matchShortcut.
+      if (shortcut.id === 'shortcuts-overlay-hold') continue;
+      const event = eventFromKeys(shortcut.keys);
+      expect(matchShortcut(event), `matchShortcut(${shortcut.keys.join('+')}) should resolve to "${shortcut.id}"`).toBe(
+        shortcut.id,
+      );
+    }
+  });
+});
+
 describe('matchShortcut', () => {
   it('matches the bare panel-tab letters, and ignores them with a modifier or shift held', () => {
     expect(matchShortcut(key({ key: 'd' }))).toBe('panel-design');
