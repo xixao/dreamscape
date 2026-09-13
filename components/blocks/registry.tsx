@@ -91,6 +91,15 @@ export interface TrayItem {
   group: TrayGroup;
   icon: LucideIcon;
   create: () => ReactElement;
+  // The drag placeholder's (docs/superpowers/specs/2026-09-12-drop-
+  // placeholder-design.md) size hint for a NEW instance of this block, read
+  // by lib/drop-placeholder.ts's placeholderSize: a rough guess at this
+  // block's own default rendered size, not a contract - the block's real
+  // size once dropped can differ (a Card's height depends on its content, a
+  // Button's width on its label). Every current tray item has one; a
+  // future item without one falls back to placeholderSize's own
+  // 40px-tall/full-width default.
+  previewSize?: { width: number; height: number };
 }
 
 // Order matters: within a group, items render in this array's order (see
@@ -103,6 +112,7 @@ export const trayItems: TrayItem[] = [
     group: 'Layout',
     icon: LayoutGrid,
     create: () => <Element is={LayoutBox} canvas />,
+    previewSize: { width: 320, height: 120 },
   },
   {
     type: 'Card',
@@ -110,6 +120,7 @@ export const trayItems: TrayItem[] = [
     group: 'Layout',
     icon: RectangleHorizontal,
     create: () => <Card />,
+    previewSize: { width: 320, height: 180 },
   },
   {
     type: 'Tabs',
@@ -117,6 +128,7 @@ export const trayItems: TrayItem[] = [
     group: 'Layout',
     icon: LayoutPanelTop,
     create: () => <Tabs />,
+    previewSize: { width: 320, height: 120 },
   },
   {
     type: 'Separator',
@@ -124,6 +136,7 @@ export const trayItems: TrayItem[] = [
     group: 'Layout',
     icon: SeparatorHorizontal,
     create: () => <Separator />,
+    previewSize: { width: 240, height: 1 },
   },
   // Text and media
   {
@@ -132,6 +145,7 @@ export const trayItems: TrayItem[] = [
     group: 'Text and media',
     icon: Type,
     create: () => <Text />,
+    previewSize: { width: 200, height: 24 },
   },
   {
     type: 'Image',
@@ -140,6 +154,7 @@ export const trayItems: TrayItem[] = [
     icon: ImageIcon,
     // eslint-disable-next-line jsx-a11y/alt-text -- this Image is the block above, not next/image's.
     create: () => <Image />,
+    previewSize: { width: 320, height: 180 },
   },
   {
     type: 'Avatar',
@@ -147,6 +162,7 @@ export const trayItems: TrayItem[] = [
     group: 'Text and media',
     icon: CircleUserRound,
     create: () => <Avatar />,
+    previewSize: { width: 40, height: 40 },
   },
   {
     type: 'Badge',
@@ -154,6 +170,7 @@ export const trayItems: TrayItem[] = [
     group: 'Text and media',
     icon: Tag,
     create: () => <Badge />,
+    previewSize: { width: 64, height: 22 },
   },
   // Forms
   {
@@ -162,6 +179,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: MousePointerClick,
     create: () => <Button />,
+    previewSize: { width: 120, height: 36 },
   },
   {
     type: 'Input',
@@ -169,6 +187,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: TextCursorInput,
     create: () => <Input />,
+    previewSize: { width: 240, height: 60 },
   },
   {
     type: 'Textarea',
@@ -176,6 +195,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: AlignLeft,
     create: () => <Textarea />,
+    previewSize: { width: 240, height: 96 },
   },
   {
     type: 'Select',
@@ -183,6 +203,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: ChevronsUpDown,
     create: () => <Select />,
+    previewSize: { width: 240, height: 60 },
   },
   {
     type: 'Checkbox',
@@ -190,6 +211,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: SquareCheck,
     create: () => <Checkbox />,
+    previewSize: { width: 160, height: 24 },
   },
   {
     type: 'RadioGroup',
@@ -197,6 +219,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: CircleDot,
     create: () => <RadioGroup />,
+    previewSize: { width: 160, height: 72 },
   },
   {
     type: 'Switch',
@@ -204,6 +227,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: ToggleLeft,
     create: () => <Switch />,
+    previewSize: { width: 160, height: 24 },
   },
   {
     type: 'Slider',
@@ -211,6 +235,7 @@ export const trayItems: TrayItem[] = [
     group: 'Forms',
     icon: SlidersHorizontal,
     create: () => <Slider />,
+    previewSize: { width: 240, height: 24 },
   },
   // Feedback
   {
@@ -219,6 +244,7 @@ export const trayItems: TrayItem[] = [
     group: 'Feedback',
     icon: TriangleAlert,
     create: () => <Alert />,
+    previewSize: { width: 320, height: 64 },
   },
   {
     type: 'Progress',
@@ -226,6 +252,7 @@ export const trayItems: TrayItem[] = [
     group: 'Feedback',
     icon: GaugeCircle,
     create: () => <Progress />,
+    previewSize: { width: 240, height: 16 },
   },
   {
     type: 'Dialog',
@@ -233,6 +260,7 @@ export const trayItems: TrayItem[] = [
     group: 'Feedback',
     icon: AppWindow,
     create: () => <Dialog />,
+    previewSize: { width: 120, height: 36 },
   },
   // Data
   {
@@ -241,6 +269,7 @@ export const trayItems: TrayItem[] = [
     group: 'Data',
     icon: Table2,
     create: () => <Table />,
+    previewSize: { width: 480, height: 160 },
   },
 ];
 

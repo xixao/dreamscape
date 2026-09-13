@@ -162,6 +162,39 @@ describe('registry', () => {
     expect(previewOpen?.editorOnly).toBe(true);
     expect(previewOpen?.section).toBe('Editor');
   });
+
+  // The drag placeholder (docs/superpowers/specs/2026-09-12-drop-placeholder-
+  // design.md section 3) sizes a new-component placeholder from this hint,
+  // falling back to lib/drop-placeholder.ts's own FALLBACK_HEIGHT/full width
+  // for any tray item that has none - every current one does.
+  it('gives every tray item a previewSize hint matching the spec', () => {
+    const expected: Record<BlockType, { width: number; height: number }> = {
+      LayoutBox: { width: 320, height: 120 },
+      Card: { width: 320, height: 180 },
+      Tabs: { width: 320, height: 120 },
+      Separator: { width: 240, height: 1 },
+      Text: { width: 200, height: 24 },
+      Image: { width: 320, height: 180 },
+      Avatar: { width: 40, height: 40 },
+      Badge: { width: 64, height: 22 },
+      Button: { width: 120, height: 36 },
+      Input: { width: 240, height: 60 },
+      Textarea: { width: 240, height: 96 },
+      Select: { width: 240, height: 60 },
+      Checkbox: { width: 160, height: 24 },
+      RadioGroup: { width: 160, height: 72 },
+      Switch: { width: 160, height: 24 },
+      Slider: { width: 240, height: 24 },
+      Alert: { width: 320, height: 64 },
+      Progress: { width: 240, height: 16 },
+      Dialog: { width: 120, height: 36 },
+      Table: { width: 480, height: 160 },
+    };
+    for (const type of BLOCK_TYPES) {
+      const item = trayItems.find((candidate) => candidate.type === type);
+      expect(item?.previewSize).toEqual(expected[type]);
+    }
+  });
 });
 
 describe('emptyLayoutJson', () => {
