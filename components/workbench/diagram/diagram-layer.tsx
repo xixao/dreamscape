@@ -3,6 +3,18 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { nanoid } from 'nanoid';
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
   anchorOnBox,
   getBezierPath,
   getHandlePosition,
@@ -15,9 +27,18 @@ import {
   type Side,
 } from '@/lib/diagram/geometry';
 import {
+  ALIGN_MODES,
+  ARROW_KINDS,
+  CONNECTOR_KINDS,
+  DIAGRAM_COLORS,
   MAX_TEXT_LENGTH,
   MIN_SIZE,
+  NODE_KINDS,
+  type AlignMode,
+  type ArrowKind,
+  type ConnectorKind,
   type DiagramAction,
+  type DiagramColor,
   type DiagramEdge,
   type DiagramNode,
   type DiagramNodeKind,
@@ -28,7 +49,21 @@ import {
 } from '@/lib/diagram/store';
 import type { Viewport } from '@/lib/canvas/viewport';
 import { capturePointer } from '@/lib/dom';
-import { CHIP } from '../chrome';
+import { cn } from '@/lib/utils';
+import { CHIP, MENU_HINT, MENU_POPOVER, MENU_ROW } from '../chrome';
+import { ARROW_LABELS, CONNECTOR_LABELS, COLOR_LABELS, KIND_LABELS } from './diagram-fields';
+
+// Build step 3's Align submenu (Left, Center, Right, Top, Middle, Bottom) -
+// labelled distinctly from KIND_LABELS/COLOR_LABELS et al since these are
+// one-shot actions, not a persisted field with a "current" value.
+const ALIGN_LABELS: Record<AlignMode, string> = {
+  left: 'Left',
+  centerX: 'Center',
+  right: 'Right',
+  top: 'Top',
+  centerY: 'Middle',
+  bottom: 'Bottom',
+};
 
 // The tool the diagram palette (diagram-palette.tsx) put the canvas in:
 // plain selection, about to place a specific shape kind, or about to draw a
@@ -136,6 +171,15 @@ function endpointFor(target: { type: 'node' | 'frame'; id: string }, side: Side)
  */
 export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onToolConsumed }: DiagramLayerProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  // The single active inline editor (a node's text or a connector's label -
+  // at most one at a time, `editing.id` says which). Given a ref rather than
+  // relying on `autoFocus` alone when the editor was opened from a context
+  // menu item: Radix returns focus to the menu's own trigger the moment it
+  // finishes closing (its `onCloseAutoFocus`), which would otherwise steal
+  // focus right back off the textarea/input `autoFocus` just gave it - same
+  // race, and the same fix, as screens-strip.tsx's RenameInput/
+  // onCloseAutoFocus for the chevron-menu Rename item.
+  const editInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
   const [hover, setHover] = useState<HoverTarget>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -175,6 +219,235 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       window.removeEventListener('blur', onBlur);
     };
   }, []);
+
+  // Shift+F10 and the Menu key open the right-click menu for a selected
+  // element (Build step 3), the standard keyboard equivalent of a right
+  // click: real browsers already translate them into a native `contextmenu`
+  // event targeting the focused element, but jsdom does not, and this layer
+  // does not otherwise give any shape/connector DOM focus to target - so
+  // this synthesizes exactly that event directly on the selected element's
+  // own node, found the same way the option-drag/menu code elsewhere here
+  // already identifies "the DOM element for id X" (its own data-testid).
+  // Harmless alongside a real browser's native translation, if any ever
+  // reaches here too: opening an already-open ContextMenu a second time at
+  // the same point is a no-op.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (editing || tool.kind !== 'pointer') return;
+      const isMenuKey = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
+      if (!isMenuKey) return;
+      if (diagram.selection.length !== 1) return;
+      const [item] = diagram.selection;
+      const target = svgRef.current?.querySelector(`[data-testid="diagram-${item.type}-${item.id}"]`);
+      if (!target) return;
+      event.preventDefault();
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.top }),
+      );
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editing, tool.kind, diagram.selection]);
+
+  // Right-clicking (or Shift+F10-ing) a shape or connector that is NOT
+  // already part of the current selection replaces the selection with just
+  // it (spec follow-up: "Right-clicking an unselected element selects it
+  // first"); one that IS already selected - including as part of a larger
+  // multi-selection - is left exactly as it is, so "Duplicate"/"Bring to
+  // front"/"Send to back"/"Delete"/Align/Distribute below can act on that
+  // whole selection rather than collapsing it to the one element under the
+  // cursor.
+  function ensureSelected(type: 'node' | 'edge', id: string): void {
+    if (!isSelected(diagram.selection, type, id)) {
+      dispatch({ type: 'select', selection: [{ type, id }] });
+    }
+  }
+
+  // Shared by Cmd+D-equivalent menu items and (soon) nothing else in THIS
+  // file - option-drag duplicate above mints its own pairs/edgePairs
+  // inline since it also needs them to redirect the drag; this one only
+  // ever fires from a menu selection, never mid-gesture.
+  function duplicateSelection(ids: string[]): void {
+    const idSet = new Set(ids);
+    const pairs = ids.map((id) => ({ sourceId: id, newId: nanoid(10) }));
+    const edgePairs = diagram.edges
+      .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
+      .map((e) => ({ sourceId: e.id, newId: nanoid(10) }));
+    dispatch({ type: 'duplicate', pairs, edgePairs });
+  }
+
+  // Every context-menu item that acts on "the selection" (Duplicate, Bring
+  // to front, Send to back, Delete, Align, Distribute) reads these rather
+  // than just the one right-clicked element - ensureSelected above
+  // guarantees whichever element opened the menu is already a member of
+  // one of these, so there is never a need to fall back to `[id]` alone.
+  const selectedNodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+  const selectedIds = diagram.selection.map((item) => item.id);
+
+  function renderNodeMenuContent(node: DiagramNode): ReactNode {
+    return (
+      <>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Change shape</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuRadioGroup
+              value={node.kind}
+              onValueChange={(value) => dispatch({ type: 'setKind', id: node.id, kind: value as DiagramNodeKind })}
+            >
+              {NODE_KINDS.map((kind) => (
+                <ContextMenuRadioItem key={kind} value={kind} className={cn(MENU_ROW, 'pr-7')}>
+                  {KIND_LABELS[kind]}
+                </ContextMenuRadioItem>
+              ))}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Colour</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuRadioGroup
+              value={node.color}
+              onValueChange={(value) => dispatch({ type: 'setColor', id: node.id, color: value as DiagramColor })}
+            >
+              {DIAGRAM_COLORS.map((color) => (
+                <ContextMenuRadioItem key={color} value={color} className={cn(MENU_ROW, 'pr-7')}>
+                  {COLOR_LABELS[color]}
+                </ContextMenuRadioItem>
+              ))}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Align</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            {ALIGN_MODES.map((mode) => (
+              <ContextMenuItem
+                key={mode}
+                className={MENU_ROW}
+                disabled={selectedNodeIds.length < 2}
+                onSelect={() => dispatch({ type: 'align', ids: selectedNodeIds, mode })}
+              >
+                {ALIGN_LABELS[mode]}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className={MENU_ROW}
+              disabled={selectedNodeIds.length < 3}
+              onSelect={() => dispatch({ type: 'distribute', ids: selectedNodeIds, axis: 'horizontal' })}
+            >
+              Distribute horizontally
+            </ContextMenuItem>
+            <ContextMenuItem
+              className={MENU_ROW}
+              disabled={selectedNodeIds.length < 3}
+              onSelect={() => dispatch({ type: 'distribute', ids: selectedNodeIds, axis: 'vertical' })}
+            >
+              Distribute vertically
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuItem className={MENU_ROW} onSelect={() => queueEditFromMenu(node.id, node.text)}>
+          Edit text
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_ROW} onSelect={() => duplicateSelection(selectedNodeIds)}>
+          Duplicate
+          <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
+            ⌘D
+          </span>
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_ROW} onSelect={() => dispatch({ type: 'reorder', ids: selectedNodeIds, to: 'front' })}>
+          Bring to front
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_ROW} onSelect={() => dispatch({ type: 'reorder', ids: selectedNodeIds, to: 'back' })}>
+          Send to back
+        </ContextMenuItem>
+        <ContextMenuItem
+          variant="destructive"
+          className={MENU_ROW}
+          onSelect={() => dispatch({ type: 'delete', ids: selectedIds })}
+        >
+          Delete
+          <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
+            Delete
+          </span>
+        </ContextMenuItem>
+      </>
+    );
+  }
+
+  function renderEdgeMenuContent(edgeItem: DiagramEdge): ReactNode {
+    return (
+      <>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Connector</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuRadioGroup
+              value={edgeItem.kind}
+              onValueChange={(value) => dispatch({ type: 'setKind', id: edgeItem.id, kind: value as ConnectorKind })}
+            >
+              {CONNECTOR_KINDS.map((kind) => (
+                <ContextMenuRadioItem key={kind} value={kind} className={cn(MENU_ROW, 'pr-7')}>
+                  {CONNECTOR_LABELS[kind]}
+                </ContextMenuRadioItem>
+              ))}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Arrowheads</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuRadioGroup
+              value={edgeItem.arrow}
+              onValueChange={(value) => dispatch({ type: 'setArrow', id: edgeItem.id, arrow: value as ArrowKind })}
+            >
+              {ARROW_KINDS.map((arrow) => (
+                <ContextMenuRadioItem key={arrow} value={arrow} className={cn(MENU_ROW, 'pr-7')}>
+                  {ARROW_LABELS[arrow]}
+                </ContextMenuRadioItem>
+              ))}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        <ContextMenuItem className={MENU_ROW} onSelect={() => queueEditFromMenu(edgeItem.id, edgeItem.label ?? '')}>
+          Edit label
+        </ContextMenuItem>
+        <ContextMenuItem
+          variant="destructive"
+          className={MENU_ROW}
+          onSelect={() => dispatch({ type: 'delete', ids: selectedIds })}
+        >
+          Delete
+          <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
+            Delete
+          </span>
+        </ContextMenuItem>
+      </>
+    );
+  }
+
+  // Both context menus share this: prevent Radix returning focus to the
+  // menu's own trigger once it finishes closing when an "Edit text"/"Edit
+  // label" selection is what closed it - see editInputRef's own comment.
+  function onMenuCloseAutoFocus(event: Event): void {
+    const pending = pendingMenuEditRef.current;
+    if (pending) {
+      pendingMenuEditRef.current = null;
+      event.preventDefault();
+      setEditing({ id: pending.id, draft: pending.text });
+      return;
+    }
+    if (!editing) return;
+    event.preventDefault();
+    editInputRef.current?.focus();
+    editInputRef.current?.select();
+  }
 
   function clientToCanvas(clientX: number, clientY: number): Point {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -500,6 +773,26 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setEditing({ id: node.id, draft: node.text });
   }
 
+  // "Edit text"/"Edit label" reached from the right-click menu (rather than
+  // beginEditing's own double-click path - a connector has no double-click-
+  // to-edit gesture of its own, only the menu) cannot call setEditing
+  // synchronously from the menu item's onSelect: Radix's Content
+  // is still mid-teardown at that point and its own focus handling steals
+  // focus right back off a freshly-autoFocus-ed textarea/input a moment
+  // later, firing that element's own onBlur and immediately committing an
+  // unedited value before the user has typed anything (confirmed by
+  // instrumenting this - onSelect fires, the input mounts and is focused,
+  // then something inside Radix's OWN close sequence blurs it, and only
+  // AFTER that does onCloseAutoFocus itself run). Queuing the request here
+  // and only calling setEditing from onCloseAutoFocus below - the one point
+  // guaranteed to run after Radix's own focus shuffling is completely done -
+  // means the inline editor does not even exist yet while that shuffling
+  // happens, so there is nothing for it to steal focus from.
+  const pendingMenuEditRef = useRef<{ id: string; text: string } | null>(null);
+  function queueEditFromMenu(id: string, text: string): void {
+    pendingMenuEditRef.current = { id, text };
+  }
+
   // --- Rendering helpers ------------------------------------------------
 
   // Routed through renderedNodeBox (not the raw node) so an edge attached to
@@ -633,88 +926,97 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const showCopyCursor = altHeld && selected && hover?.type === 'node' && hover.id === rawNode.id;
 
     return (
-      <g
-        key={rawNode.id}
-        data-testid={`diagram-node-${rawNode.id}`}
-        data-diagram-kind={rawNode.kind}
-        data-selected={selected || undefined}
-        className={showCopyCursor ? 'cursor-copy' : undefined}
-        style={{
-          pointerEvents: tool.kind === 'pointer' || tool.kind === 'connector' ? 'all' : 'none',
-          cursor: showCopyCursor ? undefined : tool.kind === 'connector' ? 'crosshair' : 'move',
-        }}
-        onPointerDown={(event) => handleNodePointerDown(rawNode, event)}
-        onPointerMove={handleDragMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onDoubleClick={() => beginEditing(rawNode)}
-      >
-        {shape}
-        <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing ? 'all' : 'none' }}>
-          {isEditing ? (
-            <textarea
-              // Entering inline edit mode is itself the user's request for
-              // focus here.
-              autoFocus
-              data-testid={`diagram-text-input-${rawNode.id}`}
-              value={editing.draft}
-              maxLength={MAX_TEXT_LENGTH}
-              className="size-full resize-none border-0 bg-transparent p-1 text-center text-[13px] text-white outline-none"
-              onChange={(event) => setEditing({ id: rawNode.id, draft: event.target.value })}
-              onFocus={(event) => event.currentTarget.select()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  commitPendingEdit(true);
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  commitPendingEdit(false);
-                }
-              }}
-              onBlur={() => commitPendingEdit(true)}
-            />
-          ) : (
-            <div className="flex size-full items-center justify-center overflow-hidden p-1.5 text-center text-[13px] break-words whitespace-pre-wrap text-white">
-              {rawNode.text}
-            </div>
-          )}
-        </foreignObject>
-        {selected && (
-          <>
-            <rect
-              x={box.x - 3}
-              y={box.y - 3}
-              width={box.width + 6}
-              height={box.height + 6}
-              fill="none"
-              className="stroke-(--acc)"
-              style={{ strokeWidth: 1.5 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}` }}
-            />
-            {CORNERS.map(({ key, dx, dy }) => {
-              const x = box.x + dx * box.width;
-              const y = box.y + dy * box.height;
-              const size = RESIZE_HANDLE_SIZE / viewport.zoom;
-              return (
-                <rect
-                  key={key}
-                  data-testid={`diagram-resize-${rawNode.id}-${key}`}
-                  x={x - size / 2}
-                  y={y - size / 2}
-                  width={size}
-                  height={size}
-                  className="fill-(--acc) stroke-white"
-                  style={{ strokeWidth: 1 / viewport.zoom, cursor: `${key}-resize`, pointerEvents: 'all' }}
-                  onPointerDown={(event) => handleResizePointerDown(rawNode, key, event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={endResize}
-                  onPointerCancel={endResize}
+      <ContextMenu key={rawNode.id}>
+        <ContextMenuTrigger asChild onContextMenu={() => ensureSelected('node', rawNode.id)}>
+          <g
+            data-testid={`diagram-node-${rawNode.id}`}
+            data-diagram-kind={rawNode.kind}
+            data-selected={selected || undefined}
+            className={showCopyCursor ? 'cursor-copy' : undefined}
+            style={{
+              pointerEvents: tool.kind === 'pointer' || tool.kind === 'connector' ? 'all' : 'none',
+              cursor: showCopyCursor ? undefined : tool.kind === 'connector' ? 'crosshair' : 'move',
+            }}
+            onPointerDown={(event) => handleNodePointerDown(rawNode, event)}
+            onPointerMove={handleDragMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onDoubleClick={() => beginEditing(rawNode)}
+          >
+            {shape}
+            <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing ? 'all' : 'none' }}>
+              {isEditing ? (
+                <textarea
+                  // Entering inline edit mode is itself the user's request for
+                  // focus here.
+                  autoFocus
+                  ref={(el) => {
+                    editInputRef.current = el;
+                  }}
+                  data-testid={`diagram-text-input-${rawNode.id}`}
+                  value={editing.draft}
+                  maxLength={MAX_TEXT_LENGTH}
+                  className="size-full resize-none border-0 bg-transparent p-1 text-center text-[13px] text-white outline-none"
+                  onChange={(event) => setEditing({ id: rawNode.id, draft: event.target.value })}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      commitPendingEdit(true);
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      commitPendingEdit(false);
+                    }
+                  }}
+                  onBlur={() => commitPendingEdit(true)}
                 />
-              );
-            })}
-          </>
-        )}
-        {renderHandles({ type: 'node', id: rawNode.id }, box)}
-      </g>
+              ) : (
+                <div className="flex size-full items-center justify-center overflow-hidden p-1.5 text-center text-[13px] break-words whitespace-pre-wrap text-white">
+                  {rawNode.text}
+                </div>
+              )}
+            </foreignObject>
+            {selected && (
+              <>
+                <rect
+                  x={box.x - 3}
+                  y={box.y - 3}
+                  width={box.width + 6}
+                  height={box.height + 6}
+                  fill="none"
+                  className="stroke-(--acc)"
+                  style={{ strokeWidth: 1.5 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}` }}
+                />
+                {CORNERS.map(({ key, dx, dy }) => {
+                  const x = box.x + dx * box.width;
+                  const y = box.y + dy * box.height;
+                  const size = RESIZE_HANDLE_SIZE / viewport.zoom;
+                  return (
+                    <rect
+                      key={key}
+                      data-testid={`diagram-resize-${rawNode.id}-${key}`}
+                      x={x - size / 2}
+                      y={y - size / 2}
+                      width={size}
+                      height={size}
+                      className="fill-(--acc) stroke-white"
+                      style={{ strokeWidth: 1 / viewport.zoom, cursor: `${key}-resize`, pointerEvents: 'all' }}
+                      onPointerDown={(event) => handleResizePointerDown(rawNode, key, event)}
+                      onPointerMove={handleResizeMove}
+                      onPointerUp={endResize}
+                      onPointerCancel={endResize}
+                    />
+                  );
+                })}
+              </>
+            )}
+            {renderHandles({ type: 'node', id: rawNode.id }, box)}
+          </g>
+        </ContextMenuTrigger>
+        <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>
+          {renderNodeMenuContent(rawNode)}
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 
@@ -722,35 +1024,72 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const resolved = pathFor(edge);
     if (!resolved) return null;
     const selected = isSelected(diagram.selection, 'edge', edge.id);
+    const isEditingLabel = editing?.id === edge.id;
 
     return (
-      <g key={edge.id} data-testid={`diagram-edge-${edge.id}`}>
-        {/* A fat, invisible stroke carries the click/hover target so a thin
-            connector line is still easy to select - the visible path below
-            has pointer-events disabled so it never competes with this one. */}
-        <path
-          data-testid={`diagram-edge-hit-${edge.id}`}
-          d={resolved.path}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={16 / viewport.zoom}
-          style={{ pointerEvents: tool.kind === 'pointer' ? 'stroke' : 'none', cursor: 'pointer' }}
-          onPointerDown={(event) => handleEdgePointerDown(edge, event)}
-        />
-        <path
-          d={resolved.path}
-          fill="none"
-          className={selected ? 'stroke-(--acc)' : 'stroke-white/60'}
-          style={{ strokeWidth: (selected ? 2 : 1.5) / viewport.zoom, pointerEvents: 'none' }}
-          markerEnd={edge.arrow === 'end' || edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
-          markerStart={edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
-        />
-        {edge.label && (
-          <foreignObject x={resolved.labelX - 40} y={resolved.labelY - 12} width={80} height={24} style={{ pointerEvents: 'none' }}>
-            <div className={`${CHIP} min-h-0 justify-center px-2 py-0.5 text-center font-mono text-[10.5px]`}>{edge.label}</div>
-          </foreignObject>
-        )}
-      </g>
+      <ContextMenu key={edge.id}>
+        <ContextMenuTrigger asChild onContextMenu={() => ensureSelected('edge', edge.id)}>
+          <g data-testid={`diagram-edge-${edge.id}`}>
+            {/* A fat, invisible stroke carries the click/hover target so a thin
+                connector line is still easy to select - the visible path below
+                has pointer-events disabled so it never competes with this one. */}
+            <path
+              data-testid={`diagram-edge-hit-${edge.id}`}
+              d={resolved.path}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={16 / viewport.zoom}
+              style={{ pointerEvents: tool.kind === 'pointer' ? 'stroke' : 'none', cursor: 'pointer' }}
+              onPointerDown={(event) => handleEdgePointerDown(edge, event)}
+            />
+            <path
+              d={resolved.path}
+              fill="none"
+              className={selected ? 'stroke-(--acc)' : 'stroke-white/60'}
+              style={{ strokeWidth: (selected ? 2 : 1.5) / viewport.zoom, pointerEvents: 'none' }}
+              markerEnd={edge.arrow === 'end' || edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
+              markerStart={edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
+            />
+            {isEditingLabel ? (
+              <foreignObject x={resolved.labelX - 40} y={resolved.labelY - 12} width={80} height={24}>
+                <input
+                  // Same "entering edit mode is itself the focus request" as
+                  // a node's own inline textarea above.
+                  autoFocus
+                  ref={(el) => {
+                    editInputRef.current = el;
+                  }}
+                  data-testid={`diagram-text-input-${edge.id}`}
+                  value={editing.draft}
+                  maxLength={MAX_TEXT_LENGTH}
+                  className={`${CHIP} min-h-0 w-full justify-center border-0 bg-transparent px-2 py-0.5 text-center font-mono text-[10.5px] text-white outline-none`}
+                  onChange={(event) => setEditing({ id: edge.id, draft: event.target.value })}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      commitPendingEdit(true);
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      commitPendingEdit(false);
+                    }
+                  }}
+                  onBlur={() => commitPendingEdit(true)}
+                />
+              </foreignObject>
+            ) : (
+              edge.label && (
+                <foreignObject x={resolved.labelX - 40} y={resolved.labelY - 12} width={80} height={24} style={{ pointerEvents: 'none' }}>
+                  <div className={`${CHIP} min-h-0 justify-center px-2 py-0.5 text-center font-mono text-[10.5px]`}>{edge.label}</div>
+                </foreignObject>
+              )
+            )}
+          </g>
+        </ContextMenuTrigger>
+        <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>
+          {renderEdgeMenuContent(edge)}
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 

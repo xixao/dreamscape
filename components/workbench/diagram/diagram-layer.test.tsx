@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createInitialDiagramState, type DiagramEdge, type DiagramNode, type DiagramState } from '@/lib/diagram/store';
 import { DiagramLayer, type DiagramFrameBox, type DiagramTool } from './diagram-layer';
 
@@ -597,6 +598,320 @@ describe('DiagramLayer connecting', () => {
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900, clientY: 900 });
 
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+});
+
+describe('DiagramLayer context menu (shape)', () => {
+  it('selects an unselected shape when right-clicked', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'node000001' }] });
+  });
+
+  it('leaves an existing multi-selection alone when the right-clicked shape is already part of it', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('shows every item', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+
+    for (const label of [
+      'Change shape',
+      'Colour',
+      'Align',
+      'Edit text',
+      'Duplicate',
+      'Bring to front',
+      'Send to back',
+      'Delete',
+    ]) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('"Change shape" checks the current kind and dispatches setKind on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ kind: 'decision' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Change shape' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Decision' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: 'Rectangle' })).toHaveAttribute('aria-checked', 'false');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Rectangle' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setKind', id: 'node000001', kind: 'rect' });
+  });
+
+  it('"Colour" checks the current colour and dispatches setColor on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ color: 'blue' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Colour' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Green' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'green' });
+  });
+
+  it('"Edit text" opens the same inline editor as a double-click', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Login' })], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit text' }));
+
+    expect(screen.getByTestId('diagram-text-input-node000001')).toHaveValue('Login');
+  });
+
+  it('"Duplicate" duplicates the whole current selection, edges between duplicated shapes included', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [
+          { sourceId: 'a', newId: expect.any(String) },
+          { sourceId: 'b', newId: expect.any(String) },
+        ],
+        edgePairs: [{ sourceId: 'e1', newId: expect.any(String) }],
+      }),
+    );
+  });
+
+  it('"Bring to front" and "Send to back" dispatch reorder for the selection', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Bring to front' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'reorder', ids: ['node000001'], to: 'front' });
+
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Send to back' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'reorder', ids: ['node000001'], to: 'back' });
+  });
+
+  it('"Delete" dispatches delete for the whole current selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'delete', ids: ['a', 'b'] });
+  });
+
+  it('Shift+F10 opens the same menu for a selected shape', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('the Menu key opens the same menu for a selected shape', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.keyDown(window, { key: 'ContextMenu' });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('does nothing when nothing is selected (no shape to open a menu for)', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
+  });
+});
+
+describe('DiagramLayer context menu (Align submenu)', () => {
+  it('disables every align item, and both distribute items, with only one shape selected', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Left' })).toHaveAttribute('data-disabled');
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).toHaveAttribute('data-disabled');
+  });
+
+  it('enables align (not distribute) with two shapes selected, and dispatches align for the whole selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Left' })).not.toHaveAttribute('data-disabled');
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).toHaveAttribute('data-disabled');
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Left' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'align', ids: ['a', 'b'], mode: 'left' });
+  });
+
+  it('every align mode dispatches its own mode', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const cases: [string, string][] = [
+      ['Left', 'left'],
+      ['Center', 'centerX'],
+      ['Right', 'right'],
+      ['Top', 'top'],
+      ['Middle', 'centerY'],
+      ['Bottom', 'bottom'],
+    ];
+    for (const [label, mode] of cases) {
+      fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: label }));
+      expect(dispatch).toHaveBeenCalledWith({ type: 'align', ids: ['a', 'b'], mode });
+    }
+  });
+
+  it('enables distribute with three shapes selected, and dispatches distribute for the whole selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 }), node({ id: 'c', x: 800 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+          { type: 'node', id: 'c' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).not.toHaveAttribute('data-disabled');
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Distribute horizontally' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Distribute vertically' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'distribute', ids: ['a', 'b', 'c'], axis: 'vertical' });
+  });
+});
+
+describe('DiagramLayer context menu (connector)', () => {
+  const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+
+  it('selects an unselected connector when right-clicked, and shows every item', async () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, edges: [edge()] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'edge', id: 'edge0000001' }] });
+    for (const label of ['Connector', 'Arrowheads', 'Edit label', 'Delete']) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('"Connector" checks the current kind and dispatches setKind on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ kind: 'step' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Connector' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Step' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Curve' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setKind', id: 'edge0000001', kind: 'curve' });
+  });
+
+  it('"Arrowheads" checks the current arrow and dispatches setArrow on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ arrow: 'end' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Arrowheads' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'End' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Both' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setArrow', id: 'edge0000001', arrow: 'both' });
+  });
+
+  it('"Edit label" opens an inline editor with the current label', async () => {
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ label: 'yes' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit label' }));
+
+    expect(screen.getByTestId('diagram-text-input-edge0000001')).toHaveValue('yes');
+  });
+
+  it('committing the inline label editor on Enter dispatches setText', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit label' }));
+    const input = screen.getByTestId('diagram-text-input-edge0000001');
+
+    fireEvent.change(input, { target: { value: 'yes' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setText', id: 'edge0000001', text: 'yes' });
+    expect(screen.queryByTestId('diagram-text-input-edge0000001')).not.toBeInTheDocument();
+  });
+
+  it('"Delete" dispatches delete', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'delete', ids: ['edge0000001'] });
+  });
+
+  it('Shift+F10 opens the same menu for a selected connector', async () => {
+    renderLayer({ diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit label' })).toBeInTheDocument();
   });
 });
 

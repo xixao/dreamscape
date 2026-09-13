@@ -19,7 +19,11 @@ import { Field } from '../inspector/field';
 
 export type DiagramFieldsSelection = { type: 'node'; node: DiagramNode } | { type: 'edge'; edge: DiagramEdge };
 
-const KIND_LABELS: Record<DiagramNodeKind, string> = {
+// Exported so the right-click context menu (diagram-layer.tsx's "Change
+// shape"/"Colour"/"Connector"/"Arrowheads" submenus) shows the exact same
+// wording as this panel, instead of a second, driftable copy of the same
+// six/six/three/three labels.
+export const KIND_LABELS: Record<DiagramNodeKind, string> = {
   rect: 'Rectangle',
   rounded: 'Rounded',
   decision: 'Decision',
@@ -27,7 +31,7 @@ const KIND_LABELS: Record<DiagramNodeKind, string> = {
   text: 'Text',
   note: 'Note',
 };
-const COLOR_LABELS: Record<DiagramColor, string> = {
+export const COLOR_LABELS: Record<DiagramColor, string> = {
   neutral: 'Neutral',
   blue: 'Blue',
   green: 'Green',
@@ -35,8 +39,8 @@ const COLOR_LABELS: Record<DiagramColor, string> = {
   red: 'Red',
   violet: 'Violet',
 };
-const CONNECTOR_LABELS: Record<ConnectorKind, string> = { straight: 'Straight', step: 'Step', curve: 'Curve' };
-const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both', none: 'None' };
+export const CONNECTOR_LABELS: Record<ConnectorKind, string> = { straight: 'Straight', step: 'Step', curve: 'Curve' };
+export const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both', none: 'None' };
 
 // Plain (non-responsive) FieldSchema objects, reusing components/workbench/
 // inspector/field.tsx exactly as a block's own schema does (spec section 3:
