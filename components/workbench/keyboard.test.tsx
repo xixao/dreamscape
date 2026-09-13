@@ -23,6 +23,7 @@ type KeysOptions = {
   onClearFrameSelection?: () => void;
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
+  onDiagramSelectAll?: () => void;
   onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
   onDiagramUndo?: () => void;
   onDiagramRedo?: () => void;
@@ -56,6 +57,7 @@ function Keys({
   onClearFrameSelection,
   onDiagramDelete,
   onDiagramDuplicate,
+  onDiagramSelectAll,
   onDiagramNudge,
   onDiagramUndo,
   onDiagramRedo,
@@ -88,6 +90,7 @@ function Keys({
     onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
+    onDiagramSelectAll,
     onDiagramNudge,
     onDiagramUndo,
     onDiagramRedo,
@@ -577,6 +580,51 @@ describe('useWorkbenchKeyboard diagram selection routing', () => {
 
     expect(onDiagramDuplicate).toHaveBeenCalledTimes(1);
     expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+A does not select all when diagram tool is not active and no diagram element is selected', async () => {
+    const onDiagramSelectAll = vi.fn();
+    mount({ diagramSelectionActive: false, diagramToolActive: false, onDiagramSelectAll });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'a', metaKey: true });
+    expect(onDiagramSelectAll).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+A selects all when diagram selection is active', async () => {
+    const onDiagramSelectAll = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramSelectAll });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'a', metaKey: true });
+
+    expect(onDiagramSelectAll).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+A selects all when diagram tool is active', async () => {
+    const onDiagramSelectAll = vi.fn();
+    mount({ diagramSelectionActive: false, diagramToolActive: true, onDiagramSelectAll });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'a', metaKey: true });
+
+    expect(onDiagramSelectAll).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+A does not fire while typing in a text field', async () => {
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    const onDiagramSelectAll = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramSelectAll });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    input.focus();
+    fireEvent.keyDown(input, { key: 'a', metaKey: true });
+    expect(onDiagramSelectAll).not.toHaveBeenCalled();
+
+    input.remove();
   });
 
   it('arrow keys nudge the diagram selection, reporting Shift for a bigger nudge', async () => {

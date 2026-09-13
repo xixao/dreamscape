@@ -353,6 +353,22 @@ describe('AlignmentFields - diagram selection context', () => {
     expect(onDistribute).toHaveBeenLastCalledWith('vertical');
   });
 
+  it('calls onExport with the format for each export button', () => {
+    const onExport = vi.fn();
+    renderFields(diagramContext({ onExport }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export as PNG' }));
+    expect(onExport).toHaveBeenLastCalledWith('png');
+    fireEvent.click(screen.getByRole('button', { name: 'Export as SVG' }));
+    expect(onExport).toHaveBeenLastCalledWith('svg');
+  });
+
+  it('renders no export buttons when onExport is not provided', () => {
+    renderFields(diagramContext({ onExport: undefined }));
+    expect(screen.queryByRole('button', { name: 'Export as PNG' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Export as SVG' })).not.toBeInTheDocument();
+  });
+
   it('renders no Tidy up button', () => {
     renderFields(diagramContext());
     expect(screen.queryByRole('button', { name: 'Tidy up' })).toBeNull();

@@ -108,6 +108,8 @@ export interface DiagramLayerProps {
   // a placement/connect gesture is cancelled - the caller (WorkbenchShell)
   // returns the tool to pointer, same as Escape/V already do.
   onToolConsumed: () => void;
+  // Called when exporting the selection to PNG or SVG via the context menu
+  onExport?: (format: 'png' | 'svg') => void;
 }
 
 const DEFAULT_SIZE: Record<DiagramNodeKind, { width: number; height: number }> = {
@@ -248,7 +250,7 @@ function endpointFor(target: { type: 'node' | 'frame'; id: string }, side: Side)
  * but placing a shape needs the WHOLE canvas clickable, not just existing
  * shapes/handles.
  */
-export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onToolConsumed }: DiagramLayerProps) {
+export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onToolConsumed, onExport }: DiagramLayerProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   // The single active inline editor (a node's text or a connector's label -
   // at most one at a time, `editing.id` says which). Given a ref rather than
@@ -494,6 +496,18 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         <ContextMenuItem className={MENU_ROW} onSelect={() => dispatch({ type: 'reorder', ids: selectedNodeIds, to: 'back' })}>
           Send to back
         </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
+        <ContextMenuItem className={MENU_ROW} onSelect={() => onExport?.('png')}>
+          Export as PNG
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_ROW} onSelect={() => onExport?.('svg')}>
+          Export as SVG
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
         <ContextMenuItem
           variant="destructive"
           className={MENU_ROW}
@@ -546,6 +560,18 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         <ContextMenuItem className={MENU_ROW} onSelect={() => queueEditFromMenu(edgeItem.id, edgeItem.label ?? '')}>
           Edit label
         </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
+        <ContextMenuItem className={MENU_ROW} onSelect={() => onExport?.('png')}>
+          Export as PNG
+        </ContextMenuItem>
+        <ContextMenuItem className={MENU_ROW} onSelect={() => onExport?.('svg')}>
+          Export as SVG
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
         <ContextMenuItem
           variant="destructive"
           className={MENU_ROW}

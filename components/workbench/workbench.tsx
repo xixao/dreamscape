@@ -38,6 +38,7 @@ import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
+import { exportDiagram } from './diagram/export-actions';
 import { useDropPlaceholder } from './drop-placeholder';
 import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspector/alignment-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
@@ -1185,6 +1186,26 @@ function WorkbenchShell({
           count: selectedDiagramNodeIds.length,
           onAlign: (mode: AlignMode) => dispatchDiagram({ type: 'align', ids: selectedDiagramNodeIds, mode }),
           onDistribute: (axis: DistributeAxis) => dispatchDiagram({ type: 'distribute', ids: selectedDiagramNodeIds, axis }),
+          onExport: (format: 'png' | 'svg') => {
+            const currentPage = pages.find((p) => p.id === currentPageId);
+            if (!currentPage) return;
+            exportDiagram({
+              format,
+              nodes: diagram.nodes,
+              edges: diagram.edges,
+              selection: diagram.selection,
+              frames: pageScreens.map((screen) => ({
+                id: screen.id,
+                name: screen.name,
+                x: screen.x ?? 0,
+                y: screen.y ?? 0,
+                width: screen.stageWidth ?? 0,
+                height: screen.stageHeight ?? 0,
+              })),
+              fileName,
+              pageName: currentPage.name,
+            });
+          },
         }
       : null;
 
@@ -1404,6 +1425,7 @@ function WorkbenchShell({
       const { pairs, edgePairs } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
       dispatchDiagram({ type: 'duplicate', pairs, edgePairs });
     },
+    onDiagramSelectAll: () => dispatchDiagram({ type: 'selectAll' }),
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;
@@ -1602,6 +1624,26 @@ function WorkbenchShell({
                 diagramTool={diagramTool}
                 onDiagramToolConsumed={onDiagramToolConsumed}
                 onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
+                onDiagramExport={(format) => {
+                  const currentPage = pages.find((p) => p.id === currentPageId);
+                  if (!currentPage) return;
+                  exportDiagram({
+                    format,
+                    nodes: diagram.nodes,
+                    edges: diagram.edges,
+                    selection: diagram.selection,
+                    frames: pageScreens.map((screen) => ({
+                      id: screen.id,
+                      name: screen.name,
+                      x: screen.x ?? 0,
+                      y: screen.y ?? 0,
+                      width: screen.stageWidth ?? 0,
+                      height: screen.stageHeight ?? 0,
+                    })),
+                    fileName,
+                    pageName: currentPage.name,
+                  });
+                }}
                 selectedFrameIds={pageFrameSelection}
                 onToggleFrameSelection={toggleFrameSelection}
                 onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}

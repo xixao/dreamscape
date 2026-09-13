@@ -89,6 +89,7 @@ export function useWorkbenchKeyboard(
     onClearFrameSelection?: () => void;
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
+    onDiagramSelectAll?: () => void;
     // `big` is Shift held: 1 px plain, 8 px with Shift (Matt, 2026-09-13:
     // dropped the earlier 8/64 px split in favour of matching the canvas's
     // own 8 px grid). The four arrow keys nudge whichever selection is
@@ -168,6 +169,7 @@ export function useWorkbenchKeyboard(
     onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
+    onDiagramSelectAll,
     onDiagramNudge,
     onFrameNudge,
     onDiagramUndo,
@@ -278,6 +280,12 @@ export function useWorkbenchKeyboard(
           if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
           event.preventDefault();
           onDiagramDuplicate?.();
+          return;
+
+        case 'diagram-select-all':
+          if (!diagramSelectionActive && !diagramToolActive) return;
+          event.preventDefault();
+          onDiagramSelectAll?.();
           return;
 
         case 'diagram-nudge-up':
@@ -437,6 +445,7 @@ export function useWorkbenchKeyboard(
     onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
+    onDiagramSelectAll,
     onDiagramNudge,
     onFrameNudge,
     onDiagramUndo,

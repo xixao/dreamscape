@@ -93,6 +93,7 @@ export const SHORTCUTS: Shortcut[] = [
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  { id: 'diagram-select-all', area: 'Edit', keys: ['Mod', 'A'], label: 'Select all diagram elements' },
   { id: 'diagram-context-menu', area: 'Edit', keys: ['Shift', 'F10'], label: 'Open the menu for the diagram selection' },
   // Nudges whichever selection is active - a diagram element, or (spec
   // docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
@@ -252,6 +253,9 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // when one exists) - checked before the generic `if (mod) return null`
   // below, `!shift` so Cmd+Shift+D (unused here) does not also match it.
   if (mod && !shift && key === 'd') return 'diagram-duplicate';
+  // Cmd+A selects all diagram elements (keyboard.tsx only acts on it when
+  // the diagram tool is active or a diagram element is selected).
+  if (mod && !shift && key === 'a') return 'diagram-select-all';
   if (mod && event.key === "'") return 'pixel-grid-toggle';
   if (mod) return null;
 

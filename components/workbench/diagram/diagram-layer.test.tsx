@@ -1447,6 +1447,8 @@ describe('DiagramLayer context menu (shape)', () => {
       'Duplicate',
       'Bring to front',
       'Send to back',
+      'Export as PNG',
+      'Export as SVG',
       'Delete',
     ]) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
@@ -1548,6 +1550,28 @@ describe('DiagramLayer context menu (shape)', () => {
     renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
     fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
     expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('"Export as PNG" calls onExport with format "png"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as PNG' }));
+    expect(onExport).toHaveBeenCalledWith('png');
+  });
+
+  it('"Export as SVG" calls onExport with format "svg"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as SVG' }));
+    expect(onExport).toHaveBeenCalledWith('svg');
   });
 
   it('the Menu key opens the same menu for a selected shape', async () => {
@@ -1765,6 +1789,28 @@ describe('DiagramLayer context menu (connector)', () => {
     renderLayer({ diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }) });
     fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
     expect(await screen.findByRole('menuitem', { name: 'Edit label' })).toBeInTheDocument();
+  });
+
+  it('"Export as PNG" calls onExport with format "png"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as PNG' }));
+    expect(onExport).toHaveBeenCalledWith('png');
+  });
+
+  it('"Export as SVG" calls onExport with format "svg"', async () => {
+    const onExport = vi.fn();
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+      onExport,
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Export as SVG' }));
+    expect(onExport).toHaveBeenCalledWith('svg');
   });
 });
 
