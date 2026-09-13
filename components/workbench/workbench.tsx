@@ -222,7 +222,6 @@ export function Workbench({
   // below), and Frame's own mount calls Craft's deserialize() synchronously
   // inside its render function body, re-triggering this very subscription
   // before any effect from this render has had a chance to run.
-  const pagesRef = useRef(pages);
   const screensRef = useRef(screens);
   const currentScreenIdRef = useRef(currentScreenId);
   // Per screen id, the layout JSON string last known to match what the
@@ -370,7 +369,6 @@ export function Workbench({
   function addPage(): void {
     const newPage: Page = { id: nanoid(10), name: `Page ${pages.length + 1}` };
     const next = [...pages, newPage];
-    pagesRef.current = next;
     setPages(next);
     queuePatch({ pages: next });
     switchPage(newPage.id);
@@ -378,7 +376,6 @@ export function Workbench({
 
   function renamePage(id: string, name: string): void {
     const next = pages.map((page) => (page.id === id ? { ...page, name } : page));
-    pagesRef.current = next;
     setPages(next);
     queuePatch({ pages: next });
   }
@@ -404,7 +401,6 @@ export function Workbench({
     }
     const nextScreens = layoutMissingPositions([...screens, ...copiedScreens]);
 
-    pagesRef.current = nextPages;
     screensRef.current = nextScreens;
     setPages(nextPages);
     setScreens(nextScreens);
@@ -427,7 +423,6 @@ export function Workbench({
     for (const screen of screens) {
       if (screen.pageId === id) delete lastSavedLayoutsRef.current[screen.id];
     }
-    pagesRef.current = nextPages;
     screensRef.current = nextScreens;
     setPages(nextPages);
     setScreens(nextScreens);
@@ -442,7 +437,6 @@ export function Workbench({
     if (swapWith < 0 || swapWith >= pages.length) return;
     const next = [...pages];
     [next[index], next[swapWith]] = [next[swapWith], next[index]];
-    pagesRef.current = next;
     setPages(next);
     queuePatch({ pages: next });
   }
