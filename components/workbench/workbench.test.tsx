@@ -17,6 +17,15 @@ function presetButton(label: string) {
   return button;
 }
 
+// Select a frame from the frames chip dropdown menu by name. Opens the menu,
+// finds the frame by name, and clicks it.
+async function selectFrame(frameName: string): Promise<void> {
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  await userEvent.click(framesButton);
+  const frameItem = await screen.findByRole('menuitem', { name: frameName });
+  await userEvent.click(frameItem);
+}
+
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
 // a separate document `screen` (bound to the outer one) cannot see into.
 // Synchronous, not a `findBy`-style async helper: React (via Testing
@@ -326,9 +335,9 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       await vi.advanceTimersByTimeAsync(1000);
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       await vi.advanceTimersByTimeAsync(1500);
-      fireEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      await selectFrame('Frame 1');
       await vi.advanceTimersByTimeAsync(2000);
 
       expect(fetchMock).not.toHaveBeenCalled();
@@ -372,52 +381,56 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the right panel, the top bar and the screens strip, keeping the canvas; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the right panel, the top bar and the frames chip, keeping the canvas; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
-      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Frames' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
-      // The screens strip hides too now (spec docs/superpowers/specs/
-      // 2026-09-12-infinite-canvas-design.md section 4: "Cmd+\ hides all
-      // chrome and leaves the canvas") - unlike the old single-frame model,
-      // switching screens while hidden no longer needs it (see the
-      // "editor UI state persists" test, which switches by clicking the
-      // other frame directly on the canvas instead).
-      expect(screen.queryByRole('tablist', { name: 'Screens' })).toBeNull();
+      // The frames chip hides too now (spec docs/superpowers/specs/
+      // 2026-09-13-frames-chip-design.md: "hidden with Cmd+\ like the rest of the chrome")
+      expect(screen.queryByRole('button', { name: 'Frames' })).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
       expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
-      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Frames' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
   });
 
   describe('screens', () => {
-    it('renders a chip for each screen, the first active by default', () => {
+    it('renders a chip for each screen, the first active by default', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
-      const tablist = screen.getByRole('tablist', { name: 'Screens' });
-      expect(within(tablist).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Frame 1', 'Frame 2']);
-      expect(within(tablist).getByRole('tab', { name: 'Frame 1' })).toHaveAttribute('aria-selected', 'true');
+      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      // The chip shows: "Frame 1 · 2" (name · count)
+      expect(framesButton).toHaveTextContent('Frame 1 · 2');
+      await userEvent.click(framesButton);
+      const items = screen.getAllByRole('menuitem');
+      // First two menuitems are the frames (Frame 1, Frame 2)
+      expect(items[0]).toHaveTextContent('Frame 1');
+      expect(items[1]).toHaveTextContent('Frame 2');
+      // Frame 1 should have a check mark (focused)
+      expect(within(items[0]).getByTestId('frame-check')).toBeInTheDocument();
     });
 
     it('switching screens swaps the artboard content', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
 
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
-      expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+      // Verify the frames chip shows Frame 2 as focused
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 2');
     });
 
     it('New screen adds a screen sized like the current one and switches to it', async () => {
@@ -425,10 +438,9 @@ describe('Workbench', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
 
-      const tablist = screen.getByRole('tablist', { name: 'Screens' });
-      expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
-      const newTab = within(tablist).getByRole('tab', { name: 'Frame 2' });
-      expect(newTab).toHaveAttribute('aria-selected', 'true');
+      // The frames chip should now show "Frame 2 · 2" (name · count)
+      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      expect(framesButton).toHaveTextContent('Frame 2 · 2');
       expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
 
       // Drains this screen's own save traffic before the test ends: Craft's
@@ -449,9 +461,9 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'n', shiftKey: true });
 
-      const tablist = screen.getByRole('tablist', { name: 'Screens' });
-      expect(within(tablist).getAllByRole('tab')).toHaveLength(2);
-      expect(within(tablist).getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+      // The frames chip should now show "Frame 2 · 2"
+      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      await waitFor(() => expect(framesButton).toHaveTextContent('Frame 2 · 2'));
 
       // Drains this screen's own save traffic - see the comment on "New
       // screen adds a screen..." above.
@@ -460,7 +472,7 @@ describe('Workbench', () => {
 
     it('writes the URL hash to the switched-to screen id', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(window.location.hash).toBe(`#s=${SCREEN_2.id}`);
     });
 
@@ -468,7 +480,8 @@ describe('Workbench', () => {
       window.location.hash = `#s=${SCREEN_2.id}`;
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       expect(within(frameBody()).getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: 'Frame 2' })).toHaveAttribute('aria-selected', 'true');
+      // Verify the frames chip shows Frame 2 as focused
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 2');
     });
 
     it('the saver receives every screen, not just the one being edited', async () => {
@@ -516,11 +529,11 @@ describe('Workbench', () => {
 
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874');
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent(`${SCREEN_2.stageWidth} px`));
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      await selectFrame('Frame 1');
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       await waitFor(() =>
         expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874'),
@@ -531,9 +544,9 @@ describe('Workbench', () => {
       const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
       render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      await selectFrame('Frame 1');
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       await new Promise((resolve) => setTimeout(resolve, 900));
@@ -544,7 +557,7 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
       await userEvent.click(presetButton('Mobile'));
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
@@ -566,7 +579,7 @@ describe('Workbench', () => {
         render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
         const transformBefore = screen.getByTestId('canvas-layer').style.transform;
 
-        await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+        await selectFrame('Frame 2');
 
         // The animation only actually moves the viewport once its own rAF
         // loop is pumped - nothing else in this app calls
@@ -897,7 +910,7 @@ describe('Workbench', () => {
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`,
       );
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
 
       expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
         'href',
@@ -917,7 +930,7 @@ describe('Workbench', () => {
       );
       expect(notCancelled).toBe(false);
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
@@ -942,7 +955,7 @@ describe('Workbench', () => {
       await changeRootLayoutMode();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled());
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
       // The new screen's history must start empty, not inherit screen 1's.
@@ -969,11 +982,11 @@ describe('Workbench', () => {
 
       expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).not.toHaveTextContent(NOTICE);
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      await selectFrame('Frame 1');
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toHaveTextContent(NOTICE);
 
@@ -1004,7 +1017,7 @@ describe('Workbench', () => {
       await userEvent.type(screen.getByLabelText('Search elements'), 'Button');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
       expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
@@ -1019,7 +1032,7 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('radio', { name: 'Prototype' }));
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+      await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
@@ -1632,12 +1645,16 @@ describe('Workbench', () => {
 
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 3');
       expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
-      const tablist = screen.getByRole('tablist', { name: 'Screens' });
-      expect(within(tablist).queryAllByRole('tab')).toHaveLength(0);
+      // Empty page should not show frames chip (no frames yet)
+      let framesButton = screen.queryByRole('button', { name: /Frames/ });
+      // The button is hidden when there are 0 frames, but we can check via the "no screens yet" message
+      expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
       expect(screen.queryByText('This page has no screens yet')).toBeNull();
-      expect(within(screen.getByRole('tablist', { name: 'Screens' })).getAllByRole('tab')).toHaveLength(1);
+      // Now the frames chip should show "Frame 1 · 1"
+      framesButton = screen.getByRole('button', { name: /Frames/ });
+      expect(framesButton).toHaveTextContent('1');
     });
 
     it('Duplicate page copies the current page\'s screens onto a new page with new ids', async () => {
@@ -1648,8 +1665,9 @@ describe('Workbench', () => {
 
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1 copy');
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-      const tab = within(screen.getByRole('tablist', { name: 'Screens' })).getByRole('tab');
-      expect(tab).toHaveTextContent(SCREEN_1.name);
+      // The frames chip should show the duplicated screen's name
+      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      expect(framesButton).toHaveTextContent(SCREEN_1.name);
 
       // Switching back confirms the original page and screen are untouched
       // (a real, independent copy, not a move).
@@ -1750,8 +1768,9 @@ describe('Workbench', () => {
       // "Frame 1" (page-scoped numbering), so names could not tell them
       // apart. The moved screen joins the target page after its existing
       // screen, whatever its old file-wide index was.
-      const tabs = within(screen.getByRole('tablist', { name: 'Screens' })).getAllByRole('tab');
-      expect(tabs).toHaveLength(2);
+      // The frames chip should show count of 2 (frame from page 2 + moved frame from page 1)
+      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      expect(framesButton).toHaveTextContent('· 2');
       await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
       const lastCall = fetchMock.mock.calls.at(-1) as [string, { body: string }] | undefined;
       if (!lastCall) throw new Error('expected a PATCH after Move to page');

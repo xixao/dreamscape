@@ -367,6 +367,7 @@ export function Topbar({
   onRenameScreen,
   onDuplicateScreen,
   onDeleteScreen,
+  onMoveScreenToPage,
   onZoomToFrame,
   commentMode = false,
   onToggleCommentMode,
@@ -402,6 +403,7 @@ export function Topbar({
   onRenameScreen: (id: string, name: string) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
+  onMoveScreenToPage?: (id: string, pageId: string) => void;
   onZoomToFrame: (id: string) => void;
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
@@ -474,11 +476,13 @@ export function Topbar({
         <FramesChip
           frames={screens.filter((screen) => screen.pageId === currentPageId)}
           currentFrameId={currentScreenId}
+          pages={pages}
           onSwitch={onSwitchScreen}
           onAdd={onNew}
           onRename={onRenameScreen}
           onDuplicate={onDuplicateScreen}
           onDelete={onDeleteScreen}
+          onMoveToPage={onMoveScreenToPage}
           onZoomToFrame={onZoomToFrame}
         />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />

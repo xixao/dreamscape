@@ -1571,6 +1571,7 @@ function WorkbenchShell({
                 onRenameScreen={onRenameScreen}
                 onDuplicateScreen={onDuplicateScreen}
                 onDeleteScreen={onDeleteScreen}
+                onMoveScreenToPage={onMoveScreenToPage}
                 onZoomToFrame={handleZoomToFrame}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((open) => !open)}

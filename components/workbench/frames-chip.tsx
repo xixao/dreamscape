@@ -17,10 +17,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import type { Screen } from '@/lib/files/repository';
+import type { Page, Screen } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
 import { CHIP, CHIP_INPUT, DANGER_GHOST } from './chrome';
 
@@ -41,20 +44,24 @@ const FRAME_NAME_MAX = 80;
 export function FramesChip({
   frames,
   currentFrameId,
+  pages,
   onSwitch,
   onAdd,
   onRename,
   onDuplicate,
   onDelete,
+  onMoveToPage,
   onZoomToFrame,
 }: {
   frames: Screen[];
   currentFrameId: string;
+  pages?: Page[];
   onSwitch: (id: string) => void;
   onAdd: () => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onMoveToPage?: (id: string, pageId: string) => void;
   onZoomToFrame: (id: string) => void;
 }) {
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -138,6 +145,20 @@ export function FramesChip({
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setRenaming(currentFrameId)}>Rename</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onDuplicate(currentFrameId)}>Duplicate</DropdownMenuItem>
+          {pages && pages.length > 1 && currentFrame && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {pages
+                  .filter((page) => page.id !== currentFrame.pageId)
+                  .map((page) => (
+                    <DropdownMenuItem key={page.id} onSelect={() => onMoveToPage?.(currentFrame.id, page.id)}>
+                      {page.name}
+                    </DropdownMenuItem>
+                  ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuItem
             variant="destructive"
             disabled={frames.length <= 1}
