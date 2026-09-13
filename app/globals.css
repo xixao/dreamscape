@@ -4300,3 +4300,48 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+.developer-code {
+  min-width: 0;
+  padding: 24px;
+  overflow: auto;
+}
+.developer-code > header,
+.developer-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.developer-code h2 {
+  font-size: 24px;
+  font-weight: 650;
+}
+.developer-code header p,
+.developer-code footer {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.developer-code-toolbar > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+.developer-code pre {
+  max-height: 60dvh;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--secondary);
+  color: var(--foreground);
+  font:
+    14px/1.7 ui-monospace,
+    monospace;
+  tab-size: 2;
+}
+.developer-code footer {
+  margin-top: 16px;
+  max-width: 90ch;
+}

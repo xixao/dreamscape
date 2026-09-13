@@ -223,6 +223,20 @@ assert.equal(handoff.inspectedDesign.status, "unsaved-draft");
 assert.equal(handoff.savedRevision.config.retryEnabled, false);
 assert.equal(handoff.inspectedDesign.config.retryEnabled, true);
 assert.equal(handoff.commentsApplyTo, "savedRevision");
+const { documentUploaderCode } = await moduleAt("lib/component-code.ts");
+for (const config of [baseline, draft, { ...draft, title: 'Quotes " and ` ${x} </script>\nNew line' }]) {
+  const files = documentUploaderCode(config);
+  assert.deepEqual(Object.keys(files), ["DocumentUploader.jsx", "style.css"]);
+  const source = files["DocumentUploader.jsx"];
+  const parsed = ts.createSourceFile("DocumentUploader.jsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+  assert.equal(parsed.parseDiagnostics.length, 0, "Exported JSX must parse");
+  assert.ok(source.includes(JSON.stringify(config, null, 2)), "Export preserves saved settings safely");
+  assert.ok(source.includes('export default function DocumentUploader'));
+  assert.ok(source.includes('import "./style.css"'));
+  assert.ok(source.includes('design.retryEnabled &&'));
+  assert.ok(source.includes('design.announceError ? "alert"'));
+  assert.ok(source.includes('onContinue?.()'));
+}
 console.log(
   "Structure, stylesheet, demo markers, scenario rules, version selection, comment placement, and handoff checks passed.",
 );

@@ -1,4 +1,5 @@
 "use client";
+import DeveloperCode from "./developer-code";
 import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
 import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
@@ -759,6 +760,7 @@ export default function FlowReview() {
               {
                 {
                   review: "Design review",
+                  code: "Developer handoff",
                   results: "Test results",
                   journey: "User journey",
                   build: "Edit component",
@@ -902,6 +904,10 @@ export default function FlowReview() {
               <TabsTrigger value="case">
                 <FileClock />
                 Case study
+              </TabsTrigger>
+              <TabsTrigger value="code">
+                <Clipboard />
+                Code
               </TabsTrigger>
             </TabsList>
             {isDesigner && (
@@ -1716,6 +1722,9 @@ export default function FlowReview() {
               onResults={() => setView("results")}
             />
           </div>
+        )}
+        {view === "code" && !participant && (
+          <DeveloperCode revision={revision} dirty={dirty} />
         )}
         {view === "results" && !participant && (
           <ReviewResults
