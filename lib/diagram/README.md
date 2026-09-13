@@ -39,3 +39,48 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+# Export
+
+`export.ts` turns a page's diagram (or the selected part of it) into a
+standalone SVG, and rasterises that to PNG in the browser (spec section 8).
+The export mirrors the screen in every case: what `diagram-layer.tsx` draws
+at zoom 1 is what the file shows.
+
+- `renderDiagramSvg({ nodes, edges, frames, selection?, measureText, padding? })`
+  is pure and returns `{ svg, width, height }`, or `null` when nothing is
+  exportable. With no `selection` everything is exported. With one, the
+  selected shapes are exported, and a connector is exported when it is
+  itself selected (and both of its ends resolve), when both of its ends are
+  exported shapes, or when one end is an exported shape and the other a
+  frame - so Shift+clicking two connected shapes exports the connector
+  between them. A frame a participating connector attaches to is drawn as
+  a 1 px outline with its name (frames are live HTML and never rasterised).
+  Drawing order is frames, then connectors, then shapes, as on screen.
+- Look: `#14121B` background (the canvas surface, `--canvas`); 32 px padding
+  around the shapes, the frame outlines, every connector's route (a curve's
+  control points, a step's corners) and every label chip, so nothing is
+  clipped; the same shape geometry per kind, 1.5 px strokes, the Tailwind
+  colours resolved to hex/rgba, the same straight/step/curve paths from
+  `geometry.ts` with the on-screen arrowhead marker in the accent colour
+  (`--acc`), and label chips on the CHIP surface (`--chip`, `--bevel-line`,
+  `--foreground`). Text is native `<text>`/`<tspan>`, 13 px at the body
+  line height of 1.45, wrapped to the shape's inner width with the supplied
+  `measureText` (canvas `measureText` in the browser, a fixed-width stub in
+  tests); lines past the inner height are dropped, first lines kept; no
+  font files are embedded. A test reads those tokens out of
+  `app/globals.css` so the export cannot drift from the theme.
+- `DIAGRAM_EXPORT_COLORS` maps each `DiagramColor` to the concrete fill and
+  stroke the Tailwind classes resolve to on screen: white at 10% / 50% for
+  neutral, and Tailwind 4's `*-500` at 25% alpha / `*-400` for the rest. The
+  hex values are the sRGB rendering of the oklch tokens in
+  `node_modules/tailwindcss/theme.css` (converted once, hard-coded with the
+  source token named beside each entry).
+- `svgToPngBlob(svg, { scale = 2 })` is the browser-only wrapper: object URL
+  → `Image` → `canvas` at `scale` x → `canvas.toBlob('image/png')`, always
+  revoking the URL and rejecting with a clear error when the image fails to
+  load, the canvas has no 2D context or produces no PNG data.
+
+The UI hookup (Cmd+A, the right-click menu and Design panel entries, the
+download itself) is a separate task; nothing in `export.ts` imports React or
+reads the store.
