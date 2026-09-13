@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
+import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout } from '@/lib/files/validate';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
@@ -89,7 +90,13 @@ export function Workbench({
 }) {
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [fileName, setFileName] = useState(file.name);
-  const [screens, setScreens] = useState<Screen[]>(() => resolveInitialScreens(file));
+  // A screen predating this feature has no x/y yet; layoutMissingPositions
+  // (lib/files/layout.ts) fills them in left to right, in screen order, the
+  // moment the file loads - so the canvas always has a concrete position for
+  // every frame, without ever queuing a save purely from loading the file
+  // (that only happens on the next real change, once these computed
+  // positions are already part of `screens` and so ride along with it).
+  const [screens, setScreens] = useState<Screen[]>(() => layoutMissingPositions(resolveInitialScreens(file)));
   const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
     screenIdFromHash(window.location.hash, resolveInitialScreens(file)),
   );
@@ -252,9 +259,17 @@ export function Workbench({
       // was added from, device included, not just its width.
       stageHeight: current.stageHeight ?? null,
       deviceName: current.deviceName ?? null,
+      // No position yet: appended at the end of the array with x/y left
+      // unset, layoutMissingPositions places it to the right of the last
+      // frame (spec: "new screens are placed to the right of the last
+      // frame") - every existing screen already has a position by this
+      // point (the initial-load computation above), so this only ever fills
+      // in the new one.
+      x: null,
+      y: null,
     };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
-    const next = [...screens, newScreen];
+    const next = layoutMissingPositions([...screens, newScreen]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -271,9 +286,14 @@ export function Workbench({
   function duplicateScreen(id: string): void {
     const index = screens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
-    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy` };
+    // x/y explicitly cleared, not inherited from the plain spread: the copy
+    // must not land exactly on top of its source. Placed right after the
+    // source in the array (below), so layoutMissingPositions resolves its
+    // position relative to the source specifically (spec: "duplicates go
+    // right of the source"), not the last frame overall.
+    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy`, x: null, y: null };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
-    const next = [...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)];
+    const next = layoutMissingPositions([...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });

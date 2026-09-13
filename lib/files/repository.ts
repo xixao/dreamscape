@@ -100,6 +100,8 @@ type StoredScreen = {
   stageWidth: number;
   stageHeight?: number | null;
   deviceName?: string | null;
+  x?: number | null;
+  y?: number | null;
 };
 
 function toApiScreens(raw: unknown): Screen[] {
@@ -110,6 +112,8 @@ function toApiScreens(raw: unknown): Screen[] {
     stageWidth: screen.stageWidth,
     stageHeight: screen.stageHeight ?? null,
     deviceName: screen.deviceName ?? null,
+    x: screen.x ?? null,
+    y: screen.y ?? null,
   }));
 }
 
@@ -121,6 +125,8 @@ function toStoredScreen(screen: Screen): StoredScreen {
     stageWidth: screen.stageWidth,
     stageHeight: screen.stageHeight ?? null,
     deviceName: screen.deviceName ?? null,
+    x: screen.x ?? null,
+    y: screen.y ?? null,
   };
 }
 

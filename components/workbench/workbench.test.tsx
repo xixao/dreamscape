@@ -392,7 +392,10 @@ describe('Workbench', () => {
       expect(body.screens).toHaveLength(2);
       expect(body.screens[0].id).toBe(SCREEN_1.id);
       expect(body.screens[0].stageWidth).toBe(375);
-      expect(body.screens[1]).toEqual(SCREEN_2);
+      // SCREEN_2 as given has no position; the initial-load layout pass
+      // assigns it one (to the right of SCREEN_1) before this save ever
+      // fires, so it is otherwise untouched.
+      expect(body.screens[1]).toEqual({ ...SCREEN_2, x: SCREEN_1.stageWidth + 200, y: 0 });
     });
 
     it('New screen copies the current screen\'s device, not just its width', async () => {
@@ -456,6 +459,62 @@ describe('Workbench', () => {
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
+    });
+  });
+
+  describe('frame positions', () => {
+    it('assigns positions to legacy screens on load without saving, then includes them in the next save', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await userEvent.click(presetButton('Mobile'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0]).toMatchObject({ x: 0, y: 0 });
+      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
+    });
+
+    it('New screen is placed to the right of the last frame', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce),
+      // same as "New screen adds a screen..." above - Craft's own
+      // onNodesChange first-fire for the brand new empty Frame can queue a
+      // second, harmless save right behind it, so this only waits for AT
+      // LEAST one call and reads the first one rather than asserting an
+      // exact count.
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0]).toMatchObject({ x: 0, y: 0 });
+      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
+
+      // Drains this screen's own extra save traffic - see the identical
+      // comment on "New screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Duplicate is placed to the right of the source, not the last frame', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens).toHaveLength(3);
+      // Source (screen 0) keeps its position; the copy is inserted right
+      // after it, right of the source - screen 2 (the original SCREEN_2,
+      // pushed one slot over) keeps its own already-resolved position.
+      expect(body.screens[0]).toMatchObject({ id: SCREEN_1.id, x: 0, y: 0 });
+      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
+      expect(body.screens[2]).toMatchObject({ id: SCREEN_2.id, x: SCREEN_1.stageWidth + 200, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
     });
   });
 

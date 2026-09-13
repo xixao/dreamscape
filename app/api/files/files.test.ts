@@ -137,6 +137,31 @@ describe('files API route handlers', () => {
       expect(body.file.screens[1]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
     });
 
+    it('round-trips a screen given an explicit frame position (x/y), and defaults it to null otherwise', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            {
+              id: 'aaaaaaaaaa',
+              name: 'Frame 1',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 1440,
+              x: 640,
+              y: -80,
+            },
+            { id: 'bbbbbbbbbb', name: 'Frame 2', layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }), stageWidth: 1440 },
+          ],
+        }),
+      );
+      const body = (await readBody(response)) as {
+        file: { screens: Array<{ x: number | null; y: number | null }> };
+      };
+
+      expect(response.status).toBe(201);
+      expect(body.file.screens[0]).toMatchObject({ x: 640, y: -80 });
+      expect(body.file.screens[1]).toMatchObject({ x: null, y: null });
+    });
+
     it('creates from the login example with the example name and layout when no name is given', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { example: 'login' }));
       const body = (await readBody(response)) as {
@@ -259,6 +284,21 @@ describe('files API route handlers', () => {
 
       const stored = await repository.get(file.id);
       expect(stored?.name).toBe('Changed elsewhere');
+    });
+
+    it('saves a frame position onto a screen through PATCH, same as create', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const screenId = file.screens![0].id;
+
+      await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ ...file.screens![0], id: screenId, x: 1200, y: 40 }],
+        }),
+        withId(file.id),
+      );
+      const withPosition = await repository.get(file.id);
+      expect(withPosition?.screens?.[0]).toMatchObject({ x: 1200, y: 40 });
     });
 
     it('saves a device onto a screen, then clears it again on a later save', async () => {

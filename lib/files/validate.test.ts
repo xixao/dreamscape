@@ -53,7 +53,7 @@ describe('validateScreens', () => {
     return { id: '1234567890', name: 'Frame 1', layout: validLayout, stageWidth: 1440, ...overrides };
   }
 
-  it('accepts one valid screen and normalizes it, defaulting stageHeight/deviceName to null', () => {
+  it('accepts one valid screen and normalizes it, defaulting stageHeight/deviceName/x/y to null', () => {
     const result = validateScreens([screen({ name: '  Frame 1  ' })], knownTypes);
 
     expect(result).toEqual({
@@ -66,6 +66,8 @@ describe('validateScreens', () => {
           stageWidth: 1440,
           stageHeight: null,
           deviceName: null,
+          x: null,
+          y: null,
         },
       ],
     });
@@ -186,6 +188,51 @@ describe('validateScreens', () => {
     if (!low.ok || !high.ok) throw new Error('expected ok');
     expect(low.screens[0].stageWidth).toBe(120);
     expect(high.screens[0].stageWidth).toBe(3840);
+  });
+
+  describe('frame position (x/y)', () => {
+    it('defaults x and y to null when neither is given', () => {
+      const result = validateScreens([screen()], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0].x).toBeNull();
+      expect(result.screens[0].y).toBeNull();
+    });
+
+    it('passes integer x and y through when both are given', () => {
+      const result = validateScreens([screen({ x: 120, y: -40 })], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0]).toMatchObject({ x: 120, y: -40 });
+    });
+
+    it('accepts zero and negative integers for x/y', () => {
+      const result = validateScreens([screen({ x: 0, y: -1 })], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0]).toMatchObject({ x: 0, y: -1 });
+    });
+
+    it('rejects x without y', () => {
+      const result = validateScreens([screen({ x: 100 })], knownTypes);
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('rejects y without x', () => {
+      const result = validateScreens([screen({ y: 100 })], knownTypes);
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('rejects a non-integer x or y', () => {
+      expect(validateScreens([screen({ x: 1.5, y: 2 })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+      expect(validateScreens([screen({ x: 1, y: 2.5 })], knownTypes)).toEqual({
+        ok: false,
+        reason: expect.any(String),
+      });
+    });
   });
 });
 
