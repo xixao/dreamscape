@@ -72,3 +72,13 @@ Request: "give the diagram shapes a font selection like small, medium, large. as
 - The Design panel's diagram fields gain three selects, Text size, Font and Text color, next to the existing Color; with several shapes selected they apply to every selected shape as one history step (`setTextStyle` action).
 - The right-click menu gets a "Text" submenu with the same three groups as radio items.
 - Rendering on the canvas, in the Option-drag ghost and in the PNG/SVG export all honour the three; the export's font stacks and the text measurer use the chosen family and size.
+
+## 10. Marquee selection and groups (Matt, 2026-09-13)
+
+Request: "for diagram, i need to be able to drag to select multiple items, group them, and also move them around."
+
+- **Marquee.** With the pointer tool, dragging on empty canvas inside the diagram (not on a shape, connector, handle or frame) draws the same selection box the frame marquee uses and, on release, selects every shape and connector whose box or path intersects it (Shift keeps the existing selection and adds). A plain click still clears. The marquee never starts over a frame (that remains the frame marquee's job) and never while Space is held.
+- **Groups.** Cmd+G groups the selected shapes (two or more) under a new `groupId` stored on each node; Cmd+Shift+G ungroups the selected group. Clicking any member selects the whole group (all members plus connectors between them); double-clicking a member enters the group and selects just that shape until the selection leaves the group. A selected group shows one dashed outline around its members' bounds. Nested groups are not supported (grouping a selection that contains grouped shapes regroups them all into one flat group).
+- **Moving.** Dragging any selected shape moves the whole selection (already true) and therefore whole groups; arrow nudges, align, distribute, duplicate, delete, Option-drag and export treat a group as its members. Quick-add on a grouped shape adds the new shape outside the group.
+- **Data and history.** `groupId` is optional on nodes (old files unchanged); `group` and `ungroup` are one history step each; `duplicate` gives copies a fresh group id; `validateDiagram` accepts the field. Registered shortcuts: `diagram-group` (Cmd+G) and `diagram-ungroup` (Shift+Cmd+G), README rows included.
+- Order: after section 9 (text styling) merges, since both edit the store and the layer.
