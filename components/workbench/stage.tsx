@@ -129,7 +129,7 @@ export function Stage({
   // existed) keep rendering an inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
 }) {
-  const { width, zoom, setWidth, setZoom } = useStage();
+  const { width, height, zoom, setWidth, setZoom } = useStage();
   const { actions, query } = useEditor();
   const columnRef = useRef<HTMLDivElement>(null);
   const artboardRef = useRef<HTMLDivElement>(null);
@@ -225,8 +225,11 @@ export function Stage({
         >
           <div
             data-testid="artboard"
-            className="theme-basic border border-line-strong bg-background font-sans text-foreground shadow-panel-lg"
-            style={{ width, minHeight: ARTBOARD_MIN_HEIGHT }}
+            className={cn(
+              'theme-basic border border-line-strong bg-background font-sans text-foreground shadow-panel-lg',
+              height != null && 'overflow-auto',
+            )}
+            style={height != null ? { width, height } : { width, minHeight: ARTBOARD_MIN_HEIGHT }}
           >
             <Frame key={currentScreenId} data={data} />
           </div>

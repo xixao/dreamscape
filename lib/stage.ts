@@ -4,7 +4,7 @@ export type StagePreset = keyof typeof STAGE_PRESETS;
 
 export const STAGE_PRESET_ORDER: readonly StagePreset[] = ['mobile', 'tablet', 'desktop'];
 
-export const MIN_STAGE_WIDTH = 320;
+export const MIN_STAGE_WIDTH = 120;
 export const MAX_STAGE_WIDTH = 1920;
 export const STAGE_PADDING = 24;
 export const ARTBOARD_MIN_HEIGHT = 640;

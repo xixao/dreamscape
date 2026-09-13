@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import { useEffect, type ComponentProps, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,6 +26,16 @@ function screenProps(overrides: Partial<ComponentProps<typeof Stage>> = {}): Com
     onDeleteScreen: vi.fn(),
     ...overrides,
   };
+}
+
+// Sets a device (and its fixed height) on mount, through the real context -
+// there is no prop on Stage itself for this, it always reads useStage().
+function DeviceSetter({ children }: { children: ReactNode }) {
+  const { setDevice } = useStage();
+  useEffect(() => {
+    setDevice({ name: 'iPhone 16 & 17 Pro', width: 402, height: 874 });
+  }, [setDevice]);
+  return <>{children}</>;
 }
 
 describe('Stage', () => {
@@ -61,7 +71,44 @@ describe('Stage', () => {
     const artboard = await screen.findByTestId('artboard');
     expect(artboard).toHaveClass('theme-basic');
     expect(artboard).toHaveStyle({ width: '768px', minHeight: '640px' });
+    expect(artboard.className).not.toMatch(/overflow-auto/);
     expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+  });
+
+  it('gives the artboard a fixed height and overflow-auto once a device sets one, and drops min-height', async () => {
+    renderInEditor(
+      <DeviceSetter>
+        <Stage {...screenProps()} />
+      </DeviceSetter>,
+    );
+    const artboard = await screen.findByTestId('artboard');
+    await waitFor(() => expect(artboard).toHaveStyle({ width: '402px', height: '874px' }));
+    expect(artboard.className).toMatch(/overflow-auto/);
+    expect(artboard.style.minHeight).toBe('');
+  });
+
+  it('the grip clears a device the stage had set, reverting to a plain width with min-height', async () => {
+    function DeviceNameProbe() {
+      return <output data-testid="ctx-device">{useStage().deviceName ?? 'none'}</output>;
+    }
+    renderInEditor(
+      <DeviceSetter>
+        <Stage {...screenProps()} />
+        <DeviceNameProbe />
+      </DeviceSetter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('ctx-device')).toHaveTextContent('iPhone 16 & 17 Pro'));
+    const artboard = await screen.findByTestId('artboard');
+    await waitFor(() => expect(artboard).toHaveStyle({ height: '874px' }));
+
+    const grip = screen.getByRole('separator', { name: 'Resize the frame' });
+    fireEvent.pointerDown(grip, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 50, pointerId: 1 });
+    fireEvent.pointerUp(grip, { clientX: 50, pointerId: 1 });
+
+    expect(screen.getByTestId('ctx-device')).toHaveTextContent('none');
+    expect(artboard.style.height).toBe('');
+    expect(artboard).toHaveStyle({ minHeight: '640px' });
   });
 
   it('deselects when the canvas outside the artboard is pressed', async () => {
@@ -96,7 +143,7 @@ describe('Stage', () => {
 
     fireEvent.pointerDown(grip, { clientX: 300, pointerId: 1 });
     fireEvent.pointerMove(grip, { clientX: -5000, pointerId: 1 });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '320px' });
+    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '120px' });
     fireEvent.pointerUp(grip, { clientX: -5000, pointerId: 1 });
   });
 

@@ -25,6 +25,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 export function useWorkbenchKeyboard(
   options: {
     onToggleUi?: () => void;
+    onToggleChat?: () => void;
     // Comment tool (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
     // section 5): `onToggleCommentMode` fires on a bare "c"; `commentMode`
     // tells Escape whether to leave the tool (via `onExitCommentMode`)
@@ -36,7 +37,7 @@ export function useWorkbenchKeyboard(
     onExitCommentMode?: () => void;
   } = {},
 ): void {
-  const { onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode } = options;
+  const { onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode } = options;
   const { actions, query } = useEditor();
 
   useEffect(() => {
@@ -47,6 +48,15 @@ export function useWorkbenchKeyboard(
       if ((event.metaKey || event.ctrlKey) && event.key === '\\') {
         event.preventDefault();
         onToggleUi?.();
+        return;
+      }
+
+      // Chat panel toggle, same precedence as Show/Hide UI above: it must
+      // still work while a text field, select or dialog owns the
+      // interaction (in particular, from inside the chat composer itself).
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        onToggleChat?.();
         return;
       }
 
@@ -95,5 +105,5 @@ export function useWorkbenchKeyboard(
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [actions, query, onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode]);
+  }, [actions, query, onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode]);
 }

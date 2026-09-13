@@ -107,6 +107,36 @@ describe('files API route handlers', () => {
       expect(body.file.screens.map((s) => s.stageWidth)).toEqual([375, 768]);
     });
 
+    it('round-trips a screen given an explicit stageHeight and deviceName, and defaults them to null otherwise', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            {
+              id: 'aaaaaaaaaa',
+              name: 'Frame 1',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 402,
+              stageHeight: 874,
+              deviceName: 'iPhone 16 & 17 Pro',
+            },
+            {
+              id: 'bbbbbbbbbb',
+              name: 'Frame 2',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 1440,
+            },
+          ],
+        }),
+      );
+      const body = (await readBody(response)) as {
+        file: { screens: Array<{ stageWidth: number; stageHeight: number | null; deviceName: string | null }> };
+      };
+
+      expect(response.status).toBe(201);
+      expect(body.file.screens[0]).toMatchObject({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' });
+      expect(body.file.screens[1]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
+    });
+
     it('creates from the login example with the example name and layout when no name is given', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { example: 'login' }));
       const body = (await readBody(response)) as {
@@ -231,6 +261,39 @@ describe('files API route handlers', () => {
       expect(stored?.name).toBe('Changed elsewhere');
     });
 
+    it('saves a device onto a screen, then clears it again on a later save', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const screenId = file.screens![0].id;
+
+      await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [
+            {
+              id: screenId,
+              name: 'Frame 1',
+              layout: file.screens![0].layout,
+              stageWidth: 402,
+              stageHeight: 874,
+              deviceName: 'iPhone 16 & 17 Pro',
+            },
+          ],
+        }),
+        withId(file.id),
+      );
+      const withDevice = await repository.get(file.id);
+      expect(withDevice?.screens?.[0]).toMatchObject({ stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' });
+
+      await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ id: screenId, name: 'Frame 1', layout: file.screens![0].layout, stageWidth: 1440 }],
+        }),
+        withId(file.id),
+      );
+      const cleared = await repository.get(file.id);
+      expect(cleared?.screens?.[0]).toMatchObject({ stageWidth: 1440, stageHeight: null, deviceName: null });
+    });
+
     it('returns 400 for an invalid layout inside a screen', async () => {
       const repository = await getRepository();
       const file = await repository.create();
@@ -239,6 +302,54 @@ describe('files API route handlers', () => {
         jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
           screens: [
             { id: file.screens![0].id, name: 'Frame 1', layout: JSON.stringify({ noRootHere: true }), stageWidth: 1440 },
+          ],
+        }),
+        withId(file.id),
+      );
+      const body = (await readBody(response)) as { error: string };
+
+      expect(response.status).toBe(400);
+      expect(typeof body.error).toBe('string');
+
+      const stored = await repository.get(file.id);
+      expect(stored?.screens).toEqual(file.screens);
+    });
+
+    it('returns 400 for a stageHeight that is not a positive integer, and changes nothing', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [
+            { id: file.screens![0].id, name: 'Frame 1', layout: file.screens![0].layout, stageWidth: 402, stageHeight: -5 },
+          ],
+        }),
+        withId(file.id),
+      );
+      const body = (await readBody(response)) as { error: string };
+
+      expect(response.status).toBe(400);
+      expect(typeof body.error).toBe('string');
+
+      const stored = await repository.get(file.id);
+      expect(stored?.screens).toEqual(file.screens);
+    });
+
+    it('returns 400 for a deviceName longer than 80 characters, and changes nothing', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [
+            {
+              id: file.screens![0].id,
+              name: 'Frame 1',
+              layout: file.screens![0].layout,
+              stageWidth: 402,
+              deviceName: 'x'.repeat(81),
+            },
           ],
         }),
         withId(file.id),

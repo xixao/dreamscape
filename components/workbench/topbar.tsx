@@ -5,8 +5,11 @@ import { useEditor } from '@craftjs/core';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  Check,
+  ChevronDown,
   FilePlus2,
   MessageCircle,
+  MessageSquareText,
   Monitor,
   Play,
   Redo2,
@@ -16,6 +19,15 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -23,8 +35,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { SaveState } from '@/lib/persistence';
 import type { Breakpoint } from '@/lib/responsive';
 import { STAGE_PRESETS, STAGE_PRESET_ORDER, type StagePreset } from '@/lib/stage';
+import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
 import { cn } from '@/lib/utils';
-import { CHIP, CHIP_INPUT, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { CHIP, CHIP_INPUT, LABEL, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
 import { useStage } from './stage-context';
 
 const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
@@ -35,8 +48,20 @@ const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
 
 const MAX_NAME_LENGTH = 120;
 
-export function stageReadout(width: number, breakpoint: Breakpoint, zoom: number): string {
-  const parts = [`${width} px`, breakpoint];
+/**
+ * The stage-width readout text. Given a device (the frame's chosen Figma
+ * preset), it reads "<device name> · <width> × <height>" instead of the
+ * plain "<width> px · <breakpoint>" - the device's own name and exact
+ * dimensions are more useful than the generic breakpoint label once one is
+ * set. Either form appends "· <zoom>%" once the artboard is scaled down.
+ */
+export function stageReadout(
+  width: number,
+  breakpoint: Breakpoint,
+  zoom: number,
+  device?: { name: string; height: number } | null,
+): string {
+  const parts = device ? [device.name, `${width} × ${device.height}`] : [`${width} px`, breakpoint];
   if (zoom < 1) parts.push(`${Math.round(zoom * 100)}%`);
   return parts.join(' · ');
 }
@@ -45,19 +70,22 @@ function IconAction({
   label,
   icon: Icon,
   disabled,
-  onClick,
   pressed,
+  onClick,
   badge,
 }: {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
-  onClick: () => void;
-  // Comment tool only: `aria-pressed` for the toggle state and a mono
-  // open-thread count shown as a small badge when there is at least one
-  // (spec docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
-  // section 5, "the comment tool button shows the open thread count").
+  // Undefined (the default) omits aria-pressed entirely, so every existing
+  // caller (Undo, Redo, New frame) renders exactly as before. Only a toggle
+  // like the Chat button passes an actual boolean.
   pressed?: boolean;
+  onClick: () => void;
+  // Comment tool only: a mono open-thread count shown as a small badge when
+  // there is at least one (spec
+  // docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
+  // section 5, "the comment tool button shows the open thread count").
   badge?: number;
 }) {
   return (
@@ -70,7 +98,7 @@ function IconAction({
           aria-pressed={pressed}
           disabled={disabled}
           onClick={onClick}
-          className="relative"
+          className={cn('relative', pressed && 'bg-muted text-foreground')}
         >
           <Icon className="size-4" aria-hidden />
           {!!badge && (
@@ -170,6 +198,51 @@ function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: s
   );
 }
 
+function DevicePresetMenu({
+  deviceName,
+  onSelect,
+}: {
+  deviceName: string | null;
+  onSelect: (device: { name: string; width: number; height: number }) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Frame size presets"
+          aria-haspopup="menu"
+          className={cn(CHIP, 'gap-1.5 px-2 text-[12.5px] font-medium text-foreground')}
+        >
+          <Smartphone className="size-3.5 text-muted-foreground" aria-hidden />
+          <span className="max-w-36 truncate">{deviceName ?? 'Device'}</span>
+          <ChevronDown className="size-3 text-muted-foreground" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {DEVICE_PRESET_GROUPS.map((group) => (
+          <DropdownMenuSub key={group.group}>
+            <DropdownMenuSubTrigger>{group.group}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {group.devices.map((device) => (
+                <DropdownMenuItem key={device.name} aria-label={device.name} onSelect={() => onSelect(device)}>
+                  <span className="flex-1">{device.name}</span>
+                  <span className={LABEL}>
+                    {device.width} × {device.height}
+                  </span>
+                  {deviceName === device.name && (
+                    <Check data-testid="device-check" className="size-3.5 shrink-0" aria-hidden />
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function Topbar({
   fileName,
   onRename,
@@ -182,6 +255,8 @@ export function Topbar({
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
+  chatOpen,
+  onToggleChat,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -194,8 +269,10 @@ export function Topbar({
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
+  chatOpen: boolean;
+  onToggleChat: () => void;
 }) {
-  const { width, breakpoint, preset, zoom, setPreset } = useStage();
+  const { width, height, breakpoint, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
     canUndo: query.history.canUndo(),
     canRedo: query.history.canRedo(),
@@ -205,7 +282,14 @@ export function Topbar({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <header className={cn(PANEL, 'shadow-panel', 'col-span-3 flex h-[54px] items-center gap-2 px-3.5')}>
+      <header
+        className={cn(
+          PANEL,
+          'shadow-panel',
+          chatOpen ? 'col-span-4' : 'col-span-3',
+          'flex h-[54px] items-center gap-2 px-3.5',
+        )}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Link href={filesHref} aria-label="Files" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
@@ -244,11 +328,12 @@ export function Topbar({
             );
           })}
         </ToggleGroup>
+        <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />
         <span
           data-testid="stage-readout"
           className="font-mono text-[11px] text-muted-foreground tabular-nums"
         >
-          {stageReadout(width, breakpoint, zoom)}
+          {stageReadout(width, breakpoint, zoom, deviceName && height != null ? { name: deviceName, height } : null)}
         </span>
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
@@ -276,6 +361,7 @@ export function Topbar({
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
+        <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
       </header>
     </TooltipProvider>
   );

@@ -8,13 +8,14 @@ import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
 type KeysOptions = {
   onToggleUi?: () => void;
+  onToggleChat?: () => void;
   onToggleCommentMode?: () => void;
   commentMode?: boolean;
   onExitCommentMode?: () => void;
 };
 
-function Keys({ onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode }: KeysOptions) {
-  useWorkbenchKeyboard({ onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode });
+function Keys({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode }: KeysOptions) {
+  useWorkbenchKeyboard({ onToggleUi, onToggleChat, onToggleCommentMode, commentMode, onExitCommentMode });
   return (
     <>
       <input aria-label="typing" />
@@ -26,11 +27,13 @@ function Keys({ onToggleUi, onToggleCommentMode, commentMode, onExitCommentMode 
 }
 
 // Accepts either a bare `onToggleUi` callback (every pre-existing call site
-// below) or a full options object (for the newer comment-mode options), so
-// adding options here never has to touch those existing call sites.
-function mount(optionsOrOnToggleUi?: (() => void) | KeysOptions) {
-  const options: KeysOptions =
+// below), optionally followed by `onToggleChat`, or a full options object
+// (for the comment-mode options), so adding options here never has to touch
+// existing call sites.
+function mount(optionsOrOnToggleUi?: (() => void) | KeysOptions, onToggleChat?: () => void) {
+  const base: KeysOptions =
     typeof optionsOrOnToggleUi === 'function' ? { onToggleUi: optionsOrOnToggleUi } : (optionsOrOnToggleUi ?? {});
+  const options: KeysOptions = onToggleChat ? { ...base, onToggleChat } : base;
   const utils = renderInEditor(
     <>
       <Frame>
@@ -268,5 +271,74 @@ describe('useWorkbenchKeyboard onToggleCommentMode', () => {
 
     expect(onExitCommentMode).not.toHaveBeenCalled();
     await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(false));
+  });
+});
+describe('useWorkbenchKeyboard onToggleChat', () => {
+  it('calls onToggleChat and prevents default for Cmd+J', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('calls onToggleChat for Ctrl+J', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when the target is an input', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires even when a popup or dialog owns the interaction', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onToggleChat for other keys or a bare j', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j' });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(onToggleChat).not.toHaveBeenCalled();
+  });
+
+  it('does not call onToggleUi for Cmd+J or onToggleChat for Cmd+\\', async () => {
+    const onToggleUi = vi.fn();
+    const onToggleChat = vi.fn();
+    mount(onToggleUi, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+    expect(onToggleUi).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when onToggleChat is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'j', metaKey: true })).not.toThrow();
   });
 });

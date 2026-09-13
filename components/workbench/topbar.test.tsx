@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
@@ -20,17 +20,20 @@ function renderTopbar(
 ) {
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
+  const onToggleChat = overrides.onToggleChat ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
     fileId: 'file123abc',
     folderId: null,
     currentScreenId: 'screen0001',
+    chatOpen: false,
     ...overrides,
     onRename,
     onNew,
+    onToggleChat,
   };
-  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew };
+  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew, onToggleChat };
 }
 
 describe('stageReadout', () => {
@@ -38,6 +41,15 @@ describe('stageReadout', () => {
     expect(stageReadout(1440, 'desktop', 1)).toBe('1440 px · desktop');
     expect(stageReadout(375, 'mobile', 1)).toBe('375 px · mobile');
     expect(stageReadout(1440, 'desktop', 0.72)).toBe('1440 px · desktop · 72%');
+  });
+
+  it('shows the device name and its width x height instead, when given', () => {
+    expect(stageReadout(402, 'mobile', 1, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
+      'iPhone 16 & 17 Pro · 402 × 874',
+    );
+    expect(stageReadout(402, 'mobile', 0.63, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
+      'iPhone 16 & 17 Pro · 402 × 874 · 63%',
+    );
   });
 });
 
@@ -76,6 +88,8 @@ describe('Topbar', () => {
           fileId="file123abc"
           folderId={null}
           currentScreenId="screen0001"
+          chatOpen={false}
+          onToggleChat={() => {}}
         />
       </>,
     );
@@ -208,6 +222,101 @@ describe('Topbar', () => {
         'The saved design could not be read; this file starts empty.',
       );
       expect(screen.queryByText('Saving')).toBeNull();
+    });
+  });
+
+  describe('Chat toggle', () => {
+    it('reflects chatOpen through aria-pressed', () => {
+      renderTopbar({ chatOpen: false });
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('is pressed when chatOpen is true', () => {
+      renderTopbar({ chatOpen: true });
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('calls onToggleChat when clicked', async () => {
+      const { onToggleChat } = renderTopbar({ chatOpen: false });
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(onToggleChat).toHaveBeenCalledTimes(1);
+    });
+
+    it('spans 3 columns when chat is closed and 4 when it is open', () => {
+      const { unmount } = renderTopbar({ chatOpen: false });
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
+      unmount();
+
+      renderTopbar({ chatOpen: true });
+      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-4');
+    });
+  });
+
+  describe('device presets', () => {
+    it('shows "Device" on the chip and the plain width readout when none is set', () => {
+      renderTopbar({}, { width: 1440 });
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('Device');
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
+    });
+
+    it('has aria-haspopup="menu" on the chip', () => {
+      renderTopbar();
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveAttribute('aria-haspopup', 'menu');
+    });
+
+    it('lists Figma device groups; choosing a device sets the readout, the chip label and the matching segment', async () => {
+      renderTopbar({}, { width: 1440 });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874');
+      expect(presetButton('Mobile')).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('iPhone 16 & 17 Pro');
+    });
+
+    it('selects the Tablet segment for a Tablet-group device and Desktop for a Desktop-group device', async () => {
+      renderTopbar({}, { width: 1440 });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Tablet' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPad Pro 11"' }));
+      expect(presetButton('Tablet')).toHaveAttribute('data-state', 'on');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Desktop' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'MacBook Air' }));
+      expect(presetButton('Desktop')).toHaveAttribute('data-state', 'on');
+      expect(presetButton('Tablet')).toHaveAttribute('data-state', 'off');
+    });
+
+    it('marks the current device with a check mark in the menu, and no other device', async () => {
+      renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
+
+      const chosen = await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' });
+      const other = screen.getByRole('menuitem', { name: 'iPhone 16' });
+      expect(within(chosen).getByTestId('device-check')).toBeInTheDocument();
+      expect(within(other).queryByTestId('device-check')).toBeNull();
+    });
+
+    it('clicking a Mobile/Tablet/Desktop segment after a device clears the chip label back to "Device"', async () => {
+      renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('iPhone 16 & 17 Pro');
+
+      await userEvent.click(presetButton('Desktop'));
+
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('Device');
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
     });
   });
 });
