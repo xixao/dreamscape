@@ -930,9 +930,7 @@ export default function FlowReview() {
             </div>
             {!participant &&
               (view === "build" ? (
-                <aside
-                  className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
-                >
+                <aside className="review-panel">
                   <div className="panel-title">
                     <Settings2 size={17} />
                     <strong>Component properties</strong>
@@ -1020,7 +1018,9 @@ export default function FlowReview() {
                   </div>
                 </aside>
               ) : (
-                <aside className="review-panel">
+                <aside
+                  className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
+                >
                   <Tabs value={panel} onValueChange={setPanel}>
                     <TabsList className="inspector-tabs" variant="line">
                       {isDesigner && (
