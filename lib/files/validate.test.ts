@@ -771,6 +771,28 @@ describe('validateDiagram', () => {
     };
     expect(validateDiagram(input).ok).toBe(true);
   });
+
+  // Marquee selection and groups (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md section 10): groupId is optional, a non-empty
+  // string when present - same "absent stays absent" shape as
+  // textSize/textFont/textColor above.
+  it('accepts a node with a groupId', () => {
+    const input: DiagramInput = { nodes: [diagramNode({ id: 'node000001', groupId: 'group00001' })], edges: [] };
+    const result = validateDiagram(input);
+    expect(result).toEqual({ ok: true, diagram: input });
+  });
+
+  it('rejects an empty-string groupId', () => {
+    const result = validateDiagram({ nodes: [diagramNode({ groupId: '' })], edges: [] });
+    expect(result.ok).toBe(false);
+  });
+
+  it('keeps a node without a groupId free of the key entirely - old files round-trip unchanged', () => {
+    const result = validateDiagram({ nodes: [diagramNode()], edges: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect('groupId' in result.diagram.nodes[0]).toBe(false);
+  });
 });
 
 describe('validateDiagramReferences', () => {

@@ -5,10 +5,25 @@ import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import { frameRect, toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
+import { type DiagramAction, type DiagramNode, type DiagramState } from '@/lib/diagram/store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
 import { Canvas, CanvasViewportProvider, useCanvasViewport, useCanvasViewportController } from './canvas';
+
+function diagramNode(overrides: Partial<DiagramNode> = {}): DiagramNode {
+  return {
+    id: 'dn1',
+    kind: 'rect',
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 60,
+    text: '',
+    color: 'neutral',
+    ...overrides,
+  };
+}
 
 const SCREEN_1: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 300, x: 0, y: 0 };
 const SCREEN_2: Screen = {
@@ -36,6 +51,8 @@ function Harness({
   fileId,
   pageId = 'page1',
   extra,
+  diagram,
+  onDiagramAction,
   onDeselectDiagram,
   selectedFrameIds,
   onToggleFrameSelection,
@@ -54,6 +71,12 @@ function Harness({
   fileId: string;
   pageId?: string;
   extra?: ReactNode;
+  // The diagram marquee (spec docs/superpowers/specs/2026-09-13-diagrams-
+  // design.md section 10) - absent, like every other diagram prop Canvas
+  // itself already defaults, keeps every pre-existing test in this file an
+  // inert, empty diagram exactly as before.
+  diagram?: DiagramState;
+  onDiagramAction?: (action: DiagramAction) => void;
   onDeselectDiagram?: () => void;
   selectedFrameIds?: ReadonlySet<string>;
   onToggleFrameSelection?: (id: string) => void;
@@ -79,6 +102,8 @@ function Harness({
         onMoveScreens={onMoveScreens}
         comments={DEFAULT_STAGE_COMMENTS}
         rootRef={rootRef}
+        diagram={diagram}
+        onDiagramAction={onDiagramAction}
         onDeselectDiagram={onDeselectDiagram}
         selectedFrameIds={selectedFrameIds}
         onToggleFrameSelection={onToggleFrameSelection}
@@ -103,6 +128,8 @@ function renderCanvas({
   fileId = 'file1',
   pageId = 'page1',
   extra,
+  diagram,
+  onDiagramAction,
   onDeselectDiagram,
   selectedFrameIds,
   onToggleFrameSelection,
@@ -121,6 +148,8 @@ function renderCanvas({
   fileId?: string;
   pageId?: string;
   extra?: ReactNode;
+  diagram?: DiagramState;
+  onDiagramAction?: (action: DiagramAction) => void;
   onDeselectDiagram?: () => void;
   selectedFrameIds?: ReadonlySet<string>;
   onToggleFrameSelection?: (id: string) => void;
@@ -141,6 +170,8 @@ function renderCanvas({
       fileId={fileId}
       pageId={pageId}
       extra={extra}
+      diagram={diagram}
+      onDiagramAction={onDiagramAction}
       onDeselectDiagram={onDeselectDiagram}
       selectedFrameIds={selectedFrameIds}
       onToggleFrameSelection={onToggleFrameSelection}
@@ -1449,5 +1480,194 @@ describe('useCanvasViewportController animateTo', () => {
     // pan) must not overwrite the pan with further eased values.
     raf.flush(200);
     expect(screen.getByTestId('readout')).toHaveTextContent('87.50,175.00,5.000');
+  });
+});
+
+// Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 10: the
+// same marquee gesture tested above for frames also selects diagram shapes
+// and connectors - no separate gesture, no new pointer-events wiring (see
+// canvas.tsx's own comment on endMarquee): every diagram element that
+// already reaches this far (nothing starts on a shape, connector, handle,
+// quick-add circle or frame - each stops its own pointerdown from
+// propagating this far in diagram-layer.tsx) is exactly the "empty canvas"
+// case the existing `event.target === event.currentTarget` gate already
+// scopes the frame marquee to.
+describe('Canvas marquee also selects diagram shapes and connectors', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('selects a diagram node whose box intersects the marquee', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee1', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 500, y: 500, width: 100, height: 60 })],
+      edges: [],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee1' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // A box from (450,450) to (700,650): fully contains n1 (500,500,100,60)
+    // and stays well clear of SCREEN_1 (0,0,400,300).
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 450, clientY: 450 });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 700, clientY: 650 });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 700, clientY: 650 });
+
+    expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'n1' }] });
+  });
+
+  it('selects a connector whose path bounding box intersects the marquee', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee2', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [
+        diagramNode({ id: 'n1', x: 500, y: 500, width: 40, height: 40 }),
+        diagramNode({ id: 'n2', x: 700, y: 500, width: 40, height: 40 }),
+      ],
+      edges: [{ id: 'e1', source: { nodeId: 'n1' }, target: { nodeId: 'n2' }, kind: 'step', arrow: 'end' }],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee2' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // Touches the connector's own span (x 500..740) without touching either
+    // shape's box directly (a thin strip between them, y 460..490).
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 500, clientY: 460 });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 740, clientY: 550 });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 740, clientY: 550 });
+
+    const call = onDiagramAction.mock.calls.find((c) => c[0].type === 'select');
+    expect(call).toBeDefined();
+    expect(call![0].selection).toContainEqual({ type: 'edge', id: 'e1' });
+  });
+
+  it('expands a marquee-caught node to its whole group, plus the connector between members', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee3', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [
+        diagramNode({ id: 'n1', x: 500, y: 500, groupId: 'g1' }),
+        diagramNode({ id: 'n2', x: 900, y: 900, groupId: 'g1' }),
+      ],
+      edges: [{ id: 'e1', source: { nodeId: 'n1' }, target: { nodeId: 'n2' }, kind: 'step', arrow: 'end' }],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee3' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // Only reaches n1 (500,500,100,60); n2 sits far away at (900,900).
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 450, clientY: 450 });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 650, clientY: 650 });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 650, clientY: 650 });
+
+    const call = onDiagramAction.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toEqual(
+      expect.arrayContaining([
+        { type: 'node', id: 'n1' },
+        { type: 'node', id: 'n2' },
+        { type: 'edge', id: 'e1' },
+      ]),
+    );
+    expect(call![0].selection).toHaveLength(3);
+  });
+
+  it('Shift+marquee unions with the existing diagram selection', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee4', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 500, y: 500 }), diagramNode({ id: 'n2', x: 900, y: 500 })],
+      edges: [],
+      selection: [{ type: 'node', id: 'n2' }],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee4' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 700, clientY: 650, shiftKey: true });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 700, clientY: 650, shiftKey: true });
+
+    const call = onDiagramAction.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toEqual(
+      expect.arrayContaining([
+        { type: 'node', id: 'n1' },
+        { type: 'node', id: 'n2' },
+      ]),
+    );
+    expect(call![0].selection).toHaveLength(2);
+  });
+
+  it('a plain click (no drag) on empty canvas does not dispatch a diagram marquee selection', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee5', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 500, y: 500 })],
+      edges: [],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee5' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 450, clientY: 450 });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 451, clientY: 450 });
+
+    expect(onDiagramAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('Escape cancels an in-progress marquee without dispatching a diagram selection', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee6', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 500, y: 500 })],
+      edges: [],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, fileId: 'diagrammarquee6' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 450, clientY: 450 });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 700, clientY: 650 });
+    expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('marquee-selection')).toBeNull();
+
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 700, clientY: 650 });
+    expect(onDiagramAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('a drag starting on a diagram shape moves it instead of starting a marquee', async () => {
+    saveViewport(window.localStorage, 'diagrammarquee7', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const onSetFrameSelection = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 500, y: 500 })],
+      edges: [],
+      selection: [{ type: 'node', id: 'n1' }],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, onSetFrameSelection, fileId: 'diagrammarquee7' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const shape = screen.getByTestId('diagram-node-n1');
+    fireEvent.pointerDown(shape, { pointerId: 1, clientX: 520, clientY: 520 });
+    fireEvent.pointerMove(shape, { pointerId: 1, clientX: 528, clientY: 520 });
+    fireEvent.pointerUp(shape, { pointerId: 1, clientX: 528, clientY: 520 });
+
+    expect(onDiagramAction).toHaveBeenCalledWith({ type: 'move', ids: ['n1'], dx: 8, dy: 0 });
+    expect(onSetFrameSelection).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('marquee-selection')).toBeNull();
   });
 });

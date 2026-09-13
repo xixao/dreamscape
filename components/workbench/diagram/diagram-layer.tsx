@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/context-menu';
 import {
   anchorOnBox,
+  bounds,
   getBezierPath,
   getHandlePosition,
   getSmoothStepPath,
@@ -45,6 +46,7 @@ import {
   CONNECTOR_KINDS,
   DIAGRAM_COLORS,
   duplicatePairs,
+  expandToGroups,
   MAX_TEXT_LENGTH,
   MIN_SIZE,
   NODE_KINDS,
@@ -363,6 +365,34 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     };
   }, []);
 
+  // Groups (spec section 10, Matt 2026-09-13: "for diagram, i need to be
+  // able to drag to select multiple items, group them, and also move them
+  // around"): double-clicking a member of a group "enters" it - the group's
+  // id set here - so a plain or shift click on one of ITS OWN members acts
+  // on just that shape, same as an ungrouped one, "until the selection
+  // leaves the group" (handleNodePointerDown's own top-of-function check
+  // leaves it immediately for a click elsewhere; the render-time check just
+  // below catches every OTHER way the selection can change - Escape, a
+  // marquee, Cmd+A, the context menu, ...).
+  const [enteredGroupId, setEnteredGroupId] = useState<string | null>(null);
+  // Adjusted during render (the same "did a value I do not own just
+  // change" pattern `lastToolKind` below already uses) rather than an
+  // effect: comparing against a mirrored `lastSelectionForGroup` is how
+  // this tells "the selection itself just changed" apart from "this
+  // component merely re-rendered" for an unrelated reason.
+  const [lastSelectionForGroup, setLastSelectionForGroup] = useState(diagram.selection);
+  if (diagram.selection !== lastSelectionForGroup) {
+    setLastSelectionForGroup(diagram.selection);
+    if (enteredGroupId !== null) {
+      const stillInside =
+        diagram.selection.length > 0 &&
+        diagram.selection.every(
+          (item) => item.type === 'node' && diagram.nodes.find((n) => n.id === item.id)?.groupId === enteredGroupId,
+        );
+      if (!stillInside) setEnteredGroupId(null);
+    }
+  }
+
   // Shift+F10 and the Menu key open the right-click menu for any non-empty
   // selection (Build step 3; review finding 3 widened this from exactly
   // one - the Align submenu needs two selected shapes and Distribute
@@ -461,8 +491,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // dispatch below, and in workbench.tsx's Cmd+D handler. All three now go
   // through the one pure, tested lib/diagram/store.ts helper.
   function duplicateSelection(ids: string[]): void {
-    const { pairs, edgePairs } = duplicatePairs(diagram, ids, () => nanoid(10));
-    dispatch({ type: 'duplicate', pairs, edgePairs });
+    const { pairs, edgePairs, groupIdMap } = duplicatePairs(diagram, ids, () => nanoid(10));
+    dispatch({ type: 'duplicate', pairs, edgePairs, groupIdMap });
   }
 
   // Every context-menu item that acts on "the selection" (Duplicate, Bring
@@ -472,6 +502,19 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // one of these, so there is never a need to fall back to `[id]` alone.
   const selectedNodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
   const selectedIds = diagram.selection.map((item) => item.id);
+
+  // Build step 4: "Ungroup (enabled when the selection is a group)" -
+  // every selected node sharing the same, defined groupId is exactly
+  // equivalent to "the selection IS some group's full membership" given
+  // groupSelectionFor/expandToGroups above never produce a PARTIAL group
+  // selection through the documented UI, so this simple "every id agrees"
+  // check needs no separate membership re-lookup.
+  const selectedGroupIds = selectedNodeIds.map((id) => diagram.nodes.find((n) => n.id === id)?.groupId);
+  const firstSelectedGroupId = selectedGroupIds[0];
+  const currentGroupId: string | undefined =
+    firstSelectedGroupId !== undefined && selectedGroupIds.every((groupId) => groupId === firstSelectedGroupId)
+      ? firstSelectedGroupId
+      : undefined;
 
   function renderNodeMenuContent(node: DiagramNode): ReactNode {
     return (
@@ -598,6 +641,30 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
+
+        {/* Spec section 10, build step 4: "Group" (enabled with two or more
+            shapes selected) and "Ungroup" (enabled when the selection is a
+            group), placed with Align. */}
+        <ContextMenuItem
+          className={MENU_ROW}
+          disabled={selectedNodeIds.length < 2}
+          onSelect={() => dispatch({ type: 'group', ids: selectedNodeIds, groupId: nanoid(10) })}
+        >
+          Group
+          <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
+            ⌘G
+          </span>
+        </ContextMenuItem>
+        <ContextMenuItem
+          className={MENU_ROW}
+          disabled={!currentGroupId}
+          onSelect={() => currentGroupId && dispatch({ type: 'ungroup', groupId: currentGroupId })}
+        >
+          Ungroup
+          <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
+            ⇧⌘G
+          </span>
+        </ContextMenuItem>
 
         <ContextMenuItem className={MENU_ROW} onSelect={() => queueEditFromMenu(node.id, node.text)}>
           Edit text
@@ -823,6 +890,35 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     }
   }
 
+  // --- Groups -------------------------------------------------------------
+
+  // Spec section 10: "clicking any member selects the whole group (all
+  // members plus connectors between them)" - `treatAsIndividual` (true
+  // while `enteredGroupId` names THIS shape's own group) bypasses that and
+  // returns just the one shape, the "single-shape clicks inside that group
+  // keep working" rule. Degrades to plain single-shape selection on its
+  // own for an ungrouped node too (expandToGroups is a no-op when nothing
+  // in `ids` carries a groupId), so callers never need their own ungrouped
+  // fast path.
+  function groupSelectionFor(nodeId: string, treatAsIndividual: boolean): DiagramSelection {
+    if (treatAsIndividual) return [{ type: 'node', id: nodeId }];
+    return expandToGroups(diagram.nodes, diagram.edges, [nodeId]);
+  }
+
+  // Shift+click on a member toggles the WHOLE group (spec section 10) -
+  // adds it when any part is missing from the current selection, removes
+  // it entirely when every part is already there. Degrades to the
+  // pre-groups single-shape toggle for an ungrouped node (or one inside
+  // `enteredGroupId`), via groupSelectionFor's own `treatAsIndividual`.
+  function toggleGroupSelection(nodeId: string, treatAsIndividual: boolean): void {
+    const groupItems = groupSelectionFor(nodeId, treatAsIndividual);
+    const alreadyFullySelected = groupItems.every((item) => isSelected(diagram.selection, item.type, item.id));
+    const next = alreadyFullySelected
+      ? diagram.selection.filter((existing) => !groupItems.some((item) => item.type === existing.type && item.id === existing.id))
+      : [...diagram.selection, ...groupItems.filter((item) => !isSelected(diagram.selection, item.type, item.id))];
+    dispatch({ type: 'select', selection: next });
+  }
+
   // --- Node pointer handling (select, drag, or start a connector) -------
 
   // Review finding 2: a right button pointerdown must never also start a
@@ -843,23 +939,44 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     }
     if (tool.kind === 'shape') return;
 
+    // Spec section 10: a click on a member of a group not currently
+    // "entered" (see enteredGroupId's own doc comment) acts on the whole
+    // group; a click on a member of the group ALREADY entered acts on just
+    // that one shape - computed fresh here (not read stale from state) so
+    // the very click that leaves one group for another, or for an
+    // ungrouped shape, already selects correctly on this same click, and
+    // corrected for future clicks via setEnteredGroupId.
+    const insideOwnGroup = enteredGroupId !== null && node.groupId === enteredGroupId;
+    if (enteredGroupId !== null && !insideOwnGroup) setEnteredGroupId(null);
+
     const additive = event.shiftKey;
     if (additive) {
-      selectShape('node', node.id, true);
+      toggleGroupSelection(node.id, insideOwnGroup);
       return;
     }
-    const alreadyMultiSelected = isSelected(diagram.selection, 'node', node.id) && diagram.selection.length > 1;
-    const ids = alreadyMultiSelected
-      ? diagram.selection.filter((item) => item.type === 'node').map((item) => item.id)
-      : [node.id];
 
-    // A plain click (no Alt) replaces the selection with just this shape,
-    // unless it is already part of a larger one, exactly as before. Option-
-    // drag (review nits 11/12: Figma drags/duplicates ANY shape under the
-    // pointer, selected or not - not just an already-selected one) needs
-    // this same selection settled BEFORE it decides which ids to drag, so
-    // it always runs, alt or not.
-    if (!alreadyMultiSelected) selectShape('node', node.id, false);
+    const clickSelection = groupSelectionFor(node.id, insideOwnGroup);
+    // "Already part of a larger selection" now also covers a GROUP: a
+    // click on a grouped shape when the whole group (or that shape,
+    // entered, alongside something else already selected) is already
+    // selected keeps the existing selection exactly as it is - including
+    // anything ELSE also selected alongside it - rather than collapsing it
+    // down to just this click's own result; identical to the pre-groups
+    // "isSelected(...) && length > 1" check when the node is ungrouped or
+    // entered, since clickSelection is then just the one item.
+    const alreadyPartOfSelection =
+      clickSelection.every((item) => isSelected(diagram.selection, item.type, item.id)) && diagram.selection.length > 1;
+    const ids = alreadyPartOfSelection
+      ? diagram.selection.filter((item) => item.type === 'node').map((item) => item.id)
+      : clickSelection.filter((item) => item.type === 'node').map((item) => item.id);
+
+    // A plain click (no Alt) replaces the selection with just this shape
+    // (or its whole group), unless it is already part of a larger one,
+    // exactly as before. Option-drag (review nits 11/12: Figma drags/
+    // duplicates ANY shape under the pointer, selected or not - not just an
+    // already-selected one) needs this same selection settled BEFORE it
+    // decides which ids to drag, so it always runs, alt or not.
+    if (!alreadyPartOfSelection) dispatch({ type: 'select', selection: clickSelection });
 
     if (event.altKey) {
       startOptionDrag(ids, event);
@@ -910,8 +1027,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       const dy = snapToGrid(dragOffset.dy);
       if (dx !== 0 || dy !== 0) {
         if (drag.duplicate) {
-          const { pairs, edgePairs } = duplicatePairs(diagram, drag.ids, () => nanoid(10));
-          if (pairs.length > 0) dispatch({ type: 'duplicate', pairs, edgePairs, offset: { x: dx, y: dy } });
+          const { pairs, edgePairs, groupIdMap } = duplicatePairs(diagram, drag.ids, () => nanoid(10));
+          if (pairs.length > 0) dispatch({ type: 'duplicate', pairs, edgePairs, groupIdMap, offset: { x: dx, y: dy } });
         } else {
           dispatch({ type: 'move', ids: drag.ids, dx, dy });
         }
@@ -1147,6 +1264,25 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setEditing({ id: node.id, draft: node.text });
   }
 
+  // Spec section 10: "double-clicking a member enters the group and
+  // selects just that shape" - a member of a group not yet entered enters
+  // it instead of starting text editing; a SECOND double-click, now that
+  // the first already narrowed the selection to this one shape
+  // individually (handleNodePointerDown's own insideOwnGroup branch, which
+  // already ran twice by the time a real double-click's dblclick fires),
+  // reaches the plain "edit this shape's text" behaviour below exactly as
+  // an ungrouped shape always has - so double-click once to enter and
+  // select, again to edit.
+  function handleNodeDoubleClick(node: DiagramNode): void {
+    if (tool.kind !== 'pointer') return;
+    if (node.groupId !== undefined && enteredGroupId !== node.groupId) {
+      setEnteredGroupId(node.groupId);
+      dispatch({ type: 'select', selection: [{ type: 'node', id: node.id }] });
+      return;
+    }
+    beginEditing(node);
+  }
+
   // "Edit text"/"Edit label" reached from the right-click menu (rather than
   // beginEditing's own double-click path - a connector has no double-click-
   // to-edit gesture of its own, only the menu) cannot call setEditing
@@ -1167,6 +1303,45 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   }
 
   // --- Rendering helpers ------------------------------------------------
+
+  // Spec section 10: "a selected group draws one dashed outline around the
+  // members' bounds" instead of each member's own - the set of group ids
+  // whose EVERY member is currently selected. A group only partly caught
+  // by the selection (e.g. one member individually selected while
+  // "entered") is not "the group is selected" - that member keeps its own
+  // ordinary per-node outline in renderNode below.
+  const fullySelectedGroupIds = new Set(
+    Array.from(new Set(diagram.nodes.filter((n) => n.groupId !== undefined).map((n) => n.groupId as string))).filter(
+      (groupId) => {
+        const members = diagram.nodes.filter((n) => n.groupId === groupId);
+        return members.length > 0 && members.every((m) => isSelected(diagram.selection, 'node', m.id));
+      },
+    ),
+  );
+
+  // One dashed outline per fully-selected group, around its members'
+  // rendered (live-drag/resize-aware, via renderedNodeBox) bounds - spec:
+  // "SF2 accent, 1/zoom stroke".
+  function renderGroupOutlines(): ReactNode {
+    return Array.from(fullySelectedGroupIds).map((groupId) => {
+      const memberBoxes = diagram.nodes.filter((n) => n.groupId === groupId).map((n) => renderedNodeBox(n));
+      const box = bounds(memberBoxes);
+      if (!box) return null;
+      return (
+        <rect
+          key={groupId}
+          data-testid={`diagram-group-outline-${groupId}`}
+          x={box.x - 6}
+          y={box.y - 6}
+          width={box.width + 12}
+          height={box.height + 12}
+          fill="none"
+          className="stroke-(--acc)"
+          style={{ strokeWidth: 1 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}`, pointerEvents: 'none' }}
+        />
+      );
+    });
+  }
 
   // Routed through renderedNodeBox (not the raw node) so an edge attached to
   // a node mid-drag or mid-resize follows the shape on every pointer move,
@@ -1409,7 +1584,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
   function renderNode(rawNode: DiagramNode): ReactNode {
     const box = renderedNodeBox(rawNode);
-    const selected = isSelected(diagram.selection, 'node', rawNode.id);
+    // A member of a FULLY selected group draws the shared group outline
+    // (renderGroupOutlines) instead of its own - still counts as "selected"
+    // everywhere else (drag/nudge/align/delete/export, the copy cursor)
+    // through diagram.selection itself, untouched here.
+    const selected =
+      isSelected(diagram.selection, 'node', rawNode.id) &&
+      !(rawNode.groupId !== undefined && fullySelectedGroupIds.has(rawNode.groupId));
     const shape = renderShapeBody(rawNode, box);
     const isEditing = editing?.id === rawNode.id;
     // Build step 2's cursor affordance ("the cursor shows copy while Option
@@ -1450,7 +1631,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             onPointerMove={handleDragMove}
             onPointerUp={endDrag}
             onPointerCancel={(event) => cancelDrag(event.pointerId)}
-            onDoubleClick={() => beginEditing(rawNode)}
+            onDoubleClick={() => handleNodeDoubleClick(rawNode)}
           >
             {shape}
             <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing ? 'all' : 'none' }}>
@@ -1653,6 +1834,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
       {diagram.edges.map(renderEdge)}
       {diagram.nodes.map(renderNode)}
+      {renderGroupOutlines()}
       {frames.map((frame) => (
         <g key={frame.id}>{renderHandles({ type: 'frame', id: frame.id }, frame)}</g>
       ))}

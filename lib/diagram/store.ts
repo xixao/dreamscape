@@ -68,6 +68,19 @@ export interface DiagramNode {
   textSize?: TextSize;
   textFont?: TextFont;
   textColor?: TextColor;
+  // Marquee selection and groups (spec section 10, Matt 2026-09-13: "for
+  // diagram, i need to be able to drag to select multiple items, group
+  // them, and also move them around") - optional so a file saved before
+  // this feature (every node absent) round-trips unchanged; absent stays
+  // absent, never a key set to `undefined`, same convention as
+  // textSize/textFont/textColor above. Nested groups are not supported: a
+  // node belongs to at most one group at a time, and grouping a selection
+  // that already contains grouped members simply overwrites their old
+  // groupId with the new one - diagram-layer.tsx's click/marquee selection
+  // always resolves a group to its FULL membership before a `group`
+  // dispatch can ever reach here (see expandToGroups below), so this
+  // reducer never has to "discover" or expand a partial group itself.
+  groupId?: string;
 }
 
 // One end of a connector: either a diagram node or a frame (screen) - never
@@ -192,7 +205,28 @@ export type DiagramAction =
       pairs: { sourceId: string; newId: string }[];
       edgePairs?: { sourceId: string; newId: string }[];
       offset?: { x: number; y: number };
+      // Spec section 10: "duplicate gives copies of a whole group a fresh
+      // group id" - old groupId -> freshly-minted groupId, computed by
+      // duplicatePairs below (the only place that already knows every
+      // node's CURRENT groupId well enough to tell a whole-group copy from
+      // a partial one). A copy whose source had a groupId with no entry
+      // here (a partial-group duplicate, unreachable through the documented
+      // UI - selecting a group member always selects the whole group - but
+      // not this reducer's job to assume) gets no groupId at all, same
+      // "never a partial/dangling relationship" defense edgePairs already
+      // has above.
+      groupIdMap?: Record<string, string>;
     }
+  // Groups (Cmd+G) two or more existing nodes under a new, caller-minted
+  // groupId, overwriting any groupId they already had (spec section 10:
+  // "grouping a selection that contains grouped shapes regroups them all
+  // into one flat group" - nested groups are not supported). A no-op when
+  // fewer than two of `ids` resolve to real nodes. Ungroups (Cmd+Shift+G)
+  // by clearing `groupId` from every node that currently carries it - a
+  // no-op when nothing does. Both are one history step each, matching every
+  // other multi-id action above.
+  | { type: 'group'; ids: string[]; groupId: string }
+  | { type: 'ungroup'; groupId: string }
   // Moves the given nodes to the end (`front`, painted last/on top - nodes
   // always render after edges in diagram-layer.tsx, so this only reorders
   // nodes relative to each other) or start (`back`) of the `nodes` array,
@@ -459,11 +493,27 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         const source = state.nodes.find((n) => n.id === sourceId);
         if (!source) continue;
         idMap[sourceId] = newId;
+        // Spec section 10: a copy of a node that belonged to a group whose
+        // ENTIRE membership is being duplicated together gets the one fresh
+        // group id duplicatePairs already minted for it; destructured out of
+        // the spread below (rather than spread-then-overridden, the way the
+        // rest of `source` is copied) so a source with no groupId, or one
+        // whose group is only partly represented, produces a copy with the
+        // key genuinely absent - never present set to `undefined` - same
+        // "absent stays absent" convention as textSize/textFont/textColor.
+        const { groupId: sourceGroupId, ...sourceRest } = source;
+        const newGroupId = sourceGroupId ? action.groupIdMap?.[sourceGroupId] : undefined;
         // Re-review finding 20: exact offset, no re-snap - the caller (a
         // drag's already-snapped delta, or Cmd+D's plain 16px) already
         // decided the movement; re-snapping the RESULT here disagreed with
         // it the moment the source itself was off-grid.
-        copies.push({ ...source, id: newId, x: source.x + offset.x, y: source.y + offset.y });
+        copies.push({
+          ...sourceRest,
+          id: newId,
+          x: source.x + offset.x,
+          y: source.y + offset.y,
+          ...(newGroupId !== undefined ? { groupId: newGroupId } : {}),
+        });
         selection.push({ type: 'node', id: newId });
       }
       if (copies.length === 0) return state;
@@ -487,6 +537,43 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         });
       }
       return commit(state, { nodes: [...state.nodes, ...copies], edges: [...state.edges, ...copiedEdges] }, selection);
+    }
+
+    // Spec section 10: groups two or more of `ids` under `action.groupId`,
+    // overwriting any groupId a node already had (nested groups are not
+    // supported - see DiagramNode.groupId's own doc comment for why this
+    // reducer never needs to expand a partial selection to a whole group
+    // itself). Selection is left exactly as it was: the same shapes stay
+    // selected, now as a group.
+    case 'group': {
+      if (action.ids.length < 2) return state;
+      const idSet = new Set(action.ids);
+      const targetCount = state.nodes.filter((n) => idSet.has(n.id)).length;
+      if (targetCount < 2) return state;
+      let changed = false;
+      const nodes = state.nodes.map((n) => {
+        if (!idSet.has(n.id) || n.groupId === action.groupId) return n;
+        changed = true;
+        return { ...n, groupId: action.groupId };
+      });
+      if (!changed) return state;
+      return commit(state, { nodes, edges: state.edges });
+    }
+
+    // Clears `groupId` from every node that currently carries it - a no-op
+    // (no history entry) when nothing does, same guard shape as every other
+    // action here.
+    case 'ungroup': {
+      let changed = false;
+      const nodes = state.nodes.map((n) => {
+        if (n.groupId !== action.groupId) return n;
+        changed = true;
+        const cleared: DiagramNode = { ...n };
+        delete cleared.groupId;
+        return cleared;
+      });
+      if (!changed) return state;
+      return commit(state, { nodes, edges: state.edges });
     }
 
     // Review finding 8: a no-op reorder (every id already at that end)
@@ -786,7 +873,11 @@ export function duplicatePairs(
   state: Pick<DiagramData, 'nodes' | 'edges'>,
   ids: string[],
   makeId: () => string,
-): { pairs: { sourceId: string; newId: string }[]; edgePairs: { sourceId: string; newId: string }[] } {
+): {
+  pairs: { sourceId: string; newId: string }[];
+  edgePairs: { sourceId: string; newId: string }[];
+  groupIdMap: Record<string, string>;
+} {
   const idSet = new Set(ids);
   const pairs: { sourceId: string; newId: string }[] = [];
   for (const id of ids) {
@@ -796,7 +887,24 @@ export function duplicatePairs(
   const edgePairs = state.edges
     .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
     .map((e) => ({ sourceId: e.id, newId: makeId() }));
-  return { pairs, edgePairs };
+  // Spec section 10: "duplicate gives copies of a whole group a fresh group
+  // id" - a fresh id per group, but ONLY for a group every one of whose
+  // members is present in `ids`; a group only partly represented (not
+  // reachable through the documented UI, which always selects a whole
+  // group together - see groupSelectionFor/expandToGroups - but not this
+  // pure helper's job to assume) gets no entry here at all, so the
+  // `duplicate` reducer's own lookup naturally leaves such a copy
+  // ungrouped, same "never a partial/dangling relationship" defense
+  // edgePairs above already has for a connector.
+  const groupIdMap: Record<string, string> = {};
+  const groupIds = new Set(state.nodes.map((n) => n.groupId).filter((g): g is string => g !== undefined));
+  for (const groupId of groupIds) {
+    const members = state.nodes.filter((n) => n.groupId === groupId);
+    if (members.every((m) => idSet.has(m.id))) {
+      groupIdMap[groupId] = makeId();
+    }
+  }
+  return { pairs, edgePairs, groupIdMap };
 }
 
 /**
@@ -813,10 +921,17 @@ export function cloneDiagram(
   makeId: () => string,
 ): DiagramData {
   const nodeIdMap: Record<string, string> = {};
+  // Spec section 10: "cloneDiagram keeps group ids consistent" - every node
+  // that shares an old groupId gets the SAME freshly-minted one in the
+  // copy (first-seen-wins, same pattern as nodeIdMap itself), not each its
+  // own random id, so the copied page's groups still hold together.
+  const groupIdMap: Record<string, string> = {};
   const nodes = diagram.nodes.map((node) => {
     const id = makeId();
     nodeIdMap[node.id] = id;
-    return { ...node, id };
+    if (node.groupId === undefined) return { ...node, id };
+    if (!groupIdMap[node.groupId]) groupIdMap[node.groupId] = makeId();
+    return { ...node, id, groupId: groupIdMap[node.groupId] };
   });
   const remap = (endpoint: EdgeEndpoint): EdgeEndpoint | null => {
     if (endpoint.nodeId) {
@@ -837,4 +952,70 @@ export function cloneDiagram(
     edges.push({ ...edge, id: makeId(), source, target });
   }
   return { nodes, edges };
+}
+
+/**
+ * Expands a set of node ids to the whole group of any grouped node among
+ * them, plus every connector fully inside the expanded set - the "clicking
+ * or marqueeing any member selects the whole group (all members plus
+ * connectors between them)" rule (spec section 10), shared by
+ * diagram-layer.tsx's own click handling and canvas.tsx's marquee so the
+ * two selection gestures can never disagree about what "the whole group"
+ * means. An id with no groupId (or naming no real node) passes through
+ * unexpanded and contributes no edges of its own here - a marquee's own
+ * general "connector whose path intersects the box" test already covers a
+ * connector between ungrouped shapes on its own terms, independent of this
+ * function.
+ */
+export function expandToGroups(
+  nodes: readonly DiagramNode[],
+  edges: readonly DiagramEdge[],
+  ids: readonly string[],
+): DiagramSelection {
+  const groupIds = new Set(
+    nodes.filter((n) => ids.includes(n.id) && n.groupId !== undefined).map((n) => n.groupId as string),
+  );
+  const memberIds = new Set(ids);
+  if (groupIds.size > 0) {
+    for (const n of nodes) {
+      if (n.groupId !== undefined && groupIds.has(n.groupId)) memberIds.add(n.id);
+    }
+  }
+  const nodeItems: DiagramSelection = nodes.filter((n) => memberIds.has(n.id)).map((n) => ({ type: 'node', id: n.id }));
+  const edgeItems: DiagramSelection =
+    groupIds.size > 0
+      ? edges
+          .filter((e) => !!e.source.nodeId && memberIds.has(e.source.nodeId) && !!e.target.nodeId && memberIds.has(e.target.nodeId))
+          .map((e) => ({ type: 'edge', id: e.id }))
+      : [];
+  return [...nodeItems, ...edgeItems];
+}
+
+/**
+ * The approximate bounding box of one connector's rendered path, resolved
+ * from its two endpoints' current boxes (a node from `nodes`, or a frame
+ * from `frames`) - used by the marquee's own hit test (spec section 10:
+ * "every connector whose path bounding box intersects it"). The straight
+ * line between the two endpoint BOXES' own combined bounds always contains
+ * a straight or step path exactly, and a curve's own gentle bow outward
+ * (geometry.ts's BEZIER_CURVATURE/BEZIER_MIN_OFFSET) only rarely strays
+ * past it at typical diagram spacing - an approximation a marquee's own
+ * loose, box-based hit-testing is already built around (frames and shapes
+ * alike). `null` when either endpoint cannot be resolved (a dangling
+ * reference).
+ */
+export function edgeBounds(
+  edge: Pick<DiagramEdge, 'source' | 'target'>,
+  nodes: readonly DiagramNode[],
+  frames: readonly (Box & { id: string })[],
+): Box | null {
+  const boxFor = (endpoint: EdgeEndpoint): Box | null => {
+    if (endpoint.nodeId) return nodes.find((n) => n.id === endpoint.nodeId) ?? null;
+    if (endpoint.screenId) return frames.find((f) => f.id === endpoint.screenId) ?? null;
+    return null;
+  };
+  const sourceBox = boxFor(edge.source);
+  const targetBox = boxFor(edge.target);
+  if (!sourceBox || !targetBox) return null;
+  return bounds([sourceBox, targetBox]);
 }

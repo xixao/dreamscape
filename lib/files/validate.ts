@@ -580,6 +580,10 @@ export type DiagramNodeInput = {
   textSize?: string;
   textFont?: string;
   textColor?: string;
+  // Marquee selection and groups (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md section 10): optional, a non-empty string when
+  // present - see validateDiagram's own check below.
+  groupId?: string;
 };
 export type DiagramEdgeInput = {
   id: string;
@@ -666,6 +670,14 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     if (node.textColor !== undefined && !(TEXT_COLORS as readonly string[]).includes(node.textColor)) {
       return { ok: false, reason: `diagram node "${node.id}" has an unknown text color "${node.textColor}"` };
     }
+    // Spec section 10: groupId is optional (absent on every diagram saved
+    // before this feature) and, when present, a non-empty string - no
+    // further shape constraint (unlike screen/page ids elsewhere, a
+    // diagram node/edge id itself carries no length rule in this
+    // validator either, only uniqueness).
+    if (node.groupId !== undefined && (typeof node.groupId !== 'string' || node.groupId.length === 0)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an invalid groupId` };
+    }
   }
 
   for (const edge of input.edges) {
@@ -705,13 +717,14 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
       // an edge's optional `side` - absent stays absent (not a key set to
       // `undefined`), so a file saved before this feature round-trips
       // byte-identical.
-      nodes: input.nodes.map(({ textSize, textFont, textColor, ...rest }) => ({
+      nodes: input.nodes.map(({ textSize, textFont, textColor, groupId, ...rest }) => ({
         ...rest,
         kind: rest.kind as DiagramNodeKind,
         color: rest.color as DiagramColor,
         ...(textSize !== undefined ? { textSize: textSize as TextSize } : {}),
         ...(textFont !== undefined ? { textFont: textFont as TextFont } : {}),
         ...(textColor !== undefined ? { textColor: textColor as TextColor } : {}),
+        ...(groupId !== undefined ? { groupId } : {}),
       })),
       edges: input.edges.map((edge) => ({
         ...edge,

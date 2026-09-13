@@ -1430,10 +1430,33 @@ function WorkbenchShell({
       // through the very same reducer action. duplicatePairs is the same
       // helper the layer itself uses, so the two never drift apart.
       const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
-      const { pairs, edgePairs } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
-      dispatchDiagram({ type: 'duplicate', pairs, edgePairs });
+      const { pairs, edgePairs, groupIdMap } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
+      dispatchDiagram({ type: 'duplicate', pairs, edgePairs, groupIdMap });
     },
     onDiagramSelectAll: () => dispatchDiagram({ type: 'selectAll' }),
+    // Cmd+G (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+    // section 10): groups every currently-selected shape under a fresh
+    // groupId - the reducer's own "two or more real nodes" guard (store.ts)
+    // makes this a safe no-op when the selection is too small or holds no
+    // shapes at all, so this handler does not need to pre-check that
+    // itself, the same "reducer trusts and applies, the layer just calls
+    // it" division diagram-layer.tsx's own duplicateSelection already has.
+    onDiagramGroup: () => {
+      const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+      dispatchDiagram({ type: 'group', ids: nodeIds, groupId: nanoid(10) });
+    },
+    // Cmd+Shift+G: ungroups the group the current selection belongs to -
+    // build step 3's own selection rules mean the selection is always
+    // either a whole group or nothing grouped at all by the time this
+    // fires, so the first selected node carrying a groupId already names
+    // the one group to dissolve.
+    onDiagramUngroup: () => {
+      const grouped = diagram.nodes.find(
+        (n) => n.groupId !== undefined && diagram.selection.some((item) => item.type === 'node' && item.id === n.id),
+      );
+      if (!grouped?.groupId) return;
+      dispatchDiagram({ type: 'ungroup', groupId: grouped.groupId });
+    },
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;

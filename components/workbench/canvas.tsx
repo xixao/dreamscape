@@ -30,7 +30,14 @@ import {
 } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { SnapDistance, SnapGuide } from '@/lib/canvas/snap';
-import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
+import {
+  createInitialDiagramState,
+  edgeBounds,
+  expandToGroups,
+  type DiagramAction,
+  type DiagramSelection,
+  type DiagramState,
+} from '@/lib/diagram/store';
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
@@ -818,6 +825,57 @@ export function Canvas({
       .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
       .map((candidate) => candidate.id);
     onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedIds])) : matchedIds);
+
+    // The diagram lives in the very same "empty canvas" space this marquee
+    // already scans for frames (spec docs/superpowers/specs/2026-09-13-
+    // diagrams-design.md section 10: "dragging on empty canvas... draws the
+    // same selection box the frame marquee uses and, on release, selects
+    // every shape and connector whose box or path intersects it"). Nothing
+    // extra is needed to keep this from starting "on a shape, connector,
+    // handle, quick-add circle or frame" (the spec's own exclusion list):
+    // every one of those already stops its own pointerdown from
+    // propagating this far (diagram-layer.tsx's handleNodePointerDown/
+    // handleResizePointerDown/startConnect/handleEdgePointerDown/the
+    // quick-add circle's onPointerDown all call stopPropagation), and a
+    // frame press never reaches this handler either (a different target
+    // than canvas-root, or a wholly separate iframe document) - so the
+    // SAME `event.target === event.currentTarget` gate that already scopes
+    // the frame marquee above scopes this to exactly the diagram's own
+    // empty canvas too. A node caught by the box expands to its whole
+    // group (build step 3: "the marquee selects whole groups when it
+    // touches any member") via the same expandToGroups helper the layer's
+    // own click handling uses, so the two selection gestures can never
+    // disagree about what "the whole group" means.
+    const matchedNodeIds = diagram.nodes.filter((node) => rectsIntersect(marqueeCanvasRect, node)).map((node) => node.id);
+    const matchedEdgeIds = diagram.edges
+      .filter((edge) => {
+        const box = edgeBounds(edge, diagram.nodes, diagramFrameBoxes);
+        return box !== null && rectsIntersect(marqueeCanvasRect, box);
+      })
+      .map((edge) => edge.id);
+    const expandedSelection = expandToGroups(diagram.nodes, diagram.edges, matchedNodeIds);
+    const matchedDiagramItems: DiagramSelection = [
+      ...expandedSelection,
+      ...matchedEdgeIds
+        .filter((id) => !expandedSelection.some((item) => item.type === 'edge' && item.id === id))
+        .map((id) => ({ type: 'edge' as const, id })),
+    ];
+    // Shift unions with the diagram's OWN existing selection, independently
+    // of the frame union just above - the two selections are otherwise
+    // mutually exclusive (workbench.tsx's own "one selection model at a
+    // time" effect already resolves a marquee that happens to catch both,
+    // by clearing the frame selection the instant a non-empty diagram
+    // selection appears - the same effect that already governs every other
+    // way a diagram selection can become active).
+    const nextDiagramSelection = marquee.shiftKey
+      ? [
+          ...diagram.selection,
+          ...matchedDiagramItems.filter(
+            (item) => !diagram.selection.some((existing) => existing.type === item.type && existing.id === item.id),
+          ),
+        ]
+      : matchedDiagramItems;
+    onDiagramAction({ type: 'select', selection: nextDiagramSelection });
   }
 
   // Starts a pan gesture that began inside a frame's own document - the
@@ -994,6 +1052,12 @@ export function Canvas({
   // frame's own up-to-date box (see snapResult's own doc comment above).
   const snappingScreen = snapResult ? screens.find((screen) => screen.id === snapResult.frameId) : undefined;
 
+  // Every frame's own box, with its id - shared by the DiagramLayer prop
+  // below and endMarquee's own edgeBounds lookup above, so the two never
+  // compute two slightly different views of "where the frames are" from
+  // the same render.
+  const diagramFrameBoxes = screens.map((screen) => ({ id: screen.id, ...frameRect(screen, measuredHeights) }));
+
   return (
     <div
       ref={rootRef}
@@ -1121,7 +1185,7 @@ export function Canvas({
         <DiagramLayer
           diagram={diagram}
           dispatch={onDiagramAction}
-          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen, measuredHeights) }))}
+          frames={diagramFrameBoxes}
           viewport={viewport}
           tool={diagramTool}
           onToolConsumed={onDiagramToolConsumed}
