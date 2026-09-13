@@ -1203,7 +1203,8 @@ select {
 .product-bottom > span {
   font-size: 13px;
   color: var(--muted-foreground);
-  max-width: 140px;
+  flex: 1;
+  min-width: 0;
 }
 .product-bottom button {
   font-size: 13px;
@@ -1437,7 +1438,7 @@ select {
 }
 .state-strip button {
   display: flex;
-  gap: 6px;
+  gap: 12px;
   align-items: center;
   padding: 4px 7px;
   border-radius: 4px;
@@ -1480,7 +1481,7 @@ select {
   height: 32px;
 }
 .inspector-tabs [data-slot="tabs-trigger"][data-state="active"] {
-  color: #086653;
+  color: var(--primary);
 }
 .review-panel > [data-slot="tabs"] {
   gap: 0;
@@ -2277,7 +2278,7 @@ select {
   }
   .state-strip button {
     font-size: 13px;
-    padding: 3px;
+    padding: 6px 8px;
   }
   .stage-toolbar .status-dot {
     display: none;
@@ -3215,7 +3216,7 @@ body {
   }
   .studio .state-strip button {
     font-size: 13px;
-    gap: 3px;
+    gap: 10px;
   }
   .presentation-name {
     font-size: 13px;
@@ -3345,6 +3346,19 @@ body {
   display: grid;
   gap: 8px;
   font-size: 13px;
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+.design-library-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.design-library-heading svg {
+  margin-top: 2px;
+}
+.design-status-label {
+  color: var(--muted-foreground);
 }
 .design-system-label small {
   color: var(--muted-foreground);
@@ -3487,6 +3501,10 @@ body {
 .design-footer {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  overflow-wrap: anywhere;
   padding: 8px 16px;
   font-size: 13px;
   border-top: 1px solid var(--border);

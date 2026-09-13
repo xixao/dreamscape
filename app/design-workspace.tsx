@@ -144,7 +144,9 @@ export default function DesignWorkspace({
       {error && (
         <div className="error-banner" role="alert">
           {error}
-          {/sign in/i.test(error) && <a href="/signin-with-chatgpt?return_to=/">Sign in</a>}
+          {/sign in/i.test(error) && (
+            <a href="/signin-with-chatgpt?return_to=/">Sign in</a>
+          )}
         </div>
       )}
       <div className="design-tools">
@@ -271,8 +273,10 @@ export default function DesignWorkspace({
             Retry button
           </button>
           <div className="design-system-label">
-            <Layers3 size={17} />
-            <strong>Component library</strong>
+            <div className="design-library-heading">
+              <Layers3 size={17} />
+              <strong>Component library</strong>
+            </div>
             <span>Upload / Default</span>
             <small>Demo component</small>
           </div>
@@ -459,7 +463,10 @@ export default function DesignWorkspace({
                   </div>
                 )}
                 <div className="design-feedback">
-                  <h3>{feedback.length} review comments</h3>
+                  <h3>
+                    {feedback.length} review{" "}
+                    {feedback.length === 1 ? "comment" : "comments"}
+                  </h3>
                   {feedback.slice(0, 3).map((c) => (
                     <button
                       key={c.id}
@@ -509,8 +516,10 @@ export default function DesignWorkspace({
       </main>
       <footer className="design-footer">
         <span>
-          {anchor === "upload-error" ? "Error message" : "Document uploader"}{" "}
-          selected
+          <span className="design-status-label">Selected:</span>{" "}
+          <strong>
+            {anchor === "upload-error" ? "Error message" : "Document uploader"}
+          </strong>
         </span>
         <span>{dirty ? "Unsaved draft" : `Version ${revision.number}`}</span>
       </footer>

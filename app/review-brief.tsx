@@ -83,7 +83,10 @@ export default function ReviewBrief({
         <button className="brief-evidence-link" onClick={onResults}>
           <Flag size={18} />
           <span>
-            <strong>{sessions.length} participant sessions</strong>
+            <strong>
+              {sessions.length} participant{" "}
+              {sessions.length === 1 ? "session" : "sessions"}
+            </strong>
             <small>
               {flagged} with abandonment or unavailable-control attempts
             </small>
@@ -93,7 +96,9 @@ export default function ReviewBrief({
         <button className="brief-evidence-link" onClick={onFeedback}>
           <MessageSquare size={18} />
           <span>
-            <strong>{open} open review comments</strong>
+            <strong>
+              {open} open review {open === 1 ? "comment" : "comments"}
+            </strong>
             <small>Designer and reviewer feedback</small>
           </span>
           <ArrowRight size={16} />
