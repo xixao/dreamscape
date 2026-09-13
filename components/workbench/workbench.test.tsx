@@ -1017,6 +1017,22 @@ describe('Workbench', () => {
     });
   });
 
+  // Integration coverage for the real, rendered Canvas (layer-stack-menu.test.tsx
+  // covers the component in isolation) - this is what actually caught the
+  // infinite canvas's root element losing the data-testid the press-and-hold
+  // gesture's parent-document listener queries for.
+  describe('layer stack menu', () => {
+    it('opens on a press-and-hold on a real layer inside the rendered frame', async () => {
+      render(<Workbench file={makeFile()} />);
+      const button = within(frameBody()).getByRole('button', { name: 'Sign in' });
+
+      fireEvent.pointerDown(button, { button: 0, clientX: 50, clientY: 50 });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(await screen.findByRole('menu')).toBeInTheDocument();
+    });
+  });
+
   // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
   // 4: the shell is no longer a grid - the canvas fills the window and
   // every other piece of chrome floats above it at a fixed position.

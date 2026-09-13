@@ -26,9 +26,13 @@ import { MENU_HINT, MENU_POPOVER, MENU_ROW, MENU_SELECTED_CHIP } from './chrome'
 import { selectedIdFrom } from './selection';
 import { useStage } from './stage-context';
 
-const STAGE_COLUMN_SELECTOR = '[data-testid="stage-column"]';
+// The infinite canvas's own full-window root (components/workbench/
+// canvas.tsx's data-testid="canvas-root") - the parent-document equivalent
+// of the old scrolling stage column this selector originally named, kept as
+// a selector (not a ref/context) since this hook attaches capture-phase
+// listeners imperatively outside of React's own tree.
+const STAGE_COLUMN_SELECTOR = '[data-testid="canvas-root"]';
 const ARTBOARD_SELECTOR = '[data-artboard]';
-const CANVAS_FRAME_SELECTOR = '[data-testid="canvas-frame"]';
 const MENU_OFFSET = 8;
 const MENU_MARGIN = 8;
 const HINT_TEXT = 'Hold on a layer to open this menu';
@@ -262,7 +266,15 @@ export function useLayerStack() {
       clearSwallowTimeout();
       if (event.button !== 0) return;
 
-      const iframeRect = document.querySelector(CANVAS_FRAME_SELECTOR)?.getBoundingClientRect();
+      // window.frameElement (from inside the iframe's own window) is the
+      // exact <iframe> DOM node hosting THIS press, as seen from the parent
+      // document - unlike a CSS selector query, it can never resolve to a
+      // different frame's iframe once the infinite canvas
+      // (components/workbench/canvas.tsx) has more than one
+      // [data-testid="canvas-frame"] on screen at once (every other frame's
+      // own read-only preview has one too).
+      const iframeElement = canvasDocument?.window.frameElement as HTMLElement | null | undefined;
+      const iframeRect = iframeElement?.getBoundingClientRect();
       const toAnchor: AnchorConverter = iframeRect
         ? (x, y) => ({ x: iframeRect.left + x * zoomRef.current, y: iframeRect.top + y * zoomRef.current })
         : IDENTITY_ANCHOR;

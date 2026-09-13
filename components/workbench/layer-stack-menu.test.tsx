@@ -30,10 +30,17 @@ function ZoomSetter({ zoom }: { zoom: number }) {
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
 // a separate document `screen` (bound to the outer one) cannot see into -
 // waits for the iframe and returns its body so callers can query inside it.
+// Scoped inside [data-testid="artboard"] rather than a bare getByTestId:
+// the infinite canvas can have more than one [data-testid="canvas-frame"]
+// on screen (components/workbench/canvas.tsx mounts one per screen, and one
+// test below deliberately adds a decoy to prove a fix), but only the
+// focused frame's own lives inside an "artboard" wrapper.
 async function frameBody(): Promise<HTMLElement> {
   return waitFor(() => {
-    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
-    const body = iframe.contentDocument?.body;
+    const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+      | HTMLIFrameElement
+      | null;
+    const body = iframe?.contentDocument?.body;
     if (!body) throw new Error('canvas frame body not ready');
     return body;
   });
@@ -49,12 +56,12 @@ async function setup(zoom = 1) {
   const utils = renderInEditor(
     <>
       {/*
-        data-testid="stage-column" stands in for the real infinite canvas's
+        data-testid="canvas-root" stands in for the real infinite canvas's
         own root element (components/workbench/canvas.tsx) - the only thing
         LayerStackMenu's press-and-hold gesture detection needs from an
         ancestor, queried by that test id rather than received as a prop.
       */}
-      <div data-testid="stage-column">
+      <div data-testid="canvas-root">
         <ZoomSetter zoom={zoom} />
         <Stage screen={ONE_SCREEN} viewport={{ x: 0, y: 0, zoom }} />
       </div>
@@ -253,7 +260,7 @@ describe('LayerStackMenu', () => {
     await advance(HOLD_MS);
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
-    fireEvent.scroll(screen.getByTestId('stage-column'));
+    fireEvent.scroll(screen.getByTestId('canvas-root'));
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
@@ -409,6 +416,42 @@ describe('LayerStackMenu', () => {
       await advance(HOLD_MS);
 
       expect(screen.getByRole('menu')).toHaveStyle({ left: `${105 + 8}px`, top: `${50 + 8}px` });
+    });
+
+    // The infinite canvas (components/workbench/canvas.tsx) mounts one
+    // CanvasFrame per screen at once, so more than one [data-testid=
+    // "canvas-frame"] iframe can exist simultaneously - a plain
+    // document.querySelector(that selector) could resolve to a DIFFERENT
+    // frame's iframe than the one actually pressed. The fix reads
+    // canvasDocument.window.frameElement instead (the exact iframe hosting
+    // THIS press), which this decoy iframe - present, matching the same
+    // test id, but not the one the press happened in - proves.
+    it('still anchors to the frame the press actually happened in, even with another canvas-frame iframe present', async () => {
+      const decoy = document.createElement('iframe');
+      decoy.setAttribute('data-testid', 'canvas-frame');
+      document.body.insertBefore(decoy, document.body.firstChild);
+
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this === decoy) {
+          // A wildly different rect: if this one is ever used, the anchor
+          // below would come out nowhere near the assertion.
+          return { left: 900, top: 900, width: 10, height: 10, right: 910, bottom: 910, x: 900, y: 900, toJSON() {} } as DOMRect;
+        }
+        if (this.dataset.testid === 'canvas-frame') {
+          return { left: 100, top: 40, width: 720, height: 320, right: 820, bottom: 360, x: 100, y: 40, toJSON() {} } as DOMRect;
+        }
+        return { left: 0, top: 0, width: 40, height: 20, right: 40, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
+      });
+
+      try {
+        const { button } = await setup(0.5);
+        press(button, 10, 20);
+        await advance(HOLD_MS);
+
+        expect(screen.getByRole('menu')).toHaveStyle({ left: `${105 + 8}px`, top: `${50 + 8}px` });
+      } finally {
+        decoy.remove();
+      }
     });
   });
 });
