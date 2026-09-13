@@ -56,6 +56,12 @@ describe('ComponentTray', () => {
     expect(screen.queryByText('Dropdown trigger')).not.toBeInTheDocument();
   });
 
+  it('filterTrayItems matches an item\'s search keywords, so "modal" finds the Dialog element', () => {
+    const labels = (query: string) => filterTrayItems(trayItems, query).map((item) => item.label);
+    expect(labels('modal')).toEqual(['Dialog']);
+    expect(labels('Popup')).toEqual(['Dialog']);
+  });
+
   it('filterTrayItems keeps every item for a blank or whitespace query', () => {
     expect(filterTrayItems(trayItems, '')).toEqual(trayItems);
     expect(filterTrayItems(trayItems, '')).toHaveLength(trayItems.length);

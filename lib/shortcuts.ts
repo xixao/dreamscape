@@ -61,7 +61,7 @@ export const SHORTCUTS: Shortcut[] = [
   // matchShortcut never returns either id (see the GESTURE_IDS exclusion
   // in shortcuts.test.ts's "never drift apart" describe block; canvas.tsx
   // owns the actual gesture, not keyboard.tsx). Registered here only so
-  // the hold-Cmd overlay, the "?" dialog and the README list them
+  // the shortcuts dialog (the ⌘ button in the top bar, the overflow menu or "?") and the README list them
   // alongside every other Canvas shortcut. The single-token 'keys' entries
   // below (rather than separate modifier/key tokens) are gesture
   // descriptions, not chords - formatKeys renders a lone token unchanged

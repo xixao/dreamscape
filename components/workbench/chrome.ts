@@ -91,13 +91,28 @@ export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 // the cascade) - only the same-variant `sm:max-w-*` actually wins; the
 // unprefixed class is just the sensible base for narrower viewports.
 export const WIDE_DIALOG_CONTENT = 'max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]';
+// The shortcuts sheet sizes itself to its columns (w-auto) within the same
+// caps, so it is exactly as wide as three columns on a large window and no
+// wider.
+export const SHORTCUTS_DIALOG_CONTENT = `${WIDE_DIALOG_CONTENT} w-auto`;
 export const OVERLAY_TITLE = 'text-[20px] font-semibold text-foreground';
 export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
-export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
-export const OVERLAY_GROUP_TITLE = 'mb-3 font-mono text-[12px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
-export const OVERLAY_ROW_LABEL = 'text-[15px] leading-6 whitespace-nowrap text-t2';
+// Three fixed-width columns (two below xl, one below lg) so a row's label
+// and its keys sit next to each other instead of at opposite ends of a
+// full-width column (Matt, 2026-09-13: "these shortcuts look terrible" after
+// the sheet went full-width). The key caps still wrap inside their cell, so
+// a long row can never run into the next column.
+// Explicit 360 px tracks, not `1fr`: inside a content-sized (w-auto) dialog
+// a fractional track sizes to its min-content and the columns collapse.
+export const OVERLAY_GRID =
+  'grid grid-cols-[360px] gap-x-14 gap-y-8 lg:grid-cols-[repeat(2,360px)] xl:grid-cols-[repeat(3,360px)]';
+export const OVERLAY_COLUMN = 'min-w-0';
+export const OVERLAY_ROW = 'grid min-h-8 grid-cols-[1fr_auto] items-center gap-x-4';
+export const OVERLAY_KEYS = 'flex min-w-0 flex-wrap items-center justify-end gap-1';
+export const OVERLAY_GROUP_TITLE = 'mb-1.5 border-b border-line-soft pb-2 font-mono text-[11.5px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
+export const OVERLAY_ROW_LABEL = 'text-[15px] leading-5 whitespace-nowrap text-t2';
 // OVERLAY_ROW_LABEL for running text (the Element documentation dialog's
 // paragraphs and table cells): the same size and colour, allowed to wrap.
 export const OVERLAY_PARAGRAPH = 'text-[15px] leading-6 text-t2';
 export const OVERLAY_KEY_CAP =
-  'rounded-sm border border-border bg-muted px-2 py-0.5 font-mono text-[13px] whitespace-nowrap shadow-[var(--bevel-hi),var(--bevel-drop)]';
+  'inline-flex h-6 min-w-6 items-center justify-center rounded-[4px] border border-border bg-muted px-1.5 font-mono text-[12.5px] leading-none whitespace-nowrap text-foreground shadow-[var(--bevel-hi),var(--bevel-drop)]';

@@ -100,6 +100,10 @@ export interface TrayItem {
   // future item without one falls back to placeholderSize's own
   // 40px-tall/full-width default.
   previewSize?: { width: number; height: number };
+  // Extra words the Elements search matches besides the label and type,
+  // for the names designers actually use (Matt, 2026-09-13: "why is modal
+  // not a component in the list?" - it is, as shadcn's "Dialog").
+  keywords?: string[];
 }
 
 // Order matters: within a group, items render in this array's order (see
@@ -259,6 +263,7 @@ export const trayItems: TrayItem[] = [
     label: 'Dialog',
     group: 'Feedback',
     icon: AppWindow,
+    keywords: ['modal', 'popup', 'overlay'],
     create: () => <Dialog />,
     previewSize: { width: 120, height: 36 },
   },
