@@ -350,6 +350,46 @@ describe('DiagramLayer resize', () => {
   });
 });
 
+describe('DiagramLayer live connector redraw during drag/resize', () => {
+  it('redraws a connected edge on every pointer move while dragging, before the store is written', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('redraws a connected edge on every pointer move while resizing from a corner, before the store is written', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const handle = screen.getByTestId('diagram-resize-a-se');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 160, clientY: 90 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 160, clientY: 90 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+});
+
 describe('DiagramLayer connecting', () => {
   it('drags from a node handle to another node to create a connector', () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];

@@ -435,8 +435,19 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
   // --- Rendering helpers ------------------------------------------------
 
+  // Routed through renderedNodeBox (not the raw node) so an edge attached to
+  // a node mid-drag or mid-resize follows the shape on every pointer move,
+  // not just once the gesture ends and the store is actually written -
+  // renderNode already applies the exact same live-preview box to the shape
+  // itself, so this just keeps the connector consistent with what is on
+  // screen. Both `pathFor`'s direct resolution and its no-side fallback
+  // (which also reads the OTHER endpoint's box, below) benefit automatically
+  // since both go through this one function.
   function endpointBox(endpoint: EdgeEndpoint): Box | null {
-    if (endpoint.nodeId) return diagram.nodes.find((n) => n.id === endpoint.nodeId) ?? null;
+    if (endpoint.nodeId) {
+      const node = diagram.nodes.find((n) => n.id === endpoint.nodeId);
+      return node ? renderedNodeBox(node) : null;
+    }
     if (endpoint.screenId) return frames.find((f) => f.id === endpoint.screenId) ?? null;
     return null;
   }
