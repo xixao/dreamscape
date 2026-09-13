@@ -662,7 +662,14 @@ export function Workbench({
   // 12-infinite-canvas-design.md section 6: "saves x, y through the existing
   // save path"), debounced exactly like every other screen edit.
   function moveScreen(id: string, position: { x: number; y: number }): void {
-    const next = screens.map((screen) => (screen.id === id ? { ...screen, x: position.x, y: position.y } : screen));
+    // Review fix wave item 1 (blocker): validateScreens rejects a
+    // non-integer x/y with a 400 that lib/persistence.ts never retries, so
+    // this is a defensive second Math.round on top of resolveSnap's own -
+    // a caller that skips snap.ts entirely (or a future one) still can't
+    // wedge autosave with a fractional position.
+    const next = screens.map((screen) =>
+      screen.id === id ? { ...screen, x: Math.round(position.x), y: Math.round(position.y) } : screen,
+    );
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -675,7 +682,8 @@ export function Workbench({
   // inspector's alignment fields) both move several frames at once and
   // must land in one save, not one per frame.
   function moveScreens(updates: { id: string; x: number; y: number }[]): void {
-    const byId = new Map(updates.map((update) => [update.id, update]));
+    // Same defensive rounding as moveScreen above (review fix wave item 1).
+    const byId = new Map(updates.map((update) => [update.id, { x: Math.round(update.x), y: Math.round(update.y) }]));
     const next = screens.map((screen) => {
       const update = byId.get(screen.id);
       return update ? { ...screen, x: update.x, y: update.y } : screen;
@@ -1098,7 +1106,21 @@ function WorkbenchShell({
       type: 'load',
       data: sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
     });
+    // Review fix wave item 2 (blocker): a frame selection is a canvas-level
+    // concept scoped to whatever page is showing - left alone across a page
+    // switch, the Align row kept showing (and writing) another page's
+    // frames the user could no longer see, and a multi-drag would fan its
+    // delta out to those invisible frames too (see pageFrameSelection and
+    // canvas.tsx's own skip-if-unknown fix below).
+    setSelectedFrameIds(new Set());
   }
+
+  // The page-scoped view of selectedFrameIds every consumer below actually
+  // gets (Canvas, Inspector, frameSelectionActive) - defensive, on top of
+  // the clear above, so a selection can never act on a frame that is not
+  // part of the page currently showing even if some future path leaves a
+  // stale id behind.
+  const pageFrameSelection = new Set([...selectedFrameIds].filter((id) => pageScreenIds.has(id)));
 
   // Persists a real edit (onDiagramChange, ultimately queuePatch) without
   // ever saving the load a page switch/first mount itself just performed -
@@ -1334,7 +1356,7 @@ function WorkbenchShell({
     onExitDiagramTool: closeDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
-    frameSelectionActive: selectedFrameIds.size > 0,
+    frameSelectionActive: pageFrameSelection.size > 0,
     onClearFrameSelection: () => setSelectedFrameIds(new Set()),
     onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
     onDiagramDuplicate: () =>
@@ -1356,10 +1378,10 @@ function WorkbenchShell({
     // delta and saves them together, the same "one patch" treatment a
     // dragged multi-selection already gets (canvas.tsx's onMoveScreens).
     onFrameNudge: (direction, big) => {
-      if (selectedFrameIds.size === 0) return;
+      if (pageFrameSelection.size === 0) return;
       const [dx, dy] = nudgeDelta(direction, big);
       const updates = pageScreens
-        .filter((screen) => selectedFrameIds.has(screen.id))
+        .filter((screen) => pageFrameSelection.has(screen.id))
         .map((screen) => ({ id: screen.id, x: (screen.x ?? 0) + dx, y: (screen.y ?? 0) + dy }));
       if (updates.length > 0) onMoveScreens(updates);
     },
@@ -1538,7 +1560,7 @@ function WorkbenchShell({
                 diagramTool={diagramTool}
                 onDiagramToolConsumed={onDiagramToolConsumed}
                 onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
-                selectedFrameIds={selectedFrameIds}
+                selectedFrameIds={pageFrameSelection}
                 onToggleFrameSelection={toggleFrameSelection}
                 onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
                 onClearFrameSelection={() => setSelectedFrameIds(new Set())}
@@ -1596,7 +1618,7 @@ function WorkbenchShell({
                 onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
                 diagramSelection={selectedDiagramFields()}
                 onDiagramAction={dispatchDiagram}
-                selectedFrameIds={selectedFrameIds}
+                selectedFrameIds={pageFrameSelection}
                 onAlignFrames={onMoveScreens}
                 diagramAlignment={diagramAlignmentContext}
                 onUpdateLayoutGrid={onUpdateLayoutGrid}

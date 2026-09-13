@@ -449,6 +449,40 @@ describe('Canvas', () => {
       expect(onMoveScreen).not.toHaveBeenCalled();
     });
 
+    it('skips a selected id with no known start position instead of teleporting it to the origin (review fix wave item 2)', async () => {
+      // 'ghost' is not in `screens` at all - the sort of stale id that used
+      // to slip in before frame selection was made page-scoped (an id left
+      // over from a page the user has since switched away from, still
+      // present in selectedFrameIds because nothing had cleared it yet).
+      // startPositions.get('ghost') is undefined, and the old code's
+      // `?? { x: 0, y: 0 }` fallback sent it flying to the canvas origin
+      // the instant SCREEN_1 moved.
+      saveViewport(window.localStorage, 'ghostdrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        selectedFrameIds: new Set([SCREEN_1.id, SCREEN_2.id, 'ghost']),
+        fileId: 'ghostdrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      const updates = onMoveScreens.mock.calls.at(-1)?.[0] as Array<{ id: string; x: number; y: number }>;
+      expect(updates).toHaveLength(2);
+      expect(updates.find((update) => update.id === 'ghost')).toBeUndefined();
+      expect(updates).toEqual(
+        expect.arrayContaining([
+          { id: SCREEN_1.id, x: 24, y: 0 },
+          { id: SCREEN_2.id, x: 824, y: 0 },
+        ]),
+      );
+    });
+
     it('a solo drag of a frame outside the selection still uses the single-screen path', async () => {
       saveViewport(window.localStorage, 'solodrag', 'page1', { x: 0, y: 0, zoom: 1 });
       const onMoveScreens = vi.fn();

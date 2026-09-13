@@ -12,6 +12,40 @@ describe('resolveSnap - constants', () => {
   });
 });
 
+// Review fix wave item 1 (blocker): every returned position must be an
+// integer - validateScreens rejects a fractional x/y with a 400, and
+// lib/persistence.ts never retries a 400, so a fractional save silently
+// wedges autosave. These four reproduce the review's own cases.
+describe('resolveSnap - integer positions (review fix wave item 1)', () => {
+  it('rounds the disabled (Cmd/Ctrl) passthrough - a zoom-0.75 drag divides unevenly', () => {
+    // 23 screen px / 0.75 zoom = 30.666...; 100 + 30.666... = 130.666...
+    const result = resolveSnap(box(130.6666666666667, 200, 50, 100), [], 0.75, { disabled: true });
+    expect(result.position).toEqual({ x: 131, y: 200 });
+    expect(Number.isInteger(result.position.x)).toBe(true);
+  });
+
+  it('rounds a raw, unsnapped position - zoom 2 keeps it 3.5 canvas px from the grid, outside the 3 px tolerance', () => {
+    const result = resolveSnap(box(131.5, 131.5, 50, 100), [], 2);
+    expect(result.position).toEqual({ x: 132, y: 132 });
+  });
+
+  it('rounds a fractional centre-to-centre edge snap (an odd-width neighbour)', () => {
+    const other = box(0, 0, 403, 100, 'other'); // centre 201.5
+    // moving centre target: 201.5 - 200 = 1.5
+    const result = resolveSnap(box(2, 0, 400, 100), [other], 1);
+    expect(result.position.x).toBe(2); // Math.round(1.5) === 2
+  });
+
+  it('rounds a fractional equal-spacing target', () => {
+    const left = box(0, 0, 100, 100, 'left'); // end 100
+    const right = box(203, 0, 100, 100, 'right'); // start 203
+    // equal-spacing x: (100 + 203 - 50) / 2 = 126.5
+    const result = resolveSnap(box(127, 0, 50, 100), [left, right], 1);
+    expect(result.position.x).toBe(127); // Math.round(126.5) === 127
+    expect(Number.isInteger(result.position.x)).toBe(true);
+  });
+});
+
 describe('resolveSnap - the 8 px grid', () => {
   it('snaps the moving box origin to the nearest grid line when within tolerance', () => {
     const result = resolveSnap(box(126, 48, 50, 100), [], 1);

@@ -322,14 +322,21 @@ export function resolveSnap(
   zoom: number,
   options: ResolveSnapOptions = {},
 ): SnapResolution {
+  // Every returned position is rounded to a whole canvas px (review fix
+  // wave item 1): validateScreens rejects a non-integer x/y outright, and
+  // the moving box handed in here is itself often already fractional
+  // (frame-title.tsx divides a screen-px drag delta by zoom before this
+  // ever runs) - both the disabled (Cmd/Ctrl) passthrough below and every
+  // resolved axis must round, or a drag can silently produce a save the
+  // API 400s on.
   if (options.disabled) {
-    return { position: { x: moving.x, y: moving.y }, guides: [], distances: [] };
+    return { position: { x: Math.round(moving.x), y: Math.round(moving.y) }, guides: [], distances: [] };
   }
 
   const tolerance = SNAP_TOLERANCE_SCREEN_PX / zoom;
   const resolvedX = resolveAxis(X_AXIS, moving, others, tolerance);
   const resolvedY = resolveAxis(Y_AXIS, moving, others, tolerance);
-  const position = { x: resolvedX.start, y: resolvedY.start };
+  const position = { x: Math.round(resolvedX.start), y: Math.round(resolvedY.start) };
 
   const distances = options.showDistances
     ? nearestNeighbourDistances({ ...moving, x: position.x, y: position.y }, others)

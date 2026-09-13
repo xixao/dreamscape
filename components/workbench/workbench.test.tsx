@@ -1704,6 +1704,67 @@ describe('Workbench', () => {
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: ']', metaKey: true, shiftKey: true });
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
     });
+
+    // Review fix wave item 2 (blocker): a canvas frame selection used to be
+    // one flat Set<string> with no notion of which page it belonged to -
+    // switching pages left it untouched, so the Align row (and arrow-key
+    // nudge) kept acting on frames the user could no longer even see, and a
+    // multi-drag could fan its delta out to those invisible frames too.
+    describe('frame selection is page-scoped (review fix wave item 2)', () => {
+      function twoScreenTwoPageFile(): FileRecord {
+        return makeFile({
+          pages: [
+            { id: PAGE_ID, name: 'Page 1' },
+            { id: PAGE_2_ID, name: 'v2' },
+          ],
+          // Two screens on page 1 (so there is something to multi-select),
+          // one on page 2.
+          screens: [SCREEN_1, SCREEN_2, SCREEN_4],
+        });
+      }
+
+      it('switching pages clears a multi-frame selection: the Align row disappears and arrow keys do nothing', async () => {
+        render(<Workbench file={twoScreenTwoPageFile()} />);
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+        const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+        fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+        fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+        expect(screen.getByRole('button', { name: 'Align left' })).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
+        await within(frameBody()).findByText('Dashboard');
+
+        expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+
+        fetchMock.mockClear();
+        fireEvent.keyDown(window, { key: 'ArrowRight' });
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('a selection made on one page does not resurface after navigating away and back to it', async () => {
+        render(<Workbench file={twoScreenTwoPageFile()} />);
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+        fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+        await openPagesMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+        await within(frameBody()).findByText('Dashboard');
+
+        await openPagesMenu();
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 1' }));
+        expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+        // A single selected frame never shows the (2+) Align row on its
+        // own, so this also doubles as confirming no stray second id
+        // (e.g. from page 2) is silently union'd back in.
+        expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
+      });
+    });
   });
 
   describe('diagrams', () => {

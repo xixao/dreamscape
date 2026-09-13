@@ -476,10 +476,17 @@ export function Canvas({
         );
       }
       const startPositions = multiDragStartRef.current;
-      const updates = Array.from(selectedFrameIds).map((selectedId) => {
-        if (selectedId === id) return { id: selectedId, x: position.x, y: position.y };
-        const start = startPositions.get(selectedId) ?? { x: 0, y: 0 };
-        return { id: selectedId, x: start.x + delta.dx, y: start.y + delta.dy };
+      // Review fix wave item 2 (blocker): an id with no recorded start
+      // position (e.g. a stale selection entry for a screen that is no
+      // longer on this page, or was deleted mid-drag) must be left out of
+      // the batch entirely - defaulting it to {x:0,y:0} above used to send
+      // that frame flying to the canvas origin the instant any OTHER
+      // selected frame moved.
+      const updates = Array.from(selectedFrameIds).flatMap((selectedId) => {
+        if (selectedId === id) return [{ id: selectedId, x: position.x, y: position.y }];
+        const start = startPositions.get(selectedId);
+        if (!start) return [];
+        return [{ id: selectedId, x: start.x + delta.dx, y: start.y + delta.dy }];
       });
       onMoveScreens(updates);
       return;

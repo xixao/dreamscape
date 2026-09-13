@@ -185,6 +185,22 @@ describe('FrameTitle', () => {
 
       expect(onMove).toHaveBeenLastCalledWith({ x: 123, y: 205 }, { dx: 23, dy: 5 });
     });
+
+    // Review fix wave item 1 (blocker): a Cmd-held drag still runs the
+    // screen-px-delta-divided-by-zoom math (just skipping the snap step
+    // itself), and at a zoom that doesn't divide evenly the result is
+    // fractional - validateScreens rejects a non-integer x/y outright, so
+    // this must still land on a whole canvas px even with snapping off.
+    it('still rounds to a whole canvas px at a zoom that divides unevenly, even with Cmd held', () => {
+      const { onMove } = renderTitle({ zoom: 0.75 });
+      const title = screen.getByText('Frame 1');
+
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      // 23 screen px / 0.75 zoom = 30.6666...; start.x 100 + that = 130.6666...
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 23, clientY: 0, metaKey: true });
+
+      expect(onMove).toHaveBeenLastCalledWith({ x: 131, y: 200 }, { dx: 31, dy: 0 });
+    });
   });
 
   describe('Alt shows distances to the nearest neighbours', () => {
