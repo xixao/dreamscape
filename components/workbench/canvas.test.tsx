@@ -35,6 +35,7 @@ function Harness({
   fileId,
   pageId = 'page1',
   extra,
+  onDeselectDiagram,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -44,6 +45,7 @@ function Harness({
   fileId: string;
   pageId?: string;
   extra?: ReactNode;
+  onDeselectDiagram?: () => void;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
@@ -60,6 +62,7 @@ function Harness({
         onMoveScreen={onMoveScreen}
         comments={DEFAULT_STAGE_COMMENTS}
         rootRef={rootRef}
+        onDeselectDiagram={onDeselectDiagram}
       />
       {extra}
     </CanvasViewportProvider>
@@ -75,6 +78,7 @@ function renderCanvas({
   fileId = 'file1',
   pageId = 'page1',
   extra,
+  onDeselectDiagram,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
@@ -84,6 +88,7 @@ function renderCanvas({
   fileId?: string;
   pageId?: string;
   extra?: ReactNode;
+  onDeselectDiagram?: () => void;
 } = {}) {
   return renderInEditor(
     <Harness
@@ -95,6 +100,7 @@ function renderCanvas({
       fileId={fileId}
       pageId={pageId}
       extra={extra}
+      onDeselectDiagram={onDeselectDiagram}
     />,
   );
 }
@@ -164,6 +170,24 @@ describe('Canvas', () => {
 
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(false));
     expect(onFocusScreen).not.toHaveBeenCalled();
+  });
+
+  it('clicking empty canvas also clears the diagram selection', async () => {
+    const onDeselectDiagram = vi.fn();
+    renderCanvas({ screens: [SCREEN_1], onDeselectDiagram });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    fireEvent.pointerDown(screen.getByTestId('canvas-root'));
+
+    expect(onDeselectDiagram).toHaveBeenCalled();
+  });
+
+  it('hosts the diagram layer inside the transformed canvas layer', async () => {
+    renderCanvas({ screens: [SCREEN_1] });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const layer = screen.getByTestId('diagram-layer');
+    expect(screen.getByTestId('canvas-layer')).toContainElement(layer);
   });
 
   describe('frame titles', () => {

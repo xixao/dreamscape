@@ -18,15 +18,27 @@ import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
 import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
+import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import type { StageCommentsProps } from './comments/comment-layer';
+import { DiagramLayer, POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import { FrameTitle } from './frame-title';
 import { isEditableTarget } from './keyboard';
 import { FramePreview, Stage } from './stage';
 import { useStage } from './stage-context';
+
+// Canvas.test.tsx (and any harness built before diagrams existed) never
+// passes the diagram-related props below - these defaults keep every such
+// render an inert, empty, no-op diagram layer, the same "keep old callers
+// working" precedent components/workbench/comments/comment-layer.tsx's own
+// DEFAULT_STAGE_COMMENTS already set. workbench.tsx, which actually owns a
+// page's live diagram state, always passes the real values.
+const DEFAULT_DIAGRAM_STATE: DiagramState = createInitialDiagramState();
+function noopDiagramDispatch(): void {}
+function noop(): void {}
 
 export type ViewportSize = Size;
 
@@ -339,6 +351,11 @@ export function Canvas({
   onMoveScreen,
   comments,
   rootRef,
+  diagram = DEFAULT_DIAGRAM_STATE,
+  onDiagramAction = noopDiagramDispatch,
+  diagramTool = POINTER_TOOL,
+  onDiagramToolConsumed = noop,
+  onDeselectDiagram = noop,
 }: {
   screens: Screen[];
   focusedScreenId: string;
@@ -347,6 +364,18 @@ export function Canvas({
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   comments: StageCommentsProps;
   rootRef: RefObject<HTMLDivElement | null>;
+  // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md): owned by WorkbenchShell, forwarded here purely to
+  // host DiagramLayer inside the same transformed layer the frames live in.
+  diagram?: DiagramState;
+  onDiagramAction?: (action: DiagramAction) => void;
+  diagramTool?: DiagramTool;
+  onDiagramToolConsumed?: () => void;
+  // Clicking empty canvas clears the diagram selection the same way it
+  // already deselects whatever Craft node was selected (spec: "clicking
+  // empty canvas clears the selection") - called from the same branch,
+  // below, that already calls actions.selectNode().
+  onDeselectDiagram?: () => void;
 }) {
   const { actions } = useEditor();
   const setStageZoom = useStage().setZoom;
@@ -468,7 +497,10 @@ export function Canvas({
       // on a frame itself is handled by that frame's own Stage/FramePreview,
       // both descendants of this element, so by the time a plain click
       // reaches all the way out here nothing under the pointer claimed it.
-      if (event.target === event.currentTarget) actions.selectNode();
+      if (event.target === event.currentTarget) {
+        actions.selectNode();
+        onDeselectDiagram();
+      }
       return;
     }
     event.preventDefault();
@@ -733,6 +765,23 @@ export function Canvas({
             </div>
           );
         })}
+        {/*
+          The diagram lives on the same page's canvas as the frames, drawn
+          above them (spec docs/superpowers/specs/2026-09-13-diagrams-
+          design.md section 3) - rendered last (of this transformed layer's
+          children) so it paints on top, but the SVG root's own
+          pointer-events stays `none` outside of an active placement tool,
+          so a frame beneath it keeps receiving clicks normally (see
+          diagram-layer.tsx's own doc comment).
+        */}
+        <DiagramLayer
+          diagram={diagram}
+          dispatch={onDiagramAction}
+          frames={screens.map((screen) => ({ id: screen.id, ...frameRect(screen) }))}
+          viewport={viewport}
+          tool={diagramTool}
+          onToolConsumed={onDiagramToolConsumed}
+        />
       </div>
     </div>
   );
