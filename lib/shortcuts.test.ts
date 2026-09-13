@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SHORTCUTS, SHORTCUTS_BY_ID, detectPlatform, formatKeys, matchShortcut, type ShortcutKeyEvent } from './shortcuts';
 
@@ -226,5 +228,24 @@ describe('detectPlatform', () => {
         expect(detectPlatform()).toBe('other');
       });
     });
+  });
+});
+
+describe('README shortcut table', () => {
+  // Read fresh inside the test (not hoisted to module scope) so a failure
+  // here is always about today's README.md, never a stale value cached
+  // from a previous test file in the same run. process.cwd() is the
+  // project root under `vitest run` (same assumption db/client.ts and
+  // scripts/seed.ts already make).
+  function readme(): string {
+    return readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+  }
+
+  it('lists every registry entry by its label and its mac-formatted keys', () => {
+    const text = readme();
+    for (const shortcut of SHORTCUTS) {
+      expect(text, `README is missing the label for "${shortcut.id}"`).toContain(shortcut.label);
+      expect(text, `README is missing the mac keys for "${shortcut.id}"`).toContain(formatKeys(shortcut.keys, 'mac'));
+    }
   });
 });

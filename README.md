@@ -65,15 +65,37 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 
 ## Keyboard shortcuts in the editor
 
-| Keys | Action |
-| --- | --- |
-| Cmd+\ (Ctrl+\ on Windows) | Show or hide the top bar and both panels |
-| Cmd+J (Ctrl+J on Windows) | Open or close the Chat panel |
-| Cmd+Z, Shift+Cmd+Z | Undo, redo (history is per screen) |
-| Escape | Deselect |
-| Delete or Backspace | Delete the selected layer (the root frame and the content zones cannot be deleted) |
-| Press and hold on the canvas | Layer stack menu listing every layer under the pointer |
-| Escape in Play mode | Leave the presentation and return to the editor on the screen you were viewing |
+Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, the top bar's zoom menu and the hold-Cmd overlay all read from (`lib/shortcuts.test.ts` fails if this table and the registry ever disagree). A bare letter or Shift+letter is ignored while typing in a text field or while a menu or dialog is open; the rest work everywhere, including from inside the chat composer.
+
+| Area | Keys | Action |
+| --- | --- | --- |
+| Panels | D | Design tab |
+| Panels | P | Prototype tab |
+| Panels | E | Elements tab |
+| Panels | C | Open or close the chat panel |
+| Panels | ⌘J (Ctrl+J elsewhere) | Open or close the chat panel |
+| Panels | ⌘. (Ctrl+. elsewhere) | Minimize or expand the right panel |
+| Panels | ⌘\ (Ctrl+\ elsewhere) | Show or hide all panels |
+| Present | ⌘R (Ctrl+R elsewhere) | Present the focused screen |
+| Tools | V | Pointer |
+| Tools | ⇧C (Shift+C elsewhere) | Comment tool |
+| Tools | ⇧D (Shift+D elsewhere) | Diagram palette |
+| Canvas | ⌘= (Ctrl+= elsewhere) | Zoom in |
+| Canvas | ⌘- (Ctrl+- elsewhere) | Zoom out |
+| Canvas | ⌘0 (Ctrl+0 elsewhere) | Zoom to 100% |
+| Canvas | ⇧1 (Shift+1 elsewhere) | Zoom to fit |
+| Canvas | ⇧2 (Shift+2 elsewhere) | Zoom to selection |
+| Screens | ⇧N (Shift+N elsewhere) | New screen |
+| Edit | ⌘Z (Ctrl+Z elsewhere) | Undo |
+| Edit | ⇧⌘Z (Shift+Ctrl+Z elsewhere) | Redo |
+| Edit | Delete (or Backspace) | Delete the selected layer |
+| Edit | Escape | Deselect, leave a tool, close a menu |
+| Help | ? | Shortcuts dialog |
+| Help | Hold ⌘ (Hold Ctrl elsewhere) | Shortcuts overlay |
+
+Cmd+R deliberately takes over the browser's own reload shortcut inside the editor; Cmd+Shift+R still hard-reloads. The root frame and the content zones cannot be deleted.
+
+A few things outside the registry above, since they are not single keyboard chords: press and hold on the canvas opens the layer stack menu listing every layer under the pointer; Escape in Play mode leaves the presentation and returns to the editor on the screen you were viewing.
 
 ## Chat panel
 
