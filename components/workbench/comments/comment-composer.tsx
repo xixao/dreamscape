@@ -5,14 +5,8 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { CHIP, CHIP_INPUT } from '../chrome';
+import { CHIP, CHIP_INPUT, SECONDARY_BUTTON } from '../chrome';
 import { cn } from '@/lib/utils';
-
-// SF2 §5 secondary .btn look, reused verbatim from components/files/files-actions.tsx's
-// own SECONDARY_BUTTON: h-auto overrides the shadcn Button's fixed h-8 so the
-// literal padding here drives the box height.
-const SECONDARY_BUTTON =
-  'h-auto bg-muted border border-border rounded-[9px] px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-accent';
 
 const PLACEHOLDER_NOTE = 'Comments are saved in this browser only for now.';
 

@@ -435,7 +435,7 @@ describe('files API route handlers', () => {
       const getResponse = await GET_FILE(new Request(`http://x/api/files/${file.id}`), withId(file.id));
       const body = (await readBody(getResponse)) as { file: { screens: Array<{ stageWidth: number }> } };
 
-      expect(body.file.screens[0].stageWidth).toBe(1920);
+      expect(body.file.screens[0].stageWidth).toBe(3840);
     });
 
     it('moves a file into a folder', async () => {

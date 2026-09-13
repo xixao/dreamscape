@@ -17,7 +17,7 @@ const nameField = z.string().trim().min(1).max(120).optional();
 const folderIdField = z.string().nullable().optional();
 
 // Shape only: id/name/layout/stageWidth types, nothing about content. The
-// content rules (name trimmed to 1..80, width clamped to [120, 1920], ids
+// content rules (name trimmed to 1..80, width clamped to [120, 3840], ids
 // unique and exactly 10 characters, layout valid against the known block
 // types, at least one screen) live in validateScreens (lib/files/validate.ts),
 // called from the repository - the same split validateLayout already had

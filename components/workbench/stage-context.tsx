@@ -10,7 +10,20 @@ import {
 } from 'react';
 import { type Breakpoint, breakpointForWidth } from '@/lib/responsive';
 import { STAGE_PRESETS, type StagePreset, clampWidth, presetForWidth } from '@/lib/stage';
+import { clampHeight } from '@/lib/stage/size';
 import { breakpointForDevice, type DevicePreset } from '@/lib/stage/device-presets';
+
+// The iframe document/window the artboard currently renders into, once
+// canvas-frame.tsx's CanvasFrame has prepared it - null before it is ready,
+// in Play mode, and in any test that renders a block tree without a Stage.
+// Lives here (rather than as a context canvas-frame.tsx provides on its
+// own) because the real consumers - NodeIndicator (a descendant of
+// CanvasFrame's own children, fine either way) but also useLayerStack and
+// useWorkbenchKeyboard (siblings of Stage in workbench.tsx's tree, NOT
+// descendants of CanvasFrame) - need a provider scoped above Stage itself.
+// StageProvider already wraps every one of them, so it is the natural home;
+// canvas-frame.tsx's own useCanvasDocument() just reads it from here.
+export type CanvasDocument = { document: Document; window: Window };
 
 export interface StageContextValue {
   width: number;
@@ -19,15 +32,21 @@ export interface StageContextValue {
   // Null means automatic - the artboard falls back to its own min-height.
   height: number | null;
   // The chosen device's exact Figma label, or null when the frame is a
-  // plain width (grip drag or a Mobile/Tablet/Desktop segment).
+  // plain width (grip drag, a Mobile/Tablet/Desktop segment, or a manual
+  // height/corner handle drag).
   deviceName: string | null;
   breakpoint: Breakpoint;
   preset: StagePreset | null;
   zoom: number;
+  canvasDocument: CanvasDocument | null;
   setWidth: (width: number) => void;
+  // A manual, deviceless size: the height handle (width unchanged) and the
+  // corner handle (both). Always clears deviceName, same as setWidth.
+  setSize: (size: { width: number; height: number | null }) => void;
   setDevice: (device: DevicePreset) => void;
   setPreset: (preset: StagePreset) => void;
   setZoom: (zoom: number) => void;
+  setCanvasDocument: (canvasDocument: CanvasDocument | null) => void;
 }
 
 const StageContext = createContext<StageContextValue | null>(null);
@@ -37,6 +56,7 @@ export function StageProvider({
   initialHeight = null,
   initialDeviceName = null,
   onWidthChange,
+  onSizeChange,
   onDeviceChange,
   children,
 }: {
@@ -44,6 +64,7 @@ export function StageProvider({
   initialHeight?: number | null;
   initialDeviceName?: string | null;
   onWidthChange?: (width: number) => void;
+  onSizeChange?: (size: { width: number; height: number | null }) => void;
   onDeviceChange?: (device: { width: number; height: number; deviceName: string }) => void;
   children: ReactNode;
 }) {
@@ -51,6 +72,7 @@ export function StageProvider({
   const [height, setHeightState] = useState<number | null>(initialHeight);
   const [deviceName, setDeviceNameState] = useState<string | null>(initialDeviceName);
   const [zoom, setZoom] = useState(1);
+  const [canvasDocument, setCanvasDocument] = useState<CanvasDocument | null>(null);
 
   // Used by the grip, the Mobile/Tablet/Desktop segments and the arrow-key
   // resize - every one of them a plain width, which always clears whatever
@@ -70,6 +92,20 @@ export function StageProvider({
   const setPreset = useCallback(
     (preset: StagePreset) => setWidth(STAGE_PRESETS[preset]),
     [setWidth],
+  );
+
+  // The height handle (width unchanged) and the corner handle (both) - a
+  // manual, deviceless size, same "clears the device" rule as setWidth.
+  const setSize = useCallback(
+    (next: { width: number; height: number | null }) => {
+      const clampedWidth = clampWidth(next.width);
+      const clampedHeight = next.height == null ? null : clampHeight(next.height);
+      setWidthState(clampedWidth);
+      setHeightState(clampedHeight);
+      setDeviceNameState(null);
+      onSizeChange?.({ width: clampedWidth, height: clampedHeight });
+    },
+    [onSizeChange],
   );
 
   const setDevice = useCallback(
@@ -96,12 +132,15 @@ export function StageProvider({
       // (presetForWidth), same as before this feature existed.
       preset: deviceName ? breakpointForDevice(deviceName) : presetForWidth(width),
       zoom,
+      canvasDocument,
       setWidth,
+      setSize,
       setDevice,
       setPreset,
       setZoom,
+      setCanvasDocument,
     }),
-    [width, height, deviceName, zoom, setWidth, setDevice, setPreset],
+    [width, height, deviceName, zoom, canvasDocument, setWidth, setSize, setDevice, setPreset],
   );
 
   return <StageContext.Provider value={value}>{children}</StageContext.Provider>;

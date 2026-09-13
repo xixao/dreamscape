@@ -37,6 +37,15 @@ import { useStage } from '../stage-context';
 import { NodeBreadcrumb } from './breadcrumb';
 import { Field } from './field';
 
+// The panel names itself after the active tab so assistive technology
+// announces what is actually shown (Design, Prototype or Components), for
+// the expanded panel and the minimized rail alike.
+const PANEL_LABEL: Record<PanelMode, string> = {
+  design: 'Design',
+  prototype: 'Prototype',
+  components: 'Components',
+};
+
 export type { PanelMode };
 
 const SECTION_ORDER: SectionName[] = ['Layout', 'Content', 'Style', 'Editor'];
@@ -140,7 +149,7 @@ export function Inspector({
   if (collapsed) {
     return (
       <TooltipProvider delayDuration={0}>
-        <aside aria-label="Design" className={cn(PANEL, 'flex w-10 flex-col items-center gap-1 py-2')}>
+        <aside aria-label={PANEL_LABEL[panelMode]} className={cn(PANEL, 'flex w-10 flex-col items-center gap-1 py-2')}>
           <MinimizeButton collapsed onClick={onToggleCollapsed} />
           <div className="my-1 h-px w-6 bg-border" aria-hidden />
           {RAIL_ITEMS.map(({ mode, label, icon }) => (
@@ -162,7 +171,7 @@ export function Inspector({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <aside aria-label="Design" className={cn(PANEL, 'flex min-h-0 flex-col')}>
+      <aside aria-label={PANEL_LABEL[panelMode]} className={cn(PANEL, 'flex min-h-0 flex-col')}>
         <div className={PANEL_HEADER}>
           <ToggleGroup
             type="single"

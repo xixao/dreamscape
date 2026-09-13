@@ -39,6 +39,19 @@ export const SEARCH =
 export const SEARCH_INPUT =
   'h-auto min-w-0 w-full border-0 bg-transparent p-0 text-[13px] text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 placeholder:text-t4';
 
+// SF2 §5 .btn look: secondary and primary buttons. The single shared
+// definition for the Files-page actions (components/files/files-actions.tsx)
+// and the comments composer's "Comment" button and thread's "Reply" button -
+// previously the composer kept its own near-duplicate with different
+// padding, which is exactly what let it drift out of sync with this one.
+// h-auto overrides the shadcn Button's fixed h-8 so the literal padding here
+// drives the box height, the same override CHIP_INPUT/SEARCH_INPUT/SEG_ITEM
+// already apply above when fully re-skinning a primitive.
+export const SECONDARY_BUTTON =
+  'h-auto bg-muted border border-border rounded-[9px] px-3.5 py-2 text-[13px] font-medium text-foreground hover:bg-accent';
+export const PRIMARY_BUTTON =
+  'h-auto text-[13px] bg-[image:var(--grad)] text-white font-semibold border-0 rounded-[9px] px-[15px] py-[9px] hover:brightness-[1.08] hover:text-white';
+
 // SF2 §5 .btn.danger: red text at rest, 12% wash on hover. The trailing `!`
 // forces these to win even when a consumer mixes this into a Radix `Slot`
 // (e.g. an AlertDialogAction with asChild): Slot concatenates its own

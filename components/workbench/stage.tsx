@@ -1,96 +1,47 @@
-'use client';
+"use client";
 
-import { Frame, useEditor, type EditorState } from '@craftjs/core';
+import { Frame, useEditor, type EditorState } from "@craftjs/core";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-} from 'react';
-import type { Screen } from '@/lib/files/repository';
-import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
-import { stackUnder, type LayerStackNode } from '@/lib/layer-stack';
+} from "react";
+import type { Screen } from "@/lib/files/repository";
+import { toArtboardPoint, type Rect } from "@/lib/comments/geometry";
+import { stackUnder, type LayerStackNode } from "@/lib/layer-stack";
+import { ARTBOARD_MIN_HEIGHT, STAGE_PADDING, computeZoom } from "@/lib/stage";
 import {
-  ARTBOARD_MIN_HEIGHT,
+  MAX_STAGE_HEIGHT,
   MAX_STAGE_WIDTH,
+  MIN_STAGE_HEIGHT,
   MIN_STAGE_WIDTH,
-  STAGE_PADDING,
-  computeZoom,
-} from '@/lib/stage';
-import { cn } from '@/lib/utils';
-import { CommentLayer, DEFAULT_STAGE_COMMENTS, type StageCommentsProps } from './comments/comment-layer';
-import { ScreensStrip } from './screens-strip';
-import { useStage } from './stage-context';
+} from "@/lib/stage/size";
+import { cn } from "@/lib/utils";
+import { CanvasFrame, useCanvasDocument } from "./canvas-frame";
+import {
+  CommentLayer,
+  DEFAULT_STAGE_COMMENTS,
+  type StageCommentsProps,
+} from "./comments/comment-layer";
+import { ScreensStrip } from "./screens-strip";
+import { useStage } from "./stage-context";
 
-const ARTBOARD_SELECTOR = '[data-artboard]';
-
-function ResizeGrip({
-  width,
-  zoom,
-  onResize,
-}: {
-  width: number;
-  zoom: number;
-  onResize: (width: number) => void;
-}) {
-  const [dragging, setDragging] = useState(false);
-  const start = useRef<{ x: number; width: number } | null>(null);
-
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    start.current = null;
-    setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  };
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize the frame"
-      aria-valuenow={width}
-      aria-valuemin={MIN_STAGE_WIDTH}
-      aria-valuemax={MAX_STAGE_WIDTH}
-      tabIndex={0}
-      className="absolute top-0 -right-4 flex h-full w-4 cursor-col-resize touch-none items-center justify-center select-none"
-      onPointerDown={(event) => {
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        start.current = { x: event.clientX, width };
-        setDragging(true);
-      }}
-      onPointerMove={(event) => {
-        if (!start.current) return;
-        onResize(start.current.width + (event.clientX - start.current.x) / zoom);
-      }}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onKeyDown={(event) => {
-        const step = event.shiftKey ? 100 : 10;
-        if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          onResize(width + step);
-        } else if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          onResize(width - step);
-        }
-      }}
-    >
-      <div className={cn('h-10 w-1 rounded-full', dragging ? 'bg-acc' : 'bg-border')} />
-    </div>
-  );
-}
+const ARTBOARD_SELECTOR = "[data-artboard]";
 
 // The innermost node under `target` (deepest first, zone nodes excluded),
 // read from Craft's own node DOM map - the same technique
 // layer-stack-menu.tsx's flattenNodes/stackUnder pair uses to find the
 // layer stack under a press point. Kept as the new pin's anchorNodeId so a
-// real backend can use it later (spec section 2's "Pin anchoring" row);
-// duplicated here (rather than imported) because layer-stack-menu.tsx's
-// flattenNodes is a private, non-exported helper local to that file.
-function innermostNodeId(nodes: EditorState['nodes'], target: Node): string | undefined {
+// real backend can use it later (spec section 2's "Pin anchoring" row).
+function innermostNodeId(
+  nodes: EditorState["nodes"],
+  target: Node | null,
+): string | undefined {
+  if (!target) return undefined;
   const flat: Record<string, LayerStackNode> = {};
   for (const [id, node] of Object.entries(nodes)) {
     flat[id] = {
@@ -102,6 +53,193 @@ function innermostNodeId(nodes: EditorState['nodes'], target: Node): string | un
     };
   }
   return stackUnder(flat, target)[0]?.id;
+}
+
+// Every arrow-key press on any handle moves that axis by this many unscaled
+// content pixels (spec docs/superpowers/specs/2026-09-12-responsive-canvas-
+// design.md #3).
+const ARROW_STEP = 8;
+
+type HandleAxis = "width" | "height" | "corner";
+
+const HANDLE_META: Record<
+  HandleAxis,
+  {
+    label: string;
+    orientation: "horizontal" | "vertical";
+    className: string;
+    barClassName: string;
+  }
+> = {
+  width: {
+    label: "Resize width",
+    orientation: "vertical",
+    className:
+      "top-0 -right-2 h-full w-4 cursor-col-resize items-center justify-center",
+    barClassName: "h-10 w-1 rounded-full",
+  },
+  height: {
+    label: "Resize height",
+    orientation: "horizontal",
+    className:
+      "left-0 -bottom-2 w-full h-4 cursor-row-resize items-center justify-center",
+    barClassName: "h-1 w-10 rounded-full",
+  },
+  corner: {
+    label: "Resize frame",
+    orientation: "vertical",
+    className:
+      "-right-1.5 -bottom-1.5 size-3 cursor-nwse-resize items-center justify-center",
+    barClassName: "size-2 rounded-full",
+  },
+};
+
+/**
+ * One Figma-style resize handle - the right edge (width only), the bottom
+ * edge (height only) or the bottom-right corner (both). All three share the
+ * same pointer-capture drag, keyboard-arrow stepping and live readout;
+ * `axis` decides which value(s) they read, report and step.
+ *
+ * The width axis reports through `onWidthChange` (wired to the context's
+ * `setWidth`, matching the pre-existing single-grip behaviour and its
+ * `onWidthChange` callback all the way to workbench.tsx). The height and
+ * corner axes report through `onResize`, always with a COMPLETE
+ * `{ width, height }` pair - not two separate single-value callbacks -
+ * because a corner drag changes both from the same pointer delta in the
+ * same event; calling two independent setters back to back would have the
+ * second one overwrite the first with the axis it doesn't own, since each
+ * closes over the render's pre-drag value for whichever field it is not
+ * updating itself.
+ */
+function ResizeHandle({
+  axis,
+  width,
+  height,
+  zoom,
+  onWidthChange,
+  onResize,
+  onDoubleClick,
+}: {
+  axis: HandleAxis;
+  width: number;
+  // The current effective height in unscaled px - always a concrete number,
+  // even when the frame's own height is "auto" (Stage passes the measured
+  // content height from CanvasFrame's onContentHeightChange in that case),
+  // so a height/corner drag or arrow-key press always has a real value to
+  // start from.
+  height: number;
+  zoom: number;
+  onWidthChange?: (width: number) => void;
+  onResize?: (next: { width: number; height: number }) => void;
+  onDoubleClick?: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const meta = HANDLE_META[axis];
+  const affectsWidth = axis === "width" || axis === "corner";
+  const affectsHeight = axis === "height" || axis === "corner";
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    start.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  function applyDelta(dx: number, dy: number) {
+    if (!start.current) return;
+    const nextWidth = affectsWidth
+      ? start.current.width + dx / zoom
+      : start.current.width;
+    const nextHeight = affectsHeight
+      ? start.current.height + dy / zoom
+      : start.current.height;
+    if (axis === "width") onWidthChange?.(nextWidth);
+    else onResize?.({ width: nextWidth, height: nextHeight });
+  }
+
+  const valueNow = axis === "height" ? height : width;
+  const valueMin = axis === "height" ? MIN_STAGE_HEIGHT : MIN_STAGE_WIDTH;
+  const valueMax = axis === "height" ? MAX_STAGE_HEIGHT : MAX_STAGE_WIDTH;
+
+  return (
+    <div
+      role="separator"
+      aria-orientation={meta.orientation}
+      aria-label={meta.label}
+      aria-valuenow={Math.round(valueNow)}
+      aria-valuemin={valueMin}
+      aria-valuemax={valueMax}
+      aria-valuetext={`${Math.round(width)} × ${Math.round(height)}`}
+      tabIndex={0}
+      data-testid={`resize-handle-${axis}`}
+      className={cn("absolute flex touch-none select-none", meta.className)}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        start.current = { x: event.clientX, y: event.clientY, width, height };
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (!start.current) return;
+        applyDelta(
+          event.clientX - start.current.x,
+          event.clientY - start.current.y,
+        );
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (
+          event.key !== "ArrowRight" &&
+          event.key !== "ArrowLeft" &&
+          event.key !== "ArrowDown" &&
+          event.key !== "ArrowUp"
+        ) {
+          return;
+        }
+        event.preventDefault();
+        const widthStep =
+          event.key === "ArrowRight"
+            ? ARROW_STEP
+            : event.key === "ArrowLeft"
+              ? -ARROW_STEP
+              : 0;
+        const heightStep =
+          event.key === "ArrowDown"
+            ? ARROW_STEP
+            : event.key === "ArrowUp"
+              ? -ARROW_STEP
+              : 0;
+        if (axis === "width" && widthStep !== 0)
+          onWidthChange?.(width + widthStep);
+        else if (axis === "height" && heightStep !== 0)
+          onResize?.({ width, height: height + heightStep });
+        else if (axis === "corner" && (widthStep !== 0 || heightStep !== 0)) {
+          onResize?.({ width: width + widthStep, height: height + heightStep });
+        }
+      }}
+    >
+      <div
+        className={cn(meta.barClassName, dragging ? "bg-acc" : "bg-border")}
+      />
+      {dragging && (
+        <span
+          data-testid="resize-readout"
+          className="pointer-events-none absolute top-full left-1/2 mt-1.5 -translate-x-1/2 rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold whitespace-nowrap text-white"
+        >
+          {Math.round(width)} × {Math.round(height)}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function Stage({
@@ -125,52 +263,72 @@ export function Stage({
   onDeleteScreen: (id: string) => void;
   // Everything the comments placeholder needs (spec
   // docs/superpowers/specs/2026-09-12-folders-and-comments-design.md section 5);
-  // optional so stage.test.tsx's existing calls (written before comments
-  // existed) keep rendering an inert, empty comment layer unchanged.
+  // optional so callers written before comments existed keep rendering an
+  // inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
 }) {
-  const { width, height, zoom, setWidth, setZoom } = useStage();
+  const { width, height, zoom, setWidth, setSize, setZoom } = useStage();
   const { actions, query } = useEditor();
+  const canvas = useCanvasDocument();
   const columnRef = useRef<HTMLDivElement>(null);
   const artboardRef = useRef<HTMLDivElement>(null);
   const [artboardRect, setArtboardRect] = useState<Rect | null>(null);
+  // The frame's real, current unscaled height, whether that comes from a
+  // manual/device height or - when height is "auto" - from CanvasFrame's own
+  // content measurement. Always a concrete number so the height/corner
+  // handles and the wrapper's own reserved layout space never need to guess.
+  const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
+  const effectiveHeight = height ?? contentHeight;
 
   useEffect(() => {
     const column = columnRef.current;
     if (!column) return;
-    const update = () => {
+    const update = () =>
       setZoom(computeZoom(column.clientWidth - STAGE_PADDING * 2, width));
-      // Feeds CommentLayer's pin/popover positioning (toScreenPoint) - see
-      // the comment on <CommentLayer> below for why that math uses real
-      // screen coordinates instead of inheriting this element's own CSS zoom.
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [width, setZoom]);
+
+  // Feeds CommentLayer's pin/popover positioning (toScreenPoint). Measured in
+  // a layout effect keyed on zoom/width/height so the rect always matches the
+  // scaled box on screen right now (reading it in the same tick as the
+  // setZoom call above would be one zoom change stale). The ResizeObserver on
+  // the column and the artboard, plus the scroll and resize listeners, catch
+  // every other way the box can move (a panel opening, the column scrolling,
+  // the window resizing, the frame's auto height changing).
+  useLayoutEffect(() => {
+    const column = columnRef.current;
+    const artboardEl = artboardRef.current;
+    if (!column || !artboardEl) return;
+    const update = () => {
       const rect = artboardRef.current?.getBoundingClientRect();
       if (rect) setArtboardRect(rect);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(column);
-    // The artboard can also move within the column without the column
-    // itself resizing (the column scrolls whenever the artboard is taller
-    // or wider than it) - re-measuring on scroll keeps pins from drifting
-    // away from the artboard as the user scrolls it.
-    column.addEventListener('scroll', update);
+    observer.observe(artboardEl);
+    column.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update);
     return () => {
       observer.disconnect();
-      column.removeEventListener('scroll', update);
+      column.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update);
     };
-  }, [width, setZoom]);
+  }, [zoom, width, effectiveHeight]);
 
   // Comment mode (spec section 5): a press on the artboard places a pin
-  // instead of letting Craft select whatever is underneath. Craft's own
-  // selection listens for native "mousedown" and "click", attached directly
-  // to each block's DOM node in the bubble phase (confirmed against the
-  // installed @craftjs/utils bundle's addCraftEventListener, which calls
-  // `element.addEventListener(type, handler)` with no capture flag) - a
-  // capture-phase handler up here on the column always runs first, and
-  // stopping propagation there keeps the event from ever reaching that
-  // deeper bubble listener at all. Both event types are guarded the same
-  // way since they fire as two independent events for one physical click.
-  function interceptForCommentMode(event: ReactMouseEvent<HTMLDivElement>): boolean {
+  // instead of selecting a layer. The cover element rendered over the iframe
+  // while the tool is active keeps the press in the parent document; these
+  // capture handlers on the wrapper stop it there for both event types
+  // (they fire as two independent events for one physical click).
+  function interceptForCommentMode(
+    event: ReactMouseEvent<HTMLDivElement>,
+  ): boolean {
     if (!comments.commentMode) return false;
     const target = event.target as HTMLElement;
     if (!target.closest(ARTBOARD_SELECTOR)) return false;
@@ -179,16 +337,24 @@ export function Stage({
     return true;
   }
 
-  function handleArtboardMouseDownCapture(event: ReactMouseEvent<HTMLDivElement>): void {
+  function handleArtboardMouseDownCapture(
+    event: ReactMouseEvent<HTMLDivElement>,
+  ): void {
     if (!interceptForCommentMode(event)) return;
     const artboardEl = artboardRef.current;
     if (!artboardEl) return;
-    // Measured fresh here rather than read from `artboardRect` state: state
-    // is only as fresh as the last resize/scroll/zoom-change effect run, and
-    // a click should always use the artboard's exact position right now.
+    // Measured fresh here rather than read from `artboardRect` state: a click
+    // should always use the box's exact position right now.
     const rect = artboardEl.getBoundingClientRect();
     const point = toArtboardPoint(event.clientX, event.clientY, rect, zoom);
-    const anchorNodeId = innermostNodeId(query.getState().nodes, event.target as Node);
+    // The layer under the point lives in the frame's document, so ask that
+    // document rather than the event target (which is the cover).
+    const frameDocument = canvas?.document;
+    const inFrame =
+      frameDocument && typeof frameDocument.elementFromPoint === 'function'
+        ? frameDocument.elementFromPoint(point.x, point.y)
+        : (event.target as Node);
+    const anchorNodeId = innermostNodeId(query.getState().nodes, inFrame);
     comments.onPlacePin(point.x, point.y, anchorNodeId);
   }
 
@@ -199,10 +365,8 @@ export function Stage({
       className="flex min-w-0 flex-col overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
       onPointerDown={(event) => {
         const target = event.target as HTMLElement;
-        if (!target.closest('[data-artboard]')) actions.selectNode();
+        if (!target.closest("[data-artboard]")) actions.selectNode();
       }}
-      onMouseDownCapture={handleArtboardMouseDownCapture}
-      onClickCapture={interceptForCommentMode}
     >
       <div className="flex shrink-0 items-center border-b border-line-soft bg-canvas px-3 py-2">
         <ScreensStrip
@@ -215,31 +379,73 @@ export function Stage({
           onDelete={onDeleteScreen}
         />
       </div>
-      <div className="flex flex-1 justify-center" style={{ padding: STAGE_PADDING }}>
+      <div
+        className="flex flex-1 justify-center"
+        style={{ padding: STAGE_PADDING }}
+      >
         <div
-          ref={artboardRef}
           data-artboard
           data-testid="artboard-zoom"
-          className={cn('relative shrink-0', comments.commentMode && 'cursor-crosshair')}
-          style={{ zoom }}
+          className={cn(
+            "relative shrink-0",
+            comments.commentMode && "cursor-crosshair",
+          )}
+          onMouseDownCapture={handleArtboardMouseDownCapture}
+          onClickCapture={interceptForCommentMode}
         >
           <div
+            ref={artboardRef}
             data-testid="artboard"
-            className={cn(
-              'theme-basic border border-line-strong bg-background font-sans text-foreground shadow-panel-lg',
-              height != null && 'overflow-auto',
-            )}
-            style={height != null ? { width, height } : { width, minHeight: ARTBOARD_MIN_HEIGHT }}
+            className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+            style={{ width: width * zoom, height: effectiveHeight * zoom }}
           >
-            <Frame key={currentScreenId} data={data} />
+            <CanvasFrame
+              width={width}
+              height={height}
+              zoom={zoom}
+              onContentHeightChange={setContentHeight}
+            >
+              <Frame key={currentScreenId} data={data} />
+            </CanvasFrame>
+            {/*
+              Comment mode: the frame lives in its own document, so a click on
+              it would never reach the parent's handlers and Craft would select
+              whatever is under the pointer. This transparent cover sits above
+              the iframe while the tool is active, so the press lands in the
+              parent document and the capture handlers on the wrapper turn it
+              into a pin.
+            */}
+            {comments.commentMode && (
+              <div
+                data-testid="comment-cover"
+                className="absolute inset-0 cursor-crosshair"
+                aria-hidden
+              />
+            )}
+            <ResizeHandle
+              axis="width"
+              width={width}
+              height={effectiveHeight}
+              zoom={zoom}
+              onWidthChange={setWidth}
+            />
+            <ResizeHandle
+              axis="height"
+              width={width}
+              height={effectiveHeight}
+              zoom={zoom}
+              onResize={setSize}
+              onDoubleClick={() => setSize({ width, height: null })}
+            />
+            <ResizeHandle
+              axis="corner"
+              width={width}
+              height={effectiveHeight}
+              zoom={zoom}
+              onResize={setSize}
+            />
           </div>
-          <ResizeGrip width={width} zoom={zoom} onResize={setWidth} />
-          {/*
-            Colocated here in the zoom wrapper per spec, but positions
-            everything it draws with fixed, real screen coordinates rather
-            than by inheriting this element's `zoom` - see the comment on
-            CommentLayer itself for why.
-          */}
+          {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
           <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
         </div>
       </div>

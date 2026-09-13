@@ -176,7 +176,7 @@ describe('Inspector', () => {
     it('shows the Prototype tab content instead of the Design fields when panelMode is prototype', async () => {
       const { editor } = mount(1440, { panelMode: 'prototype' });
       await screen.findByText('Billing');
-      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const panel = screen.getByRole('complementary', { name: 'Prototype' });
 
       expect(within(panel).getByText('Select a layer to add an interaction.')).toBeInTheDocument();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
@@ -189,7 +189,7 @@ describe('Inspector', () => {
     it('shows the Components tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
       mount(1440, { panelMode: 'components' });
       await screen.findByText('Billing');
-      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const panel = screen.getByRole('complementary', { name: 'Components' });
 
       expect(within(panel).getByLabelText('Search components')).toBeInTheDocument();
       expect(within(panel).getByText('Layout')).toBeInTheDocument();

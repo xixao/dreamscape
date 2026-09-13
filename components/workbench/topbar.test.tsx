@@ -6,7 +6,7 @@ import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import type { SaveState } from '@/lib/persistence';
 import { renderInEditor } from '@/test/craft-harness';
-import { Topbar, stageReadout } from './topbar';
+import { Topbar } from './topbar';
 
 function presetButton(label: string) {
   const button = screen.getByText(label).closest('button');
@@ -36,23 +36,9 @@ function renderTopbar(
   return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew, onToggleChat };
 }
 
-describe('stageReadout', () => {
-  it('shows width, breakpoint and zoom only when scaled', () => {
-    expect(stageReadout(1440, 'desktop', 1)).toBe('1440 px · desktop');
-    expect(stageReadout(375, 'mobile', 1)).toBe('375 px · mobile');
-    expect(stageReadout(1440, 'desktop', 0.72)).toBe('1440 px · desktop · 72%');
-  });
-
-  it('shows the device name and its width x height instead, when given', () => {
-    expect(stageReadout(402, 'mobile', 1, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
-      'iPhone 16 & 17 Pro · 402 × 874',
-    );
-    expect(stageReadout(402, 'mobile', 0.63, { name: 'iPhone 16 & 17 Pro', height: 874 })).toBe(
-      'iPhone 16 & 17 Pro · 402 × 874 · 63%',
-    );
-  });
-});
-
+// The readout text itself (readoutFor) is unit-tested in
+// lib/stage/size.test.ts; the tests below just confirm Topbar renders it
+// through data-testid="stage-readout" with the live stage values.
 describe('Topbar', () => {
   it('marks the active preset and switches width on click', async () => {
     renderTopbar({}, { width: 1440 });

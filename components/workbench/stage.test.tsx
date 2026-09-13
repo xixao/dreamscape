@@ -4,8 +4,11 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import type { CommentThread } from '@/lib/comments/store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
+import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
 import { Stage } from './stage';
 import { useStage } from './stage-context';
 
@@ -28,6 +31,34 @@ function screenProps(overrides: Partial<ComponentProps<typeof Stage>> = {}): Com
   };
 }
 
+// Craft's <Frame> content renders inside the CanvasFrame iframe now, a
+// separate document `screen` (bound to the outer document) cannot see into -
+// find it here instead. Waits for the iframe and its body to exist (both are
+// synchronous once React has committed, per canvas-frame.test.tsx, but this
+// stays robust if that ever changes).
+async function frameBody(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    const body = iframe.contentDocument?.body;
+    if (!body) throw new Error('canvas frame body not ready');
+    return body;
+  });
+}
+
+function makeThread(overrides: Partial<CommentThread> = {}): CommentThread {
+  return {
+    id: 't1',
+    fileId: 'f1',
+    x: 100,
+    y: 50,
+    author: 'Matt',
+    text: 'hi',
+    createdAt: '2026-09-12T00:00:00.000Z',
+    replies: [],
+    ...overrides,
+  };
+}
+
 // Sets a device (and its fixed height) on mount, through the real context -
 // there is no prop on Stage itself for this, it always reads useStage().
 function DeviceSetter({ children }: { children: ReactNode }) {
@@ -36,6 +67,20 @@ function DeviceSetter({ children }: { children: ReactNode }) {
     setDevice({ name: 'iPhone 16 & 17 Pro', width: 402, height: 874 });
   }, [setDevice]);
   return <>{children}</>;
+}
+
+// Exposes width/height/deviceName/zoom from context for assertions, the same
+// pattern stage-context.test.tsx's own Probe uses.
+function StageProbe() {
+  const { width, height, deviceName, zoom } = useStage();
+  return (
+    <div>
+      <output data-testid="probe-width">{width}</output>
+      <output data-testid="probe-height">{height ?? 'auto'}</output>
+      <output data-testid="probe-device">{deviceName ?? 'none'}</output>
+      <output data-testid="probe-zoom">{zoom}</output>
+    </div>
+  );
 }
 
 describe('Stage', () => {
@@ -66,54 +111,42 @@ describe('Stage', () => {
     expect(onAddScreen).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the artboard at the stage width in the basic theme', async () => {
+  it('renders the artboard at the stage width, in an iframe whose body is theme-basic', async () => {
     renderInEditor(<Stage {...screenProps({ data: emptyLayoutJson() })} />, { width: 768 });
-    const artboard = await screen.findByTestId('artboard');
-    expect(artboard).toHaveClass('theme-basic');
-    expect(artboard).toHaveStyle({ width: '768px', minHeight: '640px' });
-    expect(artboard.className).not.toMatch(/overflow-auto/);
-    expect(await screen.findByText('This frame is empty')).toBeInTheDocument();
+    const artboard = screen.getByTestId('artboard');
+    await waitFor(() => expect(artboard).toHaveStyle({ width: '768px' }));
+
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    expect(iframe).toHaveStyle({ width: '768px' });
+    const body = await frameBody();
+    expect(body.className).toBe('theme-basic');
+    expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
   });
 
-  it('gives the artboard a fixed height and overflow-auto once a device sets one, and drops min-height', async () => {
+  it('gives the frame a fixed height once a device sets one, and returns to auto when the width handle clears it', async () => {
     renderInEditor(
       <DeviceSetter>
         <Stage {...screenProps()} />
+        <StageProbe />
       </DeviceSetter>,
     );
-    const artboard = await screen.findByTestId('artboard');
-    await waitFor(() => expect(artboard).toHaveStyle({ width: '402px', height: '874px' }));
-    expect(artboard.className).toMatch(/overflow-auto/);
-    expect(artboard.style.minHeight).toBe('');
-  });
+    await waitFor(() => expect(screen.getByTestId('probe-height')).toHaveTextContent('874'));
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(iframe).toHaveStyle({ width: '402px', height: '874px' }));
 
-  it('the grip clears a device the stage had set, reverting to a plain width with min-height', async () => {
-    function DeviceNameProbe() {
-      return <output data-testid="ctx-device">{useStage().deviceName ?? 'none'}</output>;
-    }
-    renderInEditor(
-      <DeviceSetter>
-        <Stage {...screenProps()} />
-        <DeviceNameProbe />
-      </DeviceSetter>,
-    );
-    await waitFor(() => expect(screen.getByTestId('ctx-device')).toHaveTextContent('iPhone 16 & 17 Pro'));
-    const artboard = await screen.findByTestId('artboard');
-    await waitFor(() => expect(artboard).toHaveStyle({ height: '874px' }));
+    const widthHandle = screen.getByRole('separator', { name: 'Resize width' });
+    fireEvent.pointerDown(widthHandle, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(widthHandle, { clientX: 50, pointerId: 1 });
+    fireEvent.pointerUp(widthHandle, { clientX: 50, pointerId: 1 });
 
-    const grip = screen.getByRole('separator', { name: 'Resize the frame' });
-    fireEvent.pointerDown(grip, { clientX: 0, pointerId: 1 });
-    fireEvent.pointerMove(grip, { clientX: 50, pointerId: 1 });
-    fireEvent.pointerUp(grip, { clientX: 50, pointerId: 1 });
-
-    expect(screen.getByTestId('ctx-device')).toHaveTextContent('none');
-    expect(artboard.style.height).toBe('');
-    expect(artboard).toHaveStyle({ minHeight: '640px' });
+    expect(screen.getByTestId('probe-device')).toHaveTextContent('none');
+    expect(screen.getByTestId('probe-height')).toHaveTextContent('auto');
+    await waitFor(() => expect(iframe).toHaveStyle({ height: `${ARTBOARD_MIN_HEIGHT}px` }));
   });
 
   it('deselects when the canvas outside the artboard is pressed', async () => {
     const { editor } = renderInEditor(<Stage {...screenProps()} />);
-    await screen.findByText('This frame is empty');
+    await frameBody();
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
 
@@ -123,7 +156,7 @@ describe('Stage', () => {
 
   it('keeps the selection when the artboard itself is pressed', async () => {
     const { editor } = renderInEditor(<Stage {...screenProps()} />);
-    await screen.findByText('This frame is empty');
+    await frameBody();
     editor().actions.selectNode(ROOT_NODE);
     await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
 
@@ -131,69 +164,286 @@ describe('Stage', () => {
     expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true);
   });
 
-  it('resizes with the grip, dividing the pointer delta by the zoom', async () => {
-    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
-    expect(grip).toHaveAttribute('aria-valuenow', '1000');
+  describe('resize handles', () => {
+    it('renders three handles with the right aria roles, orientation and values', async () => {
+      renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
+      const width = await screen.findByRole('separator', { name: 'Resize width' });
+      const height = screen.getByRole('separator', { name: 'Resize height' });
+      const corner = screen.getByRole('separator', { name: 'Resize frame' });
 
-    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
-    fireEvent.pointerMove(grip, { clientX: 300, pointerId: 1 });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1200px' });
-    fireEvent.pointerUp(grip, { clientX: 300, pointerId: 1 });
+      expect(width).toHaveAttribute('aria-orientation', 'vertical');
+      expect(width).toHaveAttribute('aria-valuenow', '1000');
+      expect(width).toHaveAttribute('aria-valuemin', '120');
+      expect(width).toHaveAttribute('aria-valuemax', '3840');
 
-    fireEvent.pointerDown(grip, { clientX: 300, pointerId: 1 });
-    fireEvent.pointerMove(grip, { clientX: -5000, pointerId: 1 });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '120px' });
-    fireEvent.pointerUp(grip, { clientX: -5000, pointerId: 1 });
-  });
+      expect(height).toHaveAttribute('aria-orientation', 'horizontal');
+      expect(height).toHaveAttribute('aria-valuenow', String(ARTBOARD_MIN_HEIGHT));
+      expect(height).toHaveAttribute('aria-valuemin', '120');
+      expect(height).toHaveAttribute('aria-valuemax', '8192');
 
-  it('resizes with the arrow keys, ten times faster with Shift', async () => {
-    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
-    fireEvent.keyDown(grip, { key: 'ArrowRight' });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1010px' });
-    fireEvent.keyDown(grip, { key: 'ArrowRight', shiftKey: true });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1110px' });
-    fireEvent.keyDown(grip, { key: 'ArrowLeft' });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1100px' });
-  });
-
-  it('ends the drag on pointer cancel, so a later move does not resize', async () => {
-    renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
-    const grip = await screen.findByRole('separator', { name: 'Resize the frame' });
-    fireEvent.pointerDown(grip, { clientX: 100, pointerId: 1 });
-    expect(grip.firstElementChild).toHaveClass('bg-acc');
-    fireEvent.pointerCancel(grip, { clientX: 100, pointerId: 1 });
-    expect(grip.firstElementChild).toHaveClass('bg-border');
-    fireEvent.pointerMove(grip, { clientX: 400, pointerId: 1 });
-    expect(screen.getByTestId('artboard')).toHaveStyle({ width: '1000px' });
-  });
-
-  it('keeps the selection when the grip is pressed', async () => {
-    const { editor } = renderInEditor(<Stage {...screenProps()} />);
-    await screen.findByText('This frame is empty');
-    editor().actions.selectNode(ROOT_NODE);
-    await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
-    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize the frame' }), {
-      clientX: 0,
-      pointerId: 1,
+      expect(corner).toHaveAttribute('aria-valuenow', '1000');
     });
-    expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true);
+
+    it('dragging the width handle changes width, dividing the pointer delta by zoom, and clears the device', async () => {
+      renderInEditor(
+        <DeviceSetter>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </DeviceSetter>,
+        { width: 1000 },
+      );
+      await waitFor(() => expect(screen.getByTestId('probe-device')).toHaveTextContent('iPhone 16 & 17 Pro'));
+
+      const handle = screen.getByRole('separator', { name: 'Resize width' });
+      fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientX: 300, pointerId: 1 });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('602');
+      expect(screen.getByTestId('probe-device')).toHaveTextContent('none');
+      fireEvent.pointerUp(handle, { clientX: 300, pointerId: 1 });
+    });
+
+    it('dragging the corner handle changes both width and height together', async () => {
+      renderInEditor(
+        <>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = await screen.findByRole('separator', { name: 'Resize frame' });
+
+      fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientX: 40, clientY: 24, pointerId: 1 });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('1040');
+      expect(screen.getByTestId('probe-height')).toHaveTextContent(String(ARTBOARD_MIN_HEIGHT + 24));
+      fireEvent.pointerUp(handle, { clientX: 40, clientY: 24, pointerId: 1 });
+    });
+
+    it('dragging the height handle sets a fixed height without touching width or the device', async () => {
+      renderInEditor(
+        <DeviceSetter>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </DeviceSetter>,
+        { width: 1000 },
+      );
+      await waitFor(() => expect(screen.getByTestId('probe-height')).toHaveTextContent('874'));
+
+      const handle = screen.getByRole('separator', { name: 'Resize height' });
+      fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientY: 30, pointerId: 1 });
+      expect(screen.getByTestId('probe-height')).toHaveTextContent('904');
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('402');
+      expect(screen.getByTestId('probe-device')).toHaveTextContent('none');
+      fireEvent.pointerUp(handle, { clientY: 30, pointerId: 1 });
+    });
+
+    it('double-clicking the height handle returns the height to auto', async () => {
+      renderInEditor(
+        <DeviceSetter>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </DeviceSetter>,
+        { width: 1000 },
+      );
+      await waitFor(() => expect(screen.getByTestId('probe-height')).toHaveTextContent('874'));
+
+      fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize height' }));
+      expect(screen.getByTestId('probe-height')).toHaveTextContent('auto');
+      expect(screen.getByTestId('probe-device')).toHaveTextContent('none');
+    });
+
+    it('steps the width by 8 px with the arrow keys', async () => {
+      renderInEditor(
+        <>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = await screen.findByRole('separator', { name: 'Resize width' });
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('1008');
+      fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('1000');
+    });
+
+    it('steps the height by 8 px with the arrow keys, starting from the measured auto height', async () => {
+      renderInEditor(
+        <>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = await screen.findByRole('separator', { name: 'Resize height' });
+      fireEvent.keyDown(handle, { key: 'ArrowDown' });
+      expect(screen.getByTestId('probe-height')).toHaveTextContent(String(ARTBOARD_MIN_HEIGHT + 8));
+    });
+
+    it('steps both axes on the corner handle depending on which arrow key is pressed', async () => {
+      renderInEditor(
+        <>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = await screen.findByRole('separator', { name: 'Resize frame' });
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('1008');
+      fireEvent.keyDown(handle, { key: 'ArrowDown' });
+      expect(screen.getByTestId('probe-height')).toHaveTextContent(String(ARTBOARD_MIN_HEIGHT + 8));
+    });
+
+    it('ends the drag on pointer cancel, so a later move does not resize', async () => {
+      renderInEditor(
+        <>
+          <Stage {...screenProps()} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = await screen.findByRole('separator', { name: 'Resize width' });
+      fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+      expect(handle.firstElementChild).toHaveClass('bg-acc');
+      fireEvent.pointerCancel(handle, { clientX: 100, pointerId: 1 });
+      expect(handle.firstElementChild).toHaveClass('bg-border');
+      fireEvent.pointerMove(handle, { clientX: 400, pointerId: 1 });
+      expect(screen.getByTestId('probe-width')).toHaveTextContent('1000');
+    });
+
+    it('shows a live width x height readout while dragging', async () => {
+      renderInEditor(<Stage {...screenProps()} />, { width: 1000 });
+      const handle = await screen.findByRole('separator', { name: 'Resize width' });
+      expect(screen.queryByTestId('resize-readout')).toBeNull();
+      fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+      expect(screen.getByTestId('resize-readout')).toHaveTextContent(`1000 × ${ARTBOARD_MIN_HEIGHT}`);
+      fireEvent.pointerMove(handle, { clientX: 40, pointerId: 1 });
+      expect(screen.getByTestId('resize-readout')).toHaveTextContent(`1040 × ${ARTBOARD_MIN_HEIGHT}`);
+      fireEvent.pointerUp(handle, { clientX: 40, pointerId: 1 });
+      expect(screen.queryByTestId('resize-readout')).toBeNull();
+    });
+
+    it('keeps the selection when a handle is pressed', async () => {
+      const { editor } = renderInEditor(<Stage {...screenProps()} />);
+      await frameBody();
+      editor().actions.selectNode(ROOT_NODE);
+      await waitFor(() => expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true));
+      fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize width' }), {
+        clientX: 0,
+        pointerId: 1,
+      });
+      expect(editor().query.getEvent('selected').contains(ROOT_NODE)).toBe(true);
+    });
   });
 
   it('scales the artboard down when the column is narrower than it', async () => {
     const spy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
-    function ZoomProbe() {
-      return <output data-testid="zoom">{useStage().zoom}</output>;
-    }
     renderInEditor(
       <>
         <Stage {...screenProps()} />
-        <ZoomProbe />
+        <StageProbe />
       </>,
       { width: 1440 },
     );
-    await waitFor(() => expect(screen.getByTestId('zoom')).toHaveTextContent('0.5'));
+    await waitFor(() => expect(screen.getByTestId('probe-zoom')).toHaveTextContent('0.5'));
     spy.mockRestore();
+  });
+
+  it('measures the comment layer\'s artboard rect after the fit-to-width zoom has rendered, not before', async () => {
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
+    const staleRect = {
+      left: 0,
+      top: 0,
+      width: 1440,
+      height: 800,
+      right: 1440,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const freshRect = {
+      left: 40,
+      top: 20,
+      width: 720,
+      height: 400,
+      right: 760,
+      bottom: 420,
+      x: 40,
+      y: 20,
+      toJSON: () => ({}),
+    } as DOMRect;
+    // The artboard box's inline width only reads 720px (1440 at zoom 0.5)
+    // once the render triggered by this effect's setZoom(0.5) has actually
+    // committed to the DOM. A fix that reads getBoundingClientRect in the
+    // same tick as that setZoom call (the bug) can only ever observe the
+    // stale, pre-zoom rect below - never the fresh one.
+    const measureImpl = function (this: HTMLElement): DOMRect {
+      return this.style.width === '720px' ? freshRect : staleRect;
+    };
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(measureImpl as unknown as () => DOMRect);
+
+    renderInEditor(
+      <Stage
+        {...screenProps({
+          comments: { ...DEFAULT_STAGE_COMMENTS, threads: [makeThread({ x: 100, y: 50 })] },
+        })}
+      />,
+      { width: 1440 },
+    );
+
+    const pin = await screen.findByRole('button', { name: 'Comment 1' });
+    // Post-zoom rect: left 40 + 100 * 0.5 = 90; top 20 + 50 * 0.5 - 24 = 21.
+    await waitFor(() => expect(pin).toHaveStyle({ left: '90px', top: '21px' }));
+
+    clientWidthSpy.mockRestore();
+    rectSpy.mockRestore();
+  });
+
+  it('re-measures the comment layer\'s artboard rect on a window resize', async () => {
+    const rectA = {
+      left: 0,
+      top: 0,
+      width: 1440,
+      height: 800,
+      right: 1440,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectB = {
+      left: 200,
+      top: 100,
+      width: 1440,
+      height: 800,
+      right: 1640,
+      bottom: 900,
+      x: 200,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rectA);
+
+    renderInEditor(
+      <Stage
+        {...screenProps({
+          comments: { ...DEFAULT_STAGE_COMMENTS, threads: [makeThread({ x: 0, y: 0 })] },
+        })}
+      />,
+    );
+
+    const pin = await screen.findByRole('button', { name: 'Comment 1' });
+    await waitFor(() => expect(pin).toHaveStyle({ left: '0px' }));
+
+    rectSpy.mockReturnValue(rectB);
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => expect(pin).toHaveStyle({ left: '200px' }));
+    rectSpy.mockRestore();
   });
 });

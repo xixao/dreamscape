@@ -4,6 +4,7 @@ import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { renderInEditor } from '@/test/craft-harness';
+import { CanvasFrame } from './canvas-frame';
 import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
 type KeysOptions = {
@@ -98,6 +99,18 @@ describe('isEditableTarget', () => {
     );
     expect(isEditableTarget(screen.getByTestId('option'))).toBe(true);
     expect(isEditableTarget(screen.getByTestId('alert-action'))).toBe(true);
+  });
+
+  it('is true for an input from a different document/realm (an iframe), not just instanceof the parent HTMLElement', () => {
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    const iframeInput = iframe.contentDocument!.createElement('input');
+    iframe.contentDocument!.body.appendChild(iframeInput);
+
+    expect(iframeInput instanceof HTMLElement).toBe(false);
+    expect(isEditableTarget(iframeInput)).toBe(true);
+
+    iframe.remove();
   });
 });
 
@@ -219,6 +232,70 @@ describe('useWorkbenchKeyboard onToggleUi', () => {
   });
 });
 
+describe('useWorkbenchKeyboard with a CanvasFrame', () => {
+  // Keys is a sibling of the CanvasFrame here, exactly like the real tree
+  // (useWorkbenchKeyboard is called from WorkbenchShell, a sibling of Stage
+  // in workbench.tsx) - it still sees the canvas document because
+  // useCanvasDocument() reads it from StageContext, not from a context
+  // scoped to CanvasFrame's own children.
+  function mountInFrame(onToggleUi?: () => void) {
+    return renderInEditor(
+      <>
+        <CanvasFrame width={800} height={null} zoom={1}>
+          <Frame>
+            <Element is={LayoutBox} canvas>
+              <Button label="Doomed" />
+            </Element>
+          </Frame>
+        </CanvasFrame>
+        <Keys onToggleUi={onToggleUi} />
+      </>,
+    );
+  }
+
+  async function frameBody(): Promise<HTMLElement> {
+    return waitFor(() => {
+      const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+      const body = iframe.contentDocument?.body;
+      if (!body?.querySelector('button')) throw new Error('not ready');
+      return body;
+    });
+  }
+
+  it('a keydown dispatched on the iframe window fires the shortcut', async () => {
+    const onToggleUi = vi.fn();
+    mountInFrame(onToggleUi);
+    const body = await frameBody();
+
+    fireEvent.keyDown(body, { key: '\\', metaKey: true });
+    expect(onToggleUi).toHaveBeenCalledTimes(1);
+  });
+
+  it('Delete on a selected block dispatched from inside the iframe deletes it', async () => {
+    const utils = mountInFrame();
+    const body = await frameBody();
+    const buttonId = utils.editor().query.node(ROOT_NODE).get().data.nodes[0];
+    utils.editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(utils.editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(body, { key: 'Delete' });
+    await waitFor(() => expect(body.querySelector('button')).toBeNull());
+  });
+
+  it('ignores Delete while typing into an input that lives inside the iframe', async () => {
+    const utils = mountInFrame();
+    const body = await frameBody();
+    const buttonId = utils.editor().query.node(ROOT_NODE).get().data.nodes[0];
+    utils.editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(utils.editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    const iframeInput = body.ownerDocument.createElement('input');
+    body.appendChild(iframeInput);
+
+    fireEvent.keyDown(iframeInput, { key: 'Delete' });
+    expect(body.querySelector('button')).not.toBeNull();
+  });
+});
 
 describe('useWorkbenchKeyboard onToggleCommentMode', () => {
   it('toggles comment mode with the "c" key', async () => {

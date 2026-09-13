@@ -12,6 +12,18 @@ import { Stage } from './stage';
 
 const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }];
 
+// Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
+// a separate document `screen` (bound to the outer one) cannot see into -
+// waits for the iframe and returns its body so callers can query inside it.
+async function frameBody(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    const body = iframe.contentDocument?.body;
+    if (!body) throw new Error('canvas frame body not ready');
+    return body;
+  });
+}
+
 // Builds ROOT(Frame) -> Card -> CardContent(zone) -> Button("Sign in"), the
 // exact tree the spec's own harness example uses, via the same
 // query.parseReactElement/actions.addNodeTree technique as
@@ -34,14 +46,15 @@ async function setup() {
       <LayerStackMenu />
     </>,
   );
-  await screen.findByText('This frame is empty');
+  const body = await frameBody();
+  await within(body).findByText('This frame is empty');
   const { actions, query } = utils.editor();
 
   act(() => {
     const cardTree = query.parseReactElement(<Card title="" description="" />).toNodeTree();
     actions.addNodeTree(cardTree, ROOT_NODE);
   });
-  await waitFor(() => expect(document.querySelector('[data-zone="CardContent"]')).not.toBeNull());
+  await waitFor(() => expect(body.querySelector('[data-zone="CardContent"]')).not.toBeNull());
   const cardId = query.node(ROOT_NODE).get().data.nodes[0];
   const zoneId = query.node(cardId).get().data.linkedNodes.content as string;
 
@@ -49,7 +62,7 @@ async function setup() {
     const buttonTree = query.parseReactElement(<Button label="Sign in" />).toNodeTree();
     actions.addNodeTree(buttonTree, zoneId);
   });
-  const button = await screen.findByRole('button', { name: 'Sign in' });
+  const button = await within(body).findByRole('button', { name: 'Sign in' });
 
   // Fake timers only from here on: everything above needs the real timers
   // RTL's findBy/waitFor polling relies on, and switching before they
@@ -347,6 +360,44 @@ describe('LayerStackMenu', () => {
       await advance(HOLD_MS);
 
       expect(screen.getByRole('menu')).toHaveStyle({ left: '58px', top: '58px' });
+    });
+  });
+
+  describe('converts iframe coordinates to parent coordinates', () => {
+    // Every other test in this file happens to run at zoom 1 with the
+    // iframe flush against the parent document's origin, so the anchor
+    // conversion (iframeRect.left/top + point * zoom) is indistinguishable
+    // from identity there. This test forces a real offset and a non-1 zoom
+    // to prove the formula itself, not just that presses inside the frame
+    // are detected at all.
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('offsets and scales the anchor by the iframe rect and the current zoom', async () => {
+      // Stage computes zoom from the column's clientWidth versus the stage
+      // width (lib/stage.ts's computeZoom); 720 available for a 1440 px
+      // frame (craft-harness's renderInEditor default) is exactly zoom 0.5.
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this.dataset.testid === 'canvas-frame') {
+          return { left: 100, top: 40, width: 720, height: 320, right: 820, bottom: 360, x: 100, y: 40, toJSON() {} } as DOMRect;
+        }
+        // The popover's own measured size (flipToFit's width/height), kept
+        // tiny and fully inside the (real) window so no flip complicates
+        // the math this test is actually checking.
+        return { left: 0, top: 0, width: 40, height: 20, right: 40, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
+      });
+
+      const { button } = await setup();
+      // Pressing at (10, 20) inside the frame, whose rect is offset by
+      // (100, 40) in the parent document and currently rendered at zoom
+      // 0.5, must anchor the menu at (100 + 10*0.5, 40 + 20*0.5) = (105, 50)
+      // before flipToFit's own MENU_OFFSET(8)/clamping is applied.
+      press(button, 10, 20);
+      await advance(HOLD_MS);
+
+      expect(screen.getByRole('menu')).toHaveStyle({ left: `${105 + 8}px`, top: `${50 + 8}px` });
     });
   });
 });

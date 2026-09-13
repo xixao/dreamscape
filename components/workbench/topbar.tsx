@@ -33,9 +33,9 @@ import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SaveState } from '@/lib/persistence';
-import type { Breakpoint } from '@/lib/responsive';
 import { STAGE_PRESETS, STAGE_PRESET_ORDER, type StagePreset } from '@/lib/stage';
 import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
+import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
 import { CHIP, CHIP_INPUT, LABEL, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
 import { useStage } from './stage-context';
@@ -47,24 +47,6 @@ const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
 };
 
 const MAX_NAME_LENGTH = 120;
-
-/**
- * The stage-width readout text. Given a device (the frame's chosen Figma
- * preset), it reads "<device name> · <width> × <height>" instead of the
- * plain "<width> px · <breakpoint>" - the device's own name and exact
- * dimensions are more useful than the generic breakpoint label once one is
- * set. Either form appends "· <zoom>%" once the artboard is scaled down.
- */
-export function stageReadout(
-  width: number,
-  breakpoint: Breakpoint,
-  zoom: number,
-  device?: { name: string; height: number } | null,
-): string {
-  const parts = device ? [device.name, `${width} × ${device.height}`] : [`${width} px`, breakpoint];
-  if (zoom < 1) parts.push(`${Math.round(zoom * 100)}%`);
-  return parts.join(' · ');
-}
 
 function IconAction({
   label,
@@ -272,7 +254,7 @@ export function Topbar({
   chatOpen: boolean;
   onToggleChat: () => void;
 }) {
-  const { width, height, breakpoint, preset, deviceName, zoom, setPreset, setDevice } = useStage();
+  const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
     canUndo: query.history.canUndo(),
     canRedo: query.history.canRedo(),
@@ -333,7 +315,7 @@ export function Topbar({
           data-testid="stage-readout"
           className="font-mono text-[11px] text-muted-foreground tabular-nums"
         >
-          {stageReadout(width, breakpoint, zoom, deviceName && height != null ? { name: deviceName, height } : null)}
+          {readoutFor({ width, height, deviceName, zoom })}
         </span>
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />

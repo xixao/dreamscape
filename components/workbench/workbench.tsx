@@ -290,39 +290,45 @@ export function Workbench({
     if (id === currentScreenId) switchScreen(next[0].id);
   }
 
-  function handleWidthChange(width: number): void {
+  // Handles every manual, deviceless size change on the current screen: a
+  // plain width (the width handle, the Mobile/Tablet/Desktop segments, or
+  // arrow keys on the width handle - always height: null, deviceName: null),
+  // a fixed height set by the height handle (width unchanged, deviceName
+  // still null), or both from the corner handle. One function because
+  // StageContext's setWidth and setSize both ultimately mean the same thing
+  // to a saved screen - "the user set an explicit size by hand, so whatever
+  // device it had is gone" - and both always clear deviceName the same way.
+  function handleSizeChange(next: { width: number; height: number | null; deviceName: string | null }): void {
     const current = screens.find((screen) => screen.id === currentScreenId);
-    // No-op guard: WorkbenchShell's own width-reinit effect (below) calls
-    // this same setWidth whenever the screen changes and has no device,
-    // purely to make StageProvider's context match a screen it didn't
-    // remount for (see the comment on <StageProvider> below) - not because
-    // anything actually changed. Without this, every screen switch would
-    // queue an identical, pointless save. stageHeight/deviceName are
-    // compared against null (not undefined) since a Screen predating this
-    // feature (or one already cleared) may omit them entirely.
+    // No-op guard: WorkbenchShell's own size-reinit effect (below) calls
+    // setWidth/setSize/setDevice whenever the screen changes, purely to make
+    // StageProvider's context match a screen it didn't remount for (see the
+    // comment on <StageProvider> below) - not because anything actually
+    // changed. Without this, every screen switch would queue an identical,
+    // pointless save. stageHeight/deviceName are compared against null (not
+    // undefined) since a Screen predating this feature (or one already
+    // cleared) may omit them entirely.
     if (
       current &&
-      current.stageWidth === width &&
-      (current.stageHeight ?? null) === null &&
-      (current.deviceName ?? null) === null
+      current.stageWidth === next.width &&
+      (current.stageHeight ?? null) === next.height &&
+      (current.deviceName ?? null) === next.deviceName
     ) {
       return;
     }
-    // setWidth (the grip, the Mobile/Tablet/Desktop segments) always clears
-    // the frame's device in the stage context - this mirrors that onto the
-    // saved screen, so a plain width change also clears a device the
-    // screen previously had.
-    const next = screens.map((screen) =>
-      screen.id === currentScreenId ? { ...screen, stageWidth: width, stageHeight: null, deviceName: null } : screen,
+    const nextScreens = screens.map((screen) =>
+      screen.id === currentScreenId
+        ? { ...screen, stageWidth: next.width, stageHeight: next.height, deviceName: next.deviceName }
+        : screen,
     );
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    screensRef.current = nextScreens;
+    setScreens(nextScreens);
+    queuePatch({ screens: nextScreens });
   }
 
   function handleDeviceChange(device: { width: number; height: number; deviceName: string }): void {
     const current = screens.find((screen) => screen.id === currentScreenId);
-    // Same no-op guard as handleWidthChange, above, and for the same
+    // Same no-op guard as handleSizeChange, above, and for the same
     // reason: WorkbenchShell's resync effect calls setDevice whenever the
     // screen changes and already has this exact device, purely to make the
     // stage context match it - not because anything actually changed.
@@ -377,7 +383,8 @@ export function Workbench({
         initialWidth={currentScreen.stageWidth}
         initialHeight={currentScreen.stageHeight ?? null}
         initialDeviceName={currentScreen.deviceName ?? null}
-        onWidthChange={handleWidthChange}
+        onWidthChange={(width) => handleSizeChange({ width, height: null, deviceName: null })}
+        onSizeChange={(size) => handleSizeChange({ width: size.width, height: size.height, deviceName: null })}
         onDeviceChange={handleDeviceChange}
       >
         <WorkbenchShell
@@ -459,7 +466,7 @@ function WorkbenchShell({
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
   const { actions } = useEditor();
-  const { setWidth, setDevice } = useStage();
+  const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
 
   // Figma's own behaviour: picking a layer on the canvas while the
@@ -503,11 +510,26 @@ function WorkbenchShell({
     setCommentMode(false);
   }
 
+  // Shared by the topbar's Comment tool button and the "c" key: turning
+  // comment mode ON is a plain toggle, but turning it OFF must also cancel a
+  // pending pin and close its composer, the same cleanup Escape and Cancel
+  // already do via cancelPendingAndExitCommentMode - otherwise a pin placed
+  // and then left mid-composer by toggling the tool off (rather than
+  // pressing Escape or Cancel) stays behind, orphaned, with no tool active
+  // to finish or discard it.
+  function toggleCommentMode(): void {
+    if (commentMode) {
+      cancelPendingAndExitCommentMode();
+    } else {
+      setCommentMode(true);
+    }
+  }
+
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
     onTogglePanelCollapsed: () => setPanelCollapsed((collapsed) => !collapsed),
-    onToggleCommentMode: () => setCommentMode((mode) => !mode),
+    onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
   });
@@ -557,19 +579,24 @@ function WorkbenchShell({
   // active before - stale for every useStage() consumer here (the topbar
   // readout and device chip, the inspector's breakpoint badge, the artboard
   // itself). Re-initialises only on an actual screen change, not on every
-  // resize (handleWidthChange's/handleDeviceChange's own no-op guards also
-  // keep this from queuing a spurious save). setDevice when the screen has
-  // one (stageHeight is always set alongside deviceName - see addScreen,
-  // duplicateScreen and validateScreens, which all keep the two together;
-  // the stageHeight check here is defensive, not an expected case), setWidth
-  // otherwise - the same two entry points a user's own action reaches this
-  // context through. A layout effect so the artboard never paints the new
-  // screen at the old width or height.
+  // resize (handleSizeChange's/handleDeviceChange's own no-op guards also
+  // keep this from queuing a spurious save). Three cases, the same ones a
+  // user's own action reaches this context through: setDevice when the
+  // screen has one (stageHeight is always set alongside deviceName - see
+  // addScreen, duplicateScreen and validateScreens, which all keep the two
+  // together; the stageHeight check here is defensive, not an expected
+  // case); setSize when it has a manual fixed height with no device (the
+  // height or corner handle, without ever touching a device preset) -
+  // setWidth alone would silently drop that height back to auto, since
+  // setWidth always clears it; setWidth otherwise. A layout effect so the
+  // artboard never paints the new screen at the old width or height.
   useLayoutEffect(() => {
     const screen = screens.find((candidate) => candidate.id === currentScreenId);
     if (!screen) return;
     if (screen.deviceName && screen.stageHeight != null) {
       setDevice({ name: screen.deviceName, width: screen.stageWidth, height: screen.stageHeight });
+    } else if (screen.stageHeight != null) {
+      setSize({ width: screen.stageWidth, height: screen.stageHeight });
     } else {
       setWidth(screen.stageWidth);
     }
@@ -611,7 +638,7 @@ function WorkbenchShell({
               chatOpen={chatOpen}
               onToggleChat={() => setChatOpen((open) => !open)}
               commentMode={commentMode}
-              onToggleCommentMode={() => setCommentMode((mode) => !mode)}
+              onToggleCommentMode={toggleCommentMode}
               commentCount={threads.length}
             />
           )}
