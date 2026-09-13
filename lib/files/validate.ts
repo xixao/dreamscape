@@ -141,7 +141,7 @@ const DEVICE_NAME_MAX = 80;
 /**
  * Validates and normalizes a whole file's screens array in one pass: every
  * screen's layout must pass validateLayout, names are trimmed to 1..80
- * characters, widths are clamped to the same [120, 1920] range a lone
+ * characters, widths are clamped to the same [120, 3840] range a lone
  * stageWidth always was, stageHeight (when given) must be a positive
  * integer, deviceName (when given) must be at most 80 characters, ids must
  * be exactly 10 characters and unique within the array, and at least one
