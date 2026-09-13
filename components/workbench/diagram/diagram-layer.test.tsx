@@ -644,6 +644,127 @@ describe('DiagramLayer quick-add circles', () => {
   });
 });
 
+describe('DiagramLayer right-click never also acts as a left-click gesture (review finding 2)', () => {
+  it('a right-button pointerdown on a shape does not start a drag or change selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, button: 2 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, button: 2 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, button: 2 });
+    fireEvent.contextMenu(el);
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+  });
+
+  it('a real right-click sequence on an edge inside a multi-selection leaves the selection alone', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge()],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'edge', id: 'edge0000001' },
+        ],
+      }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+
+    fireEvent.pointerDown(hit, { pointerId: 1, clientX: 200, clientY: 25, button: 2 });
+    fireEvent.contextMenu(hit);
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('a right-button pointerdown on a resize handle does not resize', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50, button: 2 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140, clientY: 90, button: 2 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 140, clientY: 90, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+
+  it('a right-button pointerdown on a connect handle does not start a connector', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    hoverAt(50, 25);
+    const handle = screen.getByTestId('diagram-handle-node-a-right');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 25, button: 2 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 25, button: 2 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 25, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+
+  it('a right-button pointerdown on the placement surface does not place a shape', () => {
+    const { dispatch } = renderLayer({ tool: { kind: 'shape', shape: 'rect' } });
+    const surface = screen.getByTestId('diagram-placement-surface');
+
+    fireEvent.pointerDown(surface, { pointerId: 1, clientX: 200, clientY: 100, button: 2 });
+    fireEvent.pointerUp(surface, { pointerId: 1, clientX: 200, clientY: 100, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'add' }));
+  });
+});
+
+describe('DiagramLayer overlapping shapes (review finding 4)', () => {
+  it('hover targets the top-most (last-rendered) of two overlapping shapes', () => {
+    const nodes = [
+      node({ id: 'bottom', x: 0, y: 0, width: 100, height: 50 }),
+      node({ id: 'top', x: 50, y: 0, width: 100, height: 50 }),
+    ];
+    renderLayer({ diagram: stateWith({ nodes }) });
+
+    hoverAt(75, 25);
+
+    expect(screen.getByTestId('diagram-handle-node-top-right')).toHaveStyle({ opacity: 1 });
+    expect(screen.getByTestId('diagram-handle-node-bottom-right')).toHaveStyle({ opacity: 0 });
+  });
+
+  it('a connector dropped on the overlap attaches to the top-most (last-rendered) shape', () => {
+    const nodes = [
+      node({ id: 'source', x: -200, y: 0, width: 100, height: 50 }),
+      node({ id: 'bottom', x: 0, y: 0, width: 100, height: 50 }),
+      node({ id: 'top', x: 50, y: 0, width: 100, height: 50 }),
+    ];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    hoverAt(-150, 25);
+    const handle = screen.getByTestId('diagram-handle-node-source-right');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: -100, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 75, clientY: 25 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 75, clientY: 25 });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'connect',
+        edge: expect.objectContaining({ target: { nodeId: 'top', side: 'left' } }),
+      }),
+    );
+  });
+});
+
 describe('DiagramLayer connecting', () => {
   it('drags from a node handle to another node to create a connector', () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];

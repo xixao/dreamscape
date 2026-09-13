@@ -539,7 +539,12 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       // handles.
       if (drag || resize || connect || place) return;
       const point = clientToCanvas(event.clientX, event.clientY);
-      const node = diagram.nodes.find((n) => boxContains(n, point));
+      // findLast, not find (review finding 4): nodes paint in array order,
+      // so the LAST one is on top - find would resolve an overlap to
+      // whichever shape happens to be first in the array (the bottom-most
+      // on screen), hiding hover/quick-add/handles for the shape the user
+      // can actually see and click.
+      const node = diagram.nodes.findLast((n) => boxContains(n, point));
       if (node) {
         setHover((current) => (current?.type === 'node' && current.id === node.id ? current : { type: 'node', id: node.id }));
         return;
@@ -607,7 +612,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
   // --- Node pointer handling (select, drag, or start a connector) -------
 
+  // Review finding 2: a right button pointerdown must never also start a
+  // drag/connect/resize/placement or change the selection - in a real
+  // browser it is followed by its own separate `contextmenu` event, which
+  // `ensureSelected` (on the ContextMenuTrigger) already handles correctly;
+  // this guard just stops the plain left-click gesture logic below from
+  // ALSO running for it. Same first line on every pointer-down handler in
+  // this file.
   function handleNodePointerDown(node: DiagramNode, event: ReactPointerEvent<SVGElement>): void {
+    if (event.button !== 0) return;
     if (editing && editing.id !== node.id) commitPendingEdit(true);
     event.stopPropagation();
 
@@ -701,6 +714,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   ];
 
   function handleResizePointerDown(node: DiagramNode, corner: 'nw' | 'ne' | 'sw' | 'se', event: ReactPointerEvent<SVGElement>): void {
+    if (event.button !== 0) return;
     event.stopPropagation();
     capturePointer(event.currentTarget, event.pointerId);
     setResize({ pointerId: event.pointerId, id: node.id, corner, start: clientToCanvas(event.clientX, event.clientY), box: node });
@@ -746,6 +760,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // --- Connect ------------------------------------------------------------
 
   function startConnect(source: { type: 'node' | 'frame'; id: string }, side: Side, event: ReactPointerEvent<SVGElement>): void {
+    if (event.button !== 0) return;
     const box = boxFor(source);
     if (!box) return;
     event.stopPropagation();
@@ -762,7 +777,9 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   function endConnect(event: ReactPointerEvent<SVGElement>): void {
     if (!connect || connect.pointerId !== event.pointerId) return;
     const point = connect.current;
-    const targetNode = diagram.nodes.find((n) => n.id !== connect.source.id && boxContains(n, point));
+    // findLast (review finding 4): a connector dropped on an overlap must
+    // attach to the top-most shape, same reasoning as the hover effect.
+    const targetNode = diagram.nodes.findLast((n) => n.id !== connect.source.id && boxContains(n, point));
     const targetFrame = !targetNode ? frames.find((f) => boxContains(f, point)) : null;
     const target = targetNode ? { type: 'node' as const, id: targetNode.id } : targetFrame ? { type: 'frame' as const, id: targetFrame.id } : null;
 
@@ -787,7 +804,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // --- Placement (palette shape tool) --------------------------------------
 
   function handlePlacePointerDown(event: ReactPointerEvent<SVGElement>): void {
-    if (tool.kind !== 'shape') return;
+    if (event.button !== 0 || tool.kind !== 'shape') return;
     capturePointer(event.currentTarget, event.pointerId);
     const point = clientToCanvas(event.clientX, event.clientY);
     setPlace({ pointerId: event.pointerId, start: point, current: point });
@@ -833,7 +850,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // --- Edge pointer handling ------------------------------------------------
 
   function handleEdgePointerDown(edge: DiagramEdge, event: ReactPointerEvent<SVGElement>): void {
-    if (tool.kind !== 'pointer') return;
+    if (event.button !== 0 || tool.kind !== 'pointer') return;
     event.stopPropagation();
     selectShape('edge', edge.id, event.shiftKey);
   }
