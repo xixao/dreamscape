@@ -561,17 +561,6 @@ export default function FlowReview() {
             <Share2 size={15} />
             Share
           </Button>
-          <Button
-            disabled={!loaded}
-            onClick={() => {
-              setShareRole("participant");
-              setShareUrl("");
-              setDialog("share");
-            }}
-          >
-            <Settings2 size={15} />
-            Set up test
-          </Button>
         </header>
         {presentation && (
           <header className="presentation-bar">
@@ -705,6 +694,7 @@ export default function FlowReview() {
                 Case study
               </TabsTrigger>
             </TabsList>
+            {isDesigner && <Button variant="ghost" className="setup-nav-action" disabled={!loaded} onClick={()=>{setShareRole("participant");setShareUrl("");setDialog("share");}}><Settings2 size={15}/>Set up test</Button>}
           </Tabs>
         )}
         {participant && (

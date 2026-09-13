@@ -977,6 +977,13 @@ body {
   display: flex;
   flex-direction: column;
 }
+.studio .workspace-tabs { flex-direction: row; align-items: center; gap: 16px; overflow-x: auto; }
+.workspace-tabs > [data-slot="tabs-list"], .workspace-tabs .setup-nav-action { flex-shrink: 0; }
+.tester-shell.test-centered { display: flex; flex-direction: column; min-height: 100dvh; padding: 24px 16px; }
+.test-centered > .consent-screen, .test-centered > .tester-feedback { width: min(100%, 640px); margin: auto; padding: 20px; text-align: center; }
+.test-centered .consent-details, .test-centered .consent-check, .test-centered label, .test-centered textarea { text-align: left; }
+.test-centered .tester-stars { justify-content: center; }
+.test-centered .test-finish > svg { margin-inline: auto; }
 .test-setup-dialog {
   max-height: 90dvh;
   overflow-y: auto;

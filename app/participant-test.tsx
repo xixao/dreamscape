@@ -131,7 +131,7 @@ export default function ParticipantTest({
     }
   }
   return (
-    <div className="tester-shell">
+    <div className={`tester-shell ${!sessionId || outcome !== "started" ? "test-centered" : ""}`}>
       {error && (
         <div className="error-banner" role="alert">
           {error}
