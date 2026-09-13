@@ -126,8 +126,7 @@ export default function ReviewBrief({
           </Button>
         </div>
         <p className="muted">
-          Suggestions are scripted. You approve changes; a new test is needed to
-          evaluate them.
+          You approve changes; a new test is needed to evaluate them.
         </p>
       </section>
     </div>

@@ -102,7 +102,7 @@ export default function DesignWorkspace({
     if (!prompt.trim()) return;
     setProposal(true);
     setReply(
-      "I prepared the demo recovery changes: clearer error text, a Retry button, and an error announcement. Review before applying.",
+      "I prepared the recovery changes: clearer error text, a Retry button, and an error announcement. Review before applying.",
     );
     setPrompt("");
     onState("failed");
@@ -115,7 +115,6 @@ export default function DesignWorkspace({
           Flow Studio
         </span>
         <span className="design-breadcrumb">Homepath / Document upload</span>
-        <span className="badge amber">Design workspace demo</span>
         <span className="design-save-status">
           {!loaded
             ? "Loading…"
@@ -420,7 +419,6 @@ export default function DesignWorkspace({
               <div className="design-agent-thread">
                 <div className="section-heading">
                   <h2>Design agent</h2>
-                  <span className="badge amber">Simulated</span>
                 </div>
                 <Button
                   variant="outline"
@@ -498,7 +496,7 @@ export default function DesignWorkspace({
                   onChange={(e) => setPrompt(e.target.value)}
                 />
                 <div>
-                  <span>Scripted demo</span>
+                  <span>Scripted responses · Review before applying</span>
                   <Button
                     type="submit"
                     size="icon"

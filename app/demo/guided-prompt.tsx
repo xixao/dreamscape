@@ -47,7 +47,7 @@ export default function GuidedPrompt({
       <div
         className="prompt-presets"
         role="group"
-        aria-label="Demo prompt suggestions"
+        aria-label="Suggested prompts"
       >
         {prompts.map((prompt) => (
           <Button

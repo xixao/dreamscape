@@ -650,7 +650,6 @@ export default function FlowReview() {
           <span className="breadcrumb">
             Homepath <span className="dot">/</span> Document upload
           </span>
-          <span className="badge amber">Scripted demo</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -663,6 +662,7 @@ export default function FlowReview() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <div className="workspace-environment">Prototype environment</div>
               <DropdownMenuItem
                 onSelect={() => setTheme(dark ? "light" : "dark")}
               >
@@ -1412,13 +1412,12 @@ export default function FlowReview() {
                         <div className="panel-title">
                           <Sparkles size={16} />
                           <strong>Flow assistant</strong>
-                          <span className="badge amber">Simulated</span>
                         </div>
                         <div className="panel-section assistant-section">
                           <p className="eyebrow">UPLOAD RECOVERY</p>
                           <h2>A clearer way back.</h2>
                           <p>
-                            The current component has {3 - passed} open demo{" "}
+                            The current component has {3 - passed} open{" "}
                             {3 - passed === 1 ? "check" : "checks"}.
                           </p>
                           <Button
@@ -1524,7 +1523,7 @@ export default function FlowReview() {
                             }}
                           >
                             <GuidedPrompt
-                              label="Message scripted assistant"
+                              label="Message Flow assistant"
                               value={prompt}
                               maxLength={400}
                               onChange={setPrompt}
@@ -1540,7 +1539,7 @@ export default function FlowReview() {
                                 busy ||
                                 assistant === "thinking"
                               }
-                              aria-label="Send to scripted assistant"
+                              aria-label="Send to Flow assistant"
                             >
                               <Send size={16} />
                             </Button>
@@ -1769,9 +1768,9 @@ export default function FlowReview() {
         <footer className="studio-footer">
           <span>
             <span className="status-dot live" />
-            Flow Review prototype
+            Flow Review
           </span>
-          <span>Simulated assistant · Server-saved feedback & versions</span>
+          <span>Feedback & version history</span>
         </footer>
 
         <Dialog

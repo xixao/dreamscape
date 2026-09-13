@@ -35,9 +35,7 @@ export default function TestSetupEditor({
   return (
     <div className="test-setup-editor">
       <div className="setup-ai" data-demo-id={DEMO_IDS.testSetupAgent}>
-        <label htmlFor="setup-prompt">
-          Set up with AI <span className="badge amber">Simulated</span>
-        </label>
+        <label htmlFor="setup-prompt">Set up with AI</label>
         <GuidedPrompt
           id="setup-prompt"
           label="Prompt to prepare a test"
@@ -62,6 +60,9 @@ export default function TestSetupEditor({
           <Sparkles size={15} />
           Prepare test
         </Button>
+        <p className="assistant-disclosure">
+          Scripted suggestions · Review settings before creating the test.
+        </p>
         {message && <p role="status">{message}</p>}
       </div>
       <label htmlFor="test-title">Test name</label>

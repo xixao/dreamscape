@@ -1982,7 +1982,7 @@ select {
 }
 .comment-compose > label {
   font-size: 13px;
-  color: #526c60;
+  color: var(--muted-foreground);
 }
 .comment-compose textarea,
 .reply-compose textarea {
@@ -3856,11 +3856,31 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-top: 8px;
 }
 .design-agent-composer span {
   font-size: 13px;
   color: var(--muted-foreground);
+  min-width: 0;
+  line-height: 1.5;
+}
+.workspace-environment,
+.assistant-disclosure {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.workspace-environment {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.assistant-disclosure {
+  margin-top: 10px;
+}
+.po-section-title h1 {
+  scroll-margin-top: 24px;
 }
 .design-footer {
   display: flex;
@@ -4256,6 +4276,13 @@ body {
 }
 .assistant-composer .assistant-prompt {
   margin-top: 0;
+}
+.assistant-composer .guided-input textarea {
+  height: 72px;
+  min-height: 72px;
+}
+.assistant-tab .panel-section {
+  padding: 16px 18px;
 }
 @media (max-width: 850px) {
   .review-panel.assistant-open {

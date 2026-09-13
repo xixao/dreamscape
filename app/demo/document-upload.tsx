@@ -183,7 +183,7 @@ export default function Uploader({
         </div>
       </div>
       <footer className="product-footer">
-        Homepath demo · No files are uploaded
+        Sample document · No files are uploaded
       </footer>
     </div>
   );

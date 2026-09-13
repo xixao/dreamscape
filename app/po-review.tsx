@@ -276,8 +276,8 @@ export default function POReview({
                     test, or what needs to change first?
                   </p>
                   <p className="po-disclosure">
-                    Suggested demo review question. The designer&apos;s saved
-                    update above provides the version-specific context.
+                    Review question: agree on the next step using this
+                    version&apos;s changes and evidence.
                   </p>
                   <Button onClick={() => navigate(3)}>
                     Go to decision
@@ -352,9 +352,8 @@ export default function POReview({
                 </p>
               )}
               <p className="po-disclosure">
-                Saved version only · Scripted upload scenario · State navigation
-                is a walkthrough, not evidence that participants reached that
-                state.
+                Version {revision.number} walkthrough · Participant outcomes are
+                reported separately in Findings.
               </p>
             </>
           )}
