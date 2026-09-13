@@ -45,6 +45,7 @@ function renderTopbar(
 ) {
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
+  const onAddScreen = overrides.onAddScreen ?? vi.fn();
   const onToggleChat = overrides.onToggleChat ?? vi.fn();
   const onZoomIn = overrides.onZoomIn ?? vi.fn();
   const onZoomOut = overrides.onZoomOut ?? vi.fn();
@@ -74,6 +75,7 @@ function renderTopbar(
     ...overrides,
     onRename,
     onNew,
+    onAddScreen,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -100,6 +102,7 @@ function renderTopbar(
     ),
     onRename,
     onNew,
+    onAddScreen,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -150,6 +153,7 @@ describe('Topbar', () => {
             onRename={() => {}}
             saveState="saved"
             onNew={() => {}}
+            onAddScreen={() => {}}
             fileId="file123abc"
             folderId={null}
             pages={[{ id: 'page000001', name: 'Page 1' }]}

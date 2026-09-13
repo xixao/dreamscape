@@ -351,6 +351,7 @@ export function Topbar({
   saveState,
   notice,
   onNew,
+  onAddScreen,
   fileId,
   folderId,
   pages,
@@ -387,6 +388,7 @@ export function Topbar({
   saveState: SaveState;
   notice?: string;
   onNew: () => void;
+  onAddScreen: () => void;
   fileId: string;
   folderId: string | null;
   pages: Page[];
@@ -473,12 +475,21 @@ export function Topbar({
           onDelete={onDeletePage}
           onMove={onMovePage}
         />
+        {/*
+          onAdd is onAddScreen (same action Shift+N triggers), not onNew:
+          onNew opens the "Start a new frame?" dialog that clears the
+          FOCUSED frame's own layout (the standalone "New frame" IconAction
+          below, a pre-existing, unrelated feature) - the chip's own "New
+          frame" menu item instead adds another screen to the page, per
+          spec docs/superpowers/specs/2026-09-13-frames-chip-design.md
+          section 1 ("the same actions the old chips' menus offered").
+        */}
         <FramesChip
           frames={screens.filter((screen) => screen.pageId === currentPageId)}
           currentFrameId={currentScreenId}
           pages={pages}
           onSwitch={onSwitchScreen}
-          onAdd={onNew}
+          onAdd={onAddScreen}
           onRename={onRenameScreen}
           onDuplicate={onDuplicateScreen}
           onDelete={onDeleteScreen}

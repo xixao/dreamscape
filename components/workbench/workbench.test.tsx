@@ -17,21 +17,33 @@ function presetButton(label: string) {
   return button;
 }
 
+// A dedicated instance with the per-interaction delay disabled, used by the
+// frames-chip helpers below instead of the plain `userEvent.click` static
+// API: the default (non-null) delay schedules a real `setTimeout` for each
+// click, which becomes a fake, never-advanced timer once a test has called
+// `vi.useFakeTimers()` (see "sends no PATCH when switching screens and back
+// without an edit") - `userEvent.click` itself takes no per-call options, so
+// disabling the delay means routing these helpers through a `setup()`
+// instance instead. Every use below is a single, self-contained `.click()`
+// (never a held key or button spanning two calls), so sharing one instance
+// across tests carries none of `setup()`'s usual cross-test state risk.
+const user = userEvent.setup({ delay: null });
+
 // Select a frame from the frames chip dropdown menu by name. Opens the menu
 // and clicks the frame name to switch to it.
 async function selectFrame(frameName: string): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await userEvent.click(framesButton);
+  await user.click(framesButton);
   const frameItem = await screen.findByRole('menuitem', { name: frameName });
-  await userEvent.click(frameItem);
+  await user.click(frameItem);
 }
 
 // Add a new frame via the frames chip menu.
 async function addNewFrame(): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await userEvent.click(framesButton);
+  await user.click(framesButton);
   const newFrameItem = await screen.findByRole('menuitem', { name: 'New frame' });
-  await userEvent.click(newFrameItem);
+  await user.click(newFrameItem);
   // Wait a bit for the frame to be added and any re-renders to complete
   await new Promise((resolve) => setTimeout(resolve, 100));
 }
@@ -41,9 +53,9 @@ async function duplicateFrame(frameName: string): Promise<void> {
   await selectFrame(frameName);
   // After selecting the frame, open the menu again and click Duplicate
   const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await userEvent.click(framesButton);
+  await user.click(framesButton);
   const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' });
-  await userEvent.click(duplicateItem);
+  await user.click(duplicateItem);
 }
 
 // Delete a frame by name. Switches to the frame first, then clicks Delete.
@@ -51,9 +63,33 @@ async function deleteFrame(frameName: string): Promise<void> {
   await selectFrame(frameName);
   // After selecting the frame, open the menu again and click Delete
   const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await userEvent.click(framesButton);
+  await user.click(framesButton);
   const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
-  await userEvent.click(deleteItem);
+  await user.click(deleteItem);
+}
+
+// selectFrame's own `user.click` hangs forever under `vi.useFakeTimers()`:
+// every userEvent interaction is wrapped (via @testing-library/dom's shared
+// config) in @testing-library/react's asyncWrapper, which drains React's
+// act() queue by scheduling a real `setTimeout(fn, 0)` and only knows how to
+// force that timer to fire for JEST's fake timers (it checks for a global
+// `jest`, which a Vitest project has no equivalent of) - so under
+// `vi.useFakeTimers()` nothing ever advances it and the whole interaction's
+// promise never resolves, no matter the `delay`/`advanceTimers` config (this
+// is a separate mechanism from user-event's own inter-event delay).
+// `fireEvent` has no such wrapper - it dispatches synchronously and returns
+// immediately - so it works under fake timers, but `fireEvent.click` alone
+// would not open the menu: the frames chip's DropdownMenuTrigger (Radix)
+// opens on `pointerdown`, not `click` (see
+// @radix-ui/react-dropdown-menu's DropdownMenuTrigger), while a menu item
+// selects on `click` (see @radix-ui/react-menu's MenuItem). Used instead of
+// selectFrame only by the one test that needs both a menu interaction and
+// deterministic control of fake time in the same test.
+function selectFrameWithFakeTimers(frameName: string): void {
+  const framesButton = screen.getByRole('button', { name: 'Frames' });
+  fireEvent.pointerDown(framesButton, { button: 0 });
+  const frameItem = screen.getByRole('menuitem', { name: frameName });
+  fireEvent.click(frameItem);
 }
 
 // Move a frame to another page by frame name and page name.
@@ -62,11 +98,20 @@ async function moveFrameToPage(frameName: string, pageName: string): Promise<voi
   await selectFrame(frameName);
   // After selecting the frame, open the menu again and navigate Move to page
   const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await userEvent.click(framesButton);
-  const moveToPageTrigger = await screen.findByRole('button', { name: 'Move to page' });
-  await userEvent.click(moveToPageTrigger);
+  await user.click(framesButton);
+  // A Radix DropdownMenuSubTrigger renders as role="menuitem" (aria-haspopup
+  // set on the same menuitem element), not role="button".
+  const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
+  await user.click(moveToPageTrigger);
   const pageItem = await screen.findByRole('menuitem', { name: pageName });
-  await userEvent.click(pageItem);
+  // fireEvent.click, not user.click: user-event's realistic pointer-move
+  // simulation into a Radix submenu confuses its own hover/"grace area"
+  // tracking in jsdom (there is no real layout for it to measure) and the
+  // click on the page item is swallowed - onSelect never fires and the
+  // whole menu tree is left open. A plain click event is all MenuItem's own
+  // handler (onClick, composed with handleSelect - see
+  // @radix-ui/react-menu's MenuItem) needs to select it and close the menu.
+  fireEvent.click(pageItem);
 }
 
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
@@ -378,9 +423,11 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       await vi.advanceTimersByTimeAsync(1000);
 
-      await selectFrame('Frame 2');
+      // selectFrame (userEvent-based) deadlocks under fake timers - see
+      // selectFrameWithFakeTimers' own comment.
+      selectFrameWithFakeTimers('Frame 2');
       await vi.advanceTimersByTimeAsync(1500);
-      await selectFrame('Frame 1');
+      selectFrameWithFakeTimers('Frame 1');
       await vi.advanceTimersByTimeAsync(2000);
 
       expect(fetchMock).not.toHaveBeenCalled();

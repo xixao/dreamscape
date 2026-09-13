@@ -1555,6 +1555,7 @@ function WorkbenchShell({
                 saveState={saveState}
                 notice={notice}
                 onNew={() => setNewOpen(true)}
+                onAddScreen={onAddScreen}
                 fileId={fileId}
                 folderId={folderId}
                 pages={pages}
