@@ -3,19 +3,17 @@
 import { ROOT_NODE, useEditor } from '@craftjs/core';
 import { useEffect } from 'react';
 import { ZONE_TYPES } from '@/components/blocks/registry';
-import { isElementLike } from '@/lib/dom';
+import { isEditableTarget, isElementLike } from '@/lib/dom';
+export { isEditableTarget };
 import { matchShortcut, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
 import type { PanelMode } from '@/lib/workbench/panel-store';
 import { useCanvasDocument } from './canvas-frame';
 import { selectedIdFrom } from './selection';
 
-const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 // A popup or dialog owns the interaction while it is open: Delete/Backspace should
 // remove text or a list item inside it, not the selected block behind it, and
 // Escape/undo should be free to close the popup instead of touching the stage.
-const POPUP_SELECTOR =
-  '[role="listbox"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="combobox"], [data-radix-popper-content-wrapper]';
 
 // isElementLike (lib/dom.ts) is duck-typed rather than `target instanceof
 // HTMLElement`: with the frame now sometimes living in an iframe
@@ -25,14 +23,6 @@ const POPUP_SELECTOR =
 // it even though it plainly is one (typing Delete into a text block inside
 // the frame would fall through to deleting the block).
 
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!isElementLike(target)) return false;
-  if (EDITABLE_TAGS.has(target.tagName)) return true;
-  if (target.isContentEditable || target.closest('[contenteditable=""], [contenteditable="true"]') !== null) {
-    return true;
-  }
-  return target.closest(POPUP_SELECTOR) !== null;
-}
 
 // stage.tsx's resize handles (role="separator") handle their own arrow-key
 // stepping and stop that keydown from bubbling here at all (see the comment

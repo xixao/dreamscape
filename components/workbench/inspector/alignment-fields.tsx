@@ -39,8 +39,8 @@ import { SECTION, SECTION_TITLE } from '../chrome';
 // lib/diagram/store.ts's own align({ids, mode})/distribute({ids, axis})
 // actions (branch diagram-followups) so one row and one set of modes/axes
 // serves all three contexts without each caller inventing its own.
-export type AlignMode = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom';
-export type DistributeAxis = 'horizontal' | 'vertical';
+export type { AlignMode, DistributeAxis } from '@/lib/diagram/store';
+import type { AlignMode, DistributeAxis } from '@/lib/diagram/store';
 
 // A canvas selection of two or more frames (spec docs/superpowers/specs/
 // 2026-09-13-grid-snapping-alignment-design.md section 4) - each button

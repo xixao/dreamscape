@@ -93,6 +93,7 @@ export const SHORTCUTS: Shortcut[] = [
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  { id: 'diagram-context-menu', area: 'Edit', keys: ['Shift', 'F10'], label: 'Open the menu for the diagram selection' },
   // Nudges whichever selection is active - a diagram element, or (spec
   // docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
   // section 4) one or more selected frames when no diagram element is

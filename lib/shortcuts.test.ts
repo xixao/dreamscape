@@ -145,7 +145,9 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
   // (shortcuts-overlay.tsx's hold detection for the Cmd-hold row,
   // canvas.tsx's shouldStartPan/panRef for the two pan rows) and
   // matchShortcut never returns any of these ids.
-  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse']);
+  // diagram-context-menu is a window listener owned by the diagram layer (it opens a Radix menu for the
+  // selection), so matchShortcut never returns it either.
+  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse', 'diagram-context-menu']);
 
   it('resolves every matchable registry entry back to its own id from its own keys', () => {
     for (const shortcut of SHORTCUTS) {

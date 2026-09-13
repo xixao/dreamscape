@@ -14,7 +14,6 @@ import {
   diagramReducer,
   duplicatePairs,
   pruneEdgesForScreen,
-  type DiagramAction,
   type DiagramData,
   cloneDiagram,
 } from '@/lib/diagram/store';
@@ -213,15 +212,6 @@ function nudgeDelta(direction: 'up' | 'down' | 'left' | 'right', big: boolean): 
 // adapter instead of widening DiagramAction here. When the branches merge,
 // only this cast needs reconciling with whatever the real action types
 // turn out to be, not every call site.
-type DiagramAlignAction = { type: 'align'; ids: string[]; mode: AlignMode };
-type DiagramDistributeAction = { type: 'distribute'; ids: string[]; axis: DistributeAxis };
-
-function dispatchDiagramAlign(
-  dispatch: (action: DiagramAction) => void,
-  action: DiagramAlignAction | DiagramDistributeAction,
-): void {
-  dispatch(action as unknown as DiagramAction);
-}
 
 type MinimalQuery = { serialize: () => string };
 
@@ -1193,10 +1183,8 @@ function WorkbenchShell({
       ? {
           type: 'diagram',
           count: selectedDiagramNodeIds.length,
-          onAlign: (mode: AlignMode) =>
-            dispatchDiagramAlign(dispatchDiagram, { type: 'align', ids: selectedDiagramNodeIds, mode }),
-          onDistribute: (axis: DistributeAxis) =>
-            dispatchDiagramAlign(dispatchDiagram, { type: 'distribute', ids: selectedDiagramNodeIds, axis }),
+          onAlign: (mode: AlignMode) => dispatchDiagram({ type: 'align', ids: selectedDiagramNodeIds, mode }),
+          onDistribute: (axis: DistributeAxis) => dispatchDiagram({ type: 'distribute', ids: selectedDiagramNodeIds, axis }),
         }
       : null;
 
