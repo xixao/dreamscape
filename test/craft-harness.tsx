@@ -66,6 +66,8 @@ export function makePlayValue(overrides: Partial<PlayContextValue> = {}): PlayCo
     openDialog: vi.fn(),
     closeDialog: vi.fn(),
     isDialogOpen: () => false,
+    openOverlay: vi.fn(),
+    closeOverlay: vi.fn(),
     ...overrides,
   };
 }
