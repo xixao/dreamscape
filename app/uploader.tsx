@@ -22,6 +22,7 @@ export default function Uploader({
   onAnchor,
   compact = false,
   focus = "page",
+  observeDisabled = false,
 }: {
   config: Config;
   state: UploadState;
@@ -31,6 +32,7 @@ export default function Uploader({
   onAnchor?: (anchor: string) => void;
   compact?: boolean;
   focus?: "page" | "component" | "error";
+  observeDisabled?: boolean;
 }) {
   return (
     <div className={`product ${compact ? "compact" : ""} focus-${focus}`}>
@@ -77,8 +79,12 @@ export default function Uploader({
               <strong>Pay-statement.pdf</strong>
               <span>Sample document · 240 KB</span>
               <Button
-                disabled={!playing}
-                onClick={() => onState("failed", "upload_attempt")}
+                data-test-action="upload"
+                disabled={!observeDisabled && !playing}
+                aria-disabled={!playing}
+                onClick={() => {
+                  if (playing) onState("failed", "upload_attempt");
+                }}
               >
                 {config.button}
                 <ArrowRight size={15} />
@@ -113,8 +119,12 @@ export default function Uploader({
                   {config.retryEnabled && (
                     <Button
                       variant="outline"
-                      disabled={!playing}
-                      onClick={() => onState("complete", "retry_success")}
+                      data-test-action="retry"
+                      disabled={!observeDisabled && !playing}
+                      aria-disabled={!playing}
+                      onClick={() => {
+                        if (playing) onState("complete", "retry_success");
+                      }}
                     >
                       <RotateCcw size={15} />
                       Try again
@@ -146,8 +156,13 @@ export default function Uploader({
         <div className="product-bottom">
           <span>All information is fictional.</span>
           <Button
-            disabled={state !== "complete" || !playing}
-            onClick={() => onState("complete", "continue")}
+            data-test-action="continue"
+            disabled={!observeDisabled && (state !== "complete" || !playing)}
+            aria-disabled={state !== "complete" || !playing}
+            onClick={() => {
+              if (state === "complete" && playing)
+                onState("complete", "continue");
+            }}
           >
             Continue
             <ArrowRight size={15} />

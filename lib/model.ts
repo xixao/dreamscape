@@ -54,6 +54,15 @@ export type Session = {
   duration: number | null;
   feedback: string;
   events: { type: string; at: number }[];
+  interactions: {
+    id: string;
+    target: string;
+    state: UploadState;
+    available: boolean;
+    at: number;
+  }[];
+  rating: number | null;
+  fuego: boolean;
   createdAt: string;
 };
 export type Workspace = {

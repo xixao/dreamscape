@@ -977,6 +977,124 @@ body {
   display: flex;
   flex-direction: column;
 }
+.tester-shell {
+  min-height: 100dvh;
+  background: var(--workspace);
+  color: var(--foreground);
+}
+.tester-task {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.tester-task p {
+  flex: 1;
+  font-size: 14px;
+  margin: 0;
+}
+.tester-task > svg,
+.tester-task button {
+  flex-shrink: 0;
+}
+.tester-product {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px 32px;
+}
+.tester-product .product {
+  width: 100%;
+  max-width: none;
+}
+.tester-product button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tester-feedback {
+  max-width: 640px;
+  padding: 40px 24px;
+  margin: auto;
+}
+.tester-feedback h1 {
+  font-size: 26px;
+}
+.tester-feedback label {
+  display: block;
+  margin-top: 24px;
+}
+.tester-feedback textarea {
+  margin: 10px 0 16px;
+}
+.tester-stars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 20px 0;
+  color: var(--foreground);
+}
+.tester-stars button {
+  color: #b77808;
+}
+.tester-stars span {
+  margin-left: 8px;
+  font-size: 14px;
+}
+.tester-fuego[aria-pressed="true"] {
+  background: var(--accent);
+}
+.signal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 13px;
+  margin: 14px 0;
+}
+.signal-warning {
+  background: var(--error-bg);
+  color: var(--error-text);
+  padding: 10px;
+}
+.session-signals details {
+  margin: 12px 0;
+}
+.session-signals summary {
+  cursor: pointer;
+  font-size: 14px;
+}
+.session-signals ol {
+  max-height: 280px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.session-signals li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .tester-task {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .tester-task > svg {
+    display: none;
+  }
+  .tester-product {
+    padding-inline: 8px;
+  }
+  .tester-product .product-main {
+    padding: 24px 16px;
+  }
+}
 .inspection-toolbar {
   flex-wrap: wrap;
 }

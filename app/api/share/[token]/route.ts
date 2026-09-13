@@ -87,10 +87,55 @@ export async function POST(request: Request, context: Context) {
     if (!session) fail("Session not found", 404);
     if (data.action === "feedback") {
       const feedback = z.string().trim().max(1500).parse(data.feedback);
+      const rating = z
+        .number()
+        .int()
+        .min(1)
+        .max(5)
+        .nullable()
+        .optional()
+        .parse(data.rating);
+      const fuego = z.boolean().optional().parse(data.fuego);
       await db()
-        .prepare("UPDATE sessions SET feedback=? WHERE id=? AND token=?")
-        .bind(feedback, id, token)
+        .prepare(
+          "UPDATE sessions SET feedback=?,rating=?,fuego=? WHERE id=? AND token=?",
+        )
+        .bind(
+          feedback,
+          rating === undefined ? session.rating : rating,
+          fuego === undefined ? session.fuego : Number(fuego),
+          id,
+          token,
+        )
         .run();
+      return { ok: true };
+    }
+    if (data.action === "interaction") {
+      if (session.outcome !== "started") fail("Session has already ended", 409);
+      const item = z
+        .object({
+          id: z.string().uuid(),
+          target: z.enum(["upload", "retry", "continue", "non_action"]),
+          state: z.enum(["ready", "failed", "complete"]),
+          available: z.boolean(),
+          at: z.number().int().min(0).max(86400000),
+        })
+        .strict()
+        .parse(data.interaction);
+      const interactions = JSON.parse(session.interactions as string) as {
+        id: string;
+      }[];
+      if (interactions.some((i) => i.id === item.id)) return { ok: true };
+      if (interactions.length >= 1000) fail("Interaction limit reached", 429);
+      interactions.push(item);
+      const updated = await db()
+        .prepare(
+          "UPDATE sessions SET interactions=? WHERE id=? AND token=? AND interactions=? AND outcome='started'",
+        )
+        .bind(JSON.stringify(interactions), id, token, session.interactions)
+        .run();
+      if (!updated.meta.changes)
+        fail("Session changed. Please try again.", 409);
       return { ok: true };
     }
     if (data.action !== "event") fail("Action not allowed", 403);

@@ -156,6 +156,42 @@ const session = await api(
   { action: "start", consent: true },
   {},
 );
+const tap = {
+  id: crypto.randomUUID(),
+  target: "continue",
+  state: "ready",
+  available: false,
+  at: 500,
+};
+for (let i = 0; i < 5; i++)
+  await api(
+    `/api/share/${token}`,
+    {
+      action: "interaction",
+      sessionId: session.id,
+      interaction: {
+        ...tap,
+        id: i === 0 ? tap.id : crypto.randomUUID(),
+        at: 500 + i * 100,
+      },
+    },
+    {},
+  );
+await api(
+  `/api/share/${token}`,
+  { action: "interaction", sessionId: session.id, interaction: tap },
+  {},
+);
+await api(
+  `/api/share/${token}`,
+  {
+    action: "interaction",
+    sessionId: session.id,
+    interaction: { ...tap, target: "injected" },
+  },
+  {},
+  400,
+);
 await api(
   `/api/share/${token}`,
   { action: "event", sessionId: session.id, event: "continue" },
@@ -176,13 +212,39 @@ await api(
 );
 await api(
   `/api/share/${token}`,
-  { action: "feedback", sessionId: session.id, feedback: "Recovery was clear" },
+  {
+    action: "feedback",
+    sessionId: session.id,
+    feedback: "Recovery was clear",
+    rating: 4,
+    fuego: true,
+  },
   {},
 );
 const after = await api("/api/workspace");
 assert.equal(after.sessions[0].outcome, "complete");
 assert.equal(after.sessions[0].events.length, 3);
 assert.equal(after.sessions[0].feedback, "Recovery was clear");
+assert.equal(after.sessions[0].rating, 4);
+assert.equal(after.sessions[0].fuego, true);
+assert.equal(after.sessions[0].interactions.length, 5);
+assert.ok(after.sessions[0].interactions.every((t) => !t.available));
+await api(
+  `/api/share/${token}`,
+  { action: "feedback", sessionId: session.id, feedback: "", rating: 6 },
+  {},
+  400,
+);
+await api(
+  `/api/share/${token}`,
+  {
+    action: "interaction",
+    sessionId: session.id,
+    interaction: { ...tap, id: crypto.randomUUID() },
+  },
+  {},
+  409,
+);
 const original = await api("/api/workspace", {
   action: "share",
   revisionId: first.id,
@@ -192,6 +254,12 @@ const started = await api(
   `/api/share/${original.token}`,
   { action: "start", consent: true },
   {},
+);
+await api(
+  `/api/share/${original.token}`,
+  { action: "interaction", sessionId: session.id, interaction: tap },
+  {},
+  404,
 );
 await api(
   `/api/share/${original.token}`,
@@ -209,6 +277,23 @@ await api(
   { action: "event", sessionId: started.id, event: "gave_up" },
   {},
 );
+await api(
+  `/api/share/${original.token}`,
+  {
+    action: "feedback",
+    sessionId: started.id,
+    feedback: "I could not recover",
+    rating: 1,
+    fuego: false,
+  },
+  {},
+);
+const abandoned = (await api("/api/workspace")).sessions.find(
+  (s) => s.id === started.id,
+);
+assert.equal(abandoned.outcome, "gave_up");
+assert.equal(abandoned.rating, 1);
+assert.equal(abandoned.feedback, "I could not recover");
 const review = await api("/api/workspace", {
   action: "share",
   revisionId: first.id,

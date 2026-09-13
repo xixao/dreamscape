@@ -83,6 +83,8 @@ import Uploader from "./uploader";
 import Feedback from "./feedback";
 import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
+import ParticipantTest from "./participant-test";
+import SessionSignals from "./session-signals";
 
 type Data = Workspace & {
   links: {
@@ -111,7 +113,7 @@ const audienceNames: Record<Audience, string> = {
   designer: "Designer",
   po: "Product owner",
   engineer: "Engineer",
-  participant: "Participant preview",
+  participant: "Participant test",
 };
 const scenarioStates: UploadState[] = ["ready", "failed", "complete"];
 const labels: Record<UploadState, string> = {
@@ -176,6 +178,7 @@ export default function FlowReview() {
   const [playing, setPlaying] = useState(true);
   const [viewport, setViewport] = useState("desktop");
   const [audience, setAudience] = useState<Audience>("designer");
+  const [participantToken, setParticipantToken] = useState("");
   const [view, setView] = useState("review");
   const [panel, setPanel] = useState("assistant");
   const [anchor, setAnchor] = useState("document-uploader");
@@ -483,6 +486,19 @@ export default function FlowReview() {
     return () => lifecycle.abort();
   }, []);
 
+  if (participantToken)
+    return (
+      <ParticipantTest
+        token={participantToken}
+        revision={revision}
+        onReturn={() => {
+          setParticipantToken("");
+          setAudience("designer");
+          setView("results");
+          void refresh();
+        }}
+      />
+    );
   return (
     <TooltipProvider delayDuration={250}>
       <div
@@ -566,14 +582,36 @@ export default function FlowReview() {
           <div className="heading-actions">
             <Select
               value={audience}
-              onValueChange={(v) => {
+              onValueChange={async (v) => {
+                if (v === "participant") {
+                  setBusy(true);
+                  try {
+                    const link = await request<{ token: string }>(
+                      "/api/workspace",
+                      {
+                        action: "share",
+                        revisionId: revision.id,
+                        audience: "participant",
+                      },
+                    );
+                    setParticipantToken(link.token);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                  return;
+                }
                 setAudience(v as Audience);
                 if (v !== "designer") setView("review");
                 if (v === "po") setPanel("feedback");
                 if (v === "engineer") setPanel("checks");
               }}
             >
-              <SelectTrigger aria-label="Audience view">
+              <SelectTrigger
+                aria-label="Audience view"
+                disabled={!loaded || busy}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1474,6 +1512,7 @@ export default function FlowReview() {
                         </span>
                       ))}
                     </div>
+                    <SessionSignals session={s} />
                     {s.feedback && <blockquote>{s.feedback}</blockquote>}
                   </article>
                 ))}

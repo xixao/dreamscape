@@ -15,6 +15,13 @@
       "when": 1789262220426,
       "tag": "0001_huge_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789263994129,
+      "tag": "0002_fancy_slipstream",
+      "breakpoints": true
     }
   ]
 }
