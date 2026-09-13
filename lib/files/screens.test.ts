@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KNOWN_TYPES } from '@/components/blocks/known-types';
 import loginScreen from '@/lib/examples/login-screen.json';
-import { OVERLAY_DEFAULT_WIDTHS, OVERLAY_MIN_HEIGHT, createOverlayScreen, isOverlay } from './screens';
+import { OVERLAY_DEFAULT_WIDTHS, OVERLAY_MIN_HEIGHT, createOverlayScreen, isOverlay, overlayBadgeLabel } from './screens';
 import { PRESENTATION_TYPES, validateLayout, validateScreens, type Screen } from './validate';
 
 // Everything createOverlayScreen leaves to its caller (spec
@@ -165,5 +165,28 @@ describe('createOverlayScreen', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     expect(result.screens[0]).toEqual(screen);
+  });
+});
+
+describe('overlayBadgeLabel', () => {
+  it('names a dialog "Dialog" and a toast "Toast", regardless of their own fields', () => {
+    expect(overlayBadgeLabel({ type: 'dialog', dismissible: true })).toBe('Dialog');
+    expect(overlayBadgeLabel({ type: 'dialog', dismissible: false })).toBe('Dialog');
+    expect(overlayBadgeLabel({ type: 'toast', position: 'top-left' })).toBe('Toast');
+  });
+
+  it('names a sheet with its capitalized side', () => {
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'right', dismissible: true })).toBe('Sheet · Right');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'left', dismissible: false })).toBe('Sheet · Left');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'top', dismissible: true })).toBe('Sheet · Top');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'bottom', dismissible: true })).toBe('Sheet · Bottom');
+  });
+
+  it('matches every createOverlayScreen default, for every presentation type', () => {
+    for (const type of ['dialog', 'sheet', 'toast'] as const) {
+      const screen = createOverlayScreen({ type, ...BASE });
+      expect(() => overlayBadgeLabel(screen.presentation!)).not.toThrow();
+    }
+    expect(overlayBadgeLabel(createOverlayScreen({ type: 'sheet', ...BASE }).presentation!)).toBe('Sheet · Right');
   });
 });

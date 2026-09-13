@@ -57,6 +57,28 @@ export const OVERLAY_DEFAULT_NAMES: Record<OverlayPresentationType, string> = {
   toast: 'Toast',
 };
 
+/**
+ * The mono badge shown after an overlay frame's name (spec section 5): the
+ * Frames chip's rows and the canvas frame title both render exactly this
+ * string, so the two can never drift apart from one another. A dialog or
+ * toast badge names only the type ("Dialog", "Toast"); a sheet also names
+ * its side ("Sheet · Right") since, unlike a dialog or toast, a sheet's
+ * presentation differs visibly by side. Same switch-with-no-default shape
+ * as defaultPresentation below, for the same reason: a fourth presentation
+ * type added to the union fails this file's own build (not every code path
+ * returns a value) until it gets a branch here too.
+ */
+export function overlayBadgeLabel(presentation: OverlayPresentation): string {
+  switch (presentation.type) {
+    case 'dialog':
+      return 'Dialog';
+    case 'sheet':
+      return `Sheet · ${presentation.side[0].toUpperCase()}${presentation.side.slice(1)}`;
+    case 'toast':
+      return 'Toast';
+  }
+}
+
 const OVERLAY_GAP_PX = 16;
 const OVERLAY_PADDING_PX: Record<OverlayPresentationType, LayoutBoxProps['paddingPx']> = {
   dialog: 24,
