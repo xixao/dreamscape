@@ -1437,8 +1437,20 @@ describe('Workbench', () => {
 
       await openPagesMenu();
       await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      // Order is asserted on ids, not names: both screens are called
+      // "Frame 1" (page-scoped numbering), so names could not tell them
+      // apart. The moved screen joins the target page after its existing
+      // screen, whatever its old file-wide index was.
       const tabs = within(screen.getByRole('tablist', { name: 'Screens' })).getAllByRole('tab');
-      expect(tabs.map((tab) => tab.textContent)).toEqual([SCREEN_4.name, SCREEN_1.name]);
+      expect(tabs).toHaveLength(2);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      const lastCall = fetchMock.mock.calls.at(-1) as [string, { body: string }] | undefined;
+      if (!lastCall) throw new Error('expected a PATCH after Move to page');
+      const body = JSON.parse(lastCall[1].body);
+      const v2Page = twoPageFile().pages?.[1];
+      if (!v2Page) throw new Error('fixture needs two pages');
+      const v2Screens = body.screens.filter((s: { pageId: string }) => s.pageId === v2Page.id);
+      expect(v2Screens.map((s: { id: string }) => s.id)).toEqual([SCREEN_4.id, SCREEN_1.id]);
     });
 
     it('Cmd+Shift+]/[ cycle to the next/previous page, wrapping at either end, and never fire in a text field', async () => {

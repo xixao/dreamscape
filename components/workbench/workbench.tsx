@@ -581,9 +581,19 @@ export function Workbench({
     const target = screens.find((screen) => screen.id === id);
     if (!target || target.pageId === targetPageId) return;
     const originPageId = target.pageId;
-    const next = layoutMissingPositions(
-      screens.map((screen) => (screen.id === id ? { ...screen, pageId: targetPageId, x: null, y: null } : screen)),
-    );
+    // Re-splice rather than map in place: the moved screen joins the target
+    // page AFTER that page's existing screens in strip order, instead of
+    // keeping its old file-wide index (which could put it ahead of them).
+    const moved: Screen = { ...target, pageId: targetPageId, x: null, y: null };
+    const without = screens.filter((screen) => screen.id !== id);
+    let insertAt = without.length;
+    for (let i = without.length - 1; i >= 0; i -= 1) {
+      if (without[i].pageId === targetPageId) {
+        insertAt = i + 1;
+        break;
+      }
+    }
+    const next = layoutMissingPositions([...without.slice(0, insertAt), moved, ...without.slice(insertAt)]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
