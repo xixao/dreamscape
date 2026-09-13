@@ -14,7 +14,7 @@
 // where the rest of the codebase already puts it (see e.g. addScreen in
 // components/workbench/workbench.tsx).
 
-import { bounds, snapToGrid, type Box, type Side } from './geometry';
+import { bounds, type Box, type Side } from './geometry';
 
 export type { Side } from './geometry';
 
@@ -167,7 +167,9 @@ export type DiagramAction =
   // caller-minted, same convention as every other id here.
   | { type: 'quickAdd'; sourceId: string; side: Side; newNodeId: string; newEdgeId: string }
   // Aligns every node in `ids` to the bounding box of just those nodes (an
-  // edge or centre, per `mode`), 8px-snapped. Matt's alignment follow-up.
+  // edge or centre, per `mode`), applied exactly (re-review 2 finding 27:
+  // a centre value rounds to the nearest integer canvas coordinate, since
+  // nothing else does any more). Matt's alignment follow-up.
   | { type: 'align'; ids: string[]; mode: AlignMode }
   // Spreads 3+ nodes in `ids` along `axis` so the gaps between them are
   // equal; the first and last (by position) stay put. Matt's alignment
@@ -453,8 +455,14 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const newNode: DiagramNode = {
         id: action.newNodeId,
         kind: source.kind,
-        x: snapToGrid(x),
-        y: snapToGrid(y),
+        // Re-review 2 finding 28: applied exactly, no snap - x/y are
+        // already integers (the source's own position and size, plus the
+        // integer QUICK_ADD_GAP), and snapping them disagreed with this
+        // action's own "64px gap, aligned on the other axis" promise the
+        // moment the source itself was off-grid (a 1px nudge is now a
+        // first-class operation, not an edge case).
+        x,
+        y,
         width,
         height,
         text: '',
@@ -501,7 +509,11 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
             value = box.x + box.width - n.width;
             break;
           case 'centerX':
-            value = box.x + (box.width - n.width) / 2;
+            // Re-review 2 finding 27: rounded - canvas coordinates are
+            // integers (spec section 2), and an odd width/height
+            // difference divides by 2 into a fraction with nothing left
+            // to round it away now that the result is applied exactly.
+            value = Math.round(box.x + (box.width - n.width) / 2);
             break;
           case 'top':
             value = box.y;
@@ -510,7 +522,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
             value = box.y + box.height - n.height;
             break;
           case 'centerY':
-            value = box.y + (box.height - n.height) / 2;
+            value = Math.round(box.y + (box.height - n.height) / 2);
             break;
         }
         if (value === n[axis]) return n;
@@ -557,12 +569,16 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const interior = targets.filter((n) => n !== first && n !== anchorEnd).sort((a, b) => start(a) - start(b));
       const ordered = first === anchorEnd ? [first, ...interior] : [first, ...interior, anchorEnd];
 
-      // Re-review finding 21: exact, no grid snapping of the result -
-      // same reasoning as align, above.
+      // Re-review finding 21: exact, no grid snapping of the result - same
+      // reasoning as align, above. Re-review 2 finding 27: `gap` is not
+      // always an integer, so the WRITTEN position is rounded here; the
+      // running `cursor` itself carries the exact fractional total into
+      // the next iteration, so gaps stay as even as integer coordinates
+      // allow rather than compounding rounding error shape to shape.
       const updates = new Map<string, number>();
       let cursor = minStart;
       for (const current of ordered) {
-        if (current !== first && current !== anchorEnd) updates.set(current.id, cursor);
+        if (current !== first && current !== anchorEnd) updates.set(current.id, Math.round(cursor));
         cursor += size(current) + gap;
       }
 

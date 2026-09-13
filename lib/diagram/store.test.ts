@@ -420,8 +420,10 @@ describe('diagramReducer: reorder', () => {
 });
 
 describe('diagramReducer: quickAdd', () => {
-  // x/y/width/height all chosen as clean multiples of 8 so every derived
-  // position below is unambiguous (no snapToGrid rounding to reason about).
+  // x/y/width/height all chosen as clean multiples of 8, purely so the
+  // comments below read as round numbers - quickAdd applies its placement
+  // exactly regardless (re-review 2 finding 28), so an off-grid source
+  // works identically; see the dedicated off-grid test further down.
   const source = node({ id: 'src', x: 96, y: 96, width: 128, height: 64, kind: 'decision', color: 'blue' });
 
   it('adds a same kind/colour/size shape 64px to the right, aligned on y, with a step edge right-to-left', () => {
@@ -467,6 +469,30 @@ describe('diagramReducer: quickAdd', () => {
     // 96 (source y) - 64 (gap) - 64 (new height) = -32.
     expect(next.nodes.find((n) => n.id === 'new1')).toMatchObject({ x: 96, y: -32 });
     expect(next.edges[0]).toMatchObject({ source: { nodeId: 'src', side: 'top' }, target: { nodeId: 'new1', side: 'bottom' } });
+  });
+
+  // Re-review 2 finding 28 (should fix): quickAdd used to snapToGrid its
+  // x/y, which disagreed with its own "64px gap, aligned on the other
+  // axis" promise (spec section 7) the moment the source was off-grid -
+  // a 1px nudge is now a first-class operation (Matt's nudge rule), so
+  // this is the common case, not an edge case. The gap/alignment math
+  // above is already exact integer arithmetic on the source's own
+  // position - nothing here needed rounding, only the snap needed removing.
+  it('applies its placement exactly from an off-grid source - no jog in the connector', () => {
+    const offGridSource = node({ id: 'src', x: 101, y: 101, width: 128, height: 64 });
+    const state = stateWith({ nodes: [offGridSource] });
+    const next = diagramReducer(state, {
+      type: 'quickAdd',
+      sourceId: 'src',
+      side: 'right',
+      newNodeId: 'new1',
+      newEdgeId: 'edge1',
+    });
+    // 101 (source x) + 128 (source width) + 64 (gap) = 293, aligned
+    // exactly on y (101) - before this fix, snapToGrid rounded both to
+    // (296, 104), a 3px jog between the new shape and the one it is
+    // supposed to line up with.
+    expect(next.nodes.find((n) => n.id === 'new1')).toMatchObject({ x: 293, y: 101 });
   });
 
   it('is a no-op for an unknown source', () => {
@@ -575,6 +601,30 @@ describe('diagramReducer: align', () => {
     expect(next).toBe(state);
   });
 
+  // Re-review 2 finding 27 (should fix): centering an odd width/height
+  // difference divides by 2, which the previous grid-snap used to round
+  // away as a side effect - canvas coordinates are integers (spec section
+  // 2), so centerX/centerY round their own result now that nothing else
+  // does.
+  it('rounds a fractional centerX result to the nearest integer (an odd width difference)', () => {
+    const wide = node({ id: 'a', x: 0, y: 0, width: 100, height: 50 });
+    const narrow = node({ id: 'b', x: 0, y: 0, width: 45, height: 50 });
+    const state = stateWith({ nodes: [wide, narrow] });
+    const next = diagramReducer(state, { type: 'align', ids: ['a', 'b'], mode: 'centerX' });
+    // Bounding box is 0..100 (a's own right edge is the wider of the two);
+    // centering b (width 45) in it is (100-45)/2 = 27.5.
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 28 });
+  });
+
+  it('rounds a fractional centerY result to the nearest integer (an odd height difference)', () => {
+    const tall = node({ id: 'a', x: 0, y: 0, width: 40, height: 100 });
+    const short = node({ id: 'b', x: 0, y: 0, width: 40, height: 45 });
+    const state = stateWith({ nodes: [tall, short] });
+    const next = diagramReducer(state, { type: 'align', ids: ['a', 'b'], mode: 'centerY' });
+    // (100-45)/2 = 27.5.
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ y: 28 });
+  });
+
   // Re-review finding 21: align no longer snaps its result to the grid
   // (Figma behaviour - shapes can sit off-grid now, e.g. after a 1px
   // nudge, and "align" should not silently un-nudge them by up to 4px).
@@ -679,6 +729,26 @@ describe('diagramReducer: distribute', () => {
     // not a multiple of 8 - before this fix, snapToGrid(50) rounded down
     // to 48.
     expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 50 });
+  });
+
+  // Re-review 2 finding 27 (should fix): a gap of (span - totalSize) /
+  // (n - 1) is not always an integer - canvas coordinates are integers
+  // (spec section 2), so each interior shape's WRITTEN position rounds,
+  // while the running cursor keeps the exact fractional total for the
+  // NEXT shape's math (so gaps stay as even as integer coordinates allow,
+  // rather than compounding rounding error from one shape to the next).
+  it('rounds each interior shape\'s position when the gap is not an integer', () => {
+    const first = node({ id: 'a', x: 0, y: 0, width: 40, height: 20 });
+    const m1 = node({ id: 'b', x: 60, y: 0, width: 40, height: 20 });
+    const m2 = node({ id: 'c', x: 120, y: 0, width: 40, height: 20 });
+    const last = node({ id: 'd', x: 169, y: 0, width: 40, height: 20 }); // right edge 209, the anchor
+    const state = stateWith({ nodes: [first, m1, m2, last] });
+    const next = diagramReducer(state, { type: 'distribute', ids: ['a', 'b', 'c', 'd'], axis: 'horizontal' });
+    // span 209, total width 160, gap (209-160)/3 = 16.333...
+    // b: 0+40+16.333...  = 56.333...  -> rounds to 56
+    // c: 56.333...+40+16.333... = 112.666... -> rounds to 113
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 56 });
+    expect(next.nodes.find((n) => n.id === 'c')).toMatchObject({ x: 113 });
   });
 });
 
