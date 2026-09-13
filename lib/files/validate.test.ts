@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalLayout, normalizeLayout, validateLayout, validateScreens, type ScreenInput, hasRootNode } from './validate';
+import {
+  canonicalLayout,
+  normalizeLayout,
+  validateLayout,
+  validatePages,
+  validateScreens,
+  type PageInput,
+  type ScreenInput,
+  hasRootNode,
+} from './validate';
 
 describe('canonicalLayout', () => {
   it('treats two encodings that differ only in object key order as equal', () => {
@@ -233,6 +242,90 @@ describe('validateScreens', () => {
         reason: expect.any(String),
       });
     });
+  });
+
+  // pageId is the third, optional argument: omitting it (every test above
+  // this point does) skips the cross-check entirely, so every pre-pages
+  // caller and test fixture keeps validating exactly as it always did. Real
+  // callers - the repository's create()/save() - always pass it, which is
+  // what these tests exercise.
+  describe('pageId', () => {
+    const pageIds = new Set(['page000001']);
+
+    it('passes a screen through unchanged when no pageIds set is given at all', () => {
+      const result = validateScreens([screen()], knownTypes);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0].pageId).toBeUndefined();
+    });
+
+    it('accepts and normalizes a screen whose pageId names a real page', () => {
+      const result = validateScreens([screen({ pageId: 'page000001' })], knownTypes, pageIds);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected ok');
+      expect(result.screens[0].pageId).toBe('page000001');
+    });
+
+    it('rejects a screen whose pageId names no page in the given set', () => {
+      const result = validateScreens([screen({ pageId: 'doesnotexist' })], knownTypes, pageIds);
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('rejects a screen with no pageId at all once a pageIds set is given', () => {
+      const result = validateScreens([screen()], knownTypes, pageIds);
+      expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+  });
+});
+
+describe('validatePages', () => {
+  function page(overrides: Partial<PageInput> = {}): PageInput {
+    return { id: 'page000001', name: 'Page 1', ...overrides };
+  }
+
+  it('accepts one valid page and trims its name', () => {
+    const result = validatePages([page({ name: '  Page 1  ' })]);
+    expect(result).toEqual({ ok: true, pages: [{ id: 'page000001', name: 'Page 1' }] });
+  });
+
+  it('accepts more than one page, in order', () => {
+    const result = validatePages([page({ id: 'page000001' }), page({ id: 'page000002', name: 'v2' })]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.pages.map((p) => p.id)).toEqual(['page000001', 'page000002']);
+    expect(result.pages.map((p) => p.name)).toEqual(['Page 1', 'v2']);
+  });
+
+  it('rejects zero pages', () => {
+    expect(validatePages([])).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects duplicate page ids', () => {
+    const result = validatePages([page({ id: 'dupdupdup1' }), page({ id: 'dupdupdup1', name: 'v2' })]);
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('rejects an id that is not exactly 10 characters', () => {
+    expect(validatePages([page({ id: 'short' })])).toEqual({ ok: false, reason: expect.any(String) });
+    expect(validatePages([page({ id: 'wayyyytoolongforanid' })])).toEqual({
+      ok: false,
+      reason: expect.any(String),
+    });
+  });
+
+  it('trims the name and rejects one that is empty or too long after trimming', () => {
+    const trimmed = validatePages([page({ name: '  Padded  ' })]);
+    expect(trimmed.ok).toBe(true);
+    if (!trimmed.ok) throw new Error('expected ok');
+    expect(trimmed.pages[0].name).toBe('Padded');
+
+    expect(validatePages([page({ name: '   ' })])).toEqual({ ok: false, reason: expect.any(String) });
+    expect(validatePages([page({ name: 'x'.repeat(81) })])).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('accepts a name at exactly the 80 character limit', () => {
+    const result = validatePages([page({ name: 'x'.repeat(80) })]);
+    expect(result.ok).toBe(true);
   });
 });
 

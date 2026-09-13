@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? 'Invalid body' }, { status: 400 });
   }
 
-  const { name, example, folderId, screens } = parsed.data;
+  const { name, example, folderId, screens, pages } = parsed.data;
   const repository = await getRepository();
 
   // Unlike layout (below, always the bundled example's, already
@@ -50,11 +50,12 @@ export async function POST(request: Request) {
     const file = await repository.create({
       name: name ?? found?.name,
       screens: found ? exampleToScreens(found) : undefined,
+      pages,
       folderId,
     });
     return Response.json({ file }, { status: 201 });
   }
 
-  const file = await repository.create({ name, screens, folderId });
+  const file = await repository.create({ name, screens, pages, folderId });
   return Response.json({ file }, { status: 201 });
 }

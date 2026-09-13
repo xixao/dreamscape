@@ -7,13 +7,14 @@ import { files, folders } from '@/db/schema';
 // repository is loaded from a plain server module such as a files API
 // route handler (see known-types.ts for the full explanation).
 import { KNOWN_TYPES, defaultScreen } from '@/components/blocks/known-types';
-import { validateScreens, type Screen } from './validate';
+import { validatePages, validateScreens, type Page, type Screen } from './validate';
 
 // Re-exported so callers only need to know about lib/files/repository.ts,
-// the file-level domain module - Screen itself lives in validate.ts purely
-// to avoid a repository.ts <-> validate.ts import cycle (validateScreens
-// returns Screen[] and repository.ts calls it).
-export type { Screen } from './validate';
+// the file-level domain module - Screen/Page themselves live in validate.ts
+// purely to avoid a repository.ts <-> validate.ts import cycle
+// (validateScreens/validatePages return Screen[]/Page[] and repository.ts
+// calls them).
+export type { Page, Screen } from './validate';
 
 export type FileSummary = {
   id: string;
@@ -36,10 +37,15 @@ export type FileRecord = FileSummary & {
   // Same optionality rationale as folderId/screenCount above: workbench.tsx's
   // BASE_FILE predates screens. Real repository code always populates it.
   screens?: Screen[];
+  // Same optionality rationale again, this time for pages (migration 0003):
+  // a FileRecord literal written before pages existed still type-checks
+  // with no pages. Real repository code always populates it.
+  pages?: Page[];
 };
 export type SaveInput = {
   name?: string;
   screens?: Screen[];
+  pages?: Page[];
   baseUpdatedAt?: string;
   folderId?: string | null;
 };
@@ -102,6 +108,7 @@ type StoredScreen = {
   deviceName?: string | null;
   x?: number | null;
   y?: number | null;
+  pageId: string;
 };
 
 function toApiScreens(raw: unknown): Screen[] {
@@ -114,6 +121,7 @@ function toApiScreens(raw: unknown): Screen[] {
     deviceName: screen.deviceName ?? null,
     x: screen.x ?? null,
     y: screen.y ?? null,
+    pageId: screen.pageId,
   }));
 }
 
@@ -127,6 +135,13 @@ function toStoredScreen(screen: Screen): StoredScreen {
     deviceName: screen.deviceName ?? null,
     x: screen.x ?? null,
     y: screen.y ?? null,
+    // Always set by this point: every screen reaching toStoredScreen has
+    // already gone through validateScreens with a real pageIds cross-check
+    // (create()/save() both call stampMissingPageId before validating), so
+    // screen.pageId is never actually undefined here despite Screen's own
+    // optional type - the non-null assertion documents that invariant
+    // rather than silently writing a literal "undefined" into storage.
+    pageId: screen.pageId!,
   };
 }
 
@@ -145,7 +160,28 @@ function toRecord(row: FileRow): FileRecord {
   return {
     ...toSummary(row),
     screens: toApiScreens(row.screens),
+    pages: row.pages as Page[],
   };
+}
+
+// A file's implicit single page when a caller (create()'s default, or an
+// older save() patch that only ever knew about screens) does not mention
+// pages at all - see the module comment on Screen.pageId in validate.ts.
+// A fresh nanoid(10) every call, same rationale as defaultScreen(): two
+// implicit default pages minted back to back must not collide.
+function defaultPage(): Page {
+  return { id: nanoid(10), name: 'Page 1' };
+}
+
+// Stamps any screen missing a pageId with `defaultPageId`, leaving one that
+// already names a page untouched - shared by create() and save() so a
+// caller that has not adopted pages yet (an existing test fixture, or a
+// screens-only patch after the file already has real pages) keeps behaving
+// exactly as it did before pages existed, while validateScreens itself
+// stays strict (no silent defaulting inside validation, matching how it
+// never silently fixes any other field either).
+function stampMissingPageId(screens: Screen[], defaultPageId: string): Screen[] {
+  return screens.map((screen) => (screen.pageId ? screen : { ...screen, pageId: defaultPageId }));
 }
 
 export function createFilesRepository(db: Db) {
@@ -203,26 +239,34 @@ export function createFilesRepository(db: Db) {
   }
 
   async function create(
-    input: { name?: string; screens?: Screen[]; folderId?: string | null } = {},
+    input: { name?: string; screens?: Screen[]; pages?: Page[]; folderId?: string | null } = {},
   ): Promise<FileRecord> {
-    const screensInput = input.screens ?? [defaultScreen()];
-    const validated = validateScreens(screensInput, KNOWN_TYPES);
-    if (!validated.ok) {
-      throw new Error(`Cannot create a file: ${validated.reason}.`);
+    const pagesInput = input.pages ?? [defaultPage()];
+    const validatedPages = validatePages(pagesInput);
+    if (!validatedPages.ok) {
+      throw new Error(`Cannot create a file: ${validatedPages.reason}.`);
+    }
+    const pageIds = new Set(validatedPages.pages.map((p) => p.id));
+
+    const screensInput = stampMissingPageId(input.screens ?? [defaultScreen()], validatedPages.pages[0].id);
+    const validatedScreens = validateScreens(screensInput, KNOWN_TYPES, pageIds);
+    if (!validatedScreens.ok) {
+      throw new Error(`Cannot create a file: ${validatedScreens.reason}.`);
     }
 
     // A folderId that names no existing folder is rejected by the
     // files.folder_id foreign key at insert time (thrown as a plain
-    // error), the same way invalid screens are rejected just above: the
-    // POST route pre-checks folderId with folderPath() so a real client
-    // request comes back as a 400 (see app/api/files/route.ts), and this
-    // throw is only ever reached if that pre-check is bypassed.
+    // error), the same way invalid pages/screens are rejected just above:
+    // the POST route pre-checks folderId with folderPath() so a real
+    // client request comes back as a 400 (see app/api/files/route.ts), and
+    // this throw is only ever reached if that pre-check is bypassed.
     const [row] = await db
       .insert(files)
       .values({
         id: nanoid(10),
         name: input.name ?? 'Untitled',
-        screens: validated.screens.map(toStoredScreen),
+        pages: validatedPages.pages,
+        screens: validatedScreens.screens.map(toStoredScreen),
         folderId: input.folderId ?? null,
       })
       .returning();
@@ -249,10 +293,27 @@ export function createFilesRepository(db: Db) {
     const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
     if (input.name !== undefined) patch.name = input.name;
-    if (input.screens !== undefined) {
-      const validated = validateScreens(input.screens, KNOWN_TYPES);
-      if (!validated.ok) return { ok: false, invalid: validated.reason };
-      patch.screens = validated.screens.map(toStoredScreen);
+    // Pages and screens are re-validated together whenever either changes:
+    // deleting a page must remove its screens in the same patch, and a
+    // page-only patch (rename, reorder) must still re-check every EXISTING
+    // screen's pageId against the new pages list, since a client could send
+    // a pages patch alone without adjusting screens - see validatePages/
+    // validateScreens in lib/files/validate.ts for the cross-check itself.
+    if (input.pages !== undefined || input.screens !== undefined) {
+      const pagesInput = input.pages ?? (row.pages as Page[]);
+      const validatedPages = validatePages(pagesInput);
+      if (!validatedPages.ok) return { ok: false, invalid: validatedPages.reason };
+      const pageIds = new Set(validatedPages.pages.map((p) => p.id));
+
+      const screensInput = stampMissingPageId(
+        input.screens ?? toApiScreens(row.screens),
+        validatedPages.pages[0].id,
+      );
+      const validatedScreens = validateScreens(screensInput, KNOWN_TYPES, pageIds);
+      if (!validatedScreens.ok) return { ok: false, invalid: validatedScreens.reason };
+
+      patch.pages = validatedPages.pages;
+      patch.screens = validatedScreens.screens.map(toStoredScreen);
     }
     if (input.folderId !== undefined) {
       // Unlike create()'s reliance on the foreign key, save() has an
@@ -273,17 +334,33 @@ export function createFilesRepository(db: Db) {
     const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
     if (!row) return null;
 
+    // Every page gets a fresh id too, for the same reason every screen
+    // does just below: a duplicated file's pages are new, independent
+    // identities, not aliases of the original's. pageIdMap carries the
+    // remapping over to each copied screen's own pageId right after.
+    const pageIdMap = new Map<string, string>();
+    const reIdPages = (row.pages as Page[]).map((page) => {
+      const newId = nanoid(10);
+      pageIdMap.set(page.id, newId);
+      return { ...page, id: newId };
+    });
+
     // Every screen gets a fresh id: a duplicated file's screens are new,
     // independent identities, not aliases of the original's (interactions
     // that target a screen by id, added in a later task, would otherwise
     // resolve across both files at once).
-    const reIdScreens = (row.screens as StoredScreen[]).map((screen) => ({ ...screen, id: nanoid(10) }));
+    const reIdScreens = (row.screens as StoredScreen[]).map((screen) => ({
+      ...screen,
+      id: nanoid(10),
+      pageId: pageIdMap.get(screen.pageId) ?? screen.pageId,
+    }));
 
     const [copy] = await db
       .insert(files)
       .values({
         id: nanoid(10),
         name: `${row.name} copy`,
+        pages: reIdPages,
         screens: reIdScreens,
         folderId: row.folderId,
       })

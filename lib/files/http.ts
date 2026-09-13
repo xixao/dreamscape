@@ -16,12 +16,24 @@ const nameField = z.string().trim().min(1).max(120).optional();
 // ("move to the top level").
 const folderIdField = z.string().nullable().optional();
 
+// Shape only: id/name types, nothing about content. The content rules (ids
+// unique and exactly 10 characters, names trimmed to 1..80, at least one
+// page) live in validatePages (lib/files/validate.ts), called from the
+// repository - same split every other content rule here already has.
+const pageField = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+});
+
+const pagesField = z.array(pageField).min(1).max(50);
+
 // Shape only: id/name/layout/stageWidth types, nothing about content. The
 // content rules (name trimmed to 1..80, width clamped to [120, 3840], ids
 // unique and exactly 10 characters, layout valid against the known block
-// types, at least one screen) live in validateScreens (lib/files/validate.ts),
-// called from the repository - the same split validateLayout already had
-// with this module's own `layout: z.string()` check one level up.
+// types, at least one screen, pageId naming a real page) live in
+// validateScreens (lib/files/validate.ts), called from the repository - the
+// same split validateLayout already had with this module's own `layout:
+// z.string()` check one level up.
 const screenField = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -36,6 +48,12 @@ const screenField = z.object({
   // other content rule already has one level down from this zod check.
   x: z.number().int().nullable().optional(),
   y: z.number().int().nullable().optional(),
+  // The page (files.pages, migration 0003) this screen belongs to. Optional
+  // here, same as on the Screen/ScreenInput types themselves: a caller that
+  // has not adopted pages yet gets stamped with the file's default page by
+  // the repository (see stampMissingPageId in lib/files/repository.ts)
+  // rather than being rejected for a merely absent field.
+  pageId: z.string().min(1).optional(),
 });
 
 const screensField = z.array(screenField).min(1).max(50);
@@ -44,6 +62,7 @@ export const createBody = z.object({
   name: nameField,
   example: z.enum(['login', 'dashboard', 'settings', 'signup']).optional(),
   folderId: folderIdField,
+  pages: pagesField.optional(),
   screens: screensField.optional(),
 });
 
@@ -56,6 +75,7 @@ export type CreateBody = z.infer<typeof createBody>;
 export const saveBody = z
   .object({
     name: nameField,
+    pages: pagesField.optional(),
     screens: screensField.optional(),
     baseUpdatedAt: z.iso.datetime().optional(),
     folderId: folderIdField,
@@ -63,6 +83,7 @@ export const saveBody = z
   .refine(
     (body) =>
       body.name !== undefined ||
+      body.pages !== undefined ||
       body.screens !== undefined ||
       body.folderId !== undefined,
     'empty patch',

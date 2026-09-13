@@ -107,6 +107,82 @@ describe('files API route handlers', () => {
       expect(body.file.screens.map((s) => s.stageWidth)).toEqual([375, 768]);
     });
 
+    it('creates one default page and stamps every screen with it', async () => {
+      const response = await CREATE(jsonRequest('http://x/api/files', 'POST', {}));
+      const body = (await readBody(response)) as {
+        file: { pages: Array<{ id: string; name: string }>; screens: Array<{ pageId: string }> };
+      };
+
+      expect(body.file.pages).toHaveLength(1);
+      expect(body.file.pages[0].name).toBe('Page 1');
+      expect(body.file.screens[0].pageId).toBe(body.file.pages[0].id);
+    });
+
+    it('creates the given pages and screens on the pages they name', async () => {
+      const response = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          pages: [
+            { id: 'page000001', name: 'Page 1' },
+            { id: 'page000002', name: 'v2' },
+          ],
+          screens: [
+            {
+              id: 'aaaaaaaaaa',
+              name: 'Frame 1',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 1440,
+              pageId: 'page000001',
+            },
+            {
+              id: 'bbbbbbbbbb',
+              name: 'Frame 2',
+              layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+              stageWidth: 1440,
+              pageId: 'page000002',
+            },
+          ],
+        }),
+      );
+      const body = (await readBody(response)) as {
+        file: { pages: Array<{ id: string; name: string }>; screens: Array<{ id: string; pageId: string }> };
+      };
+
+      expect(response.status).toBe(201);
+      expect(body.file.pages).toEqual([
+        { id: 'page000001', name: 'Page 1' },
+        { id: 'page000002', name: 'v2' },
+      ]);
+      expect(body.file.screens.find((s) => s.id === 'aaaaaaaaaa')?.pageId).toBe('page000001');
+      expect(body.file.screens.find((s) => s.id === 'bbbbbbbbbb')?.pageId).toBe('page000002');
+    });
+
+    // Matches the existing behavior for every other content-validation
+    // failure on this path (a duplicate screen id, an invalid layout, ...):
+    // create() throws rather than returning a typed invalid result (see the
+    // comment on its own pageId/screens validation in
+    // lib/files/repository.ts), and this route has no try/catch around the
+    // plain, non-example create() call to turn that into a 400 - it
+    // propagates to Next's default 500, same as route.test.ts's mocked
+    // "propagates a thrown non-validation repository error" case exercises
+    // for a different thrown reason.
+    it('propagates rather than 400s when a screen names no given page (matches other create() validation failures)', async () => {
+      await expect(
+        CREATE(
+          jsonRequest('http://x/api/files', 'POST', {
+            screens: [
+              {
+                id: 'aaaaaaaaaa',
+                name: 'Frame 1',
+                layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+                stageWidth: 1440,
+                pageId: 'doesnotexist',
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow();
+    });
+
     it('round-trips a screen given an explicit stageHeight and deviceName, and defaults them to null otherwise', async () => {
       const response = await CREATE(
         jsonRequest('http://x/api/files', 'POST', {
@@ -165,7 +241,11 @@ describe('files API route handlers', () => {
     it('creates from the login example with the example name and layout when no name is given', async () => {
       const response = await CREATE(jsonRequest('http://x/api/files', 'POST', { example: 'login' }));
       const body = (await readBody(response)) as {
-        file: { name: string; screens: Array<{ name: string; stageWidth: number; layout: string }> };
+        file: {
+          name: string;
+          pages: Array<{ id: string; name: string }>;
+          screens: Array<{ name: string; stageWidth: number; layout: string; pageId: string }>;
+        };
       };
 
       expect(response.status).toBe(201);
@@ -174,6 +254,13 @@ describe('files API route handlers', () => {
       expect(body.file.screens[0].name).toBe('Login screen');
       expect(body.file.screens[0].stageWidth).toBe(1440);
       expect(Object.keys(JSON.parse(body.file.screens[0].layout))).toHaveLength(7);
+      // "Examples create one page" (docs/superpowers/specs/2026-09-12-pages-design.md
+      // section 4): the example's own screens carry no pageId of their own
+      // (lib/examples/index.ts's exampleToScreens does not set one) -
+      // create()'s ordinary default-page stamping is what gives it exactly
+      // one, the same as any other caller that does not mention pages.
+      expect(body.file.pages).toHaveLength(1);
+      expect(body.file.screens[0].pageId).toBe(body.file.pages[0].id);
     });
 
     it('creates from the login example but keeps a given file name (the screen keeps the example name)', async () => {
@@ -284,6 +371,111 @@ describe('files API route handlers', () => {
 
       const stored = await repository.get(file.id);
       expect(stored?.name).toBe('Changed elsewhere');
+    });
+
+    it('renames and reorders pages', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({
+        pages: [
+          { id: 'page000001', name: 'Page 1' },
+          { id: 'page000002', name: 'Page 2' },
+        ],
+      });
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          pages: [
+            { id: 'page000002', name: 'v2' },
+            { id: 'page000001', name: 'Page 1' },
+          ],
+        }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      const stored = await repository.get(file.id);
+      expect(stored?.pages).toEqual([
+        { id: 'page000002', name: 'v2' },
+        { id: 'page000001', name: 'Page 1' },
+      ]);
+    });
+
+    it('deletes a page and its screens together in one patch', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({
+        pages: [
+          { id: 'page000001', name: 'Page 1' },
+          { id: 'page000002', name: 'v2' },
+        ],
+        screens: [
+          {
+            id: 'aaaaaaaaaa',
+            name: 'Keep',
+            layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+            stageWidth: 1440,
+            pageId: 'page000001',
+          },
+          {
+            id: 'bbbbbbbbbb',
+            name: 'Gone',
+            layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+            stageWidth: 1440,
+            pageId: 'page000002',
+          },
+        ],
+      });
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          pages: [{ id: 'page000001', name: 'Page 1' }],
+          screens: [file.screens!.find((s) => s.id === 'aaaaaaaaaa')],
+        }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(200);
+      const stored = await repository.get(file.id);
+      expect(stored?.pages).toEqual([{ id: 'page000001', name: 'Page 1' }]);
+      expect(stored?.screens?.map((s) => s.name)).toEqual(['Keep']);
+    });
+
+    it('returns 400 when deleting a page without also removing its screens', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({
+        pages: [
+          { id: 'page000001', name: 'Page 1' },
+          { id: 'page000002', name: 'v2' },
+        ],
+        screens: [
+          {
+            id: 'aaaaaaaaaa',
+            name: 'Frame 1',
+            layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+            stageWidth: 1440,
+            pageId: 'page000002',
+          },
+        ],
+      });
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { pages: [{ id: 'page000001', name: 'Page 1' }] }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(400);
+      expect((await repository.get(file.id))?.pages).toHaveLength(2);
+    });
+
+    it('returns 400 when a patch would delete the last page', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+
+      const response = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', { pages: [] }),
+        withId(file.id),
+      );
+
+      expect(response.status).toBe(400);
     });
 
     it('saves a frame position onto a screen through PATCH, same as create', async () => {
@@ -540,6 +732,36 @@ describe('files API route handlers', () => {
       expect(body.file.name).toBe('Original copy');
       expect(body.file.screens[0].layout).toBe(file.screens![0].layout);
       expect(body.file.screens[0].id).not.toBe(file.screens![0].id);
+    });
+
+    it('copies pages with fresh ids and repoints each screen at its own copied page', async () => {
+      const repository = await getRepository();
+      const file = await repository.create({
+        pages: [{ id: 'page000001', name: 'Page 1' }],
+        screens: [
+          {
+            id: 'aaaaaaaaaa',
+            name: 'Frame 1',
+            layout: JSON.stringify({ ROOT: { type: 'LayoutBox' } }),
+            stageWidth: 1440,
+            pageId: 'page000001',
+          },
+        ],
+      });
+
+      const response = await DUPLICATE(
+        new Request(`http://x/api/files/${file.id}/duplicate`, { method: 'POST' }),
+        withId(file.id),
+      );
+      const body = (await readBody(response)) as {
+        file: { pages: Array<{ id: string; name: string }>; screens: Array<{ pageId: string }> };
+      };
+
+      expect(response.status).toBe(201);
+      expect(body.file.pages).toHaveLength(1);
+      expect(body.file.pages[0].name).toBe('Page 1');
+      expect(body.file.pages[0].id).not.toBe('page000001');
+      expect(body.file.screens[0].pageId).toBe(body.file.pages[0].id);
     });
 
     it('returns 404 for a missing file', async () => {

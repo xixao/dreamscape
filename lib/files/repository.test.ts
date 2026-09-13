@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { getDb, resetDbForTests } from '@/db/client';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import loginScreenLayout from '@/lib/examples/login-screen.json';
-import { createFilesRepository, type Screen } from './repository';
+import { createFilesRepository, type Page, type Screen } from './repository';
 
 const LOGIN_SCREEN_JSON = JSON.stringify(loginScreenLayout);
 
@@ -18,6 +18,10 @@ function isIsoString(value: string): boolean {
 
 function screen(overrides: Partial<Screen> = {}): Screen {
   return { id: nanoid(10), name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440, ...overrides };
+}
+
+function page(overrides: Partial<Page> = {}): Page {
+  return { id: nanoid(10), name: 'Page 1', ...overrides };
 }
 
 describe('files repository', () => {
@@ -120,6 +124,55 @@ describe('files repository', () => {
 
     it('refuses to create a file in a folder that does not exist', async () => {
       await expect(repo.create({ folderId: 'doesnotexist' })).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+
+    it('creates one default page named "Page 1" and stamps the default screen with it', async () => {
+      const file = await repo.create();
+
+      expect(file.pages).toHaveLength(1);
+      expect(file.pages?.[0]).toMatchObject({ name: 'Page 1' });
+      expect(file.pages?.[0].id).toHaveLength(10);
+      expect(file.screens?.[0].pageId).toBe(file.pages?.[0].id);
+    });
+
+    it('stamps every given screen with the default page when none of them name one', async () => {
+      const file = await repo.create({ screens: [screen({ name: 'A' }), screen({ name: 'B' })] });
+
+      expect(file.pages).toHaveLength(1);
+      const pageId = file.pages![0].id;
+      expect(file.screens?.every((s) => s.pageId === pageId)).toBe(true);
+    });
+
+    it('creates the given pages, in order, with screens on the pages they name', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const file = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ name: 'A', pageId: pageA.id }), screen({ name: 'B', pageId: pageB.id })],
+      });
+
+      expect(file.pages).toEqual([pageA, pageB]);
+      expect(file.screens?.find((s) => s.name === 'A')?.pageId).toBe(pageA.id);
+      expect(file.screens?.find((s) => s.name === 'B')?.pageId).toBe(pageB.id);
+    });
+
+    it('refuses to create a file with zero pages', async () => {
+      await expect(repo.create({ pages: [] })).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+
+    it('refuses to create a file with duplicate page ids', async () => {
+      const dupeId = nanoid(10);
+      await expect(repo.create({ pages: [page({ id: dupeId }), page({ id: dupeId, name: 'v2' })] })).rejects.toThrow();
+      expect(await repo.list()).toHaveLength(0);
+    });
+
+    it('refuses to create a file with a screen whose pageId names no given page', async () => {
+      const pageA = page();
+      await expect(
+        repo.create({ pages: [pageA], screens: [screen({ pageId: 'doesnotexist' })] }),
+      ).rejects.toThrow();
       expect(await repo.list()).toHaveLength(0);
     });
   });
@@ -340,6 +393,109 @@ describe('files repository', () => {
       expect(result).toEqual({ ok: false, invalid: 'Folder does not exist' });
       expect((await repo.get(created.id))?.folderId).toBeNull();
     });
+
+    it('renames and reorders pages without touching screens', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'Page 2' });
+      const created = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ pageId: pageA.id }), screen({ pageId: pageB.id })],
+      });
+
+      const result = await repo.save(created.id, { pages: [{ ...pageB, name: 'v2' }, pageA] });
+      expect(result.ok).toBe(true);
+
+      const after = await repo.get(created.id);
+      expect(after?.pages).toEqual([{ ...pageB, name: 'v2' }, pageA]);
+      expect(after?.screenCount).toBe(2);
+    });
+
+    it('adds a page with no screens on it (an empty page)', async () => {
+      const created = await repo.create();
+      const nextPages = [...created.pages!, page({ name: 'v2' })];
+
+      const result = await repo.save(created.id, { pages: nextPages });
+      expect(result.ok).toBe(true);
+
+      const after = await repo.get(created.id);
+      expect(after?.pages).toHaveLength(2);
+      expect(after?.screenCount).toBe(1);
+    });
+
+    it('deletes a page and its screens together in one patch', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const created = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ name: 'Keep', pageId: pageA.id }), screen({ name: 'Gone', pageId: pageB.id })],
+      });
+
+      const result = await repo.save(created.id, {
+        pages: [pageA],
+        screens: created.screens!.filter((s) => s.pageId === pageA.id),
+      });
+      expect(result.ok).toBe(true);
+
+      const after = await repo.get(created.id);
+      expect(after?.pages).toEqual([pageA]);
+      expect(after?.screens?.map((s) => s.name)).toEqual(['Keep']);
+    });
+
+    it('rejects deleting a page without also removing its screens, changing nothing', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const created = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ pageId: pageA.id }), screen({ pageId: pageB.id })],
+      });
+
+      const result = await repo.save(created.id, { pages: [pageA] });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      expect((await repo.get(created.id))?.pages).toHaveLength(2);
+    });
+
+    it('rejects deleting the last page, changing nothing', async () => {
+      const created = await repo.create();
+
+      const result = await repo.save(created.id, { pages: [] });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      expect((await repo.get(created.id))?.pages).toHaveLength(1);
+    });
+
+    it('moves a screen from one page to another by changing its pageId', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const created = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ name: 'Movable', pageId: pageA.id })],
+      });
+      const nextPages = [pageA, pageB];
+      const nextScreens = created.screens!.map((s) => ({ ...s, pageId: pageB.id }));
+
+      const result = await repo.save(created.id, { pages: nextPages, screens: nextScreens });
+      expect(result.ok).toBe(true);
+
+      const after = await repo.get(created.id);
+      expect(after?.screens?.[0].pageId).toBe(pageB.id);
+    });
+
+    it('rejects a screens patch whose screen names a page that does not exist, changing nothing', async () => {
+      const created = await repo.create();
+
+      const result = await repo.save(created.id, { screens: [screen({ pageId: 'doesnotexist' })] });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+      expect((await repo.get(created.id))?.screenCount).toBe(1);
+    });
+
+    it('stamps a screen with the default (first) page when a screens-only patch omits pageId', async () => {
+      const created = await repo.create();
+
+      await repo.save(created.id, { screens: [screen({ name: 'A' }), screen({ name: 'B' })] });
+
+      const after = await repo.get(created.id);
+      const pageId = after?.pages![0].id;
+      expect(after?.screens?.every((s) => s.pageId === pageId)).toBe(true);
+    });
   });
 
   describe('duplicate', () => {
@@ -395,6 +551,35 @@ describe('files repository', () => {
 
       const copy = await repo.duplicate(created.id);
       expect(copy?.folderId).toBe(folder.folder.id);
+    });
+
+    it('gives every page a new id, keeping name and count the same', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const created = await repo.create({ pages: [pageA, pageB], screens: [screen({ pageId: pageA.id })] });
+
+      const copy = await repo.duplicate(created.id);
+
+      expect(copy?.pages).toHaveLength(2);
+      expect(copy?.pages?.map((p) => p.name)).toEqual(['Page 1', 'v2']);
+      expect(copy?.pages?.map((p) => p.id)).not.toEqual([pageA.id, pageB.id]);
+      for (const p of copy?.pages ?? []) expect(p.id).toHaveLength(10);
+    });
+
+    it('repoints every copied screen at its own page\'s new id', async () => {
+      const pageA = page({ name: 'Page 1' });
+      const pageB = page({ name: 'v2' });
+      const created = await repo.create({
+        pages: [pageA, pageB],
+        screens: [screen({ name: 'On A', pageId: pageA.id }), screen({ name: 'On B', pageId: pageB.id })],
+      });
+
+      const copy = await repo.duplicate(created.id);
+      const copiedPageA = copy?.pages?.find((p) => p.name === 'Page 1');
+      const copiedPageB = copy?.pages?.find((p) => p.name === 'v2');
+
+      expect(copy?.screens?.find((s) => s.name === 'On A')?.pageId).toBe(copiedPageA?.id);
+      expect(copy?.screens?.find((s) => s.name === 'On B')?.pageId).toBe(copiedPageB?.id);
     });
   });
 

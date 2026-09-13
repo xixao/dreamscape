@@ -127,6 +127,17 @@ export type Screen = {
   deviceName?: string | null;
   x?: number | null;
   y?: number | null;
+  // The page (files.pages, migration 0003) this screen belongs to. Optional
+  // here for the same reason folderId/screenCount are optional on
+  // FileSummary/FileRecord in repository.ts: a Screen literal written
+  // before pages existed (there are many, across component tests that
+  // render a screens array purely for UI rendering and never look at
+  // pageId at all) still type-checks with no pageId. The repository always
+  // populates it on any value it hands back for real data - see create()/
+  // save()'s pageId-stamping there - and validateScreens below cross-checks
+  // it against a file's pages whenever a caller actually cares (passing its
+  // third, optional pageIds argument).
+  pageId?: string;
 };
 
 // The shape validateScreens accepts: a screen as given by a caller (the API
@@ -142,6 +153,7 @@ export type ScreenInput = {
   deviceName?: string | null;
   x?: number | null;
   y?: number | null;
+  pageId?: string;
 };
 
 export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: false; reason: string };
@@ -149,6 +161,54 @@ export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: fals
 const SCREEN_NAME_MAX = 80;
 const SCREEN_ID_LENGTH = 10;
 const DEVICE_NAME_MAX = 80;
+
+// A file holds several pages (files.pages, migration 0003), each an ordered
+// `{ id, name }` - see the module comment on Screen.pageId above for how the
+// two connect. Deliberately the same shape for input and output (unlike
+// Screen/ScreenInput): a page has no nested content of its own to
+// normalize into a different representation, just an id and a trimmed name.
+export type Page = { id: string; name: string };
+export type PageInput = { id: string; name: string };
+export type ValidatePagesResult = { ok: true; pages: Page[] } | { ok: false; reason: string };
+
+const PAGE_NAME_MAX = 80;
+const PAGE_ID_LENGTH = 10;
+
+/**
+ * Validates and normalizes a whole file's pages array: ids unique and
+ * exactly 10 characters (the same nanoid(10) convention every other id in
+ * this app uses), names trimmed to 1..80 characters, and at least one page
+ * present - which is also, by construction, the entire enforcement of "the
+ * last page cannot be deleted": a patch that would leave zero pages simply
+ * never validates.
+ */
+export function validatePages(input: PageInput[]): ValidatePagesResult {
+  if (input.length < 1) {
+    return { ok: false, reason: 'a file must have at least one page' };
+  }
+
+  const seenIds = new Set<string>();
+  const pages: Page[] = [];
+
+  for (const raw of input) {
+    if (raw.id.length !== PAGE_ID_LENGTH) {
+      return { ok: false, reason: `page id "${raw.id}" must be exactly ${PAGE_ID_LENGTH} characters` };
+    }
+    if (seenIds.has(raw.id)) {
+      return { ok: false, reason: `duplicate page id "${raw.id}"` };
+    }
+    seenIds.add(raw.id);
+
+    const name = raw.name.trim();
+    if (name.length < 1 || name.length > PAGE_NAME_MAX) {
+      return { ok: false, reason: `page name must be between 1 and ${PAGE_NAME_MAX} characters` };
+    }
+
+    pages.push({ id: raw.id, name });
+  }
+
+  return { ok: true, pages };
+}
 
 /**
  * Validates and normalizes a whole file's screens array in one pass: every
@@ -162,8 +222,19 @@ const DEVICE_NAME_MAX = 80;
  * content rules live, the same split validateLayout already has with the
  * zod `layout: z.string()` check
  * one level up.
+ *
+ * `pageIds`, third and optional, cross-checks each screen's `pageId`
+ * against a file's actual pages (validatePages's own output ids) - skipped
+ * entirely when omitted, which is what keeps every pre-pages caller and
+ * test fixture validating exactly as before pages existed. A real caller
+ * that has pages to check against - the repository's create()/save() -
+ * always passes it.
  */
-export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<string>): ValidateScreensResult {
+export function validateScreens(
+  input: ScreenInput[],
+  knownTypes: ReadonlySet<string>,
+  pageIds?: ReadonlySet<string>,
+): ValidateScreensResult {
   if (input.length < 1) {
     return { ok: false, reason: 'a file must have at least one screen' };
   }
@@ -188,6 +259,10 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
     const validatedLayout = validateLayout(raw.layout, knownTypes);
     if (!validatedLayout.ok) {
       return { ok: false, reason: `screen "${name}" layout ${validatedLayout.reason}` };
+    }
+
+    if (pageIds && (!raw.pageId || !pageIds.has(raw.pageId))) {
+      return { ok: false, reason: `screen "${name}" pageId does not name a page of this file` };
     }
 
     const stageHeight = raw.stageHeight ?? null;
@@ -221,6 +296,7 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
       deviceName,
       x,
       y,
+      pageId: raw.pageId,
     });
   }
 
