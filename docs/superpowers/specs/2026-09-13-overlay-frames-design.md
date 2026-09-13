@@ -50,7 +50,7 @@ Screen.presentation?: OverlayPresentation; // required when kind is 'overlay', r
 - Design panel with an overlay frame focused and nothing inside selected: an "Overlay" section with Presentation (Dialog / Sheet / Toast), Side (sheet), Position (toast), Dismissible (dialog, sheet). The device chip is hidden for overlays; width editing stays.
 - Prototype panel: "Open overlay..." is offered when the file has at least one overlay frame on any page; its target select lists overlay frames grouped by page. "Close overlay" is always offered. "Open dialog..." keeps its current rule (only when a Dialog element exists on the canvas).
 - Elements tray: Dialog removed from the tray; it stays in the resolver.
-- Diagram connectors can already target frames by id, so overlay frames work as flow chart nodes with no change. Pages, comments, multi-select and grid snapping treat overlays as frames.
+- Flow chart (Matt, 2026-09-13: "also make the overlay frames selectable from the flow chart"): overlay frames are first-class flow chart nodes exactly like screens. With the Diagram tool active, clicking any frame's body (screen or overlay) selects that frame, Shift+click adds it to the frame selection, and connectors attach through the same four-side handles; the overlay badge shows in the frame title so a dialog or sheet is recognisable in the chart. The target list of "Open overlay..." is the same set of frames. Pages, comments, multi-select, alignment and grid snapping treat overlays as frames. Tests: an overlay frame gets `diagram-handle-frame-<id>-<side>` handles, a click on it in diagram mode selects it, a connector from a screen to an overlay persists and survives a page duplicate.
 
 ## 6. Build order
 

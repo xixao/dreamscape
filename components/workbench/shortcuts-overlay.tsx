@@ -41,7 +41,7 @@ function ShortcutGroups({ platform }: { platform: Platform }) {
             {group.items.map((item: ShortcutRow) => (
               <div key={item.ids.join('+')} className="flex items-center justify-between gap-6">
                 <span className={OVERLAY_ROW_LABEL}>{item.label}</span>
-                <span className="flex shrink-0 items-center gap-1.5">
+                <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                   {item.keys.map((keys, index) => (
                     <span key={item.ids[index] ?? index} className={OVERLAY_KEY_CAP}>
                       {formatKeys(keys, platform)}
@@ -154,9 +154,9 @@ export function ShortcutsOverlay({
         {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
         plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
         variant scope, later in the cascade) - only a same-variant override
-        (`sm:max-w-[calc(100vw-4rem)] xl:max-w-[1240px]`) actually wins. The unprefixed class is just the
+        (`sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]`) actually wins. The unprefixed class is just the
         sensible base for narrower viewports. */}
-        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-4rem)] xl:max-w-[1240px]">
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]">
           <DialogHeader>
             <DialogTitle>Keyboard shortcuts</DialogTitle>
           </DialogHeader>

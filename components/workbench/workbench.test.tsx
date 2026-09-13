@@ -1410,7 +1410,7 @@ describe('Workbench', () => {
     it('the top bar floats full width at the top', () => {
       render(<Workbench file={makeFile()} />);
       const header = screen.getByTestId('save-state').closest('header');
-      expect(header).toHaveClass('absolute', 'top-3', 'left-3', 'right-3', 'shadow-panel-lg');
+      expect(header).toHaveClass('absolute', 'top-3', 'left-3', 'right-3', 'shadow-panel');
     });
 
     it('the right panel floats at the right, below the top bar', () => {

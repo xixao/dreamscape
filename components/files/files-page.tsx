@@ -56,7 +56,7 @@ export function FilesPage({
       <header
         className={cn(PANEL, 'shadow-panel', 'h-[54px] px-3.5 flex items-center gap-2 sticky top-3 z-30')}
       >
-        <span className="text-[13px] font-semibold">Assembly Workbench</span>
+        <span className="text-[13px] font-semibold">Dreamscape</span>
       </header>
       <div className="pt-[26px] px-1 pb-10">
         <Breadcrumb className="mb-1.5">

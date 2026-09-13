@@ -1,6 +1,9 @@
 // SF2 §7 card + §10.1 bevel, used for the tray, inspector and topbar surfaces.
+// Standing panels and the topbar take SF2's `--shadow`, not `--shadow-lg`
+// (that one is for modals and toasts); Matt asked for lighter panel shadows
+// on 2026-09-13 and both tokens were tightened in globals.css at the same time.
 export const PANEL =
-  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--sf-shadow-lg)]';
+  'bg-card border border-(color:--bevel-line) rounded-xl shadow-[var(--bevel-hi),var(--sf-shadow)]';
 
 // SF2 §10.2 grip header of a vertical panel.
 export const PANEL_HEADER =
@@ -80,8 +83,12 @@ export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 // dialog presentation reuses components/ui/dialog's own surface and only
 // takes the group/row/key-cap treatment below, so the two never show
 // different shortcut content even though their outer chrome differs.
+// Fills the window minus a 24 px margin on each side (Matt, 2026-09-13:
+// "make the panel larger. you have plenty of space... a small padding value
+// between the edge of the window and the modal"), capped only on very wide
+// displays.
 export const OVERLAY_SURFACE =
-  'w-[1240px] max-w-[calc(100vw-4rem)] rounded-2xl border border-line-strong bg-card p-8 shadow-panel-lg';
+  'w-[calc(100vw-48px)] max-w-[1800px] rounded-2xl border border-line-strong bg-card p-8 shadow-panel-lg';
 export const OVERLAY_TITLE = 'text-[20px] font-semibold text-foreground';
 export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
 export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
