@@ -48,6 +48,9 @@ import {
   MAX_TEXT_LENGTH,
   MIN_SIZE,
   NODE_KINDS,
+  TEXT_COLORS,
+  TEXT_FONTS,
+  TEXT_SIZES,
   type AlignMode,
   type ArrowKind,
   type ConnectorKind,
@@ -59,6 +62,9 @@ import {
   type DiagramSelection,
   type DiagramState,
   type EdgeEndpoint,
+  type TextColor,
+  type TextFont,
+  type TextSize,
 } from '@/lib/diagram/store';
 import type { Viewport } from '@/lib/canvas/viewport';
 import { capturePointer, releasePointer } from '@/lib/dom';
@@ -67,7 +73,15 @@ import { CHIP, MENU_HINT, MENU_POPOVER, MENU_ROW } from '../chrome';
 // Read-only import (review finding 3) - keyboard.tsx/lib/shortcuts.ts
 // themselves belong to a different branch and are not touched here.
 import { isEditableTarget } from '@/lib/dom';
-import { ARROW_LABELS, CONNECTOR_LABELS, COLOR_LABELS, KIND_LABELS } from './diagram-fields';
+import {
+  ARROW_LABELS,
+  CONNECTOR_LABELS,
+  COLOR_LABELS,
+  KIND_LABELS,
+  TEXT_COLOR_LABELS,
+  TEXT_FONT_LABELS,
+  TEXT_SIZE_LABELS,
+} from './diagram-fields';
 
 // Build step 3's Align submenu (Left, Center, Right, Top, Middle, Bottom) -
 // labelled distinctly from KIND_LABELS/COLOR_LABELS et al since these are
@@ -161,6 +175,42 @@ const COLOR_CLASSES: Record<DiagramNode['color'], { fill: string; stroke: string
   red: { fill: 'fill-red-500/25', stroke: 'stroke-red-400' },
   violet: { fill: 'fill-violet-500/25', stroke: 'stroke-violet-400' },
 };
+
+// Spec section 9 (Build step 2): "sizes 11/13/16 px" / the tool's sans and
+// mono stacks plus a system serif / "each diagram colour at full strength
+// (the *-400 text tones used elsewhere)... and black" - applied verbatim
+// (medium/sans/default when a field is absent, i.e. exactly today's fixed
+// 13px white sans render) in the on-screen text div, the inline editor
+// textarea and the Option-drag ghost (renderGhosts), so the three can never
+// drift from one another.
+const TEXT_SIZE_CLASSES: Record<TextSize, string> = {
+  small: 'text-[11px]',
+  medium: 'text-[13px]',
+  large: 'text-[16px]',
+};
+const TEXT_FONT_CLASSES: Record<TextFont, string> = {
+  sans: 'font-sans',
+  serif: 'font-serif',
+  mono: 'font-mono',
+};
+const TEXT_COLOR_CLASSES: Record<TextColor, string> = {
+  default: 'text-white',
+  neutral: 'text-neutral-400',
+  blue: 'text-blue-400',
+  green: 'text-green-400',
+  amber: 'text-amber-400',
+  red: 'text-red-400',
+  violet: 'text-violet-400',
+  black: 'text-black',
+};
+
+function textStyleClasses(node: DiagramNode): string {
+  return cn(
+    TEXT_SIZE_CLASSES[node.textSize ?? 'medium'],
+    TEXT_FONT_CLASSES[node.textFont ?? 'sans'],
+    TEXT_COLOR_CLASSES[node.textColor ?? 'default'],
+  );
+}
 
 function boxContains(box: Box, point: Point): boolean {
   return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
@@ -455,6 +505,66 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 </ContextMenuRadioItem>
               ))}
             </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        {/* Spec section 9: "the right-click menu gets a 'Text' submenu with
+            the same three groups as radio items" - one nested ContextMenuSub
+            per group (Size/Font/Text color), the same shape as "Change
+            shape"/"Color" above; only the single right-clicked shape is
+            restyled, the same single-`node.id` scope those two already use
+            (Align/Duplicate/etc. below are the only items here that act on
+            the whole `selectedNodeIds`). */}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Text</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className={MENU_ROW}>Text size</ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_POPOVER}>
+                <ContextMenuRadioGroup
+                  value={node.textSize ?? 'medium'}
+                  onValueChange={(value) => dispatch({ type: 'setTextStyle', ids: [node.id], textSize: value as TextSize })}
+                >
+                  {TEXT_SIZES.map((size) => (
+                    <ContextMenuRadioItem key={size} value={size} className={cn(MENU_ROW, 'pr-7')}>
+                      {TEXT_SIZE_LABELS[size]}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className={MENU_ROW}>Font</ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_POPOVER}>
+                <ContextMenuRadioGroup
+                  value={node.textFont ?? 'sans'}
+                  onValueChange={(value) => dispatch({ type: 'setTextStyle', ids: [node.id], textFont: value as TextFont })}
+                >
+                  {TEXT_FONTS.map((font) => (
+                    <ContextMenuRadioItem key={font} value={font} className={cn(MENU_ROW, 'pr-7')}>
+                      {TEXT_FONT_LABELS[font]}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className={MENU_ROW}>Text color</ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_POPOVER}>
+                <ContextMenuRadioGroup
+                  value={node.textColor ?? 'default'}
+                  onValueChange={(value) => dispatch({ type: 'setTextStyle', ids: [node.id], textColor: value as TextColor })}
+                >
+                  {TEXT_COLORS.map((color) => (
+                    <ContextMenuRadioItem key={color} value={color} className={cn(MENU_ROW, 'pr-7')}>
+                      {TEXT_COLOR_LABELS[color]}
+                    </ContextMenuRadioItem>
+                  ))}
+                </ContextMenuRadioGroup>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           </ContextMenuSubContent>
         </ContextMenuSub>
 
@@ -1283,9 +1393,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
               {renderShapeBody(source, box)}
               {/* Re-review finding 23: the ghost's own text, so the
                   preview matches the eventual copy exactly, not just the
-                  shape's fill/stroke. */}
+                  shape's fill/stroke. Spec section 9: the ghost also
+                  honours the source's own text size/font/color. */}
               <foreignObject x={box.x} y={box.y} width={box.width} height={box.height}>
-                <div className="flex size-full items-center justify-center overflow-hidden p-1.5 text-center text-[13px] break-words whitespace-pre-wrap text-white">
+                <div className={cn('flex size-full items-center justify-center overflow-hidden p-1.5 text-center break-words whitespace-pre-wrap', textStyleClasses(source))}>
                   {source.text}
                 </div>
               </foreignObject>
@@ -1354,7 +1465,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   data-testid={`diagram-text-input-${rawNode.id}`}
                   value={editing.draft}
                   maxLength={MAX_TEXT_LENGTH}
-                  className="size-full resize-none border-0 bg-transparent p-1 text-center text-[13px] text-white outline-none"
+                  className={cn('size-full resize-none border-0 bg-transparent p-1 text-center outline-none', textStyleClasses(rawNode))}
                   onChange={(event) => setEditing({ id: rawNode.id, draft: event.target.value })}
                   onFocus={(event) => event.currentTarget.select()}
                   onKeyDown={(event) => {
@@ -1369,7 +1480,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   onBlur={() => commitPendingEdit(true)}
                 />
               ) : (
-                <div className="flex size-full items-center justify-center overflow-hidden p-1.5 text-center text-[13px] break-words whitespace-pre-wrap text-white">
+                <div className={cn('flex size-full items-center justify-center overflow-hidden p-1.5 text-center break-words whitespace-pre-wrap', textStyleClasses(rawNode))}>
                   {rawNode.text}
                 </div>
               )}

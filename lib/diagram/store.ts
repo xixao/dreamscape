@@ -35,6 +35,27 @@ export type ConnectorKind = (typeof CONNECTOR_KINDS)[number];
 export const ARROW_KINDS = ['end', 'both', 'none'] as const;
 export type ArrowKind = (typeof ARROW_KINDS)[number];
 
+// Shape text styling (spec section 9, Matt 2026-09-13: "give the diagram
+// shapes a font selection like small, medium, large. as well as a
+// monospaced font, a serif font, and a sans serif font? also let me change
+// the color of the fonts independently from the shape's colors") - all
+// three optional on DiagramNode itself, so a file saved before this
+// feature (every field absent) keeps reading exactly as it always has;
+// diagram-layer.tsx/diagram-fields.tsx/lib/diagram/export.ts each default
+// an absent value to medium/sans/default (today's only look) rather than
+// this module ever writing that default into stored data.
+export const TEXT_SIZES = ['small', 'medium', 'large'] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];
+
+export const TEXT_FONTS = ['sans', 'serif', 'mono'] as const;
+export type TextFont = (typeof TEXT_FONTS)[number];
+
+// 'default' (white) and 'black' bracket the six shape colours, since a
+// shape's text often needs to read against its own fill regardless of
+// that fill's own hue.
+export const TEXT_COLORS = ['default', ...DIAGRAM_COLORS, 'black'] as const;
+export type TextColor = (typeof TEXT_COLORS)[number];
+
 export interface DiagramNode {
   id: string;
   kind: DiagramNodeKind;
@@ -44,6 +65,9 @@ export interface DiagramNode {
   height: number;
   text: string;
   color: DiagramColor;
+  textSize?: TextSize;
+  textFont?: TextFont;
+  textColor?: TextColor;
 }
 
 // One end of a connector: either a diagram node or a frame (screen) - never
@@ -135,6 +159,16 @@ export type DiagramAction =
   | { type: 'setColor'; id: string; color: DiagramColor }
   | { type: 'setKind'; id: string; kind: DiagramNodeKind | ConnectorKind }
   | { type: 'setArrow'; id: string; arrow: ArrowKind }
+  // Spec section 9: the Design panel's three text-style selects and the
+  // right-click menu's "Text" submenu both dispatch this - `ids` rather
+  // than a single `id` (unlike setColor/setKind/setArrow above) so a
+  // multi-shape selection applies in one history step, the same
+  // "several shapes, one step" rule align/distribute already established
+  // for a diagram multi-selection. Only the keys actually given are
+  // applied (an absent key leaves that field alone on every id), and
+  // nothing not already a node in `ids` is touched - an edge id is
+  // silently ignored, text styling has no meaning for a connector.
+  | { type: 'setTextStyle'; ids: string[]; textSize?: TextSize; textFont?: TextFont; textColor?: TextColor }
   | { type: 'connect'; edge: DiagramEdge }
   | { type: 'disconnect'; id: string }
   | { type: 'delete'; ids: string[] }
@@ -341,6 +375,35 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return commit(state, { nodes: state.nodes, edges });
     }
 
+    // Spec section 9: applies whichever of textSize/textFont/textColor was
+    // actually given to every node in `ids`, as one history step - same
+    // "no-op, no history" guard shape as move/reorder/align/distribute
+    // above, so re-applying a selection's own current values (nothing
+    // actually changes) does not push a dead entry onto the undo stack.
+    case 'setTextStyle': {
+      const ids = new Set(action.ids);
+      let changed = false;
+      const nodes = state.nodes.map((n) => {
+        if (!ids.has(n.id)) return n;
+        const next = { ...n };
+        if (action.textSize !== undefined && next.textSize !== action.textSize) {
+          next.textSize = action.textSize;
+          changed = true;
+        }
+        if (action.textFont !== undefined && next.textFont !== action.textFont) {
+          next.textFont = action.textFont;
+          changed = true;
+        }
+        if (action.textColor !== undefined && next.textColor !== action.textColor) {
+          next.textColor = action.textColor;
+          changed = true;
+        }
+        return next;
+      });
+      if (!changed) return state;
+      return commit(state, { nodes, edges: state.edges });
+    }
+
     case 'connect': {
       if (!validateConnection(state, action.edge).ok) return state;
       return commit(state, { nodes: state.nodes, edges: [...state.edges, action.edge] });
@@ -468,6 +531,13 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         height,
         text: '',
         color: source.color,
+        // Spec section 9 (Build step 1: "duplicate/quickAdd/cloneDiagram
+        // carry the three fields") - same "same kind, colour" carry-over
+        // the spec already names for quickAdd, extended to the shape's
+        // own text styling.
+        textSize: source.textSize,
+        textFont: source.textFont,
+        textColor: source.textColor,
       };
       const newEdge: DiagramEdge = {
         id: action.newEdgeId,

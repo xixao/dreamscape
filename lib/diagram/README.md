@@ -64,12 +64,24 @@ at zoom 1 is what the file shows.
   colours resolved to hex/rgba, the same straight/step/curve paths from
   `geometry.ts` with the on-screen arrowhead marker in the accent colour
   (`--acc`), and label chips on the CHIP surface (`--chip`, `--bevel-line`,
-  `--foreground`). Text is native `<text>`/`<tspan>`, 13 px at the body
-  line height of 1.45, wrapped to the shape's inner width with the supplied
-  `measureText` (canvas `measureText` in the browser, a fixed-width stub in
-  tests); lines past the inner height are dropped, first lines kept; no
-  font files are embedded. A test reads those tokens out of
-  `app/globals.css` so the export cannot drift from the theme.
+  `--foreground`). Text is native `<text>`/`<tspan>`, wrapped to the
+  shape's inner width with the supplied `measureText` (canvas `measureText`
+  in the browser, a fixed-width stub in tests); lines past the inner height
+  are dropped, first lines kept; no font files are embedded. A test reads
+  those tokens out of `app/globals.css` so the export cannot drift from
+  the theme.
+- Shape text styling (spec section 9): a node's own optional `textSize`
+  (11/13/16 px, `SHAPE_FONT_SIZES`), `textFont` (`SHAPE_FONT_FAMILIES` -
+  sans is `SHAPE_FONT`'s own Archivo stack, serif a system stack, mono
+  `LABEL_FONT`'s own IBM Plex Mono stack) and `textColor`
+  (`SHAPE_TEXT_COLORS` - white by default, black, or one of the six
+  diagram colours at the same `*-400` hex its own shape stroke already
+  uses, neutral text a literal grey rather than the shape's own
+  translucent white) all default to medium/sans/default - today's fixed
+  13 px white - when absent, so a diagram exported before this feature
+  renders identically. `measureText` receives the resolved size and family,
+  not always the 13 px default, so wrapping and the line-height-driven
+  vertical centring both honour the chosen size too.
 - `DIAGRAM_EXPORT_COLORS` maps each `DiagramColor` to the concrete fill and
   stroke the Tailwind classes resolve to on screen: white at 10% / 50% for
   neutral, and Tailwind 4's `*-500` at 25% alpha / `*-400` for the rest. The

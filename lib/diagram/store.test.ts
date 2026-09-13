@@ -203,6 +203,60 @@ describe('diagramReducer: setColor / setKind / setArrow', () => {
   });
 });
 
+describe('diagramReducer: setTextStyle', () => {
+  it('sets textSize on a single id', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['n1'], textSize: 'large' });
+    expect(next.nodes[0]).toMatchObject({ textSize: 'large' });
+  });
+
+  it('sets textFont and textColor together', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['n1'], textFont: 'mono', textColor: 'violet' });
+    expect(next.nodes[0]).toMatchObject({ textFont: 'mono', textColor: 'violet' });
+  });
+
+  it('applies to every id given, as one history step', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' }), node({ id: 'c' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['a', 'b'], textSize: 'small' });
+    expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ textSize: 'small' });
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ textSize: 'small' });
+    expect(next.nodes.find((n) => n.id === 'c')?.textSize).toBeUndefined();
+    expect(next.history.past).toHaveLength(state.history.past.length + 1);
+  });
+
+  it('only changes the keys actually given, leaving the others alone', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', textSize: 'large', textFont: 'serif', textColor: 'blue' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['n1'], textColor: 'red' });
+    expect(next.nodes[0]).toMatchObject({ textSize: 'large', textFont: 'serif', textColor: 'red' });
+  });
+
+  it('ignores an edge id - text styling has no meaning for a connector', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' }), node({ id: 'n2' })], edges: [edge({ id: 'e1' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['e1'], textSize: 'small' });
+    expect(next).toBe(state);
+  });
+
+  it('is a no-op, with no history entry, when every given value already matches', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', textSize: 'small' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['n1'], textSize: 'small' });
+    expect(next).toBe(state);
+  });
+
+  it('is a no-op for an unknown id', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['missing'], textSize: 'small' });
+    expect(next).toBe(state);
+  });
+
+  it('undoes as a single step back to no text style at all', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' })] });
+    const next = diagramReducer(state, { type: 'setTextStyle', ids: ['a', 'b'], textSize: 'large', textFont: 'mono' });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes).toEqual(state.nodes);
+  });
+});
+
 describe('diagramReducer: connect', () => {
   const base = stateWith({ nodes: [node({ id: 'n1' }), node({ id: 'n2' })] });
 
@@ -319,6 +373,16 @@ describe('diagramReducer: duplicate', () => {
     // all) rounds up to 104 - a purely horizontal drag moved the copy
     // vertically too.
     expect(next.nodes.find((n) => n.id === 'copy1')).toMatchObject({ x: 124, y: 100 });
+  });
+
+  // Spec section 9 (Build step 1: "duplicate/quickAdd/cloneDiagram carry
+  // the three fields") - already true today since this action copies the
+  // source node with a plain object spread, but pinned down with its own
+  // test so a future refactor of this action cannot silently drop it.
+  it('carries the source shape own text size, font and color to the copy', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', textSize: 'small', textFont: 'serif', textColor: 'black' })] });
+    const next = diagramReducer(state, { type: 'duplicate', pairs: [{ sourceId: 'n1', newId: 'copy1' }] });
+    expect(next.nodes.find((n) => n.id === 'copy1')).toMatchObject({ textSize: 'small', textFont: 'serif', textColor: 'black' });
   });
 
   it('keeps two duplicated shapes the same distance apart as their sources, even off the grid', () => {
@@ -524,6 +588,24 @@ describe('diagramReducer: quickAdd', () => {
     const undone = diagramReducer(next, { type: 'undo' });
     expect(undone.nodes).toEqual([source]);
     expect(undone.edges).toEqual([]);
+  });
+
+  // Spec section 9 (Build step 1: "duplicate/quickAdd/cloneDiagram carry
+  // the three fields").
+  it('carries the source shape own text size, font and color to the new shape', () => {
+    const styledSource = node({ id: 'src', x: 96, y: 96, width: 128, height: 64, textSize: 'large', textFont: 'mono', textColor: 'violet' });
+    const state = stateWith({ nodes: [styledSource] });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'src', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    expect(next.nodes.find((n) => n.id === 'new1')).toMatchObject({ textSize: 'large', textFont: 'mono', textColor: 'violet' });
+  });
+
+  it('leaves the new shape without text style when the source has none', () => {
+    const state = stateWith({ nodes: [source] });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'src', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    const created = next.nodes.find((n) => n.id === 'new1');
+    expect(created?.textSize).toBeUndefined();
+    expect(created?.textFont).toBeUndefined();
+    expect(created?.textColor).toBeUndefined();
   });
 });
 
@@ -1052,5 +1134,20 @@ describe('cloneDiagram', () => {
     // The original is untouched.
     expect(diagram.nodes[0].id).toBe('a');
     expect(diagram.edges).toHaveLength(3);
+  });
+
+  // Spec section 9 (Build step 1: "duplicate/quickAdd/cloneDiagram carry
+  // the three fields") - already true today since this function copies
+  // each node with a plain object spread, but pinned down with its own
+  // test so a future refactor cannot silently drop it.
+  it('carries a node own text size, font and color into the copy', () => {
+    const diagram = {
+      nodes: [
+        { id: 'a', kind: 'rect' as const, x: 0, y: 0, width: 160, height: 80, text: 'A', color: 'neutral' as const, textSize: 'large' as const, textFont: 'mono' as const, textColor: 'red' as const },
+      ],
+      edges: [],
+    };
+    const copy = cloneDiagram(diagram, {}, () => 'new1');
+    expect(copy.nodes[0]).toMatchObject({ textSize: 'large', textFont: 'mono', textColor: 'red' });
   });
 });

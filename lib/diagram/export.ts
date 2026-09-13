@@ -28,7 +28,7 @@ import {
   type Point,
   type Side,
 } from './geometry';
-import type { DiagramColor, DiagramEdge, DiagramNode, DiagramSelection, EdgeEndpoint } from './store';
+import type { DiagramColor, DiagramEdge, DiagramNode, DiagramSelection, EdgeEndpoint, TextColor, TextFont, TextSize } from './store';
 
 /** A frame (screen) on the page, in canvas coordinates, with the name the export writes inside its outline. */
 export interface ExportFrame extends Box {
@@ -140,6 +140,52 @@ export const DIAGRAM_EXPORT_COLORS: Record<DiagramColor, { fill: string; stroke:
   // --color-violet-500 oklch(60.6% 0.25 292.717) = #8e51ff; --color-violet-400 oklch(70.2% 0.183 293.541) = #a684ff
   violet: { fill: 'rgba(142,81,255,0.25)', stroke: '#a684ff' },
 };
+
+// Spec section 9 ("give the diagram shapes a font selection like small,
+// medium, large... a monospaced font, a serif font, and a sans serif
+// font... let me change the color of the fonts independently from the
+// shape's colors"): a shape's own optional textSize/textFont/textColor
+// (lib/diagram/store.ts), mirrored here the same way DIAGRAM_EXPORT_COLORS
+// above mirrors the shape's own fill/stroke - defaulted (medium/sans/
+// default) to exactly SHAPE_FONT/TEXT_FILL's own former fixed values, so a
+// node with none of the three set (every file exported before this
+// feature) renders identically to before.
+export const SHAPE_FONT_SIZES: Record<TextSize, number> = { small: 11, medium: 13, large: 16 };
+// The three family strings the Design panel's Font select offers: sans is
+// SHAPE_FONT's own stack (the app's default, app/layout.tsx's Archivo), a
+// system serif stack for serif, and LABEL_FONT's own IBM Plex Mono stack
+// for mono - one string, not a duplicated literal, for whichever of the
+// two already-existing fonts is reused.
+export const SHAPE_FONT_FAMILIES: Record<TextFont, string> = {
+  sans: SHAPE_FONT.family,
+  serif: "Georgia, 'Times New Roman', serif",
+  mono: LABEL_FONT.family,
+};
+// 'default' and 'black' bracket the six DIAGRAM_EXPORT_COLORS stroke tones
+// (the same *-400 hex already used for a shape's OWN stroke, reused rather
+// than duplicated) - 'neutral' is its own literal gray here rather than
+// DIAGRAM_EXPORT_COLORS.neutral.stroke's translucent white, since shape
+// text needs an actual visible tone regardless of the shape's own fill.
+export const SHAPE_TEXT_COLORS: Record<TextColor, string> = {
+  default: TEXT_FILL,
+  // --color-neutral-400 oklch(70.8% 0 none) = #a1a1a1
+  neutral: '#a1a1a1',
+  blue: DIAGRAM_EXPORT_COLORS.blue.stroke,
+  green: DIAGRAM_EXPORT_COLORS.green.stroke,
+  amber: DIAGRAM_EXPORT_COLORS.amber.stroke,
+  red: DIAGRAM_EXPORT_COLORS.red.stroke,
+  violet: DIAGRAM_EXPORT_COLORS.violet.stroke,
+  black: '#000000',
+};
+
+/** The concrete font a shape's own optional textSize/textFont resolve to, defaulting to medium/sans - today's only look - when absent. */
+function shapeFont(node: DiagramNode): ExportTextFont {
+  return {
+    size: SHAPE_FONT_SIZES[node.textSize ?? 'medium'],
+    family: SHAPE_FONT_FAMILIES[node.textFont ?? 'sans'],
+    weight: 400,
+  };
+}
 
 // --- XML assembly ---------------------------------------------------------
 
@@ -254,11 +300,13 @@ function pointBox(point: Point): Box {
   return { x: point.x, y: point.y, width: 0, height: 0 };
 }
 
-function shapeText(box: Box, text: string, measureText: MeasureText): string {
-  if (text === '') return '';
+function shapeText(box: Box, node: DiagramNode, measureText: MeasureText): string {
+  if (node.text === '') return '';
+  const font = shapeFont(node);
+  const fill = SHAPE_TEXT_COLORS[node.textColor ?? 'default'];
   const innerWidth = box.width - 2 * SHAPE_TEXT_INSET;
   const innerHeight = box.height - 2 * SHAPE_TEXT_INSET;
-  const lineHeight = SHAPE_FONT.size * SHAPE_LINE_HEIGHT;
+  const lineHeight = font.size * SHAPE_LINE_HEIGHT;
   // Lines past the inner height are dropped from the END - a deliberate
   // deviation from the screen, where the overflow-hidden flex block stays
   // centred and clips its first and last lines equally: an export that
@@ -266,7 +314,7 @@ function shapeText(box: Box, text: string, measureText: MeasureText): string {
   // a paragraph. The first line always survives so a tiny box is never
   // blank.
   const maxLines = Math.max(1, Math.floor(innerHeight / lineHeight));
-  const lines = wrapText(text, innerWidth, (line) => measureText(line, SHAPE_FONT)).slice(0, maxLines);
+  const lines = wrapText(node.text, innerWidth, (line) => measureText(line, font)).slice(0, maxLines);
   const { x: centerX, y: centerY } = center(box);
   const top = centerY - (lines.length * lineHeight) / 2;
   const spans = lines
@@ -276,9 +324,9 @@ function shapeText(box: Box, text: string, measureText: MeasureText): string {
     'text',
     {
       x: centerX,
-      fill: TEXT_FILL,
-      'font-family': SHAPE_FONT.family,
-      'font-size': SHAPE_FONT.size,
+      fill,
+      'font-family': font.family,
+      'font-size': font.size,
       'text-anchor': 'middle',
       'dominant-baseline': 'central',
       'xml:space': 'preserve',
@@ -303,7 +351,7 @@ function renderNode(node: DiagramNode, box: Box, measureText: MeasureText): stri
     const rx = node.kind === 'terminal' ? box.height / 2 : node.kind === 'rounded' ? 12 : node.kind === 'note' ? 2 : 0;
     shape = element('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx, ...paint });
   }
-  return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + shapeText(box, node.text, measureText));
+  return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + shapeText(box, node, measureText));
 }
 
 function renderFrame(frame: ExportFrame, box: Box): string {

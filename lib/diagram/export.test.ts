@@ -404,6 +404,71 @@ describe('renderDiagramSvg', () => {
     });
   });
 
+  // Spec section 9: "give the diagram shapes a font selection like small,
+  // medium, large... a monospaced font, a serif font, and a sans serif
+  // font... let me change the color of the fonts independently from the
+  // shape's colors" - all three optional on the node, defaulting to
+  // medium/sans/default (the fixed values every test above already covers).
+  describe('shape text styling', () => {
+    // Same 160 x 80 box at the origin as the 'shape text' describe above.
+    const box = { x: 0, y: 0, width: 160, height: 80 };
+    const SERIF_FAMILY = "Georgia, 'Times New Roman', serif";
+
+    it('uses 11px for small and 16px for large, in place of the 13px default', () => {
+      const small = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'small' })] }), 'data-node', 'n1'), 'text');
+      expect(small.getAttribute('font-size')).toBe('11');
+      const large = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'large' })] }), 'data-node', 'n1'), 'text');
+      expect(large.getAttribute('font-size')).toBe('16');
+    });
+
+    it('uses the serif and mono font families, in place of the sans default', () => {
+      const serif = only(group(renderDoc({ nodes: [node({ ...box, textFont: 'serif' })] }), 'data-node', 'n1'), 'text');
+      expect(serif.getAttribute('font-family')).toBe(SERIF_FAMILY);
+      const mono = only(group(renderDoc({ nodes: [node({ ...box, textFont: 'mono' })] }), 'data-node', 'n1'), 'text');
+      expect(mono.getAttribute('font-family')).toBe(LABEL_FONT_FAMILY);
+    });
+
+    it('fills with white by default and black for the black text color', () => {
+      const white = only(group(renderDoc({ nodes: [node({ ...box })] }), 'data-node', 'n1'), 'text');
+      expect(white.getAttribute('fill')).toBe('#ffffff');
+      const black = only(group(renderDoc({ nodes: [node({ ...box, textColor: 'black' })] }), 'data-node', 'n1'), 'text');
+      expect(black.getAttribute('fill')).toBe('#000000');
+    });
+
+    it('fills with the same *-400 tone each hued diagram color stroke already uses on the shape body', () => {
+      // Every diagram colour except neutral: neutral's own shape stroke is
+      // a translucent white (DIAGRAM_EXPORT_COLORS.neutral above), not a
+      // hex tone - text needs an actual visible grey regardless, tested on
+      // its own right below.
+      for (const color of DIAGRAM_COLORS.filter((c) => c !== 'neutral')) {
+        const text = only(group(renderDoc({ nodes: [node({ ...box, textColor: color })] }), 'data-node', 'n1'), 'text');
+        expect(text.getAttribute('fill'), color).toBe(DIAGRAM_EXPORT_COLORS[color].stroke);
+      }
+    });
+
+    it("fills neutral text with Tailwind's neutral-400 grey, not the shape's own translucent white", () => {
+      const text = only(group(renderDoc({ nodes: [node({ ...box, textColor: 'neutral' })] }), 'data-node', 'n1'), 'text');
+      expect(text.getAttribute('fill')).toBe('#a1a1a1');
+    });
+
+    it("passes the node's own size and family to measureText, not the 13px sans default", () => {
+      const measureText = vi.fn(measure);
+      render({ nodes: [node({ text: 'Hello', textSize: 'large', textFont: 'mono' })], measureText });
+      expect(measureText).toHaveBeenCalledWith('Hello', { size: 16, family: LABEL_FONT_FAMILY, weight: 400 });
+    });
+
+    it('wraps and centres using the chosen size, not the 13px default line height', () => {
+      // 16px lines at 1.45 line height = 23.2px; inner height 68 fits two
+      // full lines (46.4), so drops the third the same way the default
+      // 13px font's own overflow test drops a fourth.
+      const text = only(
+        group(renderDoc({ nodes: [node({ ...box, textSize: 'large', text: 'one\ntwo\nthree' })] }), 'data-node', 'n1'),
+        'text',
+      );
+      expect(Array.from(text.querySelectorAll('tspan')).map((span) => span.textContent)).toEqual(['one', 'two']);
+    });
+  });
+
   describe('XML escaping', () => {
     const unsafe = `Fish & <chips> "salt" 'vinegar'`;
 
