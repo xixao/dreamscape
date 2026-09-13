@@ -1716,7 +1716,66 @@ describe('Workbench', () => {
       expect(diagramNodes()).toHaveLength(2);
     });
 
-    it('arrow keys nudge the selected shape by 8px, 64px with Shift', async () => {
+    it('Cmd+D also duplicates a connector whose both endpoints are in the selection', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 300, y: 300 });
+      // The palette itself stays open after a placement (only the armed
+      // shape resets to the pointer) - re-arm Rectangle for a second shape
+      // without re-clicking "Diagram tool" itself, which would toggle the
+      // still-open palette closed instead.
+      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+      const surface = screen.getByTestId('diagram-placement-surface');
+      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 700, clientY: 300 });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 700, clientY: 300 });
+      expect(diagramNodes()).toHaveLength(2);
+
+      const [aId, bId] = diagramNodes().map((el) => el.getAttribute('data-testid')!.replace('diagram-node-', ''));
+      const handle = screen.getByTestId(`diagram-handle-node-${aId}-right`);
+      fireEvent.pointerDown(handle, { pointerId: 2, clientX: 380, clientY: 300 });
+      fireEvent.pointerMove(handle, { pointerId: 2, clientX: 700, clientY: 300 });
+      fireEvent.pointerUp(handle, { pointerId: 2, clientX: 700, clientY: 300 });
+      expect(screen.getByTestId(/^diagram-edge-hit-/)).toBeInTheDocument();
+
+      // Select both shapes (the connect gesture above did not change the
+      // selection left over from placing b).
+      fireEvent.pointerDown(screen.getByTestId(`diagram-node-${aId}`), { pointerId: 3, clientX: 340, clientY: 300 });
+      fireEvent.pointerUp(screen.getByTestId(`diagram-node-${aId}`), { pointerId: 3, clientX: 340, clientY: 300 });
+      fireEvent.pointerDown(screen.getByTestId(`diagram-node-${bId}`), {
+        pointerId: 3,
+        clientX: 740,
+        clientY: 300,
+        shiftKey: true,
+      });
+      fireEvent.pointerUp(screen.getByTestId(`diagram-node-${bId}`), {
+        pointerId: 3,
+        clientX: 740,
+        clientY: 300,
+        shiftKey: true,
+      });
+
+      fireEvent.keyDown(window, { key: 'd', metaKey: true });
+
+      expect(diagramNodes()).toHaveLength(4);
+      expect(screen.queryAllByTestId(/^diagram-edge-hit-/)).toHaveLength(2);
+    });
+
+    it('the Design panel\'s Shape field updates after "Change shape" in the right-click menu (Build step 5)', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(screen.getByRole('combobox', { name: 'Shape' })).toHaveTextContent('Rectangle');
+
+      fireEvent.contextMenu(diagramNodes()[0]);
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change shape' }));
+      await userEvent.click(screen.getByRole('menuitemradio', { name: 'Decision' }));
+
+      expect(screen.getByRole('combobox', { name: 'Shape' })).toHaveTextContent('Decision');
+    });
+
+    // Review finding 10 / Matt's nudge rule: a plain arrow key moves a
+    // diagram selection by exactly 1px (off the 8px grid, on purpose) and
+    // Shift+arrow by 8px - not the old 8px/64px, which came from move()
+    // snapping every nudge to the grid regardless of the amount asked for.
+    it('arrow keys nudge the selected shape by 1px, 8px with Shift', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
       // Read as a plain number now, before anything moves - the element
@@ -1727,11 +1786,34 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       const afterOneNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterOneNudge - xBefore).toBe(8);
+      expect(afterOneNudge - xBefore).toBe(1);
 
       fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
       const afterBigNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterBigNudge - afterOneNudge).toBe(64);
+      expect(afterBigNudge - afterOneNudge).toBe(8);
+    });
+
+    // Re-review finding 21: renamed from "...still snaps to the 8px grid"
+    // - that overclaimed it. The DRAG'S OWN DELTA snaps to a multiple of
+    // 8px; the shape's landing position does not snap back to an absolute
+    // grid line, so a shape already 1px off-grid (from the nudge above)
+    // stays exactly 1px off-grid after the drag too, not un-nudged onto
+    // the grid.
+    it('a mouse drag adds its own 8px-quantized delta, even to a shape a 1px nudge left off the grid', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      fireEvent.keyDown(window, { key: 'ArrowRight' }); // off-grid by 1px now
+      const xAfterNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+
+      const el = diagramNodes()[0];
+      fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(el, { pointerId: 1, clientX: 20, clientY: 0 });
+      fireEvent.pointerUp(el, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      const xAfterDrag = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+      // The raw 20px delta itself snaps to 24 (lib/diagram/geometry.ts's
+      // snapToGrid) regardless of the shape's own (now off-grid) start.
+      expect(xAfterDrag - xAfterNudge).toBe(24);
     });
 
     it('Cmd+Z undoes a diagram edit without touching Craft history, while a diagram element is selected', async () => {

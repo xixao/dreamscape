@@ -78,6 +78,15 @@ describe('DiagramFields for a shape', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 200, height: 80 });
   });
 
+  it('rounds a fractional width to the nearest integer (re-review 2 finding 27)', () => {
+    const onAction = vi.fn();
+    render(<DiagramFields selected={{ type: 'node', node: node({ width: 160, height: 80 }) }} onAction={onAction} />);
+
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '12.5' } });
+
+    expect(onAction).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 13, height: 80 });
+  });
+
   it('ignores a non-numeric or blank width instead of dispatching NaN or zero', () => {
     const onAction = vi.fn();
     render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={onAction} />);

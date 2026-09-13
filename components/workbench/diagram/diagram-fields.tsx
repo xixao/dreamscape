@@ -19,7 +19,11 @@ import { Field } from '../inspector/field';
 
 export type DiagramFieldsSelection = { type: 'node'; node: DiagramNode } | { type: 'edge'; edge: DiagramEdge };
 
-const KIND_LABELS: Record<DiagramNodeKind, string> = {
+// Exported so the right-click context menu (diagram-layer.tsx's "Change
+// shape"/"Color"/"Connector"/"Arrowheads" submenus) shows the exact same
+// wording as this panel, instead of a second, driftable copy of the same
+// six/six/three/three labels.
+export const KIND_LABELS: Record<DiagramNodeKind, string> = {
   rect: 'Rectangle',
   rounded: 'Rounded',
   decision: 'Decision',
@@ -27,7 +31,7 @@ const KIND_LABELS: Record<DiagramNodeKind, string> = {
   text: 'Text',
   note: 'Note',
 };
-const COLOR_LABELS: Record<DiagramColor, string> = {
+export const COLOR_LABELS: Record<DiagramColor, string> = {
   neutral: 'Neutral',
   blue: 'Blue',
   green: 'Green',
@@ -35,8 +39,8 @@ const COLOR_LABELS: Record<DiagramColor, string> = {
   red: 'Red',
   violet: 'Violet',
 };
-const CONNECTOR_LABELS: Record<ConnectorKind, string> = { straight: 'Straight', step: 'Step', curve: 'Curve' };
-const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both', none: 'None' };
+export const CONNECTOR_LABELS: Record<ConnectorKind, string> = { straight: 'Straight', step: 'Step', curve: 'Curve' };
+export const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both', none: 'None' };
 
 // Plain (non-responsive) FieldSchema objects, reusing components/workbench/
 // inspector/field.tsx exactly as a block's own schema does (spec section 3:
@@ -81,10 +85,13 @@ const EDGE_LABEL_FIELD: FieldSchema = { prop: 'label', label: 'Label', kind: 'te
 // Number('') is 0, not NaN - without the explicit blank check below,
 // clearing the width/height field (a real, common step on the way to
 // typing a new value) would briefly dispatch a bogus zero-size resize.
+// Rounded to the nearest integer (re-review 2 finding 27): canvas
+// coordinates and sizes are integers, and the reducer applies a resize
+// exactly now, so a typed "12.5" would otherwise be stored as typed.
 function parsedNumber(raw: unknown): number | null {
   if (typeof raw === 'string' && raw.trim() === '') return null;
   const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
+  return Number.isFinite(value) ? Math.round(value) : null;
 }
 
 /**

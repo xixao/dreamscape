@@ -1,8 +1,16 @@
-import type { ComponentProps } from 'react';
+import { useEffect, useReducer, type ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { createInitialDiagramState, type DiagramEdge, type DiagramNode, type DiagramState } from '@/lib/diagram/store';
-import { DiagramLayer, type DiagramFrameBox, type DiagramTool } from './diagram-layer';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {
+  createInitialDiagramState,
+  diagramReducer,
+  type DiagramAction,
+  type DiagramEdge,
+  type DiagramNode,
+  type DiagramState,
+} from '@/lib/diagram/store';
+import { DiagramLayer, POINTER_TOOL, type DiagramFrameBox, type DiagramTool } from './diagram-layer';
 
 function node(overrides: Partial<DiagramNode> = {}): DiagramNode {
   return {
@@ -49,12 +57,62 @@ function renderLayer(overrides: Partial<ComponentProps<typeof DiagramLayer>> = {
   return { ...result, dispatch, onToolConsumed };
 }
 
+// Wires DiagramLayer to the REAL reducer (review finding 1/10/12: several
+// findings call out that every existing test mocks `dispatch`, so "the
+// original is untouched" or "one undo removes the copies" was only ever
+// inferred from what got dispatched, never actually verified against the
+// store). `dispatchRef`, when given, exposes the reducer's own dispatch so
+// a test can also fire an out-of-gesture action (e.g. `undo`) directly.
+function RealReducerHarness({
+  initial,
+  dispatchRef,
+  tool = POINTER_TOOL,
+  frames = [],
+}: {
+  initial: DiagramState;
+  dispatchRef?: { current: (action: DiagramAction) => void };
+  tool?: DiagramTool;
+  frames?: DiagramFrameBox[];
+}) {
+  const [diagram, dispatch] = useReducer(diagramReducer, initial);
+  // Not a real React ref (just a plain mutable object the test reads from
+  // outside render) - assigned in an effect regardless, same discipline a
+  // real one would need, and it keeps the react-hooks/refs rule happy.
+  useEffect(() => {
+    if (dispatchRef) dispatchRef.current = dispatch;
+  }, [dispatchRef, dispatch]);
+  return (
+    <DiagramLayer
+      diagram={diagram}
+      dispatch={dispatch}
+      frames={frames}
+      viewport={{ x: 0, y: 0, zoom: 1 }}
+      tool={tool}
+      onToolConsumed={() => {}}
+    />
+  );
+}
+
 // Fires a window-level pointermove at (x, y) to establish hover state the
 // same way a real cursor motion would - the layer tracks hover globally
 // (see diagram-layer.tsx's own doc comment on why), not through per-shape
 // listeners.
 function hoverAt(x: number, y: number): void {
   fireEvent(window, new PointerEvent('pointermove', { clientX: x, clientY: y }));
+}
+
+// Tallies a vi.spyOn(window, 'addEventListener' | 'removeEventListener')
+// spy's calls by event name, so a test can assert add/remove counts match
+// per event rather than just "was called at all" (review finding 10's own
+// test-gap list: the latter passes even when one of several same-named
+// listeners leaks).
+function countByEventName(spy: { mock: { calls: unknown[][] } }): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const call of spy.mock.calls) {
+    const name = call[0] as string;
+    counts[name] = (counts[name] ?? 0) + 1;
+  }
+  return counts;
 }
 
 describe('DiagramLayer rendering', () => {
@@ -234,18 +292,25 @@ describe('DiagramLayer selection', () => {
 });
 
 describe('DiagramLayer drag', () => {
-  it('moves the selected node by the pointer delta, dispatched once on release', () => {
+  // Review finding 10 (Matt's nudge rule): move no longer snaps on its own
+  // (lib/diagram/store.ts), so a drag now snaps its own pointer delta
+  // BEFORE dispatching, to land on the grid the same way it always
+  // visually has. Every delta below is chosen as an exact multiple of 8 so
+  // snapping is a deliberate no-op and the dispatched value is unambiguous
+  // (an arbitrary delta like 20 would itself round up to 24 - see
+  // lib/diagram/geometry.ts's snapToGrid, plain JS round-half-up).
+  it('moves the selected node by the snapped pointer delta, dispatched once on release', () => {
     const { dispatch } = renderLayer({
       diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
     });
     const el = screen.getByTestId('diagram-node-node000001');
 
     fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
-    fireEvent.pointerMove(el, { pointerId: 1, clientX: 170, clientY: 135 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 166, clientY: 138 });
     dispatch.mockClear();
-    fireEvent.pointerUp(el, { pointerId: 1, clientX: 170, clientY: 135 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 166, clientY: 138 });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['node000001'], dx: 20, dy: 5 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['node000001'], dx: 16, dy: 8 });
   });
 
   it('does not dispatch a move when the pointer never actually moved', () => {
@@ -257,6 +322,21 @@ describe('DiagramLayer drag', () => {
     fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
     dispatch.mockClear();
     fireEvent.pointerUp(el, { pointerId: 1, clientX: 150, clientY: 130 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('does not dispatch a move when the raw delta snaps down to zero', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
+    // A 2px jiggle snaps to 0 on both axes - not a real drag.
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 152, clientY: 131 });
+    dispatch.mockClear();
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 152, clientY: 131 });
 
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
   });
@@ -275,13 +355,13 @@ describe('DiagramLayer drag', () => {
     const el = screen.getByTestId('diagram-node-a');
 
     fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
-    fireEvent.pointerMove(el, { pointerId: 1, clientX: 160, clientY: 130 });
-    fireEvent.pointerUp(el, { pointerId: 1, clientX: 160, clientY: 130 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 158, clientY: 130 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 158, clientY: 130 });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['a', 'b'], dx: 10, dy: 0 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['a', 'b'], dx: 8, dy: 0 });
   });
 
-  it('divides the screen-pixel delta by the current zoom', () => {
+  it('divides the screen-pixel delta by the current zoom before snapping', () => {
     const { dispatch } = renderLayer({
       diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
       viewport: { x: 0, y: 0, zoom: 2 },
@@ -289,10 +369,10 @@ describe('DiagramLayer drag', () => {
     const el = screen.getByTestId('diagram-node-node000001');
 
     fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0 });
-    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0 });
-    fireEvent.pointerUp(el, { pointerId: 1, clientX: 40, clientY: 0 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 48, clientY: 0 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 48, clientY: 0 });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['node000001'], dx: 20, dy: 0 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['node000001'], dx: 24, dy: 0 });
   });
 });
 
@@ -327,8 +407,17 @@ describe('DiagramLayer resize', () => {
     dispatch.mockClear();
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 80, clientY: 90 });
 
+    // Re-review finding 21: the layer now snaps the raw pointer delta
+    // (-20, -10) to the grid BEFORE computing the box, same as a drag
+    // snaps its own delta - dx -20 -> -16, dy -10 -> -8, giving
+    // width 100-(-16)=116, height 50-(-8)=58, x/y shifted by the same
+    // snapped amount (100-16=84, 100-8... - x=box.x+box.width-width=
+    // 100+100-116=84, y=box.y+box.height-height=100+50-58=92). Before this
+    // fix the RAW delta was dispatched unsnapped (120, 60, 80, 90) and the
+    // reducer silently re-snapped y alone to 88, which is exactly the
+    // preview/landing mismatch finding 21 is about.
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 120, height: 60, x: 80, y: 90 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 116, height: 58, x: 84, y: 92 });
   });
 
   it('does not report x/y at all when a corner resize does not move the box (bottom-right)', () => {
@@ -347,6 +436,904 @@ describe('DiagramLayer resize', () => {
 
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 140, height: 90 });
+  });
+
+  // Re-review finding 21 (also pins 26's "unpinned" off-grid resize case):
+  // "what the preview shows is what lands" - proved here against the REAL
+  // reducer, not the mocked dispatch every other test in this block uses,
+  // so a re-snap anywhere between the live preview and the committed node
+  // would actually be caught.
+  it('lands the real reducer state exactly where its own live preview showed it, from an off-grid box', () => {
+    const initial = stateWith({
+      nodes: [node({ x: 101, y: 53, width: 100, height: 50 })],
+      selection: [{ type: 'node', id: 'node000001' }],
+    });
+    render(<RealReducerHarness initial={initial} />);
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 0 });
+    // Raw delta (13, 7) - neither component a multiple of 8.
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 13, clientY: 7 });
+
+    const previewRect = screen.getByTestId('diagram-node-node000001').querySelector('rect')!;
+    const previewed = {
+      x: previewRect.getAttribute('x'),
+      y: previewRect.getAttribute('y'),
+      width: previewRect.getAttribute('width'),
+      height: previewRect.getAttribute('height'),
+    };
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 13, clientY: 7 });
+
+    const landedRect = screen.getByTestId('diagram-node-node000001').querySelector('rect')!;
+    expect({
+      x: landedRect.getAttribute('x'),
+      y: landedRect.getAttribute('y'),
+      width: landedRect.getAttribute('width'),
+      height: landedRect.getAttribute('height'),
+    }).toEqual(previewed);
+  });
+});
+
+describe('DiagramLayer Escape cancels an in-flight gesture, writing nothing (review finding 5)', () => {
+  it('Escape mid-drag writes no move and releases the pointer; the following pointerup is a no-op', () => {
+    const releaseSpy = vi.spyOn(Element.prototype, 'releasePointerCapture');
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 170, clientY: 135 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 170, clientY: 135 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+    expect(releaseSpy).toHaveBeenCalledWith(1);
+    releaseSpy.mockRestore();
+  });
+
+  it('Escape mid-resize writes no resize; the following pointerup is a no-op', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140, clientY: 90 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 140, clientY: 90 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+
+  it('pointercancel resets a drag without dispatching (a partial move is not committed)', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 170, clientY: 135 });
+
+    fireEvent.pointerCancel(el, { pointerId: 1 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('pointercancel resets a resize without dispatching', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140, clientY: 90 });
+
+    fireEvent.pointerCancel(handle, { pointerId: 1 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+
+  // Re-review finding 26: drag and resize were pinned already; connect and
+  // place were only probe-verified in the re-review, never given their own
+  // test, despite going through the exact same cancelConnect/cancelPlace
+  // path as the two above.
+  it('Escape mid-connect writes no connector; the following pointerup is a no-op', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+
+    hoverAt(50, 25); // over node a, to reveal its handles
+    const handle = screen.getByTestId('diagram-handle-node-a-right');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+
+  it('Escape mid-place writes no shape; the following pointerup is a no-op', () => {
+    const { dispatch } = renderLayer({ tool: { kind: 'shape', shape: 'rect' } });
+    const surface = screen.getByTestId('diagram-placement-surface');
+
+    fireEvent.pointerDown(surface, { pointerId: 1, clientX: 200, clientY: 100 });
+    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 260, clientY: 140 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(surface, { pointerId: 1, clientX: 260, clientY: 140 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'add' }));
+  });
+});
+
+describe('DiagramLayer live connector redraw during drag/resize', () => {
+  it('redraws a connected edge on every pointer move while dragging, before the store is written', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('redraws a connected edge on every pointer move while resizing from a corner, before the store is written', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const handle = screen.getByTestId('diagram-resize-a-se');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 160, clientY: 90 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 160, clientY: 90 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+
+  it('redraws a no-side edge live too, using the far endpoint to pick a side each move (review item 12)', () => {
+    // Same drag as above, but this edge stores no side on either endpoint,
+    // exercising resolveEndpoint's no-side fallback (anchorForOther) instead
+    // of the direct side lookup - endpointBox feeds that fallback the live
+    // box for BOTH ends, so it needs its own coverage rather than assuming
+    // the with-side test above already proves it.
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ source: { nodeId: 'a' }, target: { nodeId: 'b' } })],
+        selection: [{ type: 'node', id: 'a' }],
+      }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it("moves the label chip live too, not just the connector's own path (review item 12)", () => {
+    // pathFor returns labelX/labelY from the exact same resolved endpoints
+    // as the path itself, but nothing previously pinned that the chip
+    // actually re-renders at the new position mid-drag rather than only
+    // once the gesture ends.
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ label: 'flows to' })], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const edgeGroup = screen.getByTestId('diagram-edge-edge0000001');
+    const chip = edgeGroup.querySelector('foreignObject')!;
+    const beforeX = chip.getAttribute('x');
+    const beforeY = chip.getAttribute('y');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(edgeGroup.querySelector('foreignObject')!.getAttribute('x')).not.toBe(beforeX);
+    expect(chip.getAttribute('y')).not.toBe(beforeY);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+  });
+});
+
+describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until pointer up, one history step)', () => {
+  it('dispatches no duplicate (or move) at pointer down - only sets up the drag', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-node000001'), {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 130,
+      altKey: true,
+    });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('dispatches no duplicate (or move) at pointer up when the pointer never actually moved (a plain Option-click)', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it('dispatches nothing on Option-right-click (pointerdown button 2, then contextmenu)', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true, button: 2 });
+    fireEvent.contextMenu(el);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+  });
+
+  it('dispatches exactly one duplicate, with the snapped drag offset, at pointer up - on an already-selected shape, the ONLY dispatch of the whole gesture', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    // Already the sole selection, so pointerdown's own re-select of it is a
+    // harmless no-op dispatch (unchanged, pre-existing behaviour for a
+    // plain click too) - clear it so what follows is unambiguous.
+    dispatch.mockClear();
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 270, clientY: 130, altKey: true });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 270, clientY: 130, altKey: true });
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [{ sourceId: 'node000001', newId: expect.any(String) }],
+        offset: { x: 120, y: 0 },
+      }),
+    );
+  });
+
+  it('duplicates the whole multi-selection, offset included, in the one pointer-up dispatch', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [
+          { sourceId: 'a', newId: expect.any(String) },
+          { sourceId: 'b', newId: expect.any(String) },
+        ],
+        offset: { x: 40, y: 0 },
+      }),
+    );
+  });
+
+  it('duplicates a connector whose both endpoints are in the dragged selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'duplicate')![0] as {
+      edgePairs: { sourceId: string; newId: string }[];
+    };
+    expect(call.edgePairs).toEqual([{ sourceId: 'e1', newId: expect.any(String) }]);
+  });
+
+  it('does not duplicate a connector whose other endpoint is not in the dragged selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [{ type: 'node', id: 'a' }],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'duplicate')![0] as {
+      edgePairs: { sourceId: string; newId: string }[];
+    };
+    expect(call.edgePairs).toEqual([]);
+  });
+
+  // Review nits 11/12: Figma option-drags any shape under the pointer,
+  // selected or not - it selects first, same as a plain click would.
+  it('on an unselected shape, selects it first, then drags a ghost of just it', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'node000001' }] });
+    dispatch.mockClear();
+
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, altKey: true });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'duplicate', pairs: [{ sourceId: 'node000001', newId: expect.any(String) }] }),
+    );
+  });
+
+  it('renders a ghost of the dragged shape, and leaves the real one in the document, while dragging', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    expect(screen.getByTestId('diagram-node-node000001')).toBeInTheDocument();
+    expect(screen.getByTestId('diagram-node-node000001').querySelector('rect')).toHaveAttribute('x', '0');
+    expect(screen.getByTestId('diagram-option-drag-ghosts')).toBeInTheDocument();
+  });
+
+  // Re-review finding 23: the ghost previously drew only the shape body -
+  // no text, no edge label - so the preview did not actually match what
+  // the eventual copy would look like.
+  it("draws the dragged shape's own text in the ghost too, matching the eventual copy", () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50, text: 'Login' })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    // Scoped to the ghost group specifically - the real shape being
+    // dragged still shows its own "Login" text too, so a bare
+    // screen.getByText('Login') would be ambiguous.
+    expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('Login');
+  });
+
+  it("draws the ghost edge's label chip too, matching the eventual copy", () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ label: 'yes' })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('yes');
+  });
+});
+
+describe('DiagramLayer option-drag with the real reducer (review finding 1)', () => {
+  it('creates the copies once, at pointer up, leaving the original in place; one undo removes them', () => {
+    const dispatchRef: { current: (action: DiagramAction) => void } = { current: () => {} };
+    render(
+      <RealReducerHarness
+        initial={stateWith({
+          nodes: [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 })],
+          selection: [{ type: 'node', id: 'a' }],
+        })}
+        dispatchRef={dispatchRef}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(1);
+
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 120, clientY: 0, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 120, clientY: 0, altKey: true });
+
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(2);
+    expect(screen.getByTestId('diagram-node-a').querySelector('rect')).toHaveAttribute('x', '0');
+
+    act(() => dispatchRef.current({ type: 'undo' }));
+
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(1);
+    expect(screen.getByTestId('diagram-node-a').querySelector('rect')).toHaveAttribute('x', '0');
+  });
+
+  it('Option-click with no movement creates nothing', () => {
+    render(
+      <RealReducerHarness
+        initial={stateWith({ nodes: [node({ id: 'a' })], selection: [{ type: 'node', id: 'a' }] })}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true });
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(1);
+  });
+
+  it('Option-right-click creates nothing', () => {
+    render(
+      <RealReducerHarness
+        initial={stateWith({ nodes: [node({ id: 'a' })], selection: [{ type: 'node', id: 'a' }] })}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, altKey: true, button: 2 });
+    fireEvent.contextMenu(el);
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(1);
+  });
+
+  it('a connector to a frame is carried when both the shape and the frame side survive the duplicate (only the node duplicates, the frame connection is not carried)', () => {
+    // A frame is never duplicated (it is not a diagram node), so a
+    // connector from a duplicated shape to a frame is correctly left
+    // behind on the original - only node-to-node connectors are ever
+    // copied. This pins that a screenId endpoint never confuses the
+    // ghost/ real-reducer path into throwing or miscounting edges.
+    const frames: DiagramFrameBox[] = [{ id: 'screen1', x: 300, y: 0, width: 400, height: 800 }];
+    render(
+      <RealReducerHarness
+        initial={stateWith({
+          nodes: [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 })],
+          edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { screenId: 'screen1', side: 'left' } })],
+          selection: [{ type: 'node', id: 'a' }],
+        })}
+        frames={frames}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 120, clientY: 0, altKey: true });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 120, clientY: 0, altKey: true });
+
+    expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(2);
+    expect(screen.queryAllByTestId(/^diagram-edge-hit-/)).toHaveLength(1);
+  });
+
+  // Re-review finding 26: the ghost edge's path was pinned to EXIST
+  // (review finding 23's tests) but never to equal what actually lands -
+  // the real point of a preview, and the same "what you see is what you
+  // get" rule findings 20/21 pin for shapes.
+  it("the ghost edge's path equals the committed copy's edge path after pointer up", () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    render(
+      <RealReducerHarness
+        initial={stateWith({
+          nodes,
+          edges: [edge()], // source a/right, target b/left
+          selection: [
+            { type: 'node', id: 'a' },
+            { type: 'node', id: 'b' },
+          ],
+        })}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 24, altKey: true });
+
+    const ghostPath = screen.getByTestId('diagram-option-drag-ghosts').querySelector('path')!.getAttribute('d');
+    expect(ghostPath).toBeTruthy();
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 40, clientY: 24, altKey: true });
+
+    const hitPaths = screen.getAllByTestId(/^diagram-edge-hit-/);
+    expect(hitPaths).toHaveLength(2); // the original, untouched, plus the copy
+    const copyPath = hitPaths.find((hit) => hit.getAttribute('data-testid') !== 'diagram-edge-hit-edge0000001')!;
+
+    expect(copyPath.getAttribute('d')).toBe(ghostPath);
+  });
+});
+
+describe('DiagramLayer option-drag cursor affordance', () => {
+  it('adds a cursor-copy class to a hovered, selected shape while Alt is held, removed on keyup', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    hoverAt(50, 25);
+
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).toHaveClass('cursor-copy');
+
+    fireEvent.keyUp(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  // Review nits 11/12: Figma shows the copy cursor (and lets Option-drag
+  // act) on ANY hovered shape, not only an already-selected one.
+  it('adds cursor-copy to a hovered shape that is NOT selected too', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).toHaveClass('cursor-copy');
+  });
+
+  it('does not add cursor-copy to a shape that is selected but not hovered', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    fireEvent.keyDown(window, { key: 'Alt' });
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  it('clears the held state on window blur, so it never gets stuck on', () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    hoverAt(50, 25);
+    fireEvent.keyDown(window, { key: 'Alt' });
+    fireEvent(window, new Event('blur'));
+    expect(screen.getByTestId('diagram-node-node000001')).not.toHaveClass('cursor-copy');
+  });
+
+  // Review finding 10's test-gap list: this test used to only check
+  // removeEventListener('keydown', anyFunction) was called AT ALL - which
+  // passes even if one of the layer's several keydown listeners (Alt
+  // tracking, Shift+F10, Escape) leaked, as long as at least one of the
+  // others was cleaned up. Counting add/remove calls per event name catches
+  // that a real leak would not.
+  it('removes exactly as many window listeners on unmount as it added, per event name', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const { unmount } = renderLayer();
+    const added = countByEventName(addSpy);
+    expect(Object.keys(added).length).toBeGreaterThan(0);
+
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    unmount();
+    const removed = countByEventName(removeSpy);
+
+    expect(removed).toEqual(added);
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+});
+
+describe('DiagramLayer quick-add circles', () => {
+  it('are hidden until the shape is hovered', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('show all four sides, positioned just outside the box, once hovered', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      const circle = screen.getByTestId(`diagram-quick-add-node000001-${side}`);
+      expect(circle).toHaveAttribute('aria-label', `Add a shape to the ${side}`);
+    }
+  });
+
+  // Review nit 16: role="button" with no tabIndex/keyboard path is an
+  // unfocusable button - dropped rather than adding a full keyboard path.
+  it('is not falsely marked as a focusable button', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).not.toHaveAttribute('role', 'button');
+  });
+
+  // Review nit 15: a double-click bubbling to the shape's own onDoubleClick
+  // moved the editor onto the SOURCE shape instead of the new one.
+  it('a double-click does not open the inline editor on the source shape', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    fireEvent.doubleClick(screen.getByTestId('diagram-quick-add-node000001-right'));
+    expect(screen.queryByTestId('diagram-text-input-node000001')).not.toBeInTheDocument();
+  });
+
+  // Review nit 15: hides the circles once one has fired, so the second
+  // click of an accidental double-click cannot land on a circle that is
+  // still there and create a second, stacked shape.
+  it('hides the circles once one has fired', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    fireEvent.click(screen.getByTestId('diagram-quick-add-node000001-right'));
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('clicking a side dispatches quickAdd for that side and opens the new shape\'s text editor', () => {
+    const source = node({ x: 0, y: 0, width: 100, height: 50 });
+    const { dispatch, rerender } = renderLayer({ diagram: stateWith({ nodes: [source] }) });
+    hoverAt(50, 25);
+
+    fireEvent.click(screen.getByTestId('diagram-quick-add-node000001-right'));
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }),
+    );
+    const call = dispatch.mock.calls[0][0] as { newNodeId: string };
+
+    // The mocked dispatch does not actually create the new node - reflect
+    // what the real reducer would have done (lib/diagram/store.test.ts
+    // covers that reducer behaviour directly) so the editor, real LOCAL
+    // component state unaffected by the mock, can be observed opening for
+    // it once the new node is actually present in `diagram`.
+    const newNode: DiagramNode = { ...source, id: call.newNodeId, x: 220, text: '' };
+    rerender(
+      <DiagramLayer
+        diagram={stateWith({ nodes: [source, newNode] })}
+        dispatch={dispatch}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 1 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId(`diagram-text-input-${call.newNodeId}`)).toBeInTheDocument();
+  });
+
+  it('every side dispatches its own side', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      hoverAt(50, 25);
+      fireEvent.click(screen.getByTestId(`diagram-quick-add-node000001-${side}`));
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'quickAdd', side }));
+    }
+  });
+
+  it('hide when the pointer leaves the shape and its circles entirely', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    hoverAt(900, 900);
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('stay visible when the pointer moves from the shape onto one of its own circles', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    // The right circle sits a little to the right of the box's own right
+    // edge (100, 25) - just past it, not still inside the shape.
+    hoverAt(114, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+  });
+
+  it('hide during a drag', () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-node000001'), { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(screen.getByTestId('diagram-node-node000001'), { pointerId: 1, clientX: 70, clientY: 30 });
+
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('hide on Escape', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  // Review item 12: the circle's own radius/icon size, and hoverAt's own
+  // hit-testing, are computed by DIVIDING by viewport.zoom - a scale bug in
+  // that math would only ever surface away from zoom 1, so this repeats the
+  // stopPropagation/dispatch coverage above at zoom 0.5, with real pointer
+  // events (pointerdown, then click) rather than fireEvent.click alone,
+  // since only a pointerdown actually exercises the bubble this guards.
+  it('stopPropagation on its own pointerdown still holds at a 0.5 zoom, so the shape underneath never starts its own select/drag', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }),
+      viewport: { x: 0, y: 0, zoom: 0.5 },
+    });
+    // clientToCanvas divides by zoom, so half the client distance reaches
+    // the same canvas point (50, 25) - the node's own center - as at zoom 1.
+    hoverAt(25, 12.5);
+    const circle = screen.getByTestId('diagram-quick-add-node000001-right');
+
+    fireEvent.pointerDown(circle, { pointerId: 1, clientX: 65, clientY: 12.5 });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    fireEvent.click(circle);
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }));
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+});
+
+describe('DiagramLayer right-click never also acts as a left-click gesture (review finding 2)', () => {
+  it('a right-button pointerdown on a shape does not start a drag or change selection', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130, button: 2 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 190, clientY: 130, button: 2 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 190, clientY: 130, button: 2 });
+    fireEvent.contextMenu(el);
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'duplicate' }));
+  });
+
+  it('a real right-click sequence on an edge inside a multi-selection leaves the selection alone', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge()],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'edge', id: 'edge0000001' },
+        ],
+      }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+
+    fireEvent.pointerDown(hit, { pointerId: 1, clientX: 200, clientY: 25, button: 2 });
+    fireEvent.contextMenu(hit);
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('a right-button pointerdown on a resize handle does not resize', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50, button: 2 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140, clientY: 90, button: 2 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 140, clientY: 90, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
+  });
+
+  it('a right-button pointerdown on a connect handle does not start a connector', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    hoverAt(50, 25);
+    const handle = screen.getByTestId('diagram-handle-node-a-right');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 25, button: 2 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 25, button: 2 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 25, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+
+  it('a right-button pointerdown on the placement surface does not place a shape', () => {
+    const { dispatch } = renderLayer({ tool: { kind: 'shape', shape: 'rect' } });
+    const surface = screen.getByTestId('diagram-placement-surface');
+
+    fireEvent.pointerDown(surface, { pointerId: 1, clientX: 200, clientY: 100, button: 2 });
+    fireEvent.pointerUp(surface, { pointerId: 1, clientX: 200, clientY: 100, button: 2 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'add' }));
+  });
+});
+
+describe('DiagramLayer overlapping shapes (review finding 4)', () => {
+  it('hover targets the top-most (last-rendered) of two overlapping shapes', () => {
+    const nodes = [
+      node({ id: 'bottom', x: 0, y: 0, width: 100, height: 50 }),
+      node({ id: 'top', x: 50, y: 0, width: 100, height: 50 }),
+    ];
+    renderLayer({ diagram: stateWith({ nodes }) });
+
+    hoverAt(75, 25);
+
+    expect(screen.getByTestId('diagram-handle-node-top-right')).toHaveStyle({ opacity: 1 });
+    expect(screen.getByTestId('diagram-handle-node-bottom-right')).toHaveStyle({ opacity: 0 });
+  });
+
+  it('a connector dropped on the overlap attaches to the top-most (last-rendered) shape', () => {
+    const nodes = [
+      node({ id: 'source', x: -200, y: 0, width: 100, height: 50 }),
+      node({ id: 'bottom', x: 0, y: 0, width: 100, height: 50 }),
+      node({ id: 'top', x: 50, y: 0, width: 100, height: 50 }),
+    ];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    hoverAt(-150, 25);
+    const handle = screen.getByTestId('diagram-handle-node-source-right');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: -100, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 75, clientY: 25 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 75, clientY: 25 });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'connect',
+        edge: expect.objectContaining({ target: { nodeId: 'top', side: 'left' } }),
+      }),
+    );
   });
 });
 
@@ -403,6 +1390,381 @@ describe('DiagramLayer connecting', () => {
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900, clientY: 900 });
 
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+});
+
+describe('DiagramLayer context menu (shape)', () => {
+  it('selects an unselected shape when right-clicked', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'node000001' }] });
+  });
+
+  // Review nit 17: unlike the Shift+F10 path, the Trigger had no
+  // tool.kind === 'pointer' guard, so the menu also opened mid-connector-
+  // tool/placement.
+  it('does not open while the connector tool is active', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()] }), tool: { kind: 'connector' } });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
+  });
+
+  // Re-review finding 24: Radix still calls a DISABLED trigger's own
+  // onContextMenu straight through (disabling only stops ITS content from
+  // opening) - so ensureSelected ran and silently changed the selection
+  // in the connector/shape tools even though no menu ever appeared. The
+  // handler itself now checks tool.kind, not just the Trigger's `disabled`.
+  it('does not change the selection on right-click while the connector tool is active either', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }), tool: { kind: 'connector' } });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('leaves an existing multi-selection alone when the right-clicked shape is already part of it', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'select' }));
+  });
+
+  it('shows every item', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+
+    for (const label of [
+      'Change shape',
+      'Color',
+      'Align',
+      'Edit text',
+      'Duplicate',
+      'Bring to front',
+      'Send to back',
+      'Delete',
+    ]) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('"Change shape" checks the current kind and dispatches setKind on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ kind: 'decision' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Change shape' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Decision' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: 'Rectangle' })).toHaveAttribute('aria-checked', 'false');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Rectangle' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setKind', id: 'node000001', kind: 'rect' });
+  });
+
+  it('"Color" checks the current color and dispatches setColor on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ color: 'blue' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Color' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Green' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'green' });
+  });
+
+  it('"Edit text" opens the same inline editor as a double-click', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Login' })], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit text' }));
+
+    expect(screen.getByTestId('diagram-text-input-node000001')).toHaveValue('Login');
+  });
+
+  it('"Duplicate" duplicates the whole current selection, edges between duplicated shapes included', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'duplicate',
+        pairs: [
+          { sourceId: 'a', newId: expect.any(String) },
+          { sourceId: 'b', newId: expect.any(String) },
+        ],
+        edgePairs: [{ sourceId: 'e1', newId: expect.any(String) }],
+      }),
+    );
+  });
+
+  it('"Bring to front" and "Send to back" dispatch reorder for the selection', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Bring to front' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'reorder', ids: ['node000001'], to: 'front' });
+
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Send to back' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'reorder', ids: ['node000001'], to: 'back' });
+  });
+
+  it('"Delete" dispatches delete for the whole current selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'delete', ids: ['a', 'b'] });
+  });
+
+  it('Shift+F10 opens the same menu for a selected shape', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('the Menu key opens the same menu for a selected shape', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.keyDown(window, { key: 'ContextMenu' });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  it('does nothing when nothing is selected (no shape to open a menu for)', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
+  });
+
+  // Review finding 3: previously required EXACTLY one selected element, so
+  // a keyboard user could never reach the Align submenu (which needs two)
+  // or Distribute (three) at all.
+  it('opens for a multi-selection too, anchored on the last selected item', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  // Review finding 3: also ran while focus was in an editable target (e.g.
+  // the Design panel's own text fields), hijacking the browser's own
+  // Shift+F10 there instead of leaving it alone.
+  it('does not open while focus is in an editable target', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    fireEvent.keyDown(input, { key: 'F10', shiftKey: true });
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
+    input.remove();
+  });
+});
+
+describe('DiagramLayer context menu (Align submenu)', () => {
+  it('disables every align item, and both distribute items, with only one shape selected', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Left' })).toHaveAttribute('data-disabled');
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).toHaveAttribute('data-disabled');
+  });
+
+  it('enables align (not distribute) with two shapes selected, and dispatches align for the whole selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Left' })).not.toHaveAttribute('data-disabled');
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).toHaveAttribute('data-disabled');
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Left' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'align', ids: ['a', 'b'], mode: 'left' });
+  });
+
+  it('every align mode dispatches its own mode', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const cases: [string, string][] = [
+      ['Left', 'left'],
+      ['Center', 'centerX'],
+      ['Right', 'right'],
+      ['Top', 'top'],
+      ['Middle', 'centerY'],
+      ['Bottom', 'bottom'],
+    ];
+    for (const [label, mode] of cases) {
+      fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: label }));
+      expect(dispatch).toHaveBeenCalledWith({ type: 'align', ids: ['a', 'b'], mode });
+    }
+  });
+
+  it('enables distribute with three shapes selected, and dispatches distribute for the whole selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 }), node({ id: 'c', x: 800 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+          { type: 'node', id: 'c' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+    expect(screen.getByRole('menuitem', { name: 'Distribute horizontally' })).not.toHaveAttribute('data-disabled');
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Distribute horizontally' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Align' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Distribute vertically' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'distribute', ids: ['a', 'b', 'c'], axis: 'vertical' });
+  });
+});
+
+describe('DiagramLayer context menu (connector)', () => {
+  const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+
+  it('selects an unselected connector when right-clicked, and shows every item', async () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, edges: [edge()] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'edge', id: 'edge0000001' }] });
+    for (const label of ['Connector', 'Arrowheads', 'Edit label', 'Delete']) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  // Re-review finding 24: same disabled-trigger-still-calls-onContextMenu
+  // gap as the node menu, for the edge's own ensureSelected call.
+  it('does not change the selection on right-click while the connector tool is active either', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, edges: [edge()] }), tool: { kind: 'connector' } });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('"Connector" checks the current kind and dispatches setKind on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ kind: 'step' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Connector' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Step' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Curve' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setKind', id: 'edge0000001', kind: 'curve' });
+  });
+
+  it('"Arrowheads" checks the current arrow and dispatches setArrow on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ arrow: 'end' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Arrowheads' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'End' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Both' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setArrow', id: 'edge0000001', arrow: 'both' });
+  });
+
+  it('"Edit label" opens an inline editor with the current label', async () => {
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ label: 'yes' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit label' }));
+
+    expect(screen.getByTestId('diagram-text-input-edge0000001')).toHaveValue('yes');
+  });
+
+  it('committing the inline label editor on Enter dispatches setText', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit label' }));
+    const input = screen.getByTestId('diagram-text-input-edge0000001');
+
+    fireEvent.change(input, { target: { value: 'yes' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setText', id: 'edge0000001', text: 'yes' });
+    expect(screen.queryByTestId('diagram-text-input-edge0000001')).not.toBeInTheDocument();
+  });
+
+  it('"Delete" dispatches delete', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'delete', ids: ['edge0000001'] });
+  });
+
+  it('Shift+F10 opens the same menu for a selected connector', async () => {
+    renderLayer({ diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }) });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit label' })).toBeInTheDocument();
   });
 });
 
