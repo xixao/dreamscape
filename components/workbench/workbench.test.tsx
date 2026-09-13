@@ -1894,31 +1894,29 @@ describe('Workbench', () => {
       expect(diagramNodes()).toHaveLength(2);
     });
 
-    it('dispatches a 1px move, 8px with Shift - store.ts\'s own 8px grid snap absorbs the plain nudge from an already-aligned shape', async () => {
-      render(<Workbench file={makeFile()} />);
-      await placeRectangle({ x: 500, y: 500 });
-      // Read as a plain number now, before anything moves - the element
-      // itself stays mounted across the nudge (React updates its x
-      // attribute in place), so a live reference read again afterward would
-      // just report the NEW value both times.
-      const xBefore = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-
-      // A placed shape already lands on the 8px grid (lib/diagram/store.ts's
-      // own snapToGrid, applied to every move including this one) - adding
-      // 1px and re-snapping rounds straight back to the same value, so a
-      // single plain-arrow nudge from rest is invisible here. This is
-      // store.ts's existing, unmodified behaviour (out of scope to change),
-      // not a bug in the 1px/8px dispatch itself - see onDiagramNudge in
-      // workbench.tsx and matchShortcut's own tests in lib/shortcuts.test.ts
-      // for that amount in isolation.
-      fireEvent.keyDown(window, { key: 'ArrowRight' });
-      const afterOneNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterOneNudge - xBefore).toBe(0);
-
-      fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
-      const afterBigNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterBigNudge - afterOneNudge).toBe(8);
-    });
+    // Review fix wave item 9: this test used to pass, but only by asserting
+    // away its own premise - a placed shape already lands on the 8px grid
+    // (lib/diagram/store.ts's own snapToGrid, applied to every move
+    // including a nudge), so adding 1px and re-snapping rounds straight
+    // back to the same value, and the old body asserted exactly that zero
+    // net movement as the "expected" outcome of an arrow key nudge. A test
+    // named "dispatches a 1px move" that actually verifies no move happens
+    // is worse than no test at all. The real fix belongs in the reducer
+    // (move must not re-snap a delta smaller than the grid - a plain 1px/
+    // 8px nudge - the same way it already should not re-snap an
+    // already-aligned shape's larger, deliberate drags), which is
+    // lib/diagram/store.ts and out of scope on this branch (diagram-
+    // followups owns it). Once that lands, this should read:
+    //   fireEvent.keyDown(window, { key: 'ArrowRight' });
+    //   expect(afterOneNudge - xBefore).toBe(1);
+    //   fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
+    //   expect(afterBigNudge - afterOneNudge).toBe(8);
+    // onDiagramNudge in workbench.tsx and matchShortcut's own tests in
+    // lib/shortcuts.test.ts already cover the 1px/8px amounts themselves,
+    // dispatch-shape-untouched, in isolation from this grid-snap issue.
+    it.todo(
+      'dispatches a 1px move, 8px with Shift, once store.ts\'s move stops re-snapping a sub-grid nudge delta (diagram-followups)',
+    );
 
     it('Cmd+Z undoes a diagram edit without touching Craft history, while a diagram element is selected', async () => {
       render(<Workbench file={makeFile()} />);
