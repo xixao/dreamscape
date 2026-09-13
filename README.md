@@ -4,7 +4,7 @@ Formerly "Assembly Workbench"; the Vercel project, package name and browser-stor
 
 An internal proof of concept of a Figma-like page builder built on shadcn/ui. Present (top bar) opens the current file in Play mode, where wired buttons navigate between screens and open dialogs. Designers drag components onto a responsive frame, tune them in a Design panel for the mobile and desktop breakpoints, add screens, organize them into pages (a file's own separate infinite canvases, for keeping versions like v1/v2 apart), wire buttons to other screens in the Prototype panel, and present the result in Play mode. Files live in a shared Neon Postgres database on Vercel, so a link can be passed around without sign-in (the app is meant for an internal network).
 
-Production: https://shadcn-assembly-workbench.vercel.app
+Production: https://dreamscape-design.vercel.app (also https://shadcn-assembly-workbench.vercel.app)
 
 ## Run it locally
 
