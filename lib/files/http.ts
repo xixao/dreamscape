@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getDb } from '@/db/client';
-import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS } from '@/lib/diagram/store';
+import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS, TEXT_COLORS, TEXT_FONTS, TEXT_SIZES } from '@/lib/diagram/store';
 import { createFilesRepository } from './repository';
 import { OVERLAY_SIDES, PRESENTATION_TYPES, SCREEN_KINDS, TOAST_POSITIONS } from './validate';
 
@@ -37,6 +37,13 @@ const diagramNodeField = z.object({
   height: z.number(),
   text: z.string(),
   color: z.enum(DIAGRAM_COLORS),
+  // Spec section 9: all three optional, absent on every diagram saved
+  // before this feature - validateDiagram (lib/files/validate.ts) is the
+  // content rule for callers that reach it without going through this zod
+  // shape at all (e.g. its own unit tests), same split as kind/color above.
+  textSize: z.enum(TEXT_SIZES).optional(),
+  textFont: z.enum(TEXT_FONTS).optional(),
+  textColor: z.enum(TEXT_COLORS).optional(),
 });
 
 const diagramEdgeField = z.object({

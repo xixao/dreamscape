@@ -669,6 +669,42 @@ describe('validateDiagram', () => {
     expect(result).toEqual({ ok: false, reason: expect.any(String) });
   });
 
+  // Spec section 9: textSize/textFont/textColor are all optional shape
+  // text-styling fields, checked against their own enum the same way
+  // kind/color already are above.
+  it('accepts nodes with a text size, font and color, and normalizes them', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001', textSize: 'large', textFont: 'mono', textColor: 'violet' })],
+      edges: [],
+    };
+    const result = validateDiagram(input);
+    expect(result).toEqual({ ok: true, diagram: input });
+  });
+
+  it('rejects an unknown text size, font or color', () => {
+    expect(validateDiagram({ nodes: [diagramNode({ textSize: 'huge' as never })], edges: [] }).ok).toBe(false);
+    expect(validateDiagram({ nodes: [diagramNode({ textFont: 'comic-sans' as never })], edges: [] }).ok).toBe(false);
+    expect(validateDiagram({ nodes: [diagramNode({ textColor: 'chartreuse' as never })], edges: [] }).ok).toBe(false);
+  });
+
+  // "Absent fields stay absent" (not present with an `undefined` value) -
+  // the stronger check `toEqual` alone would not catch, since it treats an
+  // `undefined` property as equivalent to a missing one.
+  it('keeps a node without any text styling free of the keys entirely - old files round-trip unchanged', () => {
+    const result = validateDiagram({ nodes: [diagramNode()], edges: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect('textSize' in result.diagram.nodes[0]).toBe(false);
+    expect('textFont' in result.diagram.nodes[0]).toBe(false);
+    expect('textColor' in result.diagram.nodes[0]).toBe(false);
+  });
+
+  it('accepts a node with only one of the three text style fields set', () => {
+    const input: DiagramInput = { nodes: [diagramNode({ id: 'node000001', textColor: 'black' })], edges: [] };
+    const result = validateDiagram(input);
+    expect(result).toEqual({ ok: true, diagram: input });
+  });
+
   it('rejects a non-positive width or height', () => {
     expect(validateDiagram({ nodes: [diagramNode({ width: 0 })], edges: [] }).ok).toBe(false);
     expect(validateDiagram({ nodes: [diagramNode({ height: -10 })], edges: [] }).ok).toBe(false);

@@ -126,6 +126,31 @@ describe('DiagramLayer rendering', () => {
     }
   });
 
+  // Spec section 9: on-screen text honours a shape's own optional text
+  // size/font/color, defaulting to medium/sans/default (today's fixed 13px
+  // white sans) when absent.
+  it("defaults a shape's text to medium/sans/white when no text style is set", () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Hi' })] }) });
+    expect(screen.getByText('Hi')).toHaveClass('text-[13px]', 'font-sans', 'text-white');
+  });
+
+  it("renders a shape's own text size, font and color", () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ text: 'Hi', textSize: 'large', textFont: 'mono', textColor: 'blue' })] }),
+    });
+    const text = screen.getByText('Hi');
+    expect(text).toHaveClass('text-[16px]', 'font-mono', 'text-blue-400');
+    expect(text).not.toHaveClass('text-[13px]', 'font-sans', 'text-white');
+  });
+
+  it("renders the inline text editor with the shape's own text size, font and color", () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ text: 'Hi', textSize: 'small', textFont: 'serif', textColor: 'black' })] }),
+    });
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-node000001'));
+    expect(screen.getByTestId('diagram-text-input-node000001')).toHaveClass('text-[11px]', 'font-serif', 'text-black');
+  });
+
   it('renders an edge as a path connecting the two node handles', () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
     renderLayer({ diagram: stateWith({ nodes, edges: [edge()] }) });
@@ -857,6 +882,24 @@ describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until po
     expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('Login');
   });
 
+  // Spec section 9: the Option-drag ghost also honours the dragged shape's
+  // own text size/font/color, not just its text.
+  it("draws the ghost's text with the dragged shape's own text size, font and color", () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50, text: 'Login', textSize: 'large', textFont: 'mono', textColor: 'red' })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    const ghostText = screen.getByTestId('diagram-option-drag-ghosts').querySelector('foreignObject div')!;
+    expect(ghostText).toHaveClass('text-[16px]', 'font-mono', 'text-red-400');
+  });
+
   it("draws the ghost edge's label chip too, matching the eventual copy", () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
     renderLayer({
@@ -1542,6 +1585,7 @@ describe('DiagramLayer context menu (shape)', () => {
     for (const label of [
       'Change shape',
       'Color',
+      'Text',
       'Align',
       'Edit text',
       'Duplicate',
@@ -1579,7 +1623,54 @@ describe('DiagramLayer context menu (shape)', () => {
     expect(screen.getByRole('menuitemradio', { name: 'Blue' })).toHaveAttribute('aria-checked', 'true');
 
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'Green' }));
-    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'green' });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setColor', ids: ['node000001'], color: 'green' });
+  });
+
+  // Spec section 9: "the right-click menu gets a 'Text' submenu with the
+  // same three groups as radio items" - each of Text size/Font/Text color
+  // is its own nested submenu, mirroring "Change shape"/"Color" above, and
+  // (like those two) restyles only the right-clicked shape, not the whole
+  // selection.
+  it('"Text" > "Text size" checks the current size and dispatches setTextStyle on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ textSize: 'large' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Text' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Text size' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Large' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Small' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textSize: 'small' });
+  });
+
+  it('"Text" > "Font" defaults to Sans, checks the current font and dispatches setTextStyle on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Text' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Font' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Sans' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Mono' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textFont: 'mono' });
+  });
+
+  it('"Text" > "Text color" checks the current color and dispatches setTextStyle on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ textColor: 'violet' })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Text' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Text color' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Violet' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Black' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textColor: 'black' });
   });
 
   it('"Edit text" opens the same inline editor as a double-click', async () => {
