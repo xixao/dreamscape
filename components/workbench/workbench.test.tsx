@@ -1090,16 +1090,11 @@ describe('Workbench', () => {
   // design.md).
   describe('Drag placeholder', () => {
     it('opens a drop slot in the artboard when a tray component is dragged over it, and removes it on drop', async () => {
-      // Also the earliest, simplest reproduction of React's dev-only
-      // "Cannot update a component (WorkbenchShell) while rendering a
-      // different component" warning: drop-placeholder.tsx's collector used
-      // to update WorkbenchShell's state from inside Craft's own render
-      // pass, for even this plain "drag a new tray item over the artboard"
-      // case. Asserted on THIS test specifically (rather than a separate,
-      // later one) because React dedupes an identical warning after its
-      // first occurrence per component for the life of the module, so a
-      // second test making the same assertion later in this file would
-      // trivially pass regardless of whether the underlying bug is fixed.
+      // The "Cannot update a component while rendering" regression check
+      // lives in drop-placeholder-warning.test.tsx: React dedupes that
+      // warning per module, and earlier tests in this file already trigger
+      // one for another component, so an assertion here would pass
+      // vacuously.
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       render(<Workbench file={makeFile()} />);
@@ -1122,10 +1117,6 @@ describe('Workbench', () => {
       fireEvent.drop(root);
       expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
 
-      const updateWarnings = errorSpy.mock.calls.filter((call) =>
-        call.some((arg) => typeof arg === 'string' && arg.includes('Cannot update a component')),
-      );
-      expect(updateWarnings).toEqual([]);
       errorSpy.mockRestore();
     });
 
@@ -1170,6 +1161,46 @@ describe('Workbench', () => {
 
       fireEvent.dragEnd(document);
       expect(forgotButton.style.visibility).not.toBe('hidden');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('leaves no placeholder and no stale inline style on a layer that is dropped into a new position', () => {
+      const pendingRaf: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        ((cb: FrameRequestCallback) => {
+          pendingRaf.push(cb);
+          return pendingRaf.length;
+        }) as typeof requestAnimationFrame,
+      );
+
+      render(<Workbench file={makeFile()} />);
+      const forgotButton = within(frameBody()).getByText('Forgot your password?');
+      const cardContent = forgotButton.closest('[data-zone="CardContent"]');
+      if (!cardContent) throw new Error('CardContent zone not found');
+      const styleBefore = forgotButton.getAttribute('style');
+
+      const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
+      fireEvent.dragStart(forgotButton, { dataTransfer });
+      fireEvent.dragOver(cardContent, { clientX: 10, clientY: 10 });
+      act(() => {
+        pendingRaf.splice(0).forEach((cb) => cb(0));
+      });
+      expect(forgotButton.style.visibility).toBe('hidden');
+
+      fireEvent.drop(cardContent, { clientX: 10, clientY: 10 });
+      fireEvent.dragEnd(forgotButton);
+
+      expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
+      // The moved layer's own DOM (Craft keeps the same element on a move)
+      // carries no leftover collapse style once the drop has happened.
+      const moved = within(frameBody()).getByText('Forgot your password?');
+      expect(moved.style.visibility).not.toBe('hidden');
+      expect(moved.getAttribute('style') ?? null).toBe(styleBefore ?? null);
+      expect(
+        [...frameBody().querySelectorAll('[data-block]')].some((el) => (el as HTMLElement).style.transform !== ''),
+      ).toBe(false);
 
       vi.unstubAllGlobals();
     });
