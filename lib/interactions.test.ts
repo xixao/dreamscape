@@ -112,6 +112,11 @@ describe('describeInteraction', () => {
     expect(describeInteraction(interaction, screens, nodes)).toBe('→ Unknown overlay');
   });
 
+  it('falls back to a generic label when the target id now names a plain screen, not an overlay (uses isOverlay)', () => {
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'openOverlay', targetScreenId: 's1' };
+    expect(describeInteraction(interaction, screens, nodes)).toBe('→ Unknown overlay');
+  });
+
   it('describes a closeOverlay interaction', () => {
     const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'closeOverlay' };
     expect(describeInteraction(interaction, screens, nodes)).toBe('× Close overlay');

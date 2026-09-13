@@ -7,6 +7,7 @@ import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import type { Viewport } from '@/lib/canvas/viewport';
 import type { CommentThread } from '@/lib/comments/store';
 import type { Screen } from '@/lib/files/repository';
+import { OVERLAY_MIN_HEIGHT, createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import { DEFAULT_STAGE_COMMENTS } from './comments/comment-layer';
 import { FramePreview, Stage } from './stage';
@@ -97,6 +98,106 @@ describe('Stage', () => {
     const body = await frameBody();
     expect(body.className).toBe('theme-basic');
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
+  });
+
+  describe('overlay frame chrome (spec docs/superpowers/specs/2026-09-13-overlay-frames-design.md section 5)', () => {
+    it('keeps a plain screen\'s unconditional square-cornered, full-border chrome', () => {
+      renderInEditor(<Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} />);
+      const artboard = screen.getByTestId('artboard');
+      expect(artboard).toHaveClass('border', 'border-line-strong', 'shadow-panel-lg');
+      expect(artboard).not.toHaveClass('rounded-lg');
+    });
+
+    it('gives a dialog overlay a full border, shadow and 8px radius (rounded-lg)', () => {
+      const dialog = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<Stage screen={dialog} viewport={IDENTITY_VIEWPORT} />);
+      expect(screen.getByTestId('artboard')).toHaveClass('border', 'border-line-strong', 'shadow-panel-lg', 'rounded-lg');
+    });
+
+    it('gives a toast overlay the same full border, shadow and radius as a dialog', () => {
+      const toast = createOverlayScreen({ type: 'toast', id: 'o2', name: 'Saved', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<Stage screen={toast} viewport={IDENTITY_VIEWPORT} />);
+      expect(screen.getByTestId('artboard')).toHaveClass('border', 'shadow-panel-lg', 'rounded-lg');
+    });
+
+    // "1 px border on the attached side only" (spec) mirrors the real
+    // shadcn Sheet primitive (components/ui/sheet.tsx), whose real seam is
+    // on the side OPPOSITE the one named by `side` - a right sheet's own
+    // `data-[side=right]:border-l`, since its right edge is flush with the
+    // browser edge it slides from and never shows a seam there. Matching
+    // that (rather than a literal border on the named side) is what makes
+    // this chrome actually match Play, the chrome's own stated goal.
+    it('gives a right sheet a border on its left (opposite Play\'s attached edge) and no radius', () => {
+      const sheet = createOverlayScreen({ type: 'sheet', side: 'right', id: 'o3', name: 'Filters', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<Stage screen={sheet} viewport={IDENTITY_VIEWPORT} />);
+      const artboard = screen.getByTestId('artboard');
+      expect(artboard).toHaveClass('border-l', 'border-line-strong', 'shadow-panel-lg');
+      expect(artboard).not.toHaveClass('rounded-lg', 'border-r', 'border-t', 'border-b');
+      expect(artboard.className.split(' ')).not.toContain('border');
+    });
+
+    it('gives a left sheet a border on its right instead', () => {
+      const sheet = createOverlayScreen({ type: 'sheet', side: 'left', id: 'o4', name: 'Nav', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<Stage screen={sheet} viewport={IDENTITY_VIEWPORT} />);
+      const artboard = screen.getByTestId('artboard');
+      expect(artboard).toHaveClass('border-r');
+      expect(artboard).not.toHaveClass('border-l', 'rounded-lg');
+    });
+
+    it('gives a top sheet a bottom border, and a bottom sheet a top border', () => {
+      const top = createOverlayScreen({ type: 'sheet', side: 'top', id: 'o5', name: 'Top', pageId: 'p1', x: 0, y: 0 });
+      const { unmount } = renderInEditor(<Stage screen={top} viewport={IDENTITY_VIEWPORT} />);
+      expect(screen.getByTestId('artboard')).toHaveClass('border-b');
+      unmount();
+
+      const bottom = createOverlayScreen({ type: 'sheet', side: 'bottom', id: 'o6', name: 'Bottom', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<Stage screen={bottom} viewport={IDENTITY_VIEWPORT} />);
+      expect(screen.getByTestId('artboard')).toHaveClass('border-t');
+    });
+
+    it('uses OVERLAY_MIN_HEIGHT, not ARTBOARD_MIN_HEIGHT, as an overlay\'s initial auto height', async () => {
+      const dialog = createOverlayScreen({ type: 'dialog', id: 'o7', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      const onMeasuredHeight = vi.fn();
+      renderInEditor(<Stage screen={dialog} viewport={IDENTITY_VIEWPORT} onMeasuredHeight={onMeasuredHeight} />);
+      await frameBody();
+      await waitFor(() => expect(onMeasuredHeight).toHaveBeenCalledWith(dialog.id, OVERLAY_MIN_HEIGHT));
+      expect(OVERLAY_MIN_HEIGHT).toBeLessThan(ARTBOARD_MIN_HEIGHT);
+    });
+  });
+
+  // Diagram-mode click-to-select (spec docs/superpowers/specs/2026-09-13-
+  // overlay-frames-design.md section 5): while the Diagram palette is
+  // open, a press on the focused frame's own body selects it into the
+  // canvas-level frame selection instead of reaching Craft's live content.
+  describe('diagramFrameSelect', () => {
+    it('renders a cover over the artboard and calls onSelect(false) on a plain press', async () => {
+      const onSelect = vi.fn();
+      renderInEditor(
+        <Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} diagramFrameSelect={{ active: true, onSelect }} />,
+      );
+      const cover = screen.getByTestId('diagram-frame-cover');
+      fireEvent.pointerDown(cover, { shiftKey: false });
+      expect(onSelect).toHaveBeenCalledWith(false);
+    });
+
+    it('calls onSelect(true) on a Shift+press', async () => {
+      const onSelect = vi.fn();
+      renderInEditor(
+        <Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} diagramFrameSelect={{ active: true, onSelect }} />,
+      );
+      fireEvent.pointerDown(screen.getByTestId('diagram-frame-cover'), { shiftKey: true });
+      expect(onSelect).toHaveBeenCalledWith(true);
+    });
+
+    it('renders no cover when diagramFrameSelect is absent or inactive', () => {
+      const { rerenderUi } = renderInEditor(<Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} />);
+      expect(screen.queryByTestId('diagram-frame-cover')).toBeNull();
+
+      rerenderUi(
+        <Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} diagramFrameSelect={{ active: false, onSelect: vi.fn() }} />,
+      );
+      expect(screen.queryByTestId('diagram-frame-cover')).toBeNull();
+    });
   });
 
   // Review fix wave item 8: relays this frame's real, current height up to
@@ -462,6 +563,89 @@ describe('FramePreview', () => {
     expect(screen.queryByRole('separator')).toBeNull();
     const body = await previewFrameBody();
     expect(within(body).getByText('This frame is empty')).toBeInTheDocument();
+  });
+
+  describe('overlay frame chrome (spec docs/superpowers/specs/2026-09-13-overlay-frames-design.md section 5)', () => {
+    it('keeps a plain screen\'s unconditional square-cornered, full-border chrome', () => {
+      renderInEditor(<FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      const artboard = screen.getByTestId('artboard-preview');
+      expect(artboard).toHaveClass('border', 'border-line-strong', 'shadow-panel-lg');
+      expect(artboard).not.toHaveClass('rounded-lg');
+    });
+
+    it('gives a dialog overlay a full border, shadow and 8px radius (rounded-lg)', () => {
+      const dialog = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<FramePreview screen={dialog} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      expect(screen.getByTestId('artboard-preview')).toHaveClass('border', 'shadow-panel-lg', 'rounded-lg');
+    });
+
+    it('gives a toast overlay the same treatment as a dialog', () => {
+      const toast = createOverlayScreen({ type: 'toast', id: 'o2', name: 'Saved', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<FramePreview screen={toast} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      expect(screen.getByTestId('artboard-preview')).toHaveClass('border', 'shadow-panel-lg', 'rounded-lg');
+    });
+
+    it('gives a right sheet a left border only (matching Play\'s own shadcn Sheet), and no radius', () => {
+      const sheet = createOverlayScreen({ type: 'sheet', side: 'right', id: 'o3', name: 'Filters', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<FramePreview screen={sheet} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      const artboard = screen.getByTestId('artboard-preview');
+      expect(artboard).toHaveClass('border-l');
+      expect(artboard).not.toHaveClass('rounded-lg', 'border-r');
+      expect(artboard.className.split(' ')).not.toContain('border');
+    });
+
+    it('gives a left sheet a right border instead', () => {
+      const sheet = createOverlayScreen({ type: 'sheet', side: 'left', id: 'o4', name: 'Nav', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<FramePreview screen={sheet} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      expect(screen.getByTestId('artboard-preview')).toHaveClass('border-r');
+    });
+
+    it('uses OVERLAY_MIN_HEIGHT, not ARTBOARD_MIN_HEIGHT, as an overlay\'s initial auto height', () => {
+      const dialog = createOverlayScreen({ type: 'dialog', id: 'o5', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderInEditor(<FramePreview screen={dialog} onFocusScreen={vi.fn()} {...noPanProps()} />);
+      expect(screen.getByTestId('artboard-preview')).toHaveStyle({ height: `${OVERLAY_MIN_HEIGHT}px` });
+    });
+  });
+
+  describe('diagramFrameSelect', () => {
+    it('calls onSelect instead of onFocusScreen on a plain press when active', () => {
+      const onFocusScreen = vi.fn();
+      const onSelect = vi.fn();
+      renderInEditor(
+        <FramePreview
+          screen={SCREEN_1}
+          onFocusScreen={onFocusScreen}
+          {...noPanProps()}
+          diagramFrameSelect={{ active: true, onSelect }}
+        />,
+      );
+      fireEvent.pointerDown(screen.getByTestId('artboard-preview'), { shiftKey: false });
+      expect(onSelect).toHaveBeenCalledWith(false);
+      expect(onFocusScreen).not.toHaveBeenCalled();
+    });
+
+    it('calls onSelect(true) on a Shift+press', () => {
+      const onSelect = vi.fn();
+      renderInEditor(
+        <FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} diagramFrameSelect={{ active: true, onSelect }} />,
+      );
+      fireEvent.pointerDown(screen.getByTestId('artboard-preview'), { shiftKey: true });
+      expect(onSelect).toHaveBeenCalledWith(true);
+    });
+
+    it('still calls onFocusScreen when diagramFrameSelect is absent or inactive', () => {
+      const onFocusScreen = vi.fn();
+      renderInEditor(
+        <FramePreview
+          screen={SCREEN_1}
+          onFocusScreen={onFocusScreen}
+          {...noPanProps()}
+          diagramFrameSelect={{ active: false, onSelect: vi.fn() }}
+        />,
+      );
+      fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
+      expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_1.id);
+    });
   });
 
   it('also renders the layout grid overlay when the screen has one visible', async () => {

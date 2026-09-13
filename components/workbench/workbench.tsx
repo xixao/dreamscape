@@ -19,7 +19,8 @@ import {
 } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
-import type { FileRecord, LayoutGrid, Page, Screen } from '@/lib/files/repository';
+import type { FileRecord, LayoutGrid, OverlayPresentation, OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
+import { OVERLAY_DEFAULT_NAMES, createOverlayScreen, isOverlay } from '@/lib/files/screens';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
@@ -52,7 +53,7 @@ import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
-import { Topbar } from './topbar';
+import { Topbar, presentHrefFor } from './topbar';
 
 // Screen-px padding Shift+2 (zoom to selection/focused frame) leaves around
 // the target rect - the same idea as lib/canvas/viewport.ts's own
@@ -642,6 +643,46 @@ export function Workbench({
     switchScreen(newScreen.id);
   }
 
+  // The Frames chip's "New overlay" menu and Shift+O (spec docs/superpowers/
+  // specs/2026-09-13-overlay-frames-design.md section 5): creates a new
+  // overlay frame with createOverlayScreen's own defaults for the given
+  // type (a dismissible dialog, a dismissible right sheet, or a bottom-
+  // right toast - side/position are always the helper's defaults, never
+  // offered at creation time, matching "default sizes/presentation from
+  // the helper"), placed right of the rightmost frame ON THE CURRENT PAGE
+  // exactly like addScreen above (layoutMissingPositions, x/y left null so
+  // it resolves the position itself), and focused. Named "<Dialog|Sheet|
+  // Toast> N" numbered per file, per type (OVERLAY_DEFAULT_NAMES' own doc
+  // comment: "numbering per file is the caller's job, same as it is for a
+  // new screen's 'Frame N'") - counted across every page, unlike addScreen's
+  // own per-PAGE "Frame N", since an overlay's name identifies which kind
+  // of overlay it is file-wide, not its place on one page's strip.
+  function addOverlay(type: OverlayPresentationType): void {
+    const countOfType = screens.filter((screen) => isOverlay(screen) && screen.presentation.type === type).length;
+    const newOverlay: Screen = {
+      ...createOverlayScreen({
+        type,
+        id: nanoid(10),
+        name: `${OVERLAY_DEFAULT_NAMES[type]} ${countOfType + 1}`,
+        pageId: currentPageId,
+        // x/y placeholders: createOverlayScreen requires numbers, but
+        // layoutMissingPositions (below) only resolves a screen missing
+        // BOTH - overwritten with null right after, same as addScreen's own
+        // literal Screen object does directly.
+        x: 0,
+        y: 0,
+      }),
+      x: null,
+      y: null,
+    };
+    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newOverlay.id]: newOverlay.layout };
+    const next = layoutMissingPositions([...screens, newOverlay]);
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+    switchScreen(newOverlay.id);
+  }
+
   function renameScreen(id: string, name: string): void {
     const next = screens.map((screen) => (screen.id === id ? { ...screen, name } : screen));
     screensRef.current = next;
@@ -697,6 +738,21 @@ export function Workbench({
     const next = screens.map((screen) =>
       screen.id === id ? { ...screen, layoutGrid: { ...DEFAULT_LAYOUT_GRID, ...screen.layoutGrid, ...patch } } : screen,
     );
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
+  // The Design panel's Overlay section (inspector.tsx, spec section 5):
+  // replaces an overlay frame's whole presentation object, never merges a
+  // patch into it - the contract phase 1 left for phase 2 ("the editor
+  // must always write a presentation that matches its type exactly:
+  // switching Presentation means rebuilding the object ... never adding a
+  // key to the old one, or the next autosave is a 400"). The panel itself
+  // builds the replacement (Presentation/Side/Position/Dismissible each
+  // rebuild the whole object); this only ever writes what it is given.
+  function updateScreenPresentation(id: string, presentation: OverlayPresentation): void {
+    const next = screens.map((screen) => (screen.id === id ? { ...screen, presentation } : screen));
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -935,10 +991,12 @@ export function Workbench({
           currentScreenId={currentScreenId}
           onSelectScreen={switchScreen}
           onAddScreen={addScreen}
+          onAddOverlay={addOverlay}
           onRenameScreen={renameScreen}
           onMoveScreen={moveScreen}
           onMoveScreens={moveScreens}
           onUpdateLayoutGrid={updateLayoutGrid}
+          onUpdatePresentation={updateScreenPresentation}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
           onMoveScreenToPage={moveScreenToPage}
@@ -969,10 +1027,12 @@ function WorkbenchShell({
   currentScreenId,
   onSelectScreen,
   onAddScreen,
+  onAddOverlay,
   onRenameScreen,
   onMoveScreen,
   onMoveScreens,
   onUpdateLayoutGrid,
+  onUpdatePresentation,
   onDuplicateScreen,
   onDeleteScreen,
   onMoveScreenToPage,
@@ -1002,10 +1062,12 @@ function WorkbenchShell({
   currentScreenId: string;
   onSelectScreen: (id: string) => void;
   onAddScreen: () => void;
+  onAddOverlay: (type: OverlayPresentationType) => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
   onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
+  onUpdatePresentation: (id: string, presentation: OverlayPresentation) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage: (id: string, pageId: string) => void;
@@ -1383,11 +1445,7 @@ function WorkbenchShell({
   // right page even for the rare case of a screen id that (through some
   // future bug or hand-edited link) does not actually belong to it.
   function presentFocusedScreen(): void {
-    window.open(
-      `/f/${fileId}/play?page=${currentPageId}&screen=${currentScreenId}`,
-      '_blank',
-      'noopener,noreferrer',
-    );
+    window.open(presentHrefFor(fileId, currentPageId, screens, currentScreenId), '_blank', 'noopener,noreferrer');
   }
 
   // The viewport centre (screen space, relative to the canvas's own origin -
@@ -1461,6 +1519,10 @@ function WorkbenchShell({
     },
     onPresent: presentFocusedScreen,
     onAddScreen,
+    // Shift+O always creates a dialog overlay (lib/shortcuts.ts's own
+    // label: "New overlay (dialog)") - Sheet/Toast are menu-only, through
+    // the Frames chip's own three-item submenu.
+    onAddOverlay: () => onAddOverlay('dialog'),
     onPageNext: () => onSwitchToAdjacentPage('next'),
     onPagePrev: () => onSwitchToAdjacentPage('previous'),
     onOpenShortcuts: () => setShortcutsOpen(true),
@@ -1581,6 +1643,7 @@ function WorkbenchShell({
                 notice={notice}
                 onNew={() => setNewOpen(true)}
                 onAddScreen={onAddScreen}
+                onAddOverlay={onAddOverlay}
                 fileId={fileId}
                 folderId={folderId}
                 pages={pages}
@@ -1652,6 +1715,7 @@ function WorkbenchShell({
                 onToggleFrameSelection={toggleFrameSelection}
                 onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
                 onClearFrameSelection={() => setSelectedFrameIds(new Set())}
+                diagramPaletteOpen={diagramPaletteOpen}
                 pixelGridVisible={pixelGridVisible}
                 measuredHeights={measuredHeights}
                 onMeasuredHeight={handleMeasuredHeight}
@@ -1687,6 +1751,7 @@ function WorkbenchShell({
                 key="inspector"
                 screens={screens}
                 currentScreenId={currentScreenId}
+                pages={pages}
                 panelMode={panelMode}
                 onPanelModeChange={setPanelMode}
                 collapsed={panelCollapsed}
@@ -1697,6 +1762,7 @@ function WorkbenchShell({
                 onAlignFrames={onMoveScreens}
                 diagramAlignment={diagramAlignmentContext}
                 onUpdateLayoutGrid={onUpdateLayoutGrid}
+                onUpdatePresentation={onUpdatePresentation}
                 measuredHeights={measuredHeights}
               />
             )}

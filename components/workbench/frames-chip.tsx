@@ -22,9 +22,10 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Page, Screen } from '@/lib/files/repository';
+import type { OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
+import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
 import { cn } from '@/lib/utils';
-import { CHIP, DANGER_GHOST } from './chrome';
+import { CHIP, DANGER_GHOST, MENU_HINT } from './chrome';
 import { NAME_MAX, RenameInput } from './rename-input';
 
 /**
@@ -51,6 +52,7 @@ export function FramesChip({
   pages,
   onSwitch,
   onAdd,
+  onAddOverlay,
   onRename,
   onDuplicate,
   onDelete,
@@ -62,6 +64,12 @@ export function FramesChip({
   pages?: Page[];
   onSwitch: (id: string) => void;
   onAdd: () => void;
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 5, phase 2): the "New overlay" submenu's three items
+  // all call this with their own type, leaving side/position to
+  // createOverlayScreen's own defaults (right sheet, bottom-right toast) -
+  // same as onAdd leaving every new screen's size to addScreen itself.
+  onAddOverlay: (type: OverlayPresentationType) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -139,6 +147,7 @@ export function FramesChip({
                   }}
                 >
                   <span className="flex-1 truncate">{frame.name}</span>
+                  {isOverlay(frame) && <span className={cn(MENU_HINT, 'shrink-0')}>{overlayBadgeLabel(frame.presentation)}</span>}
                   {frame.id === currentFrameId && (
                     <Check data-testid="frame-check" className="size-3.5 shrink-0" aria-hidden />
                   )}
@@ -186,6 +195,14 @@ export function FramesChip({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onAdd}>New frame</DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>New overlay</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onSelect={() => onAddOverlay('dialog')}>Dialog</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddOverlay('sheet')}>Sheet</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddOverlay('toast')}>Toast</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
 

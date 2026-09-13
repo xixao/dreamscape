@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { loadViewport } from '@/lib/canvas/viewport-store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Workbench } from './workbench';
 import loginExampleLayout from '@/lib/examples/login-screen.json';
@@ -1059,6 +1060,39 @@ describe('Workbench', () => {
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+
+      openSpy.mockRestore();
+    });
+
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-
+    // frames-design.md section 4 + 5's Present entry point): Play never
+    // stands ON an overlay - both entry points carry `?overlay=` instead of
+    // `?screen=` while one is focused, so the Player starts on the page's
+    // own first real screen with the overlay open on top.
+    it('carries ?overlay= instead of ?screen= for both entry points once an overlay frame is focused', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, overlay] })} />);
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      // Not the shared selectFrame() helper: an overlay row's own mono
+      // badge ("Dialog") joins its name in the row's accessible name (spec
+      // section 5's badge is deliberately not aria-hidden - a screen reader
+      // user browsing this menu should hear it too), so an exact-name match
+      // for just "Dialog 1" no longer finds it; a substring match still does.
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
+      );
+
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
         '_blank',
         'noopener,noreferrer',
       );

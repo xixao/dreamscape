@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { FramesChip } from './frames-chip';
 
 function makeFrame(id: string, overrides: Partial<Screen> = {}): Screen {
@@ -16,6 +17,7 @@ function renderChip(overrides: Partial<ComponentProps<typeof FramesChip>> = {}) 
     currentFrameId: frames[0].id,
     onSwitch: vi.fn(),
     onAdd: vi.fn(),
+    onAddOverlay: vi.fn(),
     onRename: vi.fn(),
     onDuplicate: vi.fn(),
     onDelete: vi.fn(),
@@ -232,6 +234,60 @@ describe('FramesChip', () => {
       expect(props.onDelete).toHaveBeenCalledWith('b');
       expect(props.onSwitch).not.toHaveBeenCalled();
       expect(props.onZoomToFrame).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('overlay frames', () => {
+    function makeOverlayFrame(id: string, type: 'dialog' | 'sheet' | 'toast', overrides: Partial<Screen> = {}): Screen {
+      return { ...createOverlayScreen({ type, id, name: `${type} ${id}`, pageId: 'p1', x: 0, y: 0 }), ...overrides };
+    }
+
+    it('shows a mono badge naming the presentation after an overlay row\'s name', async () => {
+      const frames = [
+        makeFrame('a', { name: 'Login' }),
+        makeOverlayFrame('b', 'sheet', { name: 'Filters' }),
+        makeOverlayFrame('c', 'toast', { name: 'Saved' }),
+      ];
+      renderChip({ frames, currentFrameId: 'a' });
+      const trigger = screen.getByRole('button', { name: 'Frames' });
+      await userEvent.click(trigger);
+
+      const items = screen.getAllByRole('menuitem');
+      expect(within(items[0]).queryByText(/Sheet|Toast|Dialog/)).toBeNull();
+      expect(within(items[1]).getByText('Sheet · Right')).toBeInTheDocument();
+      expect(within(items[2]).getByText('Toast')).toBeInTheDocument();
+    });
+
+    it('offers a "New overlay" submenu with Dialog, Sheet and Toast, after New frame', async () => {
+      const props = renderChip();
+      const trigger = screen.getByRole('button', { name: 'Frames' });
+      await userEvent.click(trigger);
+
+      const menuitems = screen.getAllByRole('menuitem');
+      const newFrameIndex = menuitems.findIndex((item) => item.textContent === 'New frame');
+      const newOverlayTrigger = await screen.findByRole('menuitem', { name: 'New overlay' });
+      expect(menuitems.indexOf(newOverlayTrigger)).toBeGreaterThan(newFrameIndex);
+
+      fireEvent.keyDown(newOverlayTrigger, { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Dialog' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('dialog');
+      await waitFor(() => expect(screen.queryAllByRole('menuitem')).toHaveLength(0));
+    });
+
+    it('New overlay > Sheet calls onAddOverlay with "sheet"', async () => {
+      const props = renderChip();
+      await userEvent.click(screen.getByRole('button', { name: 'Frames' }));
+      fireEvent.keyDown(await screen.findByRole('menuitem', { name: 'New overlay' }), { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Sheet' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('sheet');
+    });
+
+    it('New overlay > Toast calls onAddOverlay with "toast"', async () => {
+      const props = renderChip();
+      await userEvent.click(screen.getByRole('button', { name: 'Frames' }));
+      fireEvent.keyDown(await screen.findByRole('menuitem', { name: 'New overlay' }), { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Toast' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('toast');
     });
   });
 

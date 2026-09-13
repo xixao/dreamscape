@@ -28,6 +28,7 @@ import {
 export type {
   LayoutGrid,
   OverlayPresentation,
+  OverlayPresentationType,
   OverlaySide,
   Page,
   Screen,

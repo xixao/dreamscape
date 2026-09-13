@@ -4,6 +4,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Screen } from '@/lib/files/repository';
 import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
+import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
 import { cn } from '@/lib/utils';
 import { NAME_MAX, RenameInput } from './rename-input';
 
@@ -29,7 +30,10 @@ const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
  * again with both empty right before `onDragEnd` - so a caller drawing them
  * in the canvas overlay never has to guess when to clear them - and, on
  * double-click, an inline rename reusing rename-input.tsx's shared input and
- * Enter/Escape rules.
+ * Enter/Escape rules. An overlay frame (spec docs/superpowers/specs/2026-
+ * 09-13-overlay-frames-design.md section 5) gets a trailing mono badge
+ * naming its presentation ("Dialog", "Sheet · Right", "Toast") - hidden,
+ * like the name itself, while renaming.
  *
  * Rendered by components/workbench/canvas.tsx as a sibling of each frame's
  * Stage/FramePreview, inside that same absolutely-positioned (at the
@@ -168,6 +172,7 @@ export function FrameTitle({
       onDoubleClick={() => setRenaming(true)}
     >
       {screen.name}
+      {isOverlay(screen) && <span className="ml-1 text-t4">{overlayBadgeLabel(screen.presentation)}</span>}
     </button>
   );
 }
