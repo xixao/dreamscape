@@ -726,6 +726,32 @@ describe('Workbench', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
+
+    // One of the review's named missing tests (task-grid-review.md):
+    // arrow-nudging two selected frames must save both in one patch, the
+    // same way a dragged multi-selection already does above.
+    it('arrow-nudge of two selected frames lands in one patch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      const byId = Object.fromEntries(body.screens.map((entry) => [entry.id, entry]));
+      // Plain ArrowRight nudges by NUDGE_PX (1), applied to both frames'
+      // already-resolved starting positions (0 and stageWidth+200).
+      expect(byId[SCREEN_1.id]).toMatchObject({ x: 1, y: 0 });
+      expect(byId[SCREEN_2.id]).toMatchObject({ x: SCREEN_1.stageWidth + 200 + 1, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
   });
 
   // Review fix wave item 6: selecting something else entirely must drop
