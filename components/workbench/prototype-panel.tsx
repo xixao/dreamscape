@@ -23,6 +23,11 @@ const ACTION_LABELS: Record<OnClickValue, string> = {
   navigate: 'Navigate to...',
   openDialog: 'Open dialog...',
   back: 'Back',
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 5): labels only for now - the select below does not
+  // offer either until phase 2 wires the editor side of overlay frames.
+  openOverlay: 'Open overlay...',
+  closeOverlay: 'Close overlay',
 };
 
 interface DialogOption {

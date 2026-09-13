@@ -120,6 +120,51 @@ export function normalizeLayout(json: string): string {
   return JSON.stringify(parsed);
 }
 
+// --- Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+// design.md section 2) ---
+
+// A modal-type overlay - a dialog, a sheet or a toast - is its own frame: a
+// Screen with `kind: 'overlay'`, opened by the prototype (an openOverlay
+// interaction, lib/interactions.ts) rather than designed inside the
+// requesting screen. `presentation` says how Play mode
+// (components/play/player.tsx) wraps its layout; an alert dialog is simply
+// a dialog with `dismissible: false`.
+export const OVERLAY_SIDES = ['left', 'right', 'top', 'bottom'] as const;
+export type OverlaySide = (typeof OVERLAY_SIDES)[number];
+
+export const TOAST_POSITIONS = [
+  'top-left',
+  'top-center',
+  'top-right',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+] as const;
+export type ToastPosition = (typeof TOAST_POSITIONS)[number];
+
+// The one list of presentation types, shared by the zod shape
+// (lib/files/http.ts), validatePresentation below and the overlay defaults
+// (lib/files/screens.ts), so the three can never disagree.
+export const PRESENTATION_TYPES = ['dialog', 'sheet', 'toast'] as const;
+export type OverlayPresentationType = (typeof PRESENTATION_TYPES)[number];
+
+export type OverlayPresentation =
+  | { type: 'dialog'; dismissible: boolean }
+  | { type: 'sheet'; side: OverlaySide; dismissible: boolean }
+  | { type: 'toast'; position: ToastPosition };
+
+export const SCREEN_KINDS = ['screen', 'overlay'] as const;
+export type ScreenKind = (typeof SCREEN_KINDS)[number];
+
+// The shape validatePresentation accepts: loose on purpose. zod
+// (lib/files/http.ts) has already checked the API's shape (known enums for
+// each key), but validatePresentation below is the one place that decides
+// whether a presentation matches the OverlayPresentation union exactly -
+// which keys a given `type` requires, and which it must not have - so it
+// takes anything object-shaped and narrows it itself, the same way every
+// other content rule in this module works one level below its zod check.
+export type OverlayPresentationInput = Record<string, unknown>;
+
 // A file holds several of these (files.screens, migration 0002). `layout` is
 // the JSON string form here and everywhere in the API and repository; only
 // the database stores it parsed, inside the screens jsonb column (see
@@ -152,6 +197,15 @@ export type Screen = {
   // it against a file's pages whenever a caller actually cares (passing its
   // third, optional pageIds argument).
   pageId?: string;
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 2): absent means a plain screen - no migration, every
+  // screen saved before overlays existed simply has neither key. When
+  // `kind` is 'overlay', `presentation` is required and says how Play mode
+  // wraps the layout; on a plain screen a presentation is rejected
+  // (validateScreens below). lib/files/screens.ts has isOverlay() and the
+  // overlay defaults (createOverlayScreen).
+  kind?: ScreenKind;
+  presentation?: OverlayPresentation;
 };
 
 // The shape validateScreens accepts: a screen as given by a caller (the API
@@ -168,6 +222,8 @@ export type ScreenInput = {
   x?: number | null;
   y?: number | null;
   pageId?: string;
+  kind?: string;
+  presentation?: OverlayPresentationInput;
 };
 
 export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: false; reason: string };
@@ -245,14 +301,87 @@ export function validatePages(input: PageInput[]): ValidatePagesResult {
   return { ok: true, pages };
 }
 
+// Exactly the keys each presentation type carries (spec section 2's union):
+// anything else on a presentation is rejected, not stripped, so a valid one
+// comes out of validatePresentation identical to how it went in.
+const PRESENTATION_KEYS: Record<OverlayPresentationType, readonly string[]> = {
+  dialog: ['type', 'dismissible'],
+  sheet: ['type', 'side', 'dismissible'],
+  toast: ['type', 'position'],
+};
+
+function isPresentationType(type: unknown): type is OverlayPresentationType {
+  return (PRESENTATION_TYPES as readonly unknown[]).includes(type);
+}
+
+export type ValidatePresentationResult =
+  | { ok: true; presentation: OverlayPresentation }
+  | { ok: false; reason: string };
+
+/**
+ * Checks one overlay frame's presentation against the OverlayPresentation
+ * union exactly: a known `type`, every key that type requires with a value
+ * of the right kind, and no key that type does not have - a dialog with a
+ * `side`, a toast with a `dismissible`, or any unknown key is rejected
+ * rather than silently dropped. Called from validateScreens for every
+ * screen whose kind is 'overlay'; the reason it returns has no screen name
+ * in it, validateScreens prefixes that itself (same as validateLayout's
+ * reasons).
+ */
+export function validatePresentation(input: unknown): ValidatePresentationResult {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, reason: 'presentation must be an object' };
+  }
+  const raw = input as Record<string, unknown>;
+  const type = raw.type;
+  if (!isPresentationType(type)) {
+    return { ok: false, reason: 'presentation type must be "dialog", "sheet" or "toast"' };
+  }
+
+  for (const key of Object.keys(raw)) {
+    if (!PRESENTATION_KEYS[type].includes(key)) {
+      return { ok: false, reason: `presentation for a ${type} has an unexpected key "${key}"` };
+    }
+  }
+
+  switch (type) {
+    case 'dialog': {
+      if (typeof raw.dismissible !== 'boolean') {
+        return { ok: false, reason: 'presentation dismissible must be a boolean' };
+      }
+      return { ok: true, presentation: { type, dismissible: raw.dismissible } };
+    }
+    case 'sheet': {
+      const side = raw.side;
+      if (!(OVERLAY_SIDES as readonly unknown[]).includes(side)) {
+        return { ok: false, reason: `presentation side must be one of ${OVERLAY_SIDES.join(', ')}` };
+      }
+      if (typeof raw.dismissible !== 'boolean') {
+        return { ok: false, reason: 'presentation dismissible must be a boolean' };
+      }
+      return { ok: true, presentation: { type, side: side as OverlaySide, dismissible: raw.dismissible } };
+    }
+    case 'toast': {
+      const position = raw.position;
+      if (!(TOAST_POSITIONS as readonly unknown[]).includes(position)) {
+        return { ok: false, reason: `presentation position must be one of ${TOAST_POSITIONS.join(', ')}` };
+      }
+      return { ok: true, presentation: { type, position: position as ToastPosition } };
+    }
+  }
+}
+
 /**
  * Validates and normalizes a whole file's screens array in one pass: every
  * screen's layout must pass validateLayout, names are trimmed to 1..80
  * characters, widths are clamped to the same [120, 3840] range a lone
  * stageWidth always was, stageHeight (when given) must be a positive
  * integer, deviceName (when given) must be at most 80 characters, ids must
- * be exactly 10 characters and unique within the array, and at least one
- * screen must be present. zod (lib/files/http.ts) only checks the shape (an
+ * be exactly 10 characters and unique within the array, at least one
+ * screen must be present, and an overlay frame (kind 'overlay') must carry
+ * a presentation matching the OverlayPresentation union exactly while a
+ * plain screen must carry none (see validatePresentation above). zod
+ * (lib/files/http.ts) only checks the shape (an
  * array of 1..50 objects with the right field types); this is where the
  * content rules live, the same split validateLayout already has with the
  * zod `layout: z.string()` check
@@ -322,6 +451,29 @@ export function validateScreens(
       return { ok: false, reason: `screen "${name}" y must be an integer` };
     }
 
+    // Overlay frames: kind is one of two values when given at all, and a
+    // presentation is required exactly when kind is 'overlay' - never on a
+    // plain screen. Both keys are left absent (not written as undefined)
+    // when the caller gave none, so a screen saved before overlays existed
+    // round-trips byte for byte.
+    const kind = raw.kind;
+    if (kind !== undefined && !(SCREEN_KINDS as readonly string[]).includes(kind)) {
+      return { ok: false, reason: `screen "${name}" kind must be "screen" or "overlay"` };
+    }
+    let presentation: OverlayPresentation | undefined;
+    if (kind === 'overlay') {
+      if (raw.presentation === undefined) {
+        return { ok: false, reason: `screen "${name}" is an overlay but has no presentation` };
+      }
+      const validatedPresentation = validatePresentation(raw.presentation);
+      if (!validatedPresentation.ok) {
+        return { ok: false, reason: `screen "${name}" ${validatedPresentation.reason}` };
+      }
+      presentation = validatedPresentation.presentation;
+    } else if (raw.presentation !== undefined) {
+      return { ok: false, reason: `screen "${name}" has a presentation but is not an overlay` };
+    }
+
     screens.push({
       id: raw.id,
       name,
@@ -332,6 +484,8 @@ export function validateScreens(
       x,
       y,
       pageId: raw.pageId,
+      ...(kind !== undefined ? { kind: kind as ScreenKind } : {}),
+      ...(presentation !== undefined ? { presentation } : {}),
     });
   }
 

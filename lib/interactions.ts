@@ -24,7 +24,30 @@ export type BackInteraction = {
   action: 'back';
 };
 
-export type Interaction = NavigateInteraction | OpenDialogInteraction | BackInteraction;
+// Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+// design.md section 3): open an overlay frame (a Screen with `kind:
+// 'overlay'`, see lib/files/validate.ts) on top of the current screen, or
+// close one. The legacy openDialog (an inline Dialog block designed inside
+// the requesting screen) stays exactly as it was.
+export type OpenOverlayInteraction = {
+  id: string;
+  trigger: 'click';
+  action: 'openOverlay';
+  targetScreenId: string;
+};
+
+export type CloseOverlayInteraction = {
+  id: string;
+  trigger: 'click';
+  action: 'closeOverlay';
+};
+
+export type Interaction =
+  | NavigateInteraction
+  | OpenDialogInteraction
+  | BackInteraction
+  | OpenOverlayInteraction
+  | CloseOverlayInteraction;
 
 export type InteractionActionType = Interaction['action'];
 
@@ -77,6 +100,19 @@ export interface InteractionRunner {
   navigate: (screenId: string) => void;
   back: () => void;
   openDialog: (nodeId: string) => void;
+  /**
+   * Runs an `openOverlay` interaction: pushes the overlay frame `screenId`
+   * onto Play's overlay stack. A no-op for an id already in the stack (no
+   * loops), an id that is a plain screen, or an id the file does not have
+   * (spec section 3) - the Player enforces all three.
+   */
+  openOverlay: (screenId: string) => void;
+  /**
+   * Runs a `closeOverlay` interaction: closes the top overlay - or, fired
+   * from inside an overlay, that overlay itself (the Player rebinds it per
+   * overlay, see components/play/player.tsx).
+   */
+  closeOverlay: () => void;
 }
 
 /**
@@ -102,12 +138,20 @@ export function interactionHandler(
     const { targetNodeId } = interaction;
     return () => runner.openDialog(targetNodeId);
   }
+  if (interaction.action === 'openOverlay') {
+    const { targetScreenId } = interaction;
+    return () => runner.openOverlay(targetScreenId);
+  }
+  if (interaction.action === 'closeOverlay') {
+    return () => runner.closeOverlay();
+  }
   return () => runner.back();
 }
 
 /**
  * Builds the canvas tag text (spec #4: "→ <target name>", "→ Dialog:
- * <title>", "← Back") for a node's interaction. `screens` and `nodes` are
+ * <title>", "← Back"; overlay frames spec section 3: "→ Overlay: <name>",
+ * "× Close overlay") for a node's interaction. `screens` and `nodes` are
  * used only to resolve a target's current display name, since interactions
  * only ever store an id.
  */
@@ -120,9 +164,16 @@ export function describeInteraction(
 
   if (interaction.action === 'back') return '← Back';
 
+  if (interaction.action === 'closeOverlay') return '× Close overlay';
+
   if (interaction.action === 'navigate') {
     const target = screens.find((screen) => screen.id === interaction.targetScreenId);
     return `→ ${target ? target.name : 'Unknown screen'}`;
+  }
+
+  if (interaction.action === 'openOverlay') {
+    const target = screens.find((screen) => screen.id === interaction.targetScreenId);
+    return target ? `→ Overlay: ${target.name}` : '→ Unknown overlay';
   }
 
   const node = nodes[interaction.targetNodeId];
