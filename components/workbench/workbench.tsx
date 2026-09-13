@@ -8,7 +8,7 @@ import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
-import { createInitialDiagramState, diagramReducer, pruneEdgesForScreen, type DiagramData, cloneDiagram } from '@/lib/diagram/store';
+import { createInitialDiagramState, diagramReducer, duplicatePairs, pruneEdgesForScreen, type DiagramData, cloneDiagram } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Page, Screen } from '@/lib/files/repository';
@@ -1210,19 +1210,20 @@ function WorkbenchShell({
       // duplicated (lib/diagram/store.ts's own re-validated edgePairs) - so
       // Cmd+D behaves exactly like the diagram layer's own "Duplicate ⌘D"
       // context-menu item and Option-drag gesture, all three of which go
-      // through the very same reducer action.
+      // through the very same reducer action. duplicatePairs is the same
+      // helper the layer itself uses, so the two never drift apart.
       const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
-      const idSet = new Set(nodeIds);
-      const pairs = nodeIds.map((id) => ({ sourceId: id, newId: nanoid(10) }));
-      const edgePairs = diagram.edges
-        .filter((edge) => !!edge.source.nodeId && idSet.has(edge.source.nodeId) && !!edge.target.nodeId && idSet.has(edge.target.nodeId))
-        .map((edge) => ({ sourceId: edge.id, newId: nanoid(10) }));
+      const { pairs, edgePairs } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
       dispatchDiagram({ type: 'duplicate', pairs, edgePairs });
     },
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;
-      const amount = big ? 64 : 8;
+      // Matt: a plain arrow key nudges by exactly 1px; Shift+arrow by 8px.
+      // Mouse drags still land on the 8px grid (the layer snaps the drag's
+      // own delta before dispatching move), so the grid only ever governs
+      // drags, not keyboard nudges.
+      const amount = big ? 8 : 1;
       const [dx, dy] =
         direction === 'up'
           ? [0, -amount]

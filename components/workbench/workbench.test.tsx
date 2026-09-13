@@ -1771,7 +1771,11 @@ describe('Workbench', () => {
       expect(screen.getByRole('combobox', { name: 'Shape' })).toHaveTextContent('Decision');
     });
 
-    it('arrow keys nudge the selected shape by 8px, 64px with Shift', async () => {
+    // Review finding 10 / Matt's nudge rule: a plain arrow key moves a
+    // diagram selection by exactly 1px (off the 8px grid, on purpose) and
+    // Shift+arrow by 8px - not the old 8px/64px, which came from move()
+    // snapping every nudge to the grid regardless of the amount asked for.
+    it('arrow keys nudge the selected shape by 1px, 8px with Shift', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
       // Read as a plain number now, before anything moves - the element
@@ -1782,11 +1786,28 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       const afterOneNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterOneNudge - xBefore).toBe(8);
+      expect(afterOneNudge - xBefore).toBe(1);
 
       fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
       const afterBigNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
-      expect(afterBigNudge - afterOneNudge).toBe(64);
+      expect(afterBigNudge - afterOneNudge).toBe(8);
+    });
+
+    it('a mouse drag still snaps to the 8px grid even after a 1px nudge moved the shape off it', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      fireEvent.keyDown(window, { key: 'ArrowRight' }); // off-grid by 1px now
+      const xAfterNudge = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+
+      const el = diagramNodes()[0];
+      fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(el, { pointerId: 1, clientX: 20, clientY: 0 });
+      fireEvent.pointerUp(el, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      const xAfterDrag = Number(diagramNodes()[0].querySelector('rect')!.getAttribute('x'));
+      // The raw 20px delta itself snaps to 24 (lib/diagram/geometry.ts's
+      // snapToGrid) regardless of the shape's own (now off-grid) start.
+      expect(xAfterDrag - xAfterNudge).toBe(24);
     });
 
     it('Cmd+Z undoes a diagram edit without touching Craft history, while a diagram element is selected', async () => {

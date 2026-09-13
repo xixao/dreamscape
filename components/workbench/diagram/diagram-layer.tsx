@@ -1,5 +1,17 @@
 'use client';
 
+// This file stays one composition root for the fix wave in
+// task-diagram-followups-review.md, but it has outgrown that shape - the
+// review's proposed split (not done here, to keep this wave's diff
+// reviewable) is:
+//   - use-diagram-gestures.ts  (drag/resize/connect/place state machine)
+//   - use-diagram-hover.ts     (hover tracking + quick-add circle targeting)
+//   - diagram-paths.ts         (edge path/anchor math shared by render + hit-testing)
+//   - diagram-node.tsx / diagram-edge.tsx   (per-shape rendering, incl. ghosts)
+//   - diagram-node-menu.tsx / diagram-edge-menu.tsx  (the two ContextMenu bodies)
+// leaving DiagramLayer itself as a ~250-line component that wires the above
+// together.
+
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { nanoid } from 'nanoid';
 import { Plus } from 'lucide-react';
@@ -383,16 +395,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setHover(null);
   }
 
-  // Shared by Cmd+D-equivalent menu items and (soon) nothing else in THIS
-  // file - option-drag duplicate above mints its own pairs/edgePairs
-  // inline since it also needs them to redirect the drag; this one only
-  // ever fires from a menu selection, never mid-gesture.
+  // The context menu's "Duplicate" item - review finding 7: this exact
+  // "mint a pair per id, plus an edgePair for a connector wholly inside the
+  // set" computation used to be hand-copied here, in startOptionDrag's own
+  // dispatch below, and in workbench.tsx's Cmd+D handler. All three now go
+  // through the one pure, tested lib/diagram/store.ts helper.
   function duplicateSelection(ids: string[]): void {
-    const idSet = new Set(ids);
-    const pairs = ids.map((id) => ({ sourceId: id, newId: nanoid(10) }));
-    const edgePairs = diagram.edges
-      .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
-      .map((e) => ({ sourceId: e.id, newId: nanoid(10) }));
+    const { pairs, edgePairs } = duplicatePairs(diagram, ids, () => nanoid(10));
     dispatch({ type: 'duplicate', pairs, edgePairs });
   }
 

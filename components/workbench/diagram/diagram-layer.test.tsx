@@ -533,6 +533,59 @@ describe('DiagramLayer live connector redraw during drag/resize', () => {
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 160, clientY: 90 });
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
   });
+
+  it('redraws a no-side edge live too, using the far endpoint to pick a side each move (review item 12)', () => {
+    // Same drag as above, but this edge stores no side on either endpoint,
+    // exercising resolveEndpoint's no-side fallback (anchorForOther) instead
+    // of the direct side lookup - endpointBox feeds that fallback the live
+    // box for BOTH ends, so it needs its own coverage rather than assuming
+    // the with-side test above already proves it.
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ source: { nodeId: 'a' }, target: { nodeId: 'b' } })],
+        selection: [{ type: 'node', id: 'a' }],
+      }),
+    });
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    const before = hit.getAttribute('d');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(hit.getAttribute('d')).not.toBe(before);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+  });
+
+  it("moves the label chip live too, not just the connector's own path (review item 12)", () => {
+    // pathFor returns labelX/labelY from the exact same resolved endpoints
+    // as the path itself, but nothing previously pinned that the chip
+    // actually re-renders at the new position mid-drag rather than only
+    // once the gesture ends.
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ label: 'flows to' })], selection: [{ type: 'node', id: 'a' }] }),
+    });
+    const edgeGroup = screen.getByTestId('diagram-edge-edge0000001');
+    const chip = edgeGroup.querySelector('foreignObject')!;
+    const beforeX = chip.getAttribute('x');
+    const beforeY = chip.getAttribute('y');
+
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 100, clientY: 75 });
+
+    expect(edgeGroup.querySelector('foreignObject')!.getAttribute('x')).not.toBe(beforeX);
+    expect(chip.getAttribute('y')).not.toBe(beforeY);
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'move' }));
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 100, clientY: 75 });
+  });
 });
 
 describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until pointer up, one history step)', () => {
@@ -982,6 +1035,30 @@ describe('DiagramLayer quick-add circles', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  // Review item 12: the circle's own radius/icon size, and hoverAt's own
+  // hit-testing, are computed by DIVIDING by viewport.zoom - a scale bug in
+  // that math would only ever surface away from zoom 1, so this repeats the
+  // stopPropagation/dispatch coverage above at zoom 0.5, with real pointer
+  // events (pointerdown, then click) rather than fireEvent.click alone,
+  // since only a pointerdown actually exercises the bubble this guards.
+  it('stopPropagation on its own pointerdown still holds at a 0.5 zoom, so the shape underneath never starts its own select/drag', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }),
+      viewport: { x: 0, y: 0, zoom: 0.5 },
+    });
+    // clientToCanvas divides by zoom, so half the client distance reaches
+    // the same canvas point (50, 25) - the node's own center - as at zoom 1.
+    hoverAt(25, 12.5);
+    const circle = screen.getByTestId('diagram-quick-add-node000001-right');
+
+    fireEvent.pointerDown(circle, { pointerId: 1, clientX: 65, clientY: 12.5 });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    fireEvent.click(circle);
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }));
     expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
   });
 });
