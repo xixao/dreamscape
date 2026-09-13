@@ -1048,6 +1048,11 @@ body {
 .tester-fuego[aria-pressed="true"] {
   background: var(--accent);
 }
+[data-sonner-toast].fuego-toast { justify-content: center; }
+[data-sonner-toast].fuego-toast [data-content] { width: 100%; text-align: center; }
+[data-sonner-toast].fuego-toast [data-title] { color: #c62828; font-weight: 700; }
+[data-sonner-toast].fuego-toast [data-icon] { position: absolute; left: 18px; }
+.dark [data-sonner-toast].fuego-toast [data-title] { color: #ff7070; }
 .tester-stars .tester-fuego span {
   margin: 0;
   font-size: 25px;

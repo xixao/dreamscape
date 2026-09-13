@@ -113,6 +113,7 @@ export default function ParticipantTest({
       setFuego(nextFuego);
       if (nextFuego && !fuego)
         toast("Fuego", {
+          className: "fuego-toast",
           icon: <span className="magic-fire">🔥</span>,
           position: "bottom-center",
         });
