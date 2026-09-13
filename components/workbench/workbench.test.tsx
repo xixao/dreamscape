@@ -1759,6 +1759,18 @@ describe('Workbench', () => {
       expect(screen.queryAllByTestId(/^diagram-edge-hit-/)).toHaveLength(2);
     });
 
+    it('the Design panel\'s Shape field updates after "Change shape" in the right-click menu (Build step 5)', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      expect(screen.getByRole('combobox', { name: 'Shape' })).toHaveTextContent('Rectangle');
+
+      fireEvent.contextMenu(diagramNodes()[0]);
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change shape' }));
+      await userEvent.click(screen.getByRole('menuitemradio', { name: 'Decision' }));
+
+      expect(screen.getByRole('combobox', { name: 'Shape' })).toHaveTextContent('Decision');
+    });
+
     it('arrow keys nudge the selected shape by 8px, 64px with Shift', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
