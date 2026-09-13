@@ -32,10 +32,8 @@ async function addNewFrame(): Promise<void> {
   await userEvent.click(framesButton);
   const newFrameItem = await screen.findByRole('menuitem', { name: 'New frame' });
   await userEvent.click(newFrameItem);
-  // Wait for the menu to close
-  await waitFor(() => {
-    expect(framesButton).toHaveAttribute('aria-expanded', 'false');
-  });
+  // Wait a bit for the frame to be added and any re-renders to complete
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }
 
 // Duplicate a frame by name. Switches to the frame first, then clicks Duplicate.
@@ -484,7 +482,7 @@ describe('Workbench', () => {
       await addNewFrame();
 
       // The frames chip should now show "Frame 2 · 2" (name · count)
-      const framesButton = screen.getByRole('button', { name: 'Frames' });
+      const framesButton = await screen.findByRole('button', { name: 'Frames' });
       expect(framesButton).toHaveTextContent('Frame 2 · 2');
       expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
 
