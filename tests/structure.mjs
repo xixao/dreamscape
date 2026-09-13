@@ -60,6 +60,31 @@ async function moduleAt(file) {
     `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`
   );
 }
+const { completeDemoPrompt, reviewPrompts, testPrompts } = await moduleAt(
+  "lib/demo/prompts.ts",
+);
+const { demoPromptIntent } = await moduleAt("lib/demo/recovery-agent.ts");
+assert.equal(completeDemoPrompt("", reviewPrompts), "");
+assert.equal(completeDemoPrompt("   ", reviewPrompts), "");
+assert.equal(
+  completeDemoPrompt("Review", reviewPrompts),
+  reviewPrompts[0].text,
+);
+assert.equal(
+  completeDemoPrompt("review", reviewPrompts),
+  "review" + reviewPrompts[0].text.slice(6),
+);
+assert.equal(
+  completeDemoPrompt("  Set up", testPrompts),
+  "  " + testPrompts[0].text,
+);
+assert.equal(completeDemoPrompt(reviewPrompts[0].text, reviewPrompts), "");
+assert.equal(completeDemoPrompt("Something unrelated", reviewPrompts), "");
+assert.equal(completeDemoPrompt("Review\n", reviewPrompts), "");
+for (const prompt of reviewPrompts)
+  assert.notEqual(demoPromptIntent(prompt.text), "unsupported");
+for (const prompt of testPrompts)
+  assert.equal(demoPromptIntent(prompt.text), "test");
 const { DEMO_IDS } = await moduleAt("lib/demo/registry.ts");
 assert.equal(
   new Set(Object.values(DEMO_IDS)).size,

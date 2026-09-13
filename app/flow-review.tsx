@@ -2,6 +2,8 @@
 import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
 import { DEMO_IDS } from "@/lib/demo/registry";
 import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
+import GuidedPrompt from "./demo/guided-prompt";
+import { reviewPrompts } from "@/lib/demo/prompts";
 import {
   createHandoff,
   placedComments,
@@ -1291,9 +1293,15 @@ export default function FlowReview() {
                         </div>
                         <div className="assistant-composer">
                           <form
-                            className="assistant-prompt"
+                            className="assistant-prompt guided-composer"
                             onSubmit={(e) => {
                               e.preventDefault();
+                              if (
+                                !prompt.trim() ||
+                                busy ||
+                                assistant === "thinking"
+                              )
+                                return;
                               if (demoPromptIntent(prompt) === "test") {
                                 setTestSetup(
                                   scriptedTestSetup(
@@ -1315,19 +1323,22 @@ export default function FlowReview() {
                               setPrompt("");
                             }}
                           >
-                            <Input
-                              aria-label="Message scripted assistant"
+                            <GuidedPrompt
+                              label="Message scripted assistant"
                               value={prompt}
                               maxLength={400}
-                              onChange={(e) => setPrompt(e.target.value)}
-                              placeholder="Ask about this upload flow..."
+                              onChange={setPrompt}
+                              prompts={reviewPrompts}
+                              disabled={busy || assistant === "thinking"}
                             />
                             <Button
                               type="submit"
                               size="icon"
                               variant="ghost"
                               disabled={
-                                !prompt.trim() || assistant === "thinking"
+                                !prompt.trim() ||
+                                busy ||
+                                assistant === "thinking"
                               }
                               aria-label="Send to scripted assistant"
                             >

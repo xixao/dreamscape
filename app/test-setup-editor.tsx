@@ -1,5 +1,7 @@
 "use client";
 import { DEMO_IDS } from "@/lib/demo/registry";
+import GuidedPrompt from "./demo/guided-prompt";
+import { testPrompts } from "@/lib/demo/prompts";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,9 +27,7 @@ export default function TestSetupEditor({
   canRetry: boolean;
   disabled: boolean;
 }) {
-  const [prompt, setPrompt] = useState(
-    "Set up a Research mobile component test for the document upload.",
-  );
+  const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   function change<K extends keyof TestSetup>(key: K, v: TestSetup[K]) {
     onChange({ ...value, [key]: v });
@@ -38,11 +38,13 @@ export default function TestSetupEditor({
         <label htmlFor="setup-prompt">
           Set up with AI <span className="badge amber">Simulated</span>
         </label>
-        <Textarea
+        <GuidedPrompt
           id="setup-prompt"
+          label="Prompt to prepare a test"
           value={prompt}
           maxLength={600}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={setPrompt}
+          prompts={testPrompts}
           disabled={disabled}
         />
         <Button
