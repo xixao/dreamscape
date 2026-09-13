@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useEventHandler } from '@craftjs/core';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import { invalidateDropCache, type CraftEventHandlerLike } from '@/lib/craft-positioner';
 import { type CanvasDocument, useStage } from './stage-context';
 
 // Marks every stylesheet node this component copies into the iframe head,
@@ -58,6 +60,31 @@ export function CanvasFrame({
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
   const [autoHeight, setAutoHeight] = useState(ARTBOARD_MIN_HEIGHT);
   const setStageCanvasDocument = useStage().setCanvasDocument;
+
+  // Craft's live event-handler instance (see lib/craft-positioner.ts for
+  // why this - not useEditor()'s `store` - is what actually owns the
+  // Positioner), mirrored into a ref so the mount-once iframe effect below
+  // can always read the current value without depending on it: that effect
+  // sets up the iframe's document exactly once, and re-running it on every
+  // handler identity change would tear down and recreate the whole
+  // style-sync/resize/scroll-bridge setup for no reason. `null` outside of
+  // a Craft `<Editor>` (e.g. in a test that renders CanvasFrame alone).
+  //
+  // Cast through `unknown`: `useEventHandler()` is typed to return the
+  // generic `CoreEventHandlers<{}>` base class, which has no `positioner`
+  // of its own - that field only exists on `DefaultEventHandlers`, the
+  // concrete class Craft actually instantiates by default (and what this
+  // app uses - see workbench.tsx's unconfigured `<Editor>`). Narrowing to
+  // the loose, all-optional `CraftEventHandlerLike` shape here, rather than
+  // to `DefaultEventHandlers` itself, is deliberate: it's what keeps
+  // invalidateDropCache's own optional-chaining meaningful (and testable
+  // with a plain fake object) if a future Craft version swaps in some
+  // other handlers class.
+  const eventHandler = useEventHandler() as unknown as CraftEventHandlerLike;
+  const eventHandlerRef = useRef(eventHandler);
+  useEffect(() => {
+    eventHandlerRef.current = eventHandler;
+  }, [eventHandler]);
 
   // Published up through StageContext too (see the type's own comment in
   // stage-context.tsx): useLayerStack and useWorkbenchKeyboard need it and
@@ -135,15 +162,22 @@ export function CanvasFrame({
       });
       resizeObserver.observe(iframeDoc.body);
 
-      // Craft's vendored Positioner (drag-and-drop drop-target math)
-      // attaches its cache-invalidating capture-phase `scroll` listener,
-      // and a `dragover` preventDefault fallback that allows dropping
-      // anywhere, to the parent `window` only - it has no way to know this
-      // iframe's document exists. Bridge both: a scroll inside the frame
-      // still invalidates Craft's cache, and a drop anywhere inside the
-      // frame is still allowed, the same way it already is in the parent.
+      // Craft's vendored Positioner (@craftjs/core 0.2.12 - drag-and-drop
+      // drop-target math; node_modules/@craftjs/core/dist/esm/index.js,
+      // `key:"onScroll"`) caches the hovered drop target's child rects and
+      // only ever clears that cache from its OWN capture-phase `scroll`
+      // listener on the parent `window`, gated on
+      // `event.target instanceof Element && event.target.contains(node.dom)`.
+      // Both checks are realm/document-bound, so nothing dispatched from
+      // this iframe's document can ever satisfy them - see
+      // lib/craft-positioner.ts for the full explanation. Clear the cache
+      // directly instead of trying to make a synthetic window `scroll`
+      // pass Craft's own checks (it can't). `dragover` still needs its own
+      // bridge below: Craft's `preventDefault` fallback, which allows
+      // dropping anywhere, is also only wired to the parent window, and
+      // that part of the trick still works fine cross-document.
       function onFrameScroll() {
-        window.dispatchEvent(new Event('scroll'));
+        invalidateDropCache(eventHandlerRef.current);
       }
       function onFrameDragOver(event: Event) {
         event.preventDefault();
