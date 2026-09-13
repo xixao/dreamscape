@@ -85,14 +85,6 @@ export interface DiagramHistory {
 export interface DiagramState extends DiagramData {
   selection: DiagramSelection;
   history: DiagramHistory;
-  // The ids created by the most recent add/duplicate/quickAdd action, so a
-  // caller (diagram-layer.tsx) can react to a creation without threading its
-  // own minted ids back out of the dispatch call - e.g. redirecting an
-  // option-drag's in-progress pointer gesture onto the copies `duplicate`
-  // just made. Not part of `DiagramData`: like `selection`, it is ephemeral
-  // UI state, never persisted, and reset to `[]` by undo/redo (there is no
-  // meaningful "most recently created" id once history has moved).
-  lastCreatedIds: string[];
 }
 
 // Inline text/label cap (spec: "text up to 500 chars"; palette behaviour:
@@ -125,7 +117,7 @@ export function createEmptyDiagramData(): DiagramData {
 }
 
 export function createInitialDiagramState(data: DiagramData = createEmptyDiagramData()): DiagramState {
-  return { nodes: data.nodes, edges: data.edges, selection: [], history: { past: [], future: [] }, lastCreatedIds: [] };
+  return { nodes: data.nodes, edges: data.edges, selection: [], history: { past: [], future: [] } };
 }
 
 export type DiagramAction =
@@ -230,15 +222,10 @@ function snapSize(value: number): number {
   return Math.max(MIN_SIZE, snapToGrid(value));
 }
 
-/** Pushes `{ nodes, edges }` of the state BEFORE this edit onto `past` (capped at HISTORY_LIMIT) and clears `future` - every action that changes the document, other than selection/undo/redo/load, commits through this. `lastCreatedIds` defaults to carrying the previous value forward unchanged, so only the actions that actually create something (add/duplicate/quickAdd) need to pass a 4th argument. */
-function commit(
-  state: DiagramState,
-  next: DiagramData,
-  selection: DiagramSelection = state.selection,
-  lastCreatedIds: string[] = state.lastCreatedIds,
-): DiagramState {
+/** Pushes `{ nodes, edges }` of the state BEFORE this edit onto `past` (capped at HISTORY_LIMIT) and clears `future` - every action that changes the document, other than selection/undo/redo/load, commits through this. */
+function commit(state: DiagramState, next: DiagramData, selection: DiagramSelection = state.selection): DiagramState {
   const past = [...state.history.past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT);
-  return { nodes: next.nodes, edges: next.edges, selection, history: { past, future: [] }, lastCreatedIds };
+  return { nodes: next.nodes, edges: next.edges, selection, history: { past, future: [] } };
 }
 
 function opposite(side: Side): Side {
@@ -263,21 +250,25 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
   switch (action.type) {
     case 'add': {
       if (state.nodes.some((n) => n.id === action.node.id)) return state;
-      return commit(
-        state,
-        { nodes: [...state.nodes, action.node], edges: state.edges },
-        [{ type: 'node', id: action.node.id }],
-        [action.node.id],
-      );
+      return commit(state, { nodes: [...state.nodes, action.node], edges: state.edges }, [
+        { type: 'node', id: action.node.id },
+      ]);
     }
 
+    // Adds the delta exactly - no snapping of its own (review finding 10,
+    // Matt's nudge rule: a plain arrow key must move a diagram selection by
+    // exactly 1px, not jump to the nearest 8px multiple). Snapping to the
+    // grid is the CALLER's job now: the diagram layer snaps a drag's pointer
+    // delta before dispatching (diagram-layer.tsx's endDrag), so a mouse
+    // drag still lands on the grid, while a keyboard nudge dispatches its 1
+    // or 8 px amount unsnapped, on purpose.
     case 'move': {
       const ids = new Set(action.ids);
       let changed = false;
       const nodes = state.nodes.map((n) => {
         if (!ids.has(n.id)) return n;
         changed = true;
-        return { ...n, x: snapToGrid(n.x + action.dx), y: snapToGrid(n.y + action.dy) };
+        return { ...n, x: n.x + action.dx, y: n.y + action.dy };
       });
       if (!changed) return state;
       return commit(state, { nodes, edges: state.edges });
@@ -407,24 +398,31 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
           target: { ...original.target, nodeId: newTargetId },
         });
       }
-      return commit(
-        state,
-        { nodes: [...state.nodes, ...copies], edges: [...state.edges, ...copiedEdges] },
-        selection,
-        copies.map((c) => c.id),
-      );
+      return commit(state, { nodes: [...state.nodes, ...copies], edges: [...state.edges, ...copiedEdges] }, selection);
     }
 
+    // Review finding 8: a no-op reorder (every id already at that end)
+    // still pushed a history entry, so the next Cmd+Z appeared to do
+    // nothing and threw away the redo stack - compare element-by-element
+    // by reference (same guard shape as move's own `changed`) rather than
+    // committing unconditionally whenever `ids` matched something.
     case 'reorder': {
       const idSet = new Set(action.ids);
       const targets = state.nodes.filter((n) => idSet.has(n.id));
       if (targets.length === 0) return state;
       const rest = state.nodes.filter((n) => !idSet.has(n.id));
       const nodes = action.to === 'front' ? [...rest, ...targets] : [...targets, ...rest];
+      const changed = nodes.some((n, i) => n !== state.nodes[i]);
+      if (!changed) return state;
       return commit(state, { nodes, edges: state.edges });
     }
 
+    // Review finding 19: refuses an already-used newNodeId/newEdgeId, same
+    // as `add` above - quickAdd previously did not.
     case 'quickAdd': {
+      if (state.nodes.some((n) => n.id === action.newNodeId) || state.edges.some((e) => e.id === action.newEdgeId)) {
+        return state;
+      }
       const source = state.nodes.find((n) => n.id === action.sourceId);
       if (!source) return state;
       const { width, height } = source;
@@ -461,14 +459,14 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         kind: 'step',
         arrow: 'end',
       };
-      return commit(
-        state,
-        { nodes: [...state.nodes, newNode], edges: [...state.edges, newEdge] },
-        [{ type: 'node', id: newNode.id }],
-        [newNode.id],
-      );
+      return commit(state, { nodes: [...state.nodes, newNode], edges: [...state.edges, newEdge] }, [
+        { type: 'node', id: newNode.id },
+      ]);
     }
 
+    // Review finding 8: aligning shapes that are already aligned still
+    // pushed a history entry - track whether anything actually moved, same
+    // `changed` guard shape as move/reorder above.
     case 'align': {
       const targets = action.ids
         .map((id) => state.nodes.find((n) => n.id === id))
@@ -477,54 +475,92 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const box = bounds(targets);
       if (!box) return state;
       const targetIds = new Set(targets.map((n) => n.id));
+      let changed = false;
       const nodes = state.nodes.map((n) => {
         if (!targetIds.has(n.id)) return n;
+        const axis: 'x' | 'y' =
+          action.mode === 'left' || action.mode === 'right' || action.mode === 'centerX' ? 'x' : 'y';
+        let value: number;
         switch (action.mode) {
           case 'left':
-            return { ...n, x: snapToGrid(box.x) };
+            value = snapToGrid(box.x);
+            break;
           case 'right':
-            return { ...n, x: snapToGrid(box.x + box.width - n.width) };
+            value = snapToGrid(box.x + box.width - n.width);
+            break;
           case 'centerX':
-            return { ...n, x: snapToGrid(box.x + (box.width - n.width) / 2) };
+            value = snapToGrid(box.x + (box.width - n.width) / 2);
+            break;
           case 'top':
-            return { ...n, y: snapToGrid(box.y) };
+            value = snapToGrid(box.y);
+            break;
           case 'bottom':
-            return { ...n, y: snapToGrid(box.y + box.height - n.height) };
+            value = snapToGrid(box.y + box.height - n.height);
+            break;
           case 'centerY':
-            return { ...n, y: snapToGrid(box.y + (box.height - n.height) / 2) };
-          default:
-            return n;
+            value = snapToGrid(box.y + (box.height - n.height) / 2);
+            break;
         }
+        if (value === n[axis]) return n;
+        changed = true;
+        return { ...n, [axis]: value };
       });
+      if (!changed) return state;
       return commit(state, { nodes, edges: state.edges });
     }
 
+    // Review finding 9: span was computed from whichever shape sorted last
+    // by position, not from the true extents - a wide interior shape can
+    // extend further than the "last" (by position) shape, undercounting the
+    // span and throwing another shape past the first. Now: span runs from
+    // the smallest start to the largest end over every target (not just the
+    // sorted endpoints), the shape achieving that largest end stays fixed
+    // at its own position (rather than assuming it is always last by sort
+    // order), and the gap is clamped to 0 rather than going negative when
+    // the shapes do not fit. Finding 8: also tracks `changed`, same as
+    // align/reorder above.
     case 'distribute': {
       const targets = action.ids
         .map((id) => state.nodes.find((n) => n.id === id))
         .filter((n): n is DiagramNode => n !== undefined);
       if (targets.length < 3) return state;
       const horizontal = action.axis === 'horizontal';
-      const sorted = [...targets].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
-      const first = sorted[0];
-      const last = sorted[sorted.length - 1];
-      const totalSize = sorted.reduce((sum, n) => sum + (horizontal ? n.width : n.height), 0);
-      const span = horizontal ? last.x + last.width - first.x : last.y + last.height - first.y;
-      const gap = (span - totalSize) / (sorted.length - 1);
-      // Only the interior shapes move - the first and last stay exactly
-      // where they were (spec: "first and last stay put").
-      const updates = new Map<string, number>();
-      let cursor = horizontal ? first.x : first.y;
-      for (let i = 0; i < sorted.length; i++) {
-        const current = sorted[i];
-        if (i > 0 && i < sorted.length - 1) updates.set(current.id, snapToGrid(cursor));
-        cursor += (horizontal ? current.width : current.height) + gap;
+      const start = (n: DiagramNode) => (horizontal ? n.x : n.y);
+      const end = (n: DiagramNode) => (horizontal ? n.x + n.width : n.y + n.height);
+      const size = (n: DiagramNode) => (horizontal ? n.width : n.height);
+
+      const minStart = Math.min(...targets.map(start));
+      let anchorEnd = targets[0];
+      for (const n of targets) {
+        if (end(n) > end(anchorEnd)) anchorEnd = n;
       }
+      const first = targets.find((n) => start(n) === minStart) ?? targets[0];
+      const totalSize = targets.reduce((sum, n) => sum + size(n), 0);
+      const span = end(anchorEnd) - minStart;
+      const gap = Math.max(0, (span - totalSize) / (targets.length - 1));
+
+      // Every OTHER shape (not the two fixed anchors) fills the middle, in
+      // position order - `first`/`anchorEnd` themselves are never in this
+      // list, even when one of them does not sort first/last by position.
+      const interior = targets.filter((n) => n !== first && n !== anchorEnd).sort((a, b) => start(a) - start(b));
+      const ordered = first === anchorEnd ? [first, ...interior] : [first, ...interior, anchorEnd];
+
+      const updates = new Map<string, number>();
+      let cursor = minStart;
+      for (const current of ordered) {
+        if (current !== first && current !== anchorEnd) updates.set(current.id, snapToGrid(cursor));
+        cursor += size(current) + gap;
+      }
+
+      let changed = false;
       const nodes = state.nodes.map((n) => {
         const value = updates.get(n.id);
         if (value === undefined) return n;
+        if (value === start(n)) return n;
+        changed = true;
         return horizontal ? { ...n, x: value } : { ...n, y: value };
       });
+      if (!changed) return state;
       return commit(state, { nodes, edges: state.edges });
     }
 
@@ -543,7 +579,6 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         edges: previous.edges,
         selection: [],
         history: { past: past.slice(0, -1), future: [{ nodes: state.nodes, edges: state.edges }, ...future] },
-        lastCreatedIds: [],
       };
     }
 
@@ -559,7 +594,6 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
           past: [...past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT),
           future: future.slice(1),
         },
-        lastCreatedIds: [],
       };
     }
 
@@ -609,6 +643,34 @@ export function selectionBounds(state: DiagramState): Box | null {
     .map((item) => state.nodes.find((n) => n.id === item.id))
     .filter((n): n is DiagramNode => n !== undefined);
   return bounds(boxes);
+}
+
+/**
+ * Mints a `duplicate` action's `pairs`/`edgePairs` for `ids` (review finding
+ * 7: this exact "a connector whose both endpoints are in the duplicated
+ * set" computation used to exist three times - here, in diagram-layer.tsx's
+ * option-drag, and in workbench.tsx's Cmd+D - one hand-copied filter apiece,
+ * exactly the kind of drift the Cmd+D consistency fix was already patching
+ * over). Pure: `makeId` is the only source of new ids, same "caller mints
+ * every id" rule as the rest of this module - callers pass `nanoid`. An id
+ * in `ids` that does not resolve to an existing node is silently skipped,
+ * same as `duplicate` itself already does for a `pairs` entry.
+ */
+export function duplicatePairs(
+  state: Pick<DiagramData, 'nodes' | 'edges'>,
+  ids: string[],
+  makeId: () => string,
+): { pairs: { sourceId: string; newId: string }[]; edgePairs: { sourceId: string; newId: string }[] } {
+  const idSet = new Set(ids);
+  const pairs: { sourceId: string; newId: string }[] = [];
+  for (const id of ids) {
+    if (!state.nodes.some((n) => n.id === id)) continue;
+    pairs.push({ sourceId: id, newId: makeId() });
+  }
+  const edgePairs = state.edges
+    .filter((e) => !!e.source.nodeId && idSet.has(e.source.nodeId) && !!e.target.nodeId && idSet.has(e.target.nodeId))
+    .map((e) => ({ sourceId: e.id, newId: makeId() }));
+  return { pairs, edgePairs };
 }
 
 /**

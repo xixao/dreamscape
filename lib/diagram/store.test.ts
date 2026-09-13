@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createInitialDiagramState,
   diagramReducer,
+  duplicatePairs,
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
   pruneEdgesForScreen,
@@ -51,7 +52,6 @@ describe('createInitialDiagramState', () => {
       edges: [],
       selection: [],
       history: { past: [], future: [] },
-      lastCreatedIds: [],
     });
   });
 
@@ -76,37 +76,27 @@ describe('diagramReducer: add', () => {
     const undone = diagramReducer(added, { type: 'undo' });
     expect(undone.nodes).toEqual([]);
   });
-
-  it('records the new node id as lastCreatedIds', () => {
-    const next = diagramReducer(createInitialDiagramState(), { type: 'add', node: node() });
-    expect(next.lastCreatedIds).toEqual(['n1']);
-  });
-});
-
-describe('diagramReducer: lastCreatedIds', () => {
-  it('is carried forward, unchanged, by an action that creates nothing new', () => {
-    const added = diagramReducer(createInitialDiagramState(), { type: 'add', node: node() });
-    const moved = diagramReducer(added, { type: 'move', ids: ['n1'], dx: 8, dy: 0 });
-    expect(moved.lastCreatedIds).toEqual(['n1']);
-  });
-
-  it('is reset to empty by undo and redo', () => {
-    const added = diagramReducer(createInitialDiagramState(), { type: 'add', node: node() });
-    const undone = diagramReducer(added, { type: 'undo' });
-    expect(undone.lastCreatedIds).toEqual([]);
-    const readded = diagramReducer(undone, { type: 'add', node: node() });
-    const redone = diagramReducer(diagramReducer(readded, { type: 'undo' }), { type: 'redo' });
-    expect(redone.lastCreatedIds).toEqual([]);
-  });
 });
 
 describe('diagramReducer: move', () => {
-  it('moves and snaps every given id to the 8px grid', () => {
+  // Review finding 10 (Matt's nudge rule): move adds the delta exactly, with
+  // no snapping of its own - a plain arrow-key nudge must land 1px away, not
+  // jump to the nearest 8px multiple. Snapping to the grid is now the
+  // CALLER's job: the diagram layer snaps a drag's pointer delta before
+  // dispatching (so drags still land on the grid, tested in
+  // diagram-layer.test.tsx), while a nudge dispatches its 1 or 8 px amount
+  // unsnapped, on purpose.
+  it('adds the delta exactly, with no snapping of its own', () => {
     const state = stateWith({ nodes: [node({ id: 'a', x: 10, y: 10 }), node({ id: 'b', x: 100, y: 100 })] });
     const next = diagramReducer(state, { type: 'move', ids: ['a'], dx: 3, dy: 5 });
-    // (10+3, 10+5) = (13, 15) snapped to the nearest 8 -> (16, 16).
-    expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ x: 16, y: 16 });
+    expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ x: 13, y: 15 });
     expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 100, y: 100 });
+  });
+
+  it('moves a selection by exactly 1px, off the 8px grid, for a plain nudge', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', x: 100, y: 100 })] });
+    const next = diagramReducer(state, { type: 'move', ids: ['a'], dx: 1, dy: 0 });
+    expect(next.nodes[0]).toMatchObject({ x: 101, y: 100 });
   });
 
   it('ignores unknown ids without touching history', () => {
@@ -292,12 +282,6 @@ describe('diagramReducer: duplicate', () => {
     expect(next.edges).toHaveLength(1);
   });
 
-  it('records the newly-created ids as lastCreatedIds', () => {
-    const state = stateWith({ nodes: [node({ id: 'n1' })] });
-    const next = diagramReducer(state, { type: 'duplicate', pairs: [{ sourceId: 'n1', newId: 'copy1' }] });
-    expect(next.lastCreatedIds).toEqual(['copy1']);
-  });
-
   it('accepts an explicit offset (e.g. zero, for an option-drag duplicate), snapped to the grid', () => {
     const state = stateWith({ nodes: [node({ id: 'n1', x: 40, y: 40 })] });
     const next = diagramReducer(state, {
@@ -363,6 +347,15 @@ describe('diagramReducer: reorder', () => {
     expect(next).toBe(state);
   });
 
+  // Review finding 8: a no-op reorder (the node is already at that end)
+  // still pushed a history entry, so the next Cmd+Z appeared to do nothing
+  // and threw away the redo stack.
+  it('is a no-op, no history entry, when the node is already at that end', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' }), node({ id: 'c' })] });
+    const next = diagramReducer(state, { type: 'reorder', ids: ['c'], to: 'front' });
+    expect(next).toBe(state);
+  });
+
   it('is undoable', () => {
     const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' })] });
     const next = diagramReducer(state, { type: 'reorder', ids: ['a'], to: 'front' });
@@ -395,7 +388,6 @@ describe('diagramReducer: quickAdd', () => {
       arrow: 'end',
     });
     expect(next.selection).toEqual([{ type: 'node', id: 'new1' }]);
-    expect(next.lastCreatedIds).toEqual(['new1']);
   });
 
   it('adds to the left, aligned on y, with a step edge left-to-right', () => {
@@ -425,6 +417,23 @@ describe('diagramReducer: quickAdd', () => {
   it('is a no-op for an unknown source', () => {
     const state = stateWith({ nodes: [] });
     const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'missing', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    expect(next).toBe(state);
+  });
+
+  // Review finding 19: quickAdd did not refuse an already-used id the way
+  // add does.
+  it('is a no-op when newNodeId already exists', () => {
+    const state = stateWith({ nodes: [source, node({ id: 'new1' })] });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'src', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    expect(next).toBe(state);
+  });
+
+  it('is a no-op when newEdgeId already exists', () => {
+    const state = stateWith({
+      nodes: [source, node({ id: 'other' })],
+      edges: [edge({ id: 'edge1', source: { nodeId: 'src' }, target: { nodeId: 'other' } })],
+    });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'src', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
     expect(next).toBe(state);
   });
 
@@ -500,6 +509,16 @@ describe('diagramReducer: align', () => {
     const undone = diagramReducer(next, { type: 'undo' });
     expect(undone.nodes).toEqual([a, b]);
   });
+
+  // Review finding 8: aligning shapes that are already aligned still pushed
+  // a history entry, so Cmd+Z appeared to do nothing.
+  it('is a no-op, no history entry, when every shape is already aligned', () => {
+    const alreadyLeft = node({ id: 'x', x: 0, y: 0, width: 48, height: 32 });
+    const alreadyLeftToo = node({ id: 'y', x: 0, y: 50, width: 16, height: 96 });
+    const state = stateWith({ nodes: [alreadyLeft, alreadyLeftToo] });
+    const next = diagramReducer(state, { type: 'align', ids: ['x', 'y'], mode: 'left' });
+    expect(next).toBe(state);
+  });
 });
 
 describe('diagramReducer: distribute', () => {
@@ -548,6 +567,35 @@ describe('diagramReducer: distribute', () => {
     const next = diagramReducer(state, { type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
     const undone = diagramReducer(next, { type: 'undo' });
     expect(undone.nodes).toEqual([a, b, c]);
+  });
+
+  // Review finding 8: distributing shapes already evenly spaced still
+  // pushed a history entry.
+  it('is a no-op, no history entry, when already evenly distributed', () => {
+    const evenA = node({ id: 'a', x: 0, y: 0, width: 40, height: 20 });
+    const evenB = node({ id: 'b', x: 104, y: 0, width: 40, height: 20 });
+    const evenC = node({ id: 'c', x: 208, y: 0, width: 40, height: 20 });
+    const state = stateWith({ nodes: [evenA, evenB, evenC] });
+    const next = diagramReducer(state, { type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+    expect(next).toBe(state);
+  });
+
+  // Review finding 9: distribute picked its span from whichever shape
+  // sorted last by position, not from the true extents - a wide interior
+  // shape (b) could extend further right than the "last" shape (c),
+  // undercounting the span and throwing c past a on the other side.
+  it('uses extents (min start to max end) for the span, so a wide shape does not throw another one past the first', () => {
+    const wideA = node({ id: 'a', x: 0, y: 0, width: 40, height: 20 });
+    const wideB = node({ id: 'b', x: 60, y: 0, width: 200, height: 20 }); // right edge 260, the widest extent
+    const wideC = node({ id: 'c', x: 100, y: 0, width: 40, height: 20 }); // right edge 140, sorts last by x
+    const state = stateWith({ nodes: [wideA, wideB, wideC] });
+    const next = diagramReducer(state, { type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' });
+    // b has the max right edge and stays fixed, same as a (min start);
+    // c is the only interior shape and lands directly after a - the gap
+    // is clamped to 0 since the three shapes do not fit in b's span.
+    expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ x: 0 });
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ x: 60 });
+    expect(next.nodes.find((n) => n.id === 'c')).toMatchObject({ x: 40 });
   });
 });
 
@@ -682,6 +730,114 @@ describe('selectionBounds', () => {
       selection: [{ type: 'edge' as const, id: 'e1' }],
     };
     expect(selectionBounds(state)).toBeNull();
+  });
+});
+
+describe('diagramReducer: immutability (review finding 12/10)', () => {
+  function deepFreeze<T>(value: T): T {
+    if (value && typeof value === 'object') {
+      Object.getOwnPropertyNames(value as object).forEach((key) => deepFreeze((value as Record<string, unknown>)[key]));
+      Object.freeze(value);
+    }
+    return value;
+  }
+
+  it('never mutates a deep-frozen input state for any of the five new actions', () => {
+    const frozen = deepFreeze(
+      stateWith({
+        nodes: [
+          node({ id: 'a', x: 0, y: 0, width: 40, height: 40 }),
+          node({ id: 'b', x: 100, y: 100, width: 40, height: 40 }),
+          node({ id: 'c', x: 200, y: 0, width: 40, height: 40 }),
+        ],
+        edges: [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' } })],
+      }),
+    );
+    expect(() => diagramReducer(frozen, { type: 'reorder', ids: ['a'], to: 'front' })).not.toThrow();
+    expect(() =>
+      diagramReducer(frozen, { type: 'quickAdd', sourceId: 'a', side: 'right', newNodeId: 'x1', newEdgeId: 'x2' }),
+    ).not.toThrow();
+    expect(() => diagramReducer(frozen, { type: 'align', ids: ['a', 'b'], mode: 'left' })).not.toThrow();
+    expect(() => diagramReducer(frozen, { type: 'distribute', ids: ['a', 'b', 'c'], axis: 'horizontal' })).not.toThrow();
+    expect(() =>
+      diagramReducer(frozen, {
+        type: 'duplicate',
+        pairs: [{ sourceId: 'a', newId: 'copy1' }],
+        edgePairs: [{ sourceId: 'e1', newId: 'copy2' }],
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('diagramReducer: duplicate with edgePairs, then undo (review finding 10/12)', () => {
+  it('undo removes both the copied nodes and the copied connector together, in one step', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a' }), node({ id: 'b' })],
+      edges: [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' } })],
+    });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [
+        { sourceId: 'a', newId: 'copyA' },
+        { sourceId: 'b', newId: 'copyB' },
+      ],
+      edgePairs: [{ sourceId: 'e1', newId: 'copyE' }],
+    });
+    expect(next.nodes).toHaveLength(4);
+    expect(next.edges).toHaveLength(2);
+
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes).toEqual(state.nodes);
+    expect(undone.edges).toEqual(state.edges);
+  });
+});
+
+describe('duplicatePairs', () => {
+  // Review finding 7: the "connector whose both endpoints are in the
+  // duplicated set" filter existed three times (diagram-layer.tsx twice,
+  // workbench.tsx once) - one hand-copied re-implementation apiece. This is
+  // the single pure, tested implementation all three now call.
+  it('mints a pair for each existing id and an edgePair for a connector wholly inside the set', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const state = {
+      nodes: [node({ id: 'a' }), node({ id: 'b' })],
+      edges: [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })],
+    };
+    const result = duplicatePairs(state, ['a', 'b'], makeId);
+    expect(result.pairs).toEqual([
+      { sourceId: 'a', newId: 'new1' },
+      { sourceId: 'b', newId: 'new2' },
+    ]);
+    expect(result.edgePairs).toEqual([{ sourceId: 'e1', newId: 'new3' }]);
+  });
+
+  it('skips an id that does not resolve to an existing node', () => {
+    const state = { nodes: [node({ id: 'a' })], edges: [] };
+    const result = duplicatePairs(state, ['a', 'missing'], () => 'x');
+    expect(result.pairs).toEqual([{ sourceId: 'a', newId: 'x' }]);
+  });
+
+  it('does not pair a connector whose other endpoint is outside the given ids', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const state = {
+      nodes: [node({ id: 'a' }), node({ id: 'b' })],
+      edges: [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' } })],
+    };
+    const result = duplicatePairs(state, ['a'], makeId);
+    expect(result.edgePairs).toEqual([]);
+  });
+
+  it('never pairs a connector with a frame (screenId) endpoint', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const state = {
+      nodes: [node({ id: 'a' })],
+      edges: [edge({ id: 'e1', source: { nodeId: 'a' }, target: { screenId: 's1' } })],
+    };
+    const result = duplicatePairs(state, ['a'], makeId);
+    expect(result.edgePairs).toEqual([]);
   });
 });
 
