@@ -388,6 +388,7 @@ describe('FramePreview', () => {
       onPanPointerDown: vi.fn(),
       onPanPointerMove: vi.fn(),
       onPanPointerUp: vi.fn(),
+      onFrameWheel: vi.fn(),
     };
   }
 
@@ -476,6 +477,37 @@ describe('FramePreview', () => {
 
       expect(onPanPointerMove).toHaveBeenCalledTimes(1);
       expect(onPanPointerUp).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('wheel bridge (same as the focused frame gets)', () => {
+    it('forwards a wheel event from the frame document to onFrameWheel, with this preview\'s own window', async () => {
+      const onFrameWheel = vi.fn();
+      renderInEditor(
+        <FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} onFrameWheel={onFrameWheel} />,
+      );
+      const body = await previewFrameBody();
+      const frameWindow = body.ownerDocument.defaultView;
+
+      fireEvent.wheel(body, { deltaY: 20 });
+
+      expect(onFrameWheel).toHaveBeenCalledTimes(1);
+      const [event, passedWindow] = onFrameWheel.mock.calls[0];
+      expect((event as WheelEvent).deltaY).toBe(20);
+      expect(passedWindow).toBe(frameWindow);
+    });
+
+    it('removes its listeners, including the wheel bridge, when the preview unmounts', async () => {
+      const { unmount } = renderInEditor(
+        <FramePreview screen={SCREEN_1} onFocusScreen={vi.fn()} {...noPanProps()} />,
+      );
+      const body = await previewFrameBody();
+      const frameDoc = body.ownerDocument;
+      const removeSpy = vi.spyOn(frameDoc, 'removeEventListener');
+
+      unmount();
+
+      expect(removeSpy).toHaveBeenCalledWith('wheel', expect.any(Function));
     });
   });
 });

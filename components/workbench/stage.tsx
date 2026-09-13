@@ -456,7 +456,7 @@ export const Stage = memo(StageImpl);
  * slot (CanvasFrame's `reportDocument={false}`) - that slot is scoped to the
  * one focused frame. `onCanvasDocument` gives this component its OWN, local
  * reference to its iframe's document/window instead, just for the
- * click-to-focus/pan listeners below (a plain onPointerDown on the wrapper
+ * click-to-focus/pan/wheel listeners below (a plain onPointerDown on the wrapper
  * catches a press that lands on the border/background around the iframe,
  * but not one that lands on the iframe's own rendered content - a separate
  * document, per lib/craft-positioner.ts's explanation of why every
@@ -482,6 +482,7 @@ function FramePreviewImpl({
   onPanPointerDown,
   onPanPointerMove,
   onPanPointerUp,
+  onFrameWheel,
 }: {
   screen: Screen;
   // Takes the screen id (rather than a plain, no-argument `onFocus`) so
@@ -495,14 +496,25 @@ function FramePreviewImpl({
   // Space+drag (plus middle mouse) must pan the canvas from a non-focused
   // preview too, not just the focused frame - without changing focus or
   // selection (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
-  // design.md section 3). All four come from canvas.tsx, stable across
-  // renders (see the comment there), so wiring them here never needs to
-  // re-subscribe the effect below just because Canvas re-rendered for an
-  // unrelated reason such as a pan/zoom tick.
+  // design.md section 3). All five (including onFrameWheel below) come from
+  // canvas.tsx, stable across renders (see the comment there), so wiring
+  // them here never needs to re-subscribe the effect below just because
+  // Canvas re-rendered for an unrelated reason such as a pan/zoom tick.
   shouldStartPan: (button: number) => boolean;
   onPanPointerDown: (event: PointerEvent) => void;
   onPanPointerMove: (event: PointerEvent) => void;
   onPanPointerUp: (event: PointerEvent) => void;
+  // The same wheel bridge the focused frame gets (canvas.tsx's frameWheel,
+  // via its stable callback): plain wheel pans, Cmd/Ctrl+wheel zooms around
+  // the pointer, and a frame that can still scroll its own content keeps
+  // that native scroll instead (spec section 3 - pan/zoom are general
+  // canvas interactions, not carved out for whichever frame is focused).
+  // Takes this preview's own frameWindow explicitly, the same reason
+  // onPanPointerDown/Move/Up don't need it: canvas.tsx's shared handler
+  // measures the exact iframe box to convert the event's frame-document
+  // clientX/clientY into a window-space point for zoom-around-pointer, and
+  // only the caller - not the event itself - knows which iframe that is.
+  onFrameWheel: (event: WheelEvent, frameWindow: Window) => void;
 }) {
   const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
 
@@ -516,6 +528,12 @@ function FramePreviewImpl({
       event.preventDefault();
       onFocusScreen(screen.id);
     }
+    // TS narrowing of `frameDocument` above does not persist into this
+    // nested function declaration (same limitation canvas.tsx's own
+    // onWheel wrapper notes), hence the assertion.
+    function onWheel(event: WheelEvent) {
+      onFrameWheel(event, frameDocument!.window);
+    }
     frameDocument.window.addEventListener("pointerdown", onPointerDown, { capture: true });
     // Forwarded unconditionally (not gated on shouldStartPan here) - the
     // pan itself already checks canvas.tsx's own panRef for a matching
@@ -525,13 +543,28 @@ function FramePreviewImpl({
     frameDocument.window.addEventListener("pointermove", onPanPointerMove);
     frameDocument.window.addEventListener("pointerup", onPanPointerUp);
     frameDocument.window.addEventListener("pointercancel", onPanPointerUp);
+    // Attached to the document, not the window (matching canvas.tsx's
+    // identical choice for the focused frame) - wheel bubbles from the
+    // target up through the document to the window, so listening on both
+    // would fire this handler twice per gesture.
+    frameDocument.document.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       frameDocument.window.removeEventListener("pointerdown", onPointerDown, { capture: true });
       frameDocument.window.removeEventListener("pointermove", onPanPointerMove);
       frameDocument.window.removeEventListener("pointerup", onPanPointerUp);
       frameDocument.window.removeEventListener("pointercancel", onPanPointerUp);
+      frameDocument.document.removeEventListener("wheel", onWheel);
     };
-  }, [frameDocument, screen.id, onFocusScreen, shouldStartPan, onPanPointerDown, onPanPointerMove, onPanPointerUp]);
+  }, [
+    frameDocument,
+    screen.id,
+    onFocusScreen,
+    shouldStartPan,
+    onPanPointerDown,
+    onPanPointerMove,
+    onPanPointerUp,
+    onFrameWheel,
+  ]);
 
   return (
     <div

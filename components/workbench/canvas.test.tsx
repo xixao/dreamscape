@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import { toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
@@ -497,6 +498,104 @@ describe('Canvas', () => {
       fireEvent.pointerDown(previewFrameBody(), { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
 
       expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_2.id);
+    });
+  });
+
+  describe('wheel over a non-focused frame reaches it too', () => {
+    // Mirrors "wheel over the focused frame..." above, but against a
+    // preview's own iframe instead of the focused frame's - the fix this
+    // covers wires the same bridge to every frame document, not only the
+    // focused one (spec section 3: two-finger scroll and Cmd/Ctrl+wheel
+    // pinch-zoom are general canvas interactions, not carved out for
+    // whichever frame happens to be focused).
+    function previewFrameBody(): HTMLElement {
+      const iframe = document.querySelector('[data-testid="artboard-preview"] [data-testid="canvas-frame"]') as
+        | HTMLIFrameElement
+        | null;
+      const body = iframe?.contentDocument?.body;
+      if (!body) throw new Error('preview frame body not ready');
+      return body;
+    }
+
+    it('a plain wheel pans the viewport by the delta, leaving the focused screen unchanged', async () => {
+      saveViewport(window.localStorage, 'previewwheel-pan', { x: 0, y: 0, zoom: 1 });
+      const onFocusScreen = vi.fn();
+      renderWithReadout({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onFocusScreen,
+        fileId: 'previewwheel-pan',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const notCancelled = fireEvent.wheel(previewFrameBody(), { deltaX: 10, deltaY: 20 });
+
+      expect(notCancelled).toBe(false);
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).toHaveTextContent('-10,-20,1.000'));
+      expect(onFocusScreen).not.toHaveBeenCalled();
+    });
+
+    it('a ctrlKey wheel zooms around the pointer position converted from the preview\'s own frame coordinates, keeping the canvas point under the pointer fixed', async () => {
+      const initial: Viewport = { x: 50, y: 30, zoom: 2 };
+      saveViewport(window.localStorage, 'previewwheel-zoom', initial);
+      renderWithReadout({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        fileId: 'previewwheel-zoom',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      await waitFor(() =>
+        expect(screen.getByTestId('viewport-readout')).toHaveTextContent(`50,30,${initial.zoom.toFixed(3)}`),
+      );
+
+      const clientX = 40;
+      const clientY = 25;
+      // The preview's iframe rect is stubbed flat to {left:0,top:0} by this
+      // file's own beforeEach (like every element), so the frame-to-window
+      // conversion this test exists to prove (frame rect + zoom) reduces to
+      // `clientX/clientY * zoom` here - still enough to catch a fix that
+      // dropped the zoom factor or the rect entirely, since either would
+      // keep a DIFFERENT point fixed whenever zoom is not 1, as it is here.
+      const windowPoint = { x: clientX * initial.zoom, y: clientY * initial.zoom };
+      const canvasPointUnderPointer = toCanvasPoint(windowPoint, initial);
+
+      fireEvent.wheel(previewFrameBody(), { deltaY: -50, ctrlKey: true, clientX, clientY });
+
+      await waitFor(() => {
+        const [x, y, zoom] = screen.getByTestId('viewport-readout').textContent!.split(',').map(Number);
+        expect(zoom).not.toBe(initial.zoom);
+        const canvasPointAfter = toCanvasPoint(windowPoint, { x, y, zoom });
+        expect(Math.abs(canvasPointAfter.x - canvasPointUnderPointer.x)).toBeLessThan(1);
+        expect(Math.abs(canvasPointAfter.y - canvasPointUnderPointer.y)).toBeLessThan(1);
+      });
+    });
+
+    it('does not pan or prevent default while the preview\'s own document can still scroll, but still pans once it can\'t', async () => {
+      saveViewport(window.localStorage, 'previewwheel-scroll', { x: 0, y: 0, zoom: 1 });
+      renderWithReadout({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        fileId: 'previewwheel-scroll',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+      const body = previewFrameBody();
+      Object.defineProperty(body, 'scrollHeight', { value: 2000, configurable: true });
+      Object.defineProperty(body, 'clientHeight', { value: 300, configurable: true });
+      Object.defineProperty(body, 'scrollTop', { value: 0, configurable: true });
+
+      const notCancelledWhileScrollable = fireEvent.wheel(body, { deltaY: 50 });
+      expect(notCancelledWhileScrollable).toBe(true);
+      expect(screen.getByTestId('viewport-readout')).toHaveTextContent('0,0,1.000');
+
+      // Proves the wheel bridge really is wired up here (not merely silent
+      // because nothing is listening at all): once there is no more room to
+      // scroll down, the exact same gesture falls through to panning the
+      // canvas - mirrors "wheel over the focused frame..."'s own pair of
+      // tests above.
+      Object.defineProperty(body, 'scrollTop', { value: 1700, configurable: true });
+      const notCancelledAtBottom = fireEvent.wheel(body, { deltaY: 50 });
+      expect(notCancelledAtBottom).toBe(false);
+      await waitFor(() => expect(screen.getByTestId('viewport-readout')).not.toHaveTextContent('0,0,1.000'));
     });
   });
   });

@@ -445,17 +445,50 @@ export function Canvas({
     if (panRef.current?.pointerId === event.pointerId) endPan();
   }
 
-  // Stable (permanently-unchanging-identity) versions of the four functions
+  // The wheel bridge shared by every frame document, focused or previewed
+  // (spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
+  // section 3 describes pan/zoom as general canvas interactions, not carved
+  // out for whichever frame happens to be focused - two-finger scroll and
+  // pinch must work anywhere over the canvas). `frameWindow` is the specific
+  // iframe's own window - not derived from `event` itself, since nothing
+  // about a wheel event's own target identifies which on-screen iframe box
+  // to measure for the pointer-to-window conversion below - so each caller
+  // (the focused-frame effect further down, and FramePreview through
+  // stableFrameWheel) passes its own.
+  function frameWheel(event: WheelEvent, frameWindow: Window): void {
+    const iframeElement = frameWindow.frameElement as HTMLElement | null;
+    const iframeRect = iframeElement?.getBoundingClientRect();
+    const zoom = viewportRef.current.zoom;
+    const point = iframeRect
+      ? { x: iframeRect.left + event.clientX * zoom, y: iframeRect.top + event.clientY * zoom }
+      : { x: event.clientX, y: event.clientY };
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const factor = Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY);
+      setViewport((current) => zoomAround(current, point, factor));
+      return;
+    }
+    // Scroll-first rule (lib/dom.ts's canScrollInDirection): a frame that
+    // can still scroll its own content in this gesture's direction keeps
+    // that native scroll instead of panning the canvas - the same rule for
+    // a preview as for the focused frame.
+    if (canScrollInDirection(event.target, event.deltaX, event.deltaY)) return;
+    event.preventDefault();
+    setViewport((current) => panBy(current, -event.deltaX, -event.deltaY));
+  }
+
+  // Stable (permanently-unchanging-identity) versions of the five functions
   // above that FramePreview needs as props - there can be many of them, one
   // per non-focused screen, and this component re-renders on every pan/zoom
   // tick to update the viewport transform. See useStableCallback's own doc
   // comment (top of file) for why this indirection exists instead of
   // useCallback directly on shouldStartPan/startFramePan/moveFramePan/
-  // endFramePan themselves.
+  // endFramePan/frameWheel themselves.
   const stableShouldStartPan = useStableCallback(shouldStartPan);
   const stableStartFramePan = useStableCallback(startFramePan);
   const stableMoveFramePan = useStableCallback(moveFramePan);
   const stableEndFramePan = useStableCallback(endFramePan);
+  const stableFrameWheel = useStableCallback(frameWheel);
 
   // The focused frame's own iframe is a separate document: neither the root
   // pointer handlers above nor a plain wheel listener on the root element
@@ -463,73 +496,48 @@ export function Canvas({
   // zoom are mirrored onto that one document so panning and zooming also
   // work while the pointer is over the frame actually being edited, not
   // only over the empty canvas around it. Every non-focused preview gets
-  // the same Space+drag wiring (the stable pan callbacks above, wired where
-  // FramePreview is rendered further down) directly against its own frame
-  // document, the same way - a non-focused preview otherwise only focuses
-  // itself on a press, per FramePreview, and pressing while Space is down
-  // must pan instead, not steal focus. Wheel forwarding (onFrameWheel
-  // below) stays scoped to the one focused frame only - see the "What needs
-  // the browser check" concerns in the implementation report for why
-  // extending it to every preview was left out of scope.
+  // the same wiring too - both the pan callbacks and frameWheel above, via
+  // stableFrameWheel - directly against its own frame document (wired where
+  // FramePreview is rendered further down): a non-focused preview otherwise
+  // only focuses itself on a press, per FramePreview, and pressing while
+  // Space is down must pan instead, not steal focus; a wheel/pinch over it
+  // must scroll or pan/zoom the canvas the same as over the focused frame
+  // or the empty canvas around it, not do nothing.
   useEffect(() => {
     const frameWindow = focusedCanvasDocument?.window;
     const frameDocument = focusedCanvasDocument?.document;
     if (!frameWindow || !frameDocument) return;
 
-    function onFrameWheel(event: WheelEvent) {
-      // Guarded above (this effect returns early when frameWindow is
-      // undefined) - TS narrowing does not persist into a nested function
-      // declaration, hence the assertion.
-      const iframeElement = frameWindow!.frameElement as HTMLElement | null;
-      const iframeRect = iframeElement?.getBoundingClientRect();
-      const zoom = viewportRef.current.zoom;
-      const point = iframeRect
-        ? { x: iframeRect.left + event.clientX * zoom, y: iframeRect.top + event.clientY * zoom }
-        : { x: event.clientX, y: event.clientY };
-      if (event.ctrlKey || event.metaKey) {
-        event.preventDefault();
-        const factor = Math.exp(-event.deltaY * WHEEL_ZOOM_SENSITIVITY);
-        setViewport((current) => zoomAround(current, point, factor));
-        return;
-      }
-      // A fixed-height frame (or any scrollable content inside one) can
-      // have its own overflow - without this check, a plain wheel/two-
-      // finger-scroll gesture meant to scroll THAT content always panned
-      // the canvas instead, since this handler used to preventDefault and
-      // pan unconditionally, leaving a fixed-height frame with no way to
-      // ever scroll its own content. When the wheel target (or a scrollable
-      // ancestor of it, including the frame document's own <html>/<body>
-      // when the overflow lives there) still has room to scroll further in
-      // this gesture's direction, let the browser handle it natively -
-      // don't preventDefault, don't pan. Only once nothing in that chain
-      // can scroll any further does this fall through to panning the
-      // canvas, exactly as it always did for a frame with no scrollable
-      // content at all.
-      if (canScrollInDirection(event.target, event.deltaX, event.deltaY)) return;
-      event.preventDefault();
-      setViewport((current) => panBy(current, -event.deltaX, -event.deltaY));
+    // Thin wrapper so this effect can pass ITS OWN frame's window through to
+    // the shared frameWheel above, while still holding a single stable
+    // function reference to add and later remove the listener with. TS
+    // narrowing of frameWindow above does not persist into a nested function
+    // declaration, hence the assertion.
+    function onWheel(event: WheelEvent) {
+      stableFrameWheel(event, frameWindow!);
     }
 
     frameDocument.addEventListener('pointerdown', stableStartFramePan);
     frameWindow.addEventListener('pointermove', stableMoveFramePan);
     frameWindow.addEventListener('pointerup', stableEndFramePan);
     frameWindow.addEventListener('pointercancel', stableEndFramePan);
-    frameDocument.addEventListener('wheel', onFrameWheel, { passive: false });
+    // Attached to the document, not the window (also true for every
+    // preview's identical wiring in FramePreview) - so a gesture is only
+    // ever handled once: `wheel` bubbles from the target up through the
+    // document to the window, and registering the same handler on both
+    // would fire it twice per event.
+    frameDocument.addEventListener('wheel', onWheel, { passive: false });
     return () => {
       frameDocument.removeEventListener('pointerdown', stableStartFramePan);
       frameWindow.removeEventListener('pointermove', stableMoveFramePan);
       frameWindow.removeEventListener('pointerup', stableEndFramePan);
       frameWindow.removeEventListener('pointercancel', stableEndFramePan);
-      frameDocument.removeEventListener('wheel', onFrameWheel);
+      frameDocument.removeEventListener('wheel', onWheel);
     };
-    // setViewport included below even though it is stable (a useCallback
-    // with an empty dependency array in useCanvasViewportController) and so
-    // never actually changes - listing it is what lets this effect drop the
-    // blanket eslint-disable the pre-stableCallback version of this file
-    // needed here (that one was there for spaceDown's sake specifically,
-    // now moot: shouldStartPan reads it through useStableCallback's own ref
-    // instead of a closure this effect would otherwise need to re-run for).
-  }, [focusedCanvasDocument, stableStartFramePan, stableMoveFramePan, stableEndFramePan, setViewport]);
+    // stableFrameWheel is listed below even though it is stable, matching
+    // stableStartFramePan/stableMoveFramePan/stableEndFramePan above - see
+    // useStableCallback's own doc comment (top of file) for why.
+  }, [focusedCanvasDocument, stableStartFramePan, stableMoveFramePan, stableEndFramePan, stableFrameWheel]);
 
   // The root's own wheel handling: a non-passive listener (React's onWheel
   // is passive by default in modern browsers, which would make
@@ -616,6 +624,7 @@ export function Canvas({
                   onPanPointerDown={stableStartFramePan}
                   onPanPointerMove={stableMoveFramePan}
                   onPanPointerUp={stableEndFramePan}
+                  onFrameWheel={stableFrameWheel}
                 />
               )}
             </div>
