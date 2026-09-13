@@ -23,6 +23,17 @@ const getFile = cache(async (id: string) => {
   return repository.get(id);
 });
 
+// Next hands a repeated query key as an array, a single one as a plain
+// string, and an absent one as undefined - this always resolves to the
+// first value or undefined, the same "first wins" resolveInitialScreenId
+// itself uses for an explicit initialScreenId. Its own export, tested
+// directly, for the same reason app/f/[id]/page.tsx's resolveClientScreens
+// is: the Server Component itself (getRepository, notFound) is not worth
+// rendering just to exercise this one-line extraction.
+export function firstSearchParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -45,10 +56,10 @@ export default async function PlayPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ screen?: string | string[]; page?: string | string[] }>;
+  searchParams: Promise<{ screen?: string | string[]; page?: string | string[]; overlay?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { screen, page } = await searchParams;
+  const { screen, page, overlay } = await searchParams;
   const file = await getFile(id);
   if (!file) notFound();
 
@@ -67,11 +78,25 @@ export default async function PlayPage({
   // mismatched screen/page (spec docs/superpowers/specs/2026-09-12-pages-
   // design.md section 4, "resolve the page and start on its first screen
   // (or the given one)") - duplicating that fallback chain here would only
-  // risk the two drifting apart.
-  const initialScreenId = Array.isArray(screen) ? screen[0] : screen;
-  const initialPageId = Array.isArray(page) ? page[0] : page;
+  // risk the two drifting apart. `overlay` (spec docs/superpowers/specs/
+  // 2026-09-13-overlay-frames-design.md section 4 + 5's Present entry
+  // point) is the same kind of raw passthrough: Player's own openOverlay
+  // guard (overlaysById.has) is what decides whether it names a real
+  // overlay frame, ignoring it otherwise - the two entry points that ever
+  // set it (topbar.tsx's presentHrefFor, used by both the Play link and
+  // workbench.tsx's Cmd+R handler) only ever do so alongside `page`, never
+  // `screen`, so the Player's own page-based resolution is what actually
+  // lands on the right starting screen underneath it.
+  const initialScreenId = firstSearchParam(screen);
+  const initialPageId = firstSearchParam(page);
+  const initialOverlayId = firstSearchParam(overlay);
 
   return (
-    <PlayerLoader file={{ ...file, screens }} initialScreenId={initialScreenId} initialPageId={initialPageId} />
+    <PlayerLoader
+      file={{ ...file, screens }}
+      initialScreenId={initialScreenId}
+      initialPageId={initialPageId}
+      initialOverlayId={initialOverlayId}
+    />
   );
 }

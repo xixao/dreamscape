@@ -1889,6 +1889,59 @@ describe('Workbench', () => {
       expect(original.diagram.edges[0].target.screenId).toBe(SCREEN_1.id);
     });
 
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-
+    // frames-design.md section 5: "a connector from a screen to an overlay
+    // persists and survives a page duplicate") - the same re-pointing above
+    // pins for a plain screen target, generalized to an overlay one: the
+    // duplicate machinery (workbench.tsx's duplicatePage, lib/diagram/
+    // store.ts's cloneDiagram) builds its screenIdMap from every copied
+    // screen on the page uniformly, never checking kind, so an overlay
+    // frame's own id is remapped exactly like any other screen's.
+    it('also re-points a connector to an OVERLAY frame at its own copy, on Duplicate page', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 400, y: 0 });
+      const file = makeFile({
+        pages: [
+          { id: PAGE_ID, name: 'Page 1' },
+          { id: PAGE_2_ID, name: 'v2' },
+        ],
+        screens: [SCREEN_1, overlay, SCREEN_4],
+      });
+      const page1 = file.pages?.[0];
+      if (!page1) throw new Error('fixture needs pages');
+      page1.diagram = {
+        nodes: [{ id: 'n1', kind: 'decision', x: 200, y: 900, width: 160, height: 100, text: 'Go?', color: 'neutral' }],
+        edges: [
+          {
+            id: 'e1',
+            kind: 'step',
+            arrow: 'end',
+            source: { nodeId: 'n1', side: 'top' },
+            target: { screenId: overlay.id, side: 'bottom' },
+          },
+        ],
+      };
+      render(<Workbench file={file} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate page' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const lastCall = fetchMock.mock.calls.at(-1) as [string, { body: string }] | undefined;
+      if (!lastCall) throw new Error('expected a PATCH after Duplicate page');
+      const body = JSON.parse(lastCall[1].body);
+      const copiedPage = body.pages.find((p: { name: string }) => p.name === 'Page 1 copy');
+      const copiedOverlay = body.screens.find(
+        (s: { pageId: string; kind?: string }) => s.pageId === copiedPage.id && s.kind === 'overlay',
+      );
+      expect(copiedOverlay).toBeDefined();
+      expect(copiedOverlay.id).not.toBe(overlay.id);
+      expect(copiedPage.diagram.edges).toHaveLength(1);
+      expect(copiedPage.diagram.edges[0].target.screenId).toBe(copiedOverlay.id);
+      // The original page's own connector still points at the original overlay.
+      const original = body.pages.find((p: { id: string }) => p.id === page1.id);
+      expect(original.diagram.edges[0].target.screenId).toBe(overlay.id);
+    });
+
     it('Delete page confirms naming the screen count, removes the page and switches away from it', async () => {
       render(<Workbench file={twoPageFile()} />);
 
