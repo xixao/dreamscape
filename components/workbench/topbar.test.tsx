@@ -436,4 +436,28 @@ describe('Topbar', () => {
       expect(screen.getByTestId('viewport-probe')).toHaveTextContent('2');
     });
   });
+
+  describe('overflow menu', () => {
+    it('has a More button that opens a menu with a Keyboard shortcuts item', async () => {
+      renderTopbar();
+      await userEvent.click(screen.getByRole('button', { name: 'More' }));
+      expect(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    });
+
+    it('calls onOpenShortcuts when the item is chosen', async () => {
+      const onOpenShortcuts = vi.fn();
+      renderTopbar({ onOpenShortcuts });
+      await userEvent.click(screen.getByRole('button', { name: 'More' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
+      expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing when onOpenShortcuts is not provided', async () => {
+      renderTopbar();
+      await userEvent.click(screen.getByRole('button', { name: 'More' }));
+      await expect(
+        userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' })),
+      ).resolves.not.toThrow();
+    });
+  });
 });

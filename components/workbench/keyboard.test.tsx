@@ -23,6 +23,7 @@ type KeysOptions = {
   onPointerTool?: () => void;
   onPresent?: () => void;
   onAddScreen?: () => void;
+  onOpenShortcuts?: () => void;
 };
 
 function Keys({
@@ -41,6 +42,7 @@ function Keys({
   onPointerTool,
   onPresent,
   onAddScreen,
+  onOpenShortcuts,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -58,6 +60,7 @@ function Keys({
     onPointerTool,
     onPresent,
     onAddScreen,
+    onOpenShortcuts,
   });
   return (
     <>
@@ -870,5 +873,32 @@ describe('useWorkbenchKeyboard onAddScreen', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'n', shiftKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onOpenShortcuts', () => {
+  it('calls onOpenShortcuts for a bare "?"', async () => {
+    const onOpenShortcuts = vi.fn();
+    mount({ onOpenShortcuts });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true });
+    expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores "?" while typing or while a popup or dialog owns the interaction', async () => {
+    const onOpenShortcuts = vi.fn();
+    mount({ onOpenShortcuts });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: '?', shiftKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: '?', shiftKey: true });
+    expect(onOpenShortcuts).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onOpenShortcuts is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: '?', shiftKey: true })).not.toThrow();
   });
 });

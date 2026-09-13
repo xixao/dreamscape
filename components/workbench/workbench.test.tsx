@@ -1152,6 +1152,36 @@ describe('Workbench', () => {
     });
   });
 
+  describe('shortcuts dialog', () => {
+    it('opens with a bare "?"', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).toBeNull();
+
+      fireEvent.keyDown(window, { key: '?', shiftKey: true });
+
+      expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    });
+
+    it('opens from the top bar overflow menu', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'More' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
+
+      expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    });
+
+    it('still opens with "?" even while the rest of the UI is hidden', () => {
+      render(<Workbench file={makeFile()} />);
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
+
+      fireEvent.keyDown(window, { key: '?', shiftKey: true });
+
+      expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
+    });
+  });
+
   // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
   // 4 (Matt, 2026-09-12): "when the chat panel is opened, the canvas that
   // holds the frames (pages) should not scale up or down." Opening/closing

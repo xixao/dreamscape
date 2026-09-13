@@ -89,6 +89,10 @@ export function useWorkbenchKeyboard(
     // Shift+N: adds a screen, same as the screens strip's own "New screen"
     // button.
     onAddScreen?: () => void;
+    // "?": opens the shortcuts sheet as a dialog, same content the Cmd-hold
+    // overlay shows (components/workbench/shortcuts-overlay.tsx) and the
+    // same action the top bar's overflow menu item performs.
+    onOpenShortcuts?: () => void;
   } = {},
 ): void {
   const {
@@ -107,6 +111,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onOpenShortcuts,
   } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
@@ -212,6 +217,10 @@ export function useWorkbenchKeyboard(
           onAddScreen?.();
           return;
 
+        case 'shortcuts-help':
+          onOpenShortcuts?.();
+          return;
+
         case 'escape':
           if (commentMode) {
             onExitCommentMode?.();
@@ -269,6 +278,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onOpenShortcuts,
     canvasDocument,
   ]);
 }

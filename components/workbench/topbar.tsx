@@ -11,6 +11,7 @@ import {
   MessageCircle,
   MessageSquareText,
   Monitor,
+  MoreHorizontal,
   Play,
   Redo2,
   Smartphone,
@@ -318,6 +319,27 @@ function ZoomMenu({
   );
 }
 
+// The top bar's overflow menu (spec docs/superpowers/specs/2026-09-13-
+// shortcuts-and-elements-design.md section 3): today this is only "Keyboard
+// shortcuts", which opens the same content the Cmd-hold overlay shows
+// (shortcuts-overlay.tsx) as a dialog that stays open until Escape.
+function MoreMenu({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="More">
+          <MoreHorizontal className="size-4" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className={MENU_POPOVER}>
+        <DropdownMenuItem className={MENU_ROW} onSelect={() => onOpenShortcuts?.()}>
+          Keyboard shortcuts
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function Topbar({
   fileName,
   onRename,
@@ -336,6 +358,7 @@ export function Topbar({
   onZoomOut,
   onZoomToFit,
   onZoomToSelection,
+  onOpenShortcuts,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -354,6 +377,7 @@ export function Topbar({
   onZoomOut: () => void;
   onZoomToFit: () => void;
   onZoomToSelection: () => void;
+  onOpenShortcuts?: () => void;
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -441,6 +465,7 @@ export function Topbar({
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
         <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
+        <MoreMenu onOpenShortcuts={onOpenShortcuts} />
       </header>
     </TooltipProvider>
   );

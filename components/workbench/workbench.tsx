@@ -31,6 +31,7 @@ import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
 import { ScreensStrip } from './screens-strip';
 import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
+import { ShortcutsOverlay } from './shortcuts-overlay';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
 import { Topbar } from './topbar';
@@ -543,6 +544,10 @@ function WorkbenchShell({
   const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+  // "?" and the top bar's overflow menu item both open the shortcuts sheet
+  // as a dialog (spec section 3); the Cmd-hold presentation lives entirely
+  // inside ShortcutsOverlay's own listener and never touches this state.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // The canvas viewport (spec docs/superpowers/specs/2026-09-12-infinite-
   // canvas-design.md): owned here, one level above Canvas itself, so the
@@ -688,6 +693,7 @@ function WorkbenchShell({
     onPointerTool: cancelPendingAndExitCommentMode,
     onPresent: presentFocusedScreen,
     onAddScreen,
+    onOpenShortcuts: () => setShortcutsOpen(true),
   });
 
   const commentsProps: StageCommentsProps = {
@@ -797,6 +803,7 @@ function WorkbenchShell({
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
                 onZoomToFit={() => setViewport(fitAll(screens.map(frameRect), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
+                onOpenShortcuts={() => setShortcutsOpen(true)}
               />
             )}
             <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
@@ -853,6 +860,14 @@ function WorkbenchShell({
                 actions.history.clear();
               }}
             />
+            {/*
+              Never inside an !uiHidden branch (spec docs/superpowers/specs/
+              2026-09-12-shortcuts-overlay-design.md section 2: "Shown in the
+              workbench only ..., including when the UI is hidden with
+              Cmd+\") - the Cmd-hold presentation must keep working even with
+              every other panel gone.
+            */}
+            <ShortcutsOverlay key="shortcuts-overlay" open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           </div>
         </CanvasViewportProvider>
       </PrototypeProvider>
