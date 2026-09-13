@@ -646,6 +646,16 @@ function WorkbenchShell({
     }
   }
 
+  // D/P/E (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
+  // design.md section 2): always expands the panel, even if it was already
+  // expanded on a different tab - setPanelCollapsed(false) is a no-op
+  // re-render when it is already false, so this needs no separate branch for
+  // "already expanded".
+  function selectPanelTab(mode: PanelMode): void {
+    setPanelMode(mode);
+    setPanelCollapsed(false);
+  }
+
   // The viewport centre (screen space, relative to the canvas's own origin -
   // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
   // position for a keyboard shortcut to anchor to the way a wheel gesture
@@ -664,6 +674,11 @@ function WorkbenchShell({
     onZoomReset: () => setViewport((current) => zoomTo(current, viewportCenter, 1)),
     onZoomToFit: () => setViewport(fitAll(screens.map(frameRect), viewportSize)),
     onZoomToSelection: zoomToSelectionOrFocusedFrame,
+    onSelectPanelTab: selectPanelTab,
+    // V (spec section 2, "Pointer: leaves the comment or diagram tool"): only
+    // the comment tool exists today, so this is the same cleanup Escape and
+    // the Comment tool button's own toggle-off already do.
+    onPointerTool: cancelPendingAndExitCommentMode,
   });
 
   const commentsProps: StageCommentsProps = {

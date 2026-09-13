@@ -19,6 +19,8 @@ type KeysOptions = {
   onZoomReset?: () => void;
   onZoomToFit?: () => void;
   onZoomToSelection?: () => void;
+  onSelectPanelTab?: (mode: 'design' | 'prototype' | 'components') => void;
+  onPointerTool?: () => void;
 };
 
 function Keys({
@@ -33,6 +35,8 @@ function Keys({
   onZoomReset,
   onZoomToFit,
   onZoomToSelection,
+  onSelectPanelTab,
+  onPointerTool,
 }: KeysOptions) {
   useWorkbenchKeyboard({
     onToggleUi,
@@ -46,6 +50,8 @@ function Keys({
     onZoomReset,
     onZoomToFit,
     onZoomToSelection,
+    onSelectPanelTab,
+    onPointerTool,
   });
   return (
     <>
@@ -685,5 +691,84 @@ describe('useWorkbenchKeyboard zoom shortcuts', () => {
       fireEvent.keyDown(window, { code: 'Digit1', shiftKey: true });
       fireEvent.keyDown(window, { code: 'Digit2', shiftKey: true });
     }).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onSelectPanelTab', () => {
+  it('calls onSelectPanelTab with design, prototype and components for D, P and E', async () => {
+    const onSelectPanelTab = vi.fn();
+    mount({ onSelectPanelTab });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'd' });
+    fireEvent.keyDown(window, { key: 'p' });
+    fireEvent.keyDown(window, { key: 'e' });
+
+    expect(onSelectPanelTab.mock.calls).toEqual([['design'], ['prototype'], ['components']]);
+  });
+
+  it('is case-insensitive and ignores the letters with a modifier or shift held', async () => {
+    const onSelectPanelTab = vi.fn();
+    mount({ onSelectPanelTab });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'D' });
+    fireEvent.keyDown(window, { key: 'd', metaKey: true });
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'e', shiftKey: true });
+
+    expect(onSelectPanelTab).toHaveBeenCalledTimes(1);
+    expect(onSelectPanelTab).toHaveBeenCalledWith('design');
+  });
+
+  it('ignores D/P/E while typing in a field and while a popup or dialog owns the interaction', async () => {
+    const onSelectPanelTab = vi.fn();
+    mount({ onSelectPanelTab });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    for (const key of ['d', 'p', 'e']) {
+      fireEvent.keyDown(screen.getByLabelText('typing'), { key });
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key });
+    }
+    expect(onSelectPanelTab).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onSelectPanelTab is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => {
+      fireEvent.keyDown(window, { key: 'd' });
+      fireEvent.keyDown(window, { key: 'p' });
+      fireEvent.keyDown(window, { key: 'e' });
+    }).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onPointerTool', () => {
+  it('calls onPointerTool for the "v" key, case-insensitively', async () => {
+    const onPointerTool = vi.fn();
+    mount({ onPointerTool });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'v' });
+    fireEvent.keyDown(window, { key: 'V' });
+    expect(onPointerTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores V with a modifier held, while typing, and while a popup or dialog owns the interaction', async () => {
+    const onPointerTool = vi.fn();
+    mount({ onPointerTool });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'v', metaKey: true });
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'v' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'v' });
+    expect(onPointerTool).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onPointerTool is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'v' })).not.toThrow();
   });
 });

@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { ZONE_TYPES } from '@/components/blocks/registry';
 import { isElementLike } from '@/lib/dom';
 import { matchShortcut, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
+import type { PanelMode } from '@/lib/workbench/panel-store';
 import { useCanvasDocument } from './canvas-frame';
 import { selectedIdFrom } from './selection';
 
@@ -71,6 +72,14 @@ export function useWorkbenchKeyboard(
     onZoomReset?: () => void;
     onZoomToFit?: () => void;
     onZoomToSelection?: () => void;
+    // D/P/E (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
+    // design.md section 2): switches the right panel to that tab, expanding
+    // it first if minimized - both are WorkbenchShell's job, same division
+    // as every other callback here. Guarded like every other bare letter.
+    onSelectPanelTab?: (mode: PanelMode) => void;
+    // V: leaves the comment tool (and, once it exists, the diagram tool) -
+    // the pointer is the default state, not a tool of its own to enter.
+    onPointerTool?: () => void;
   } = {},
 ): void {
   const {
@@ -85,6 +94,8 @@ export function useWorkbenchKeyboard(
     onZoomReset,
     onZoomToFit,
     onZoomToSelection,
+    onSelectPanelTab,
+    onPointerTool,
   } = options;
   const { actions, query } = useEditor();
   // The frame lives in its own document once Stage has a CanvasFrame
@@ -165,6 +176,22 @@ export function useWorkbenchKeyboard(
           onToggleCommentMode?.();
           return;
 
+        case 'panel-design':
+          onSelectPanelTab?.('design');
+          return;
+
+        case 'panel-prototype':
+          onSelectPanelTab?.('prototype');
+          return;
+
+        case 'panel-elements':
+          onSelectPanelTab?.('components');
+          return;
+
+        case 'tool-pointer':
+          onPointerTool?.();
+          return;
+
         case 'escape':
           if (commentMode) {
             onExitCommentMode?.();
@@ -218,6 +245,8 @@ export function useWorkbenchKeyboard(
     onZoomReset,
     onZoomToFit,
     onZoomToSelection,
+    onSelectPanelTab,
+    onPointerTool,
     canvasDocument,
   ]);
 }

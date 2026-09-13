@@ -1071,6 +1071,50 @@ describe('Workbench', () => {
     });
   });
 
+  describe('D/P/E panel tab shortcuts', () => {
+    it('D, P and E switch the right panel to that tab', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      fireEvent.keyDown(window, { key: 'p' });
+      expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
+
+      fireEvent.keyDown(window, { key: 'e' });
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+
+      fireEvent.keyDown(window, { key: 'd' });
+      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('expand the panel when it is minimized', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-10');
+
+      fireEvent.keyDown(window, { key: 'e' });
+
+      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+    });
+
+    it('are ignored while typing, such as renaming the file', () => {
+      render(<Workbench file={makeFile()} />);
+      fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'e' });
+      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+    });
+  });
+
+  describe('V pointer tool shortcut', () => {
+    it('leaves the comment tool', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Comment tool' }));
+      expect(screen.getByRole('button', { name: 'Comment tool' })).toHaveAttribute('aria-pressed', 'true');
+
+      fireEvent.keyDown(window, { key: 'v' });
+
+      expect(screen.getByRole('button', { name: 'Comment tool' })).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
   // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
   // 4 (Matt, 2026-09-12): "when the chat panel is opened, the canvas that
   // holds the frames (pages) should not scale up or down." Opening/closing
