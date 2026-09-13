@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { nanoid } from 'nanoid';
+import { Plus } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -113,6 +114,14 @@ const PLACEMENT_CLICK_THRESHOLD = 4;
 // constants document elsewhere.
 const HANDLE_RADIUS = 5;
 const RESIZE_HANDLE_SIZE = 8;
+// Build step 4's quick-add circles: 20px diameter (radius 10), centered
+// 20px beyond the box edge - far enough out that its own edge clears the
+// connect handle's (radius 5, sitting AT the box edge) with room to spare,
+// so the two never overlap. Screen-px, same convention as HANDLE_RADIUS/
+// RESIZE_HANDLE_SIZE above (divided by zoom before use).
+const QUICK_ADD_RADIUS = 10;
+const QUICK_ADD_ICON_SIZE = 12;
+const QUICK_ADD_GAP_SCREEN = 20;
 
 const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
 
@@ -131,6 +140,35 @@ function boxContains(box: Box, point: Point): boolean {
 
 function isSelected(selection: DiagramSelection, type: 'node' | 'edge', id: string): boolean {
   return selection.some((item) => item.type === type && item.id === id);
+}
+
+/** A quick-add circle's own center: `box`'s side-midpoint, nudged QUICK_ADD_GAP_SCREEN further out along that side's axis. */
+function quickAddPosition(box: Box, side: Side, zoom: number): Point {
+  const base = getHandlePosition(box, side);
+  const offset = QUICK_ADD_GAP_SCREEN / zoom;
+  switch (side) {
+    case 'top':
+      return { x: base.x, y: base.y - offset };
+    case 'bottom':
+      return { x: base.x, y: base.y + offset };
+    case 'left':
+      return { x: base.x - offset, y: base.y };
+    case 'right':
+      return { x: base.x + offset, y: base.y };
+  }
+}
+
+// A quick-add circle sits just outside its shape's own box, so a naive
+// "am I over the shape's box" hover check would read the pointer moving
+// from the shape onto one of its own circles as having left it - hiding
+// them exactly when the user is trying to click one. Used only to keep an
+// ALREADY-hovered node's hover alive; never to start hovering fresh (a
+// circle only exists once its shape is already hovered).
+function isOverQuickAddCircle(box: Box, point: Point, zoom: number): boolean {
+  return SIDES.some((side) => {
+    const center = quickAddPosition(box, side, zoom);
+    return Math.hypot(point.x - center.x, point.y - center.y) <= QUICK_ADD_RADIUS / zoom;
+  });
 }
 
 type HoverTarget = { type: 'node' | 'frame'; id: string } | null;
@@ -250,6 +288,16 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editing, tool.kind, diagram.selection]);
 
+  // Escape hides the quick-add circles (Build step 4) - clearing hover is
+  // enough, since they only ever render for the currently-hovered node.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setHover((current) => (current === null ? current : null));
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Right-clicking (or Shift+F10-ing) a shape or connector that is NOT
   // already part of the current selection replaces the selection with just
   // it (spec follow-up: "Right-clicking an unselected element selects it
@@ -262,6 +310,17 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (!isSelected(diagram.selection, type, id)) {
       dispatch({ type: 'select', selection: [{ type, id }] });
     }
+  }
+
+  // A quick-add circle (Build step 4): mints the new node/edge ids here
+  // (this module's own "caller mints ids" convention) and opens the new
+  // shape's text editor directly - no context menu involved in this
+  // gesture, so none of queueEditFromMenu's close-focus race applies here.
+  function handleQuickAdd(source: DiagramNode, side: Side): void {
+    const newNodeId = nanoid(10);
+    const newEdgeId = nanoid(10);
+    dispatch({ type: 'quickAdd', sourceId: source.id, side, newNodeId, newEdgeId });
+    setEditing({ id: newNodeId, draft: '' });
   }
 
   // Shared by Cmd+D-equivalent menu items and (soon) nothing else in THIS
@@ -481,6 +540,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         setHover((current) => (current?.type === 'node' && current.id === node.id ? current : { type: 'node', id: node.id }));
         return;
       }
+      // Quick-add circles (Build step 4) sit just outside their shape's own
+      // box - without this, the pointer moving from the shape onto one of
+      // its own circles would read as having left the shape and hide them
+      // before a click ever reaches them (spec: hide "when the pointer
+      // leaves the shape AND ITS CIRCLES", not before it even gets there).
+      if (hover?.type === 'node') {
+        const hoveredNode = diagram.nodes.find((n) => n.id === hover.id);
+        if (hoveredNode && isOverQuickAddCircle(hoveredNode, point, viewport.zoom)) return;
+      }
       const frame = frames.find((f) => boxContains(f, point));
       if (frame) {
         setHover((current) => (current?.type === 'frame' && current.id === frame.id ? current : { type: 'frame', id: frame.id }));
@@ -495,7 +563,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     // render is cheap and keeps them always current, the same trade-off
     // canvas.tsx's own root wheel effect makes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diagram.nodes, frames, viewport, drag, resize, connect, place]);
+  }, [diagram.nodes, frames, viewport, drag, resize, connect, place, hover]);
 
   // Escape/V (handled by keyboard.tsx, driving the `tool` prop this layer
   // only reads) can change the tool away from 'shape' while a rubber-band
@@ -871,6 +939,41 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     });
   }
 
+  // Build step 4: four hover circles just outside `box`'s sides, each
+  // creating a connected same-kind/colour/size neighbour on click. Only for
+  // the currently-hovered node (never a frame, and never while any gesture
+  // owns the pointer - `hover` itself already freezes during one, but a
+  // drag/resize dispatched from a DIFFERENT shape than the one last hovered
+  // could otherwise leave this one's circles visibly stuck on top of a live
+  // drag), and only in the plain pointer tool.
+  function renderQuickAddCircles(node: DiagramNode, box: Box): ReactNode {
+    const visible = tool.kind === 'pointer' && !drag && !resize && !connect && !place && hover?.type === 'node' && hover.id === node.id;
+    if (!visible) return null;
+    const radius = QUICK_ADD_RADIUS / viewport.zoom;
+    const iconSize = QUICK_ADD_ICON_SIZE / viewport.zoom;
+    return SIDES.map((side) => {
+      const center = quickAddPosition(box, side, viewport.zoom);
+      return (
+        <g
+          key={side}
+          transform={`translate(${center.x}, ${center.y})`}
+          role="button"
+          aria-label={`Add a shape to the ${side}`}
+          data-testid={`diagram-quick-add-${node.id}-${side}`}
+          style={{ cursor: 'pointer', pointerEvents: 'all' }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleQuickAdd(node, side);
+          }}
+        >
+          <circle r={radius} className="fill-(--acc) stroke-white" style={{ strokeWidth: 1 / viewport.zoom }} />
+          <Plus aria-hidden x={-iconSize / 2} y={-iconSize / 2} width={iconSize} height={iconSize} className="stroke-white" />
+        </g>
+      );
+    });
+  }
+
   function renderNode(rawNode: DiagramNode): ReactNode {
     const box = renderedNodeBox(rawNode);
     const colors = COLOR_CLASSES[rawNode.color];
@@ -1011,6 +1114,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
               </>
             )}
             {renderHandles({ type: 'node', id: rawNode.id }, box)}
+            {renderQuickAddCircles(rawNode, box)}
           </g>
         </ContextMenuTrigger>
         <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>

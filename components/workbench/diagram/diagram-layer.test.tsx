@@ -545,6 +545,105 @@ describe('DiagramLayer option-drag cursor affordance', () => {
   });
 });
 
+describe('DiagramLayer quick-add circles', () => {
+  it('are hidden until the shape is hovered', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('show all four sides, positioned just outside the box, once hovered', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      const circle = screen.getByTestId(`diagram-quick-add-node000001-${side}`);
+      expect(circle).toHaveAttribute('aria-label', `Add a shape to the ${side}`);
+    }
+  });
+
+  it('clicking a side dispatches quickAdd for that side and opens the new shape\'s text editor', () => {
+    const source = node({ x: 0, y: 0, width: 100, height: 50 });
+    const { dispatch, rerender } = renderLayer({ diagram: stateWith({ nodes: [source] }) });
+    hoverAt(50, 25);
+
+    fireEvent.click(screen.getByTestId('diagram-quick-add-node000001-right'));
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }),
+    );
+    const call = dispatch.mock.calls[0][0] as { newNodeId: string };
+
+    // The mocked dispatch does not actually create the new node - reflect
+    // what the real reducer would have done (lib/diagram/store.test.ts
+    // covers that reducer behaviour directly) so the editor, real LOCAL
+    // component state unaffected by the mock, can be observed opening for
+    // it once the new node is actually present in `diagram`.
+    const newNode: DiagramNode = { ...source, id: call.newNodeId, x: 220, text: '' };
+    rerender(
+      <DiagramLayer
+        diagram={stateWith({ nodes: [source, newNode] })}
+        dispatch={dispatch}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 1 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId(`diagram-text-input-${call.newNodeId}`)).toBeInTheDocument();
+  });
+
+  it('every side dispatches its own side', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      hoverAt(50, 25);
+      fireEvent.click(screen.getByTestId(`diagram-quick-add-node000001-${side}`));
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'quickAdd', side }));
+    }
+  });
+
+  it('hide when the pointer leaves the shape and its circles entirely', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    hoverAt(900, 900);
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('stay visible when the pointer moves from the shape onto one of its own circles', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    // The right circle sits a little to the right of the box's own right
+    // edge (100, 25) - just past it, not still inside the shape.
+    hoverAt(114, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+  });
+
+  it('hide during a drag', () => {
+    renderLayer({
+      diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })], selection: [{ type: 'node', id: 'node000001' }] }),
+    });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-node000001'), { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerMove(screen.getByTestId('diagram-node-node000001'), { pointerId: 1, clientX: 70, clientY: 30 });
+
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+
+  it('hide on Escape', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    expect(screen.getByTestId('diagram-quick-add-node000001-right')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByTestId('diagram-quick-add-node000001-right')).not.toBeInTheDocument();
+  });
+});
+
 describe('DiagramLayer connecting', () => {
   it('drags from a node handle to another node to create a connector', () => {
     const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
