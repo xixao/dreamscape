@@ -39,6 +39,8 @@ describe('files repository', () => {
         stageWidth: 1440,
         stageHeight: null,
         deviceName: null,
+        x: null,
+        y: null,
       });
       expect(JSON.parse(file.screens![0].layout)).toEqual(JSON.parse(emptyLayoutJson()));
       expect(file.screens![0].id).toHaveLength(10);
@@ -73,6 +75,14 @@ describe('files repository', () => {
         stageHeight: 874,
         deviceName: 'iPhone 16 & 17 Pro',
       });
+    });
+
+    it('round-trips a screen given an explicit frame position (x/y)', async () => {
+      const created = await repo.create({ screens: [screen({ x: 640, y: -120 })] });
+
+      const fetched = await repo.get(created.id);
+
+      expect(fetched?.screens?.[0]).toMatchObject({ x: 640, y: -120 });
     });
 
     it('clamps every screen stage width to the valid range', async () => {
@@ -190,6 +200,17 @@ describe('files repository', () => {
       const withOne = await repo.get(created.id);
       expect(withOne?.screenCount).toBe(1);
       expect(withOne?.screens?.[0].name).toBe('Solo');
+    });
+
+    it('saves a frame position onto a screen through save(), same as create()', async () => {
+      const created = await repo.create();
+      const screenId = created.screens![0].id;
+
+      await repo.save(created.id, {
+        screens: [{ ...created.screens![0], id: screenId, x: 200, y: 400 }],
+      });
+      const withPosition = await repo.get(created.id);
+      expect(withPosition?.screens?.[0]).toMatchObject({ x: 200, y: 400 });
     });
 
     it('saves a device onto a screen and clears it again on a later save', async () => {

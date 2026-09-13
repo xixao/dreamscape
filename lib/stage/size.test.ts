@@ -40,29 +40,30 @@ describe('clampSize', () => {
 
 describe('readoutFor', () => {
   it('reads width, breakpoint and zoom for a plain auto-height frame', () => {
-    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1 })).toBe('1440 px · desktop');
-    expect(readoutFor({ width: 375, height: null, deviceName: null, zoom: 1 })).toBe('375 px · mobile');
+    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1 })).toBe('1440 px · desktop · 100%');
+    expect(readoutFor({ width: 375, height: null, deviceName: null, zoom: 1 })).toBe('375 px · mobile · 100%');
     expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 0.23 })).toBe(
       '1440 px · desktop · 23%',
     );
   });
 
   it('reads width x height with no breakpoint for a manual fixed height', () => {
-    expect(readoutFor({ width: 1024, height: 768, deviceName: null, zoom: 1 })).toBe('1024 × 768');
+    expect(readoutFor({ width: 1024, height: 768, deviceName: null, zoom: 1 })).toBe('1024 × 768 · 100%');
     expect(readoutFor({ width: 1024, height: 768, deviceName: null, zoom: 0.5 })).toBe('1024 × 768 · 50%');
   });
 
   it('leads with the device name and its exact dimensions for a device', () => {
     expect(readoutFor({ width: 402, height: 874, deviceName: 'iPhone 16 & 17 Pro', zoom: 1 })).toBe(
-      'iPhone 16 & 17 Pro · 402 × 874',
+      'iPhone 16 & 17 Pro · 402 × 874 · 100%',
     );
     expect(readoutFor({ width: 402, height: 874, deviceName: 'iPhone 16 & 17 Pro', zoom: 0.63 })).toBe(
       'iPhone 16 & 17 Pro · 402 × 874 · 63%',
     );
   });
 
-  it('never appends a zoom segment at 100% or above', () => {
-    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1 })).not.toMatch(/%/);
-    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1.5 })).not.toMatch(/%/);
+  it('always appends the zoom percentage, even at exactly 100% or above - zoom is user controlled now', () => {
+    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1 })).toMatch(/100%$/);
+    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 1.5 })).toMatch(/150%$/);
+    expect(readoutFor({ width: 1440, height: null, deviceName: null, zoom: 4 })).toMatch(/400%$/);
   });
 });

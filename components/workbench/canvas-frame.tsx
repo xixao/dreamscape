@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEventHandler } from '@craftjs/core';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -34,12 +34,24 @@ function copyStylesheets(iframeDoc: Document): void {
  * document is ready; `useCanvasDocument()` below is how overlays and hooks
  * that also need to reach into that document (selection outlines, the
  * layer-stack menu, keyboard shortcuts) get at it.
+ *
+ * Wrapped in memo() below (as CanvasFrameImpl here): the infinite canvas
+ * (canvas.tsx) re-renders its host - Stage for the focused frame, or
+ * FramePreview for a non-focused one - on every pan/zoom tick in Stage's
+ * case (FramePreview stays fully memoized and so never even re-renders for
+ * one at all - see the comment there). Memoizing this component too is
+ * what actually stops that from reaching the iframe and the portaled Craft
+ * tree inside it: every prop passed to it, from both callers, is already
+ * stable across a pure viewport change (Stage memoizes its own `children`
+ * via useMemo for exactly this).
  */
-export function CanvasFrame({
+function CanvasFrameImpl({
   width,
   height,
   zoom,
   title = 'Frame',
+  reportDocument = true,
+  onCanvasDocument,
   onContentHeightChange,
   children,
 }: {
@@ -47,6 +59,21 @@ export function CanvasFrame({
   height: number | null;
   zoom: number;
   title?: string;
+  // Whether this instance publishes its document/window into the shared
+  // StageContext (useStage().canvasDocument / useCanvasDocument()) - true by
+  // default, matching every use of CanvasFrame before the infinite canvas.
+  // The infinite canvas (canvas.tsx) mounts one CanvasFrame per screen at
+  // once, but that shared slot is read by consumers scoped to a single,
+  // FOCUSED frame (useWorkbenchKeyboard, useLayerStack, NodeIndicator) - a
+  // non-focused read-only preview passes false so it never contends for it
+  // (whichever instance last called setStageCanvasDocument would otherwise
+  // silently win, regardless of which frame a user actually meant).
+  reportDocument?: boolean;
+  // This instance's own document/window, independent of reportDocument -
+  // how a caller that does NOT report into the shared slot (a preview) still
+  // gets at its own iframe's document, e.g. to attach a click-to-focus
+  // listener scoped to just that frame.
+  onCanvasDocument?: (canvasDocument: CanvasDocument | null) => void;
   // The applied (unscaled) iframe height, whenever it changes - whether set
   // directly by the `height` prop or, when `height` is null, measured from
   // the content. stage.tsx uses this to reserve the right amount of space
@@ -88,11 +115,17 @@ export function CanvasFrame({
 
   // Published up through StageContext too (see the type's own comment in
   // stage-context.tsx): useLayerStack and useWorkbenchKeyboard need it and
-  // are not descendants of this component's own children.
+  // are not descendants of this component's own children. Gated on
+  // reportDocument (see its own comment above) - a non-reporting instance
+  // still calls onCanvasDocument, just never touches the shared slot.
   useEffect(() => {
-    setStageCanvasDocument(canvasDoc);
-    return () => setStageCanvasDocument(null);
-  }, [canvasDoc, setStageCanvasDocument]);
+    if (reportDocument) setStageCanvasDocument(canvasDoc);
+    onCanvasDocument?.(canvasDoc);
+    return () => {
+      if (reportDocument) setStageCanvasDocument(null);
+      onCanvasDocument?.(null);
+    };
+  }, [canvasDoc, reportDocument, setStageCanvasDocument, onCanvasDocument]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -250,6 +283,8 @@ export function CanvasFrame({
     </>
   );
 }
+
+export const CanvasFrame = memo(CanvasFrameImpl);
 
 /**
  * `{ document, window }` of the iframe CanvasFrame renders into, once it is

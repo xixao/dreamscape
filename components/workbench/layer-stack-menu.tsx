@@ -21,14 +21,19 @@ import {
   type LayerStackNode,
 } from '@/lib/layer-stack';
 import { cn } from '@/lib/utils';
+import { useCanvasViewport } from './canvas';
 import { useCanvasDocument } from './canvas-frame';
 import { MENU_HINT, MENU_POPOVER, MENU_ROW, MENU_SELECTED_CHIP } from './chrome';
 import { selectedIdFrom } from './selection';
 import { useStage } from './stage-context';
 
-const STAGE_COLUMN_SELECTOR = '[data-testid="stage-column"]';
+// The infinite canvas's own full-window root (components/workbench/
+// canvas.tsx's data-testid="canvas-root") - the parent-document equivalent
+// of the old scrolling stage column this selector originally named, kept as
+// a selector (not a ref/context) since this hook attaches capture-phase
+// listeners imperatively outside of React's own tree.
+const STAGE_COLUMN_SELECTOR = '[data-testid="canvas-root"]';
 const ARTBOARD_SELECTOR = '[data-artboard]';
-const CANVAS_FRAME_SELECTOR = '[data-testid="canvas-frame"]';
 const MENU_OFFSET = 8;
 const MENU_MARGIN = 8;
 const HINT_TEXT = 'Hold on a layer to open this menu';
@@ -262,7 +267,15 @@ export function useLayerStack() {
       clearSwallowTimeout();
       if (event.button !== 0) return;
 
-      const iframeRect = document.querySelector(CANVAS_FRAME_SELECTOR)?.getBoundingClientRect();
+      // window.frameElement (from inside the iframe's own window) is the
+      // exact <iframe> DOM node hosting THIS press, as seen from the parent
+      // document - unlike a CSS selector query, it can never resolve to a
+      // different frame's iframe once the infinite canvas
+      // (components/workbench/canvas.tsx) has more than one
+      // [data-testid="canvas-frame"] on screen at once (every other frame's
+      // own read-only preview has one too).
+      const iframeElement = canvasDocument?.window.frameElement as HTMLElement | null | undefined;
+      const iframeRect = iframeElement?.getBoundingClientRect();
       const toAnchor: AnchorConverter = iframeRect
         ? (x, y) => ({ x: iframeRect.left + x * zoomRef.current, y: iframeRect.top + y * zoomRef.current })
         : IDENTITY_ANCHOR;
@@ -416,13 +429,17 @@ export function LayerStackMenu() {
   }, [open, entries, anchorX, anchorY]);
 
   // Close triggers that are not the gesture itself (spec #2): Escape,
-  // Cmd/Ctrl+\ (the same Show/Hide UI chord), clicking outside the menu, or
-  // scrolling the stage. Scoped to while the menu is open, and torn down the
-  // moment it closes. The menu itself is chrome (a portal in the parent
-  // document), but a click or scroll that closes it can originate inside the
-  // iframe too (picking a different layer directly, or scrolling an
-  // overflowing fixed-height frame) - registered on the frame document/
-  // window as well when one is available.
+  // Cmd/Ctrl+\ (the same Show/Hide UI chord), or clicking outside the menu.
+  // Scoped to while the menu is open, and torn down the moment it closes.
+  // The menu itself is chrome (a portal in the parent document), but a
+  // click that closes it can originate inside the iframe too (picking a
+  // different layer directly) - registered on the frame document/window as
+  // well when one is available. A scroll of the old single-frame stage
+  // column used to close the menu too, back when panning the stage WAS
+  // scrolling it; the infinite canvas (canvas.tsx) pans via a CSS transform
+  // instead, which fires no `scroll` event at all, so that listener was
+  // already permanently dead - closing on viewport change (below) replaces
+  // it with something that actually fires.
   const canvasDocument = useCanvasDocument();
   useEffect(() => {
     if (!open) return;
@@ -444,26 +461,32 @@ export function LayerStackMenu() {
       close();
     }
 
-    function onScroll() {
-      close();
-    }
-
-    const column = document.querySelector<HTMLElement>(STAGE_COLUMN_SELECTOR);
     window.addEventListener('keydown', onKeyDown);
     document.addEventListener('click', onDocumentClick);
-    column?.addEventListener('scroll', onScroll);
     canvasDocument?.window.addEventListener('keydown', onKeyDown);
     canvasDocument?.document.addEventListener('click', onDocumentClick);
-    canvasDocument?.window.addEventListener('scroll', onScroll);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('click', onDocumentClick);
-      column?.removeEventListener('scroll', onScroll);
       canvasDocument?.window.removeEventListener('keydown', onKeyDown);
       canvasDocument?.document.removeEventListener('click', onDocumentClick);
-      canvasDocument?.window.removeEventListener('scroll', onScroll);
     };
   }, [open, close, canvasDocument]);
+
+  // Panning or zooming moves every frame's on-screen position, so a menu
+  // still anchored at the press point's OLD screen coordinates would end up
+  // floating over the wrong spot - closing it is simpler and safer than
+  // re-deriving its anchor for a viewport that has since changed. Tracks
+  // the viewport continuously (not gated on `open`, unlike the effect
+  // above) so `lastViewport` always holds whatever was current the moment
+  // the menu opened, rather than comparing against a stale snapshot from
+  // however long ago this component last happened to re-render.
+  const { viewport } = useCanvasViewport();
+  const lastViewportRef = useRef(viewport);
+  useEffect(() => {
+    if (open && lastViewportRef.current !== viewport) close();
+    lastViewportRef.current = viewport;
+  }, [viewport, open, close]);
 
   if (!open || typeof document === 'undefined') return null;
 

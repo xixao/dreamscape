@@ -11,7 +11,6 @@ export type StagePreset = keyof typeof STAGE_PRESETS;
 
 export const STAGE_PRESET_ORDER: readonly StagePreset[] = ['mobile', 'tablet', 'desktop'];
 
-export const STAGE_PADDING = 24;
 export const ARTBOARD_MIN_HEIGHT = 640;
 
 export function presetForWidth(width: number): StagePreset | null {
@@ -19,10 +18,4 @@ export function presetForWidth(width: number): StagePreset | null {
     if (STAGE_PRESETS[preset] === width) return preset;
   }
   return null;
-}
-
-export function computeZoom(available: number, width: number): number {
-  if (available <= 0 || width <= 0) return 1;
-  if (available >= width) return 1;
-  return Math.max(0.1, available / width);
 }

@@ -1,19 +1,24 @@
 "use client";
 
-import { Frame, useEditor, type EditorState } from "@craftjs/core";
+import { Editor, Frame, useEditor, type EditorState } from "@craftjs/core";
 import {
+  memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { resolver } from "@/components/blocks/registry";
 import type { Screen } from "@/lib/files/repository";
+import type { Viewport } from "@/lib/canvas/viewport";
 import { toArtboardPoint, type Rect } from "@/lib/comments/geometry";
+import { capturePointer, releasePointer } from "@/lib/dom";
 import { stackUnder, type LayerStackNode } from "@/lib/layer-stack";
-import { ARTBOARD_MIN_HEIGHT, STAGE_PADDING, computeZoom } from "@/lib/stage";
+import { ARTBOARD_MIN_HEIGHT } from "@/lib/stage";
 import {
   MAX_STAGE_HEIGHT,
   MAX_STAGE_WIDTH,
@@ -27,7 +32,7 @@ import {
   DEFAULT_STAGE_COMMENTS,
   type StageCommentsProps,
 } from "./comments/comment-layer";
-import { ScreensStrip } from "./screens-strip";
+import type { CanvasDocument } from "./stage-context";
 import { useStage } from "./stage-context";
 
 const ARTBOARD_SELECTOR = "[data-artboard]";
@@ -147,9 +152,7 @@ function ResizeHandle({
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     start.current = null;
     setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    releasePointer(event.currentTarget, event.pointerId);
   };
 
   function applyDelta(dx: number, dy: number) {
@@ -182,7 +185,7 @@ function ResizeHandle({
       className={cn("absolute flex touch-none select-none", meta.className)}
       onPointerDown={(event) => {
         event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
+        capturePointer(event.currentTarget, event.pointerId);
         start.current = { x: event.clientX, y: event.clientY, width, height };
         setDragging(true);
       }}
@@ -242,35 +245,46 @@ function ResizeHandle({
   );
 }
 
-export function Stage({
-  data,
-  screens,
-  currentScreenId,
-  onSelectScreen,
-  onAddScreen,
-  onRenameScreen,
-  onDuplicateScreen,
-  onDeleteScreen,
+/**
+ * The focused frame: the one live Craft editing session, hosting the actual
+ * three resize handles, the comment cover and the drop-cache bridge (through
+ * CanvasFrame). Sized in plain, UNSCALED canvas px (`width`/`effectiveHeight`,
+ * no `* zoom`) - components/workbench/canvas.tsx positions and scales every
+ * frame, focused or not, from one ancestor transform, so nothing at this
+ * level pre-scales its own box the way the old fit-to-column stage did.
+ * `viewport` is read only to force the artboardRect re-measure effect below
+ * to re-run on pan/zoom (an ancestor CSS transform change fires neither a
+ * ResizeObserver nor a window resize/scroll event on its own); the actual
+ * zoom VALUE used for handle math and comment placement still comes from
+ * useStage().zoom, which canvas.tsx keeps in sync with the viewport.
+ *
+ * Wrapped in memo() below (as StageImpl here) - the focused frame host,
+ * alongside FramePreview - so that an unrelated re-render of an ancestor
+ * with otherwise-unchanged props does not cascade into this frame's own
+ * CanvasFrame. `viewport` itself still changes on every pan/zoom tick (it
+ * has to - see the comment above on why this component needs it), so memo
+ * alone does not stop THIS component's own body from re-running then; what
+ * it stops is CanvasFrame underneath it doing the same, since that
+ * component is separately memoized (canvas-frame.tsx) and every OTHER prop
+ * passed to it here - including its `children`, via the useMemo below - is
+ * unaffected by viewport changing at all.
+ */
+function StageImpl({
+  screen,
+  viewport,
   comments = DEFAULT_STAGE_COMMENTS,
 }: {
-  data: string;
-  screens: Screen[];
-  currentScreenId: string;
-  onSelectScreen: (id: string) => void;
-  onAddScreen: () => void;
-  onRenameScreen: (id: string, name: string) => void;
-  onDuplicateScreen: (id: string) => void;
-  onDeleteScreen: (id: string) => void;
+  screen: Screen;
+  viewport: Viewport;
   // Everything the comments placeholder needs (spec
   // docs/superpowers/specs/2026-09-12-folders-and-comments-design.md section 5);
   // optional so callers written before comments existed keep rendering an
   // inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
 }) {
-  const { width, height, zoom, setWidth, setSize, setZoom } = useStage();
-  const { actions, query } = useEditor();
+  const { width, height, zoom, setWidth, setSize } = useStage();
+  const { query } = useEditor();
   const canvas = useCanvasDocument();
-  const columnRef = useRef<HTMLDivElement>(null);
   const artboardRef = useRef<HTMLDivElement>(null);
   const [artboardRect, setArtboardRect] = useState<Rect | null>(null);
   // The frame's real, current unscaled height, whether that comes from a
@@ -280,46 +294,29 @@ export function Stage({
   const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
   const effectiveHeight = height ?? contentHeight;
 
-  useEffect(() => {
-    const column = columnRef.current;
-    if (!column) return;
-    const update = () =>
-      setZoom(computeZoom(column.clientWidth - STAGE_PADDING * 2, width));
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(column);
-    return () => observer.disconnect();
-  }, [width, setZoom]);
-
-  // Feeds CommentLayer's pin/popover positioning (toScreenPoint). Measured in
-  // a layout effect keyed on zoom/width/height so the rect always matches the
-  // scaled box on screen right now (reading it in the same tick as the
-  // setZoom call above would be one zoom change stale). The ResizeObserver on
-  // the column and the artboard, plus the scroll and resize listeners, catch
-  // every other way the box can move (a panel opening, the column scrolling,
-  // the window resizing, the frame's auto height changing).
+  // Feeds CommentLayer's pin/popover positioning (toScreenPoint). A plain
+  // ResizeObserver plus window resize/scroll only catch a same-document size
+  // or scroll change; viewport.x/y/zoom are added purely to force a
+  // re-measure on every pan or zoom too (see this function's own doc comment
+  // above) since neither of those fires any of the events above.
   useLayoutEffect(() => {
-    const column = columnRef.current;
     const artboardEl = artboardRef.current;
-    if (!column || !artboardEl) return;
+    if (!artboardEl) return;
     const update = () => {
       const rect = artboardRef.current?.getBoundingClientRect();
       if (rect) setArtboardRect(rect);
     };
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(column);
     observer.observe(artboardEl);
-    column.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update);
     return () => {
       observer.disconnect();
-      column.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update);
     };
-  }, [zoom, width, effectiveHeight]);
+  }, [width, effectiveHeight, viewport.x, viewport.y, viewport.zoom]);
 
   // Comment mode (spec section 5): a press on the artboard places a pin
   // instead of selecting a layer. The cover element rendered over the iframe
@@ -358,97 +355,240 @@ export function Stage({
     comments.onPlacePin(point.x, point.y, anchorNodeId);
   }
 
+  // Memoized so CanvasFrame's own `children` prop stays referentially
+  // stable across a viewport-only re-render of this component (StageImpl's
+  // own body re-runs on every pan/zoom tick - see the comment on it above -
+  // so an inline `<Frame .../>` literal here would otherwise be a brand
+  // new element every tick, which would defeat CanvasFrame's memoization
+  // (canvas-frame.tsx) just as surely as an unstable prop would, even
+  // though the props visible to CanvasFrame itself never changed).
+  const frameChildren = useMemo(() => <Frame key={screen.id} data={screen.layout} />, [screen.id, screen.layout]);
+
   return (
     <div
-      ref={columnRef}
-      data-testid="stage-column"
-      className="flex min-w-0 flex-col overflow-auto rounded-xl bg-canvas [scrollbar-gutter:stable]"
-      onPointerDown={(event) => {
-        const target = event.target as HTMLElement;
-        if (!target.closest("[data-artboard]")) actions.selectNode();
-      }}
+      data-artboard
+      data-testid="artboard-zoom"
+      className={cn(
+        "relative shrink-0",
+        comments.commentMode && "cursor-crosshair",
+      )}
+      onMouseDownCapture={handleArtboardMouseDownCapture}
+      onClickCapture={interceptForCommentMode}
     >
-      <div className="flex shrink-0 items-center border-b border-line-soft bg-canvas px-3 py-2">
-        <ScreensStrip
-          screens={screens}
-          currentScreenId={currentScreenId}
-          onSelect={onSelectScreen}
-          onAdd={onAddScreen}
-          onRename={onRenameScreen}
-          onDuplicate={onDuplicateScreen}
-          onDelete={onDeleteScreen}
+      <div
+        ref={artboardRef}
+        data-testid="artboard"
+        className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+        style={{ width, height: effectiveHeight }}
+      >
+        <CanvasFrame
+          width={width}
+          height={height}
+          // Always 1, never the viewport zoom: canvas.tsx's single ancestor
+          // transform already scales this whole frame (position and size
+          // together, along with every other frame) - scaling the iframe a
+          // second time here would double-apply it. Resize-handle math and
+          // comment placement below still use the real zoom, from
+          // useStage() (kept in sync with the viewport by canvas.tsx).
+          zoom={1}
+          onContentHeightChange={setContentHeight}
+        >
+          {frameChildren}
+        </CanvasFrame>
+        {/*
+          Comment mode: the frame lives in its own document, so a click on
+          it would never reach the parent's handlers and Craft would select
+          whatever is under the pointer. This transparent cover sits above
+          the iframe while the tool is active, so the press lands in the
+          parent document and the capture handlers on the wrapper turn it
+          into a pin.
+        */}
+        {comments.commentMode && (
+          <div
+            data-testid="comment-cover"
+            className="absolute inset-0 cursor-crosshair"
+            aria-hidden
+          />
+        )}
+        <ResizeHandle
+          axis="width"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onWidthChange={setWidth}
+        />
+        <ResizeHandle
+          axis="height"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onResize={setSize}
+          onDoubleClick={() => setSize({ width, height: null })}
+        />
+        <ResizeHandle
+          axis="corner"
+          width={width}
+          height={effectiveHeight}
+          zoom={zoom}
+          onResize={setSize}
         />
       </div>
-      <div
-        className="flex flex-1 justify-center"
-        style={{ padding: STAGE_PADDING }}
-      >
-        <div
-          data-artboard
-          data-testid="artboard-zoom"
-          className={cn(
-            "relative shrink-0",
-            comments.commentMode && "cursor-crosshair",
-          )}
-          onMouseDownCapture={handleArtboardMouseDownCapture}
-          onClickCapture={interceptForCommentMode}
-        >
-          <div
-            ref={artboardRef}
-            data-testid="artboard"
-            className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
-            style={{ width: width * zoom, height: effectiveHeight * zoom }}
-          >
-            <CanvasFrame
-              width={width}
-              height={height}
-              zoom={zoom}
-              onContentHeightChange={setContentHeight}
-            >
-              <Frame key={currentScreenId} data={data} />
-            </CanvasFrame>
-            {/*
-              Comment mode: the frame lives in its own document, so a click on
-              it would never reach the parent's handlers and Craft would select
-              whatever is under the pointer. This transparent cover sits above
-              the iframe while the tool is active, so the press lands in the
-              parent document and the capture handlers on the wrapper turn it
-              into a pin.
-            */}
-            {comments.commentMode && (
-              <div
-                data-testid="comment-cover"
-                className="absolute inset-0 cursor-crosshair"
-                aria-hidden
-              />
-            )}
-            <ResizeHandle
-              axis="width"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onWidthChange={setWidth}
-            />
-            <ResizeHandle
-              axis="height"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onResize={setSize}
-              onDoubleClick={() => setSize({ width, height: null })}
-            />
-            <ResizeHandle
-              axis="corner"
-              width={width}
-              height={effectiveHeight}
-              zoom={zoom}
-              onResize={setSize}
-            />
-          </div>
-          {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
-          <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
-        </div>
-      </div>
+      {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
+      <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
     </div>
   );
 }
+
+export const Stage = memo(StageImpl);
+
+/**
+ * A non-focused frame: a read-only preview of a screen that is not currently
+ * being edited (spec: "reuse the Play renderer approach"), rendered through a
+ * second, disabled Craft `Editor` - no selection outlines, no handles, no
+ * comments. Pressing anywhere inside it focuses that screen (the click is
+ * swallowed; selecting normally on the canvas only ever happens on a LATER
+ * click, once this frame is the focused one and the real, enabled `Stage`
+ * above is what is actually mounted there) - UNLESS Space is already held
+ * (or the press is a middle-mouse click), in which case it pans the canvas
+ * instead, without changing focus or selection at all (spec section 3).
+ *
+ * Deliberately does not go through the shared StageContext.canvasDocument
+ * slot (CanvasFrame's `reportDocument={false}`) - that slot is scoped to the
+ * one focused frame. `onCanvasDocument` gives this component its OWN, local
+ * reference to its iframe's document/window instead, just for the
+ * click-to-focus/pan/wheel listeners below (a plain onPointerDown on the wrapper
+ * catches a press that lands on the border/background around the iframe,
+ * but not one that lands on the iframe's own rendered content - a separate
+ * document, per lib/craft-positioner.ts's explanation of why every
+ * cross-frame listener in this codebase is doubled up the same way).
+ *
+ * Wrapped in memo() below (as FramePreviewImpl here): there can be many of
+ * these on screen at once, one per non-focused screen, and canvas.tsx
+ * re-renders on every pan/zoom tick (it has to, to update the viewport
+ * transform) - without memoization, every one of them would re-run its own
+ * body, and so recreate its `<Editor>`/`<Frame>` children, on every such
+ * tick even though nothing about any of them actually changed. This only
+ * pays off because every prop canvas.tsx passes here is itself stable
+ * across a pure viewport change: `onFocusScreen` is passed straight through
+ * unchanged (see the comment where this is rendered), and `shouldStartPan`/
+ * `onPanPointerDown`/`onPanPointerMove`/`onPanPointerUp` are each wrapped in
+ * `useStableCallback` there - a fresh closure for any one of them would
+ * defeat this the same way an unstable object prop would.
+ */
+function FramePreviewImpl({
+  screen,
+  onFocusScreen,
+  shouldStartPan,
+  onPanPointerDown,
+  onPanPointerMove,
+  onPanPointerUp,
+  onFrameWheel,
+}: {
+  screen: Screen;
+  // Takes the screen id (rather than a plain, no-argument `onFocus`) so
+  // canvas.tsx can pass its own onFocusScreen prop straight through
+  // unchanged - already stable across a pure viewport re-render, since it
+  // comes from a parent that does not itself re-render on one (see the
+  // comment there) - instead of needing a per-screen-id cache of pre-bound
+  // closures, which can only be populated by writing to a ref during
+  // render, unsafe under React's own rules (react-hooks/refs).
+  onFocusScreen: (id: string) => void;
+  // Space+drag (plus middle mouse) must pan the canvas from a non-focused
+  // preview too, not just the focused frame - without changing focus or
+  // selection (spec docs/superpowers/specs/2026-09-12-infinite-canvas-
+  // design.md section 3). All five (including onFrameWheel below) come from
+  // canvas.tsx, stable across renders (see the comment there), so wiring
+  // them here never needs to re-subscribe the effect below just because
+  // Canvas re-rendered for an unrelated reason such as a pan/zoom tick.
+  shouldStartPan: (button: number) => boolean;
+  onPanPointerDown: (event: PointerEvent) => void;
+  onPanPointerMove: (event: PointerEvent) => void;
+  onPanPointerUp: (event: PointerEvent) => void;
+  // The same wheel bridge the focused frame gets (canvas.tsx's frameWheel,
+  // via its stable callback): plain wheel pans, Cmd/Ctrl+wheel zooms around
+  // the pointer, and a frame that can still scroll its own content keeps
+  // that native scroll instead (spec section 3 - pan/zoom are general
+  // canvas interactions, not carved out for whichever frame is focused).
+  // Takes this preview's own frameWindow explicitly, the same reason
+  // onPanPointerDown/Move/Up don't need it: canvas.tsx's shared handler
+  // measures the exact iframe box to convert the event's frame-document
+  // clientX/clientY into a window-space point for zoom-around-pointer, and
+  // only the caller - not the event itself - knows which iframe that is.
+  onFrameWheel: (event: WheelEvent, frameWindow: Window) => void;
+}) {
+  const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
+
+  useEffect(() => {
+    if (!frameDocument) return;
+    function onPointerDown(event: PointerEvent) {
+      if (shouldStartPan(event.button)) {
+        onPanPointerDown(event);
+        return;
+      }
+      event.preventDefault();
+      onFocusScreen(screen.id);
+    }
+    // TS narrowing of `frameDocument` above does not persist into this
+    // nested function declaration (same limitation canvas.tsx's own
+    // onWheel wrapper notes), hence the assertion.
+    function onWheel(event: WheelEvent) {
+      onFrameWheel(event, frameDocument!.window);
+    }
+    frameDocument.window.addEventListener("pointerdown", onPointerDown, { capture: true });
+    // Forwarded unconditionally (not gated on shouldStartPan here) - the
+    // pan itself already checks canvas.tsx's own panRef for a matching
+    // pointerId before doing anything, the same guard the focused frame's
+    // identical wiring already relies on, so a move/up that has nothing to
+    // do with a pan started elsewhere is always a no-op.
+    frameDocument.window.addEventListener("pointermove", onPanPointerMove);
+    frameDocument.window.addEventListener("pointerup", onPanPointerUp);
+    frameDocument.window.addEventListener("pointercancel", onPanPointerUp);
+    // Attached to the document, not the window (matching canvas.tsx's
+    // identical choice for the focused frame) - wheel bubbles from the
+    // target up through the document to the window, so listening on both
+    // would fire this handler twice per gesture.
+    frameDocument.document.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      frameDocument.window.removeEventListener("pointerdown", onPointerDown, { capture: true });
+      frameDocument.window.removeEventListener("pointermove", onPanPointerMove);
+      frameDocument.window.removeEventListener("pointerup", onPanPointerUp);
+      frameDocument.window.removeEventListener("pointercancel", onPanPointerUp);
+      frameDocument.document.removeEventListener("wheel", onWheel);
+    };
+  }, [
+    frameDocument,
+    screen.id,
+    onFocusScreen,
+    shouldStartPan,
+    onPanPointerDown,
+    onPanPointerMove,
+    onPanPointerUp,
+    onFrameWheel,
+  ]);
+
+  return (
+    <div
+      data-testid="artboard-preview"
+      className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+      style={{ width: screen.stageWidth, height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        onFocusScreen(screen.id);
+      }}
+    >
+      <CanvasFrame
+        width={screen.stageWidth}
+        height={screen.stageHeight ?? null}
+        zoom={1}
+        reportDocument={false}
+        onCanvasDocument={setFrameDocument}
+      >
+        <Editor resolver={resolver} enabled={false}>
+          <Frame data={screen.layout} />
+        </Editor>
+      </CanvasFrame>
+    </div>
+  );
+}
+
+export const FramePreview = memo(FramePreviewImpl);

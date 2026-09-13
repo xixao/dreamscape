@@ -24,9 +24,17 @@ function presetButton(label: string) {
 // this file already relied on for the pre-iframe artboard. Throws instead of
 // silently returning an empty body so a real timing regression fails fast
 // with a clear message rather than a confusing "element not found" later.
+//
+// The infinite canvas (canvas.tsx) mounts every screen's own CanvasFrame at
+// once, so `canvas-frame` is no longer unique once a file has more than one
+// screen - scoped to the one inside `[data-testid="artboard"]` (the focused,
+// live-editing Stage), never a `[data-testid="artboard-preview"]` (a
+// non-focused, read-only FramePreview).
 function frameBody(): HTMLElement {
-  const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
-  const body = iframe.contentDocument?.body;
+  const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+    | HTMLIFrameElement
+    | null;
+  const body = iframe?.contentDocument?.body;
   if (!body) throw new Error('canvas frame body not ready');
   return body;
 }
@@ -53,6 +61,14 @@ const SCREEN_2: Screen = {
   name: 'Frame 2',
   layout: EXAMPLES[2].layout, // Settings: has a "Save changes" button, unlike Login.
   stageWidth: EXAMPLES[2].stageWidth,
+};
+// Used only by the "frame positions" tests below, which need a third screen
+// and never assert on its rendered content.
+const SCREEN_3: Screen = {
+  id: 'screen0003',
+  name: 'Frame 3',
+  layout: EXAMPLES[1].layout,
+  stageWidth: EXAMPLES[1].stageWidth,
 };
 
 const BASE_FILE: FileRecord = {
@@ -306,22 +322,31 @@ describe('Workbench', () => {
   });
 
   describe('Show/Hide UI', () => {
-    it('Cmd+\\ hides the right panel and the top bar, keeping the artboard; Cmd+\\ again restores them', () => {
+    it('Cmd+\\ hides the right panel, the top bar and the screens strip, keeping the canvas; Cmd+\\ again restores them', () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
       expect(screen.getByTestId('save-state')).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
       expect(screen.queryByTestId('save-state')).toBeNull();
+      // The screens strip hides too now (spec docs/superpowers/specs/
+      // 2026-09-12-infinite-canvas-design.md section 4: "Cmd+\ hides all
+      // chrome and leaves the canvas") - unlike the old single-frame model,
+      // switching screens while hidden no longer needs it (see the
+      // "editor UI state persists" test, which switches by clicking the
+      // other frame directly on the canvas instead).
+      expect(screen.queryByRole('tablist', { name: 'Screens' })).toBeNull();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
       expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
 
       expect(screen.getByRole('complementary', { name: 'Design' })).toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'Screens' })).toBeInTheDocument();
       expect(screen.getByTestId('artboard')).toBeInTheDocument();
     });
   });
@@ -392,7 +417,10 @@ describe('Workbench', () => {
       expect(body.screens).toHaveLength(2);
       expect(body.screens[0].id).toBe(SCREEN_1.id);
       expect(body.screens[0].stageWidth).toBe(375);
-      expect(body.screens[1]).toEqual(SCREEN_2);
+      // SCREEN_2 as given has no position; the initial-load layout pass
+      // assigns it one (to the right of SCREEN_1) before this save ever
+      // fires, so it is otherwise untouched.
+      expect(body.screens[1]).toEqual({ ...SCREEN_2, x: SCREEN_1.stageWidth + 200, y: 0 });
     });
 
     it('New screen copies the current screen\'s device, not just its width', async () => {
@@ -456,6 +484,159 @@ describe('Workbench', () => {
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
+    });
+
+    // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
+    // section 5: clicking a tab focuses that screen (already covered above)
+    // and also starts animating the viewport to fit it.
+    it('clicking a screens tab starts an animation of the canvas viewport toward that frame', async () => {
+      const pending: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        ((cb: FrameRequestCallback) => {
+          pending.push(cb);
+          return pending.length;
+        }) as typeof requestAnimationFrame,
+      );
+      try {
+        render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+        const transformBefore = screen.getByTestId('canvas-layer').style.transform;
+
+        await userEvent.click(screen.getByRole('tab', { name: 'Frame 2' }));
+
+        // The animation only actually moves the viewport once its own rAF
+        // loop is pumped - nothing else in this app calls
+        // requestAnimationFrame, so any callback queued here is animateTo's.
+        expect(pending.length).toBeGreaterThan(0);
+        act(() => {
+          pending.splice(0).forEach((cb) => cb(0));
+          pending.splice(0).forEach((cb) => cb(100));
+        });
+        expect(screen.getByTestId('canvas-layer').style.transform).not.toBe(transformBefore);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  describe('frame positions', () => {
+    it('assigns positions to legacy screens on load without saving, then includes them in the next save', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await userEvent.click(presetButton('Mobile'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0]).toMatchObject({ x: 0, y: 0 });
+      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
+    });
+
+    it('New screen is placed to the right of the last frame', async () => {
+      render(<Workbench file={makeFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce),
+      // same as "New screen adds a screen..." above - Craft's own
+      // onNodesChange first-fire for the brand new empty Frame can queue a
+      // second, harmless save right behind it, so this only waits for AT
+      // LEAST one call and reads the first one rather than asserting an
+      // exact count.
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.screens[0]).toMatchObject({ x: 0, y: 0 });
+      expect(body.screens[1]).toMatchObject({ x: SCREEN_1.stageWidth + 200, y: 0 });
+
+      // Drains this screen's own extra save traffic - see the identical
+      // comment on "New screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Duplicate is placed to the right of the rightmost frame in the file, never overlapping another screen', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+
+      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens).toHaveLength(3);
+      // Source (screen 0) and screen 2 (the original SCREEN_2, pushed one
+      // slot over by the copy's insertion) both keep their own
+      // already-resolved positions untouched.
+      expect(body.screens[0]).toMatchObject({ id: SCREEN_1.id, x: 0, y: 0 });
+      expect(body.screens[2]).toMatchObject({ id: SCREEN_2.id, x: SCREEN_1.stageWidth + 200, y: 0 });
+      // The copy must clear BOTH existing frames, not just its source: it
+      // used to chain off the source alone and land exactly on SCREEN_2
+      // (which sits at the same x a plain "next to the source" rule would
+      // have picked). Now it chains off the rightmost edge across every
+      // positioned frame in the file - here, SCREEN_2's own right edge.
+      expect(body.screens[1]).toMatchObject({
+        x: SCREEN_1.stageWidth + 200 + SCREEN_2.stageWidth + 200,
+        y: 0,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('Duplicating the first of three screens places the copy right of the third, not the second', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2, SCREEN_3] })} />);
+
+      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens).toHaveLength(4);
+      const screen2X = SCREEN_1.stageWidth + 200;
+      const screen3X = screen2X + SCREEN_2.stageWidth + 200;
+      expect(body.screens[2]).toMatchObject({ id: SCREEN_2.id, x: screen2X, y: 0 });
+      expect(body.screens[3]).toMatchObject({ id: SCREEN_3.id, x: screen3X, y: 0 });
+      // The copy (inserted right after the source, at index 1) must clear
+      // screen 3 - the rightmost frame - not merely screen 2, which chaining
+      // off the source alone (the old bug) would have landed it on.
+      expect(body.screens[1]).toMatchObject({ x: screen3X + SCREEN_3.stageWidth + 200, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('adding a screen after a manual drag places it right of the rightmost frame, not the last one in array order', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      // Drags SCREEN_1's title far to the right of SCREEN_2, past its right
+      // edge - array order stays [SCREEN_1, SCREEN_2], but SCREEN_1 is now
+      // the rightmost frame on the canvas. 4000 is an 8px-snap-exact delta
+      // comfortably past SCREEN_2's own right edge (SCREEN_1.stageWidth +
+      // 200 + SCREEN_2.stageWidth).
+      const dragDistance = 4000;
+      // Scoped to the canvas frame wrapper, not a bare getByText(name): the
+      // screens strip tab shows the same text ("Frame 1") beside the frame
+      // title itself.
+      const title = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
+      fireEvent.pointerUp(title, { pointerId: 1, clientX: dragDistance, clientY: 0 });
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      // addScreen flushes immediately (switchScreen's flush-ahead-of-debounce);
+      // this only waits for AT LEAST one call and reads the first one, same
+      // as "New screen is placed to the right of the last frame" above.
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      expect(body.screens[0]).toMatchObject({ id: SCREEN_1.id, x: dragDistance, y: 0 });
+      // The new screen must clear the DRAGGED SCREEN_1 (now rightmost),
+      // not just SCREEN_2 (last in array order, and where the old
+      // "chain off the previous array element" bug would have placed it).
+      expect(body.screens[2]).toMatchObject({ x: dragDistance + SCREEN_1.stageWidth + 200, y: 0 });
+
+      // Drains this screen's own extra save traffic - see the identical
+      // comment on "New screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
     });
   });
 
@@ -613,13 +794,16 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       // Hiding the UI and switching again must not bring it back by itself.
-      // The screens strip stays visible even with the rest of the UI
-      // hidden (see the "Show/Hide UI" tests above), so switching is still
-      // possible without it.
+      // The screens strip hides along with everything else now (spec
+      // docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+      // 4: "Cmd+\ hides all chrome and leaves the canvas") - switching while
+      // hidden means clicking the other frame directly on the canvas
+      // (components/workbench/stage.tsx's FramePreview), same as a sighted
+      // user would with nothing but the canvas on screen.
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
 
-      await userEvent.click(screen.getByRole('tab', { name: 'Frame 1' }));
+      fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
       expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
@@ -693,23 +877,25 @@ describe('Workbench', () => {
       localStorage.clear();
     });
 
-    it('is closed by default; the topbar button opens it as a third column, reflected in aria-pressed', async () => {
+    it('is closed by default; the topbar button opens it floating beside the right panel, reflected in aria-pressed', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       const chatButton = screen.getByRole('button', { name: 'Chat' });
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
 
       await userEvent.click(chatButton);
 
       expect(chatButton).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      const chat = screen.getByRole('complementary', { name: 'Chat' });
+      expect(chat).toHaveClass('w-[360px]');
+      // Floats immediately left of the (expanded, 320px) right panel.
+      expect(chat).toHaveClass('right-[336px]');
 
       await userEvent.click(chatButton);
       expect(chatButton).toHaveAttribute('aria-pressed', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
     });
 
     it('Cmd+J toggles the chat panel open and closed', () => {
@@ -764,13 +950,13 @@ describe('Workbench', () => {
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
     });
 
-    it('the grid has no left column; the chat column still appends', async () => {
+    it('there is no left column (Components lives in the right panel); the chat panel still floats in when opened', async () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
       expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
 
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
     });
 
     it('selecting a layer while on Components switches to Design', async () => {
@@ -810,32 +996,32 @@ describe('Workbench', () => {
   });
 
   describe('Minimize panel', () => {
-    it('the minimize button collapses the panel to a rail and the expand button restores it', async () => {
+    it('the minimize button collapses the panel to a 40px rail and the expand button restores it to 320px', async () => {
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
 
       await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
 
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
       const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(panel).toHaveClass('w-10');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
     });
 
-    it('Cmd+. toggles the panel collapsed, with the chat column still appending when collapsed', async () => {
+    it('Cmd+. toggles the panel collapsed, with the chat panel following it to stay flush beside it', async () => {
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[56px]');
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px_360px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
     });
 
     it('clicking a rail icon expands the panel on that tab', async () => {
@@ -845,7 +1031,7 @@ describe('Workbench', () => {
 
       await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
 
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_320px]');
+      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
       expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
     });
 
@@ -855,8 +1041,113 @@ describe('Workbench', () => {
       unmount();
 
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByTestId('workbench-shell')).toHaveClass('grid-cols-[1fr_40px]');
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-10');
       expect(screen.getByRole('button', { name: 'Expand panel' })).toBeInTheDocument();
+    });
+  });
+
+  // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+  // 4 (Matt, 2026-09-12): "when the chat panel is opened, the canvas that
+  // holds the frames (pages) should not scale up or down." Opening/closing
+  // any panel, minimizing it, or Cmd+\ must never touch the viewport - only
+  // the user zooming (or Fit/a screen tab) may.
+  describe('opening/closing panels never changes the canvas viewport', () => {
+    function transform(): string {
+      return screen.getByTestId('canvas-layer').style.transform;
+    }
+
+    it('is untouched by opening and closing the chat panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(transform()).toBe(before);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(transform()).toBe(before);
+    });
+
+    it('is untouched by minimizing and expanding the right panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
+      expect(transform()).toBe(before);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
+      expect(transform()).toBe(before);
+    });
+
+    it('is untouched by Cmd+\\ (Show/Hide UI)', () => {
+      render(<Workbench file={makeFile()} />);
+      const before = transform();
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(transform()).toBe(before);
+
+      fireEvent.keyDown(window, { key: '\\', metaKey: true });
+      expect(transform()).toBe(before);
+    });
+  });
+
+  // Integration coverage for the real, rendered Canvas (layer-stack-menu.test.tsx
+  // covers the component in isolation) - this is what actually caught the
+  // infinite canvas's root element losing the data-testid the press-and-hold
+  // gesture's parent-document listener queries for.
+  describe('layer stack menu', () => {
+    it('opens on a press-and-hold on a real layer inside the rendered frame', async () => {
+      render(<Workbench file={makeFile()} />);
+      const button = within(frameBody()).getByRole('button', { name: 'Sign in' });
+
+      fireEvent.pointerDown(button, { button: 0, clientX: 50, clientY: 50 });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(await screen.findByRole('menu')).toBeInTheDocument();
+    });
+  });
+
+  // Spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section
+  // 4: the shell is no longer a grid - the canvas fills the window and
+  // every other piece of chrome floats above it at a fixed position.
+  describe('floating chrome', () => {
+    it('the shell is a plain positioning context, not a grid', () => {
+      render(<Workbench file={makeFile()} />);
+      const shell = screen.getByTestId('workbench-shell');
+      expect(shell.className).not.toMatch(/\bgrid\b/);
+      expect(shell).toHaveClass('relative');
+    });
+
+    it('the canvas fills the window', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByTestId('canvas-root')).toHaveClass('absolute', 'inset-0');
+    });
+
+    it('the top bar floats full width at the top', () => {
+      render(<Workbench file={makeFile()} />);
+      const header = screen.getByTestId('save-state').closest('header');
+      expect(header).toHaveClass('absolute', 'top-3', 'left-3', 'right-3', 'shadow-panel-lg');
+    });
+
+    it('the right panel floats at the right, below the top bar', () => {
+      render(<Workbench file={makeFile()} />);
+      expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass(
+        'absolute',
+        'top-[76px]',
+        'right-3',
+        'bottom-3',
+      );
+    });
+
+    it('the screens strip floats at the top-left of the canvas, beneath the top bar', () => {
+      render(<Workbench file={makeFile()} />);
+      const strip = screen.getByRole('tablist', { name: 'Screens' }).closest('[class*="absolute"]');
+      expect(strip).toHaveClass('absolute', 'top-[76px]', 'left-3');
+    });
+
+    it('the chat panel floats below the top bar too, at the same height as the right panel', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('absolute', 'top-[76px]', 'bottom-3');
     });
   });
 });

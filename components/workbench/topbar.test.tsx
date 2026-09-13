@@ -1,11 +1,13 @@
-import type { ComponentProps } from 'react';
+import { useState, type ComponentProps, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { Viewport } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
 import { renderInEditor } from '@/test/craft-harness';
+import { CanvasViewportProvider } from './canvas';
 import { Topbar } from './topbar';
 
 function presetButton(label: string) {
@@ -14,13 +16,40 @@ function presetButton(label: string) {
   return button;
 }
 
+// Topbar's zoom menu reads/writes the canvas viewport through
+// useCanvasViewport() (components/workbench/canvas.tsx) - this plays the
+// role WorkbenchShell does in the real app: own a real, settable viewport
+// and expose it through the same provider, with a plain readout so a test
+// can observe the fixed-percentage items actually changing it.
+function ViewportHarness({
+  children,
+  initialViewport = { x: 0, y: 0, zoom: 1 },
+  viewportSize = { width: 1000, height: 800 },
+}: {
+  children: ReactNode;
+  initialViewport?: Viewport;
+  viewportSize?: { width: number; height: number };
+}) {
+  const [viewport, setViewport] = useState(initialViewport);
+  return (
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={() => {}}>
+      {children}
+      <output data-testid="viewport-probe">{viewport.zoom}</output>
+    </CanvasViewportProvider>
+  );
+}
+
 function renderTopbar(
   overrides: Partial<ComponentProps<typeof Topbar>> = {},
-  options?: { width?: number },
+  options?: { width?: number; initialViewport?: Viewport },
 ) {
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
   const onToggleChat = overrides.onToggleChat ?? vi.fn();
+  const onZoomIn = overrides.onZoomIn ?? vi.fn();
+  const onZoomOut = overrides.onZoomOut ?? vi.fn();
+  const onZoomToFit = overrides.onZoomToFit ?? vi.fn();
+  const onZoomToSelection = overrides.onZoomToSelection ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
@@ -32,8 +61,26 @@ function renderTopbar(
     onRename,
     onNew,
     onToggleChat,
+    onZoomIn,
+    onZoomOut,
+    onZoomToFit,
+    onZoomToSelection,
   };
-  return { ...renderInEditor(<Topbar {...props} />, options), onRename, onNew, onToggleChat };
+  return {
+    ...renderInEditor(
+      <ViewportHarness initialViewport={options?.initialViewport}>
+        <Topbar {...props} />
+      </ViewportHarness>,
+      options,
+    ),
+    onRename,
+    onNew,
+    onToggleChat,
+    onZoomIn,
+    onZoomOut,
+    onZoomToFit,
+    onZoomToSelection,
+  };
 }
 
 // The readout text itself (readoutFor) is unit-tested in
@@ -66,17 +113,23 @@ describe('Topbar', () => {
     const { editor } = renderInEditor(
       <>
         <Frame data={emptyLayoutJson()} />
-        <Topbar
-          fileName="Untitled"
-          onRename={() => {}}
-          saveState="saved"
-          onNew={() => {}}
-          fileId="file123abc"
-          folderId={null}
-          currentScreenId="screen0001"
-          chatOpen={false}
-          onToggleChat={() => {}}
-        />
+        <ViewportHarness>
+          <Topbar
+            fileName="Untitled"
+            onRename={() => {}}
+            saveState="saved"
+            onNew={() => {}}
+            fileId="file123abc"
+            folderId={null}
+            currentScreenId="screen0001"
+            chatOpen={false}
+            onToggleChat={() => {}}
+            onZoomIn={() => {}}
+            onZoomOut={() => {}}
+            onZoomToFit={() => {}}
+            onZoomToSelection={() => {}}
+          />
+        </ViewportHarness>
       </>,
     );
     await screen.findByText('This frame is empty');
@@ -228,19 +281,19 @@ describe('Topbar', () => {
       expect(onToggleChat).toHaveBeenCalledTimes(1);
     });
 
-    // The left column (the Components tray) went away in
-    // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1,
-    // so the top bar now spans 2 columns without chat and 3 with it (one
-    // fewer than before either way), regardless of whether the right panel
-    // is minimized - collapsing it only narrows that column, it does not
-    // remove it.
-    it('spans 2 columns when chat is closed and 3 when it is open', () => {
+    // The top bar floats full width over the canvas (spec docs/superpowers/
+    // specs/2026-09-12-infinite-canvas-design.md section 4) regardless of
+    // the chat panel: unlike the old grid layout, opening chat never
+    // narrows it - chat floats independently, beside the right panel.
+    it('floats the same full width whether chat is open or closed', () => {
       const { unmount } = renderTopbar({ chatOpen: false });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-2');
+      const closed = screen.getByRole('button', { name: 'Chat' }).closest('header');
+      expect(closed).toHaveClass('absolute', 'top-3', 'left-3', 'right-3');
       unmount();
 
       renderTopbar({ chatOpen: true });
-      expect(screen.getByRole('button', { name: 'Chat' }).closest('header')).toHaveClass('col-span-3');
+      const open = screen.getByRole('button', { name: 'Chat' }).closest('header');
+      expect(open).toHaveClass('absolute', 'top-3', 'left-3', 'right-3');
     });
   });
 
@@ -309,6 +362,78 @@ describe('Topbar', () => {
 
       expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('Device');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
+    });
+  });
+
+  describe('zoom menu', () => {
+    it('the readout is a menu trigger', () => {
+      renderTopbar({}, { width: 1440 });
+      const trigger = screen.getByTestId('stage-readout');
+      expect(trigger.tagName).toBe('BUTTON');
+      expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    });
+
+    it('lists every zoom item with its shortcut in mono on the right', async () => {
+      renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+
+      const menu = screen.getByRole('menu');
+      const items = within(menu).getAllByRole('menuitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Zoom in⌘=',
+        'Zoom out⌘-',
+        'Zoom to 50%',
+        'Zoom to 100%⌘0',
+        'Zoom to 200%',
+        'Zoom to fit⇧1',
+        'Zoom to selection⇧2',
+      ]);
+    });
+
+    it('Zoom in calls onZoomIn', async () => {
+      const { onZoomIn } = renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: /Zoom in/ }));
+      expect(onZoomIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('Zoom out calls onZoomOut', async () => {
+      const { onZoomOut } = renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: /Zoom out/ }));
+      expect(onZoomOut).toHaveBeenCalledTimes(1);
+    });
+
+    it('Zoom to fit calls onZoomToFit', async () => {
+      const { onZoomToFit } = renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: /Zoom to fit/ }));
+      expect(onZoomToFit).toHaveBeenCalledTimes(1);
+    });
+
+    it('Zoom to selection calls onZoomToSelection', async () => {
+      const { onZoomToSelection } = renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: /Zoom to selection/ }));
+      expect(onZoomToSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('Zoom to 100% sets the shared viewport to exactly zoom 1', async () => {
+      renderTopbar({}, { width: 1440, initialViewport: { x: 10, y: 10, zoom: 2.5 } });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Zoom to 100%⌘0' }));
+      expect(screen.getByTestId('viewport-probe')).toHaveTextContent('1');
+    });
+
+    it('Zoom to 50% and Zoom to 200% set the shared viewport to those exact levels', async () => {
+      renderTopbar({}, { width: 1440 });
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Zoom to 50%' }));
+      expect(screen.getByTestId('viewport-probe')).toHaveTextContent('0.5');
+
+      await userEvent.click(screen.getByTestId('stage-readout'));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Zoom to 200%' }));
+      expect(screen.getByTestId('viewport-probe')).toHaveTextContent('2');
     });
   });
 });

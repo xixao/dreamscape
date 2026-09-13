@@ -29,6 +29,13 @@ const screenField = z.object({
   stageWidth: z.number().int(),
   stageHeight: z.number().int().nullable().optional(),
   deviceName: z.string().nullable().optional(),
+  // The frame's canvas position (spec docs/superpowers/specs/2026-09-12-
+  // infinite-canvas-design.md section 5): shape only here (an optional,
+  // nullable integer, same as stageHeight above) - the "both or neither"
+  // rule lives in validateScreens (lib/files/validate.ts), same split every
+  // other content rule already has one level down from this zod check.
+  x: z.number().int().nullable().optional(),
+  y: z.number().int().nullable().optional(),
 });
 
 const screensField = z.array(screenField).min(1).max(50);

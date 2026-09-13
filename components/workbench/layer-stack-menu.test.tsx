@@ -1,27 +1,78 @@
+import { useEffect, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { Card } from '@/components/blocks/card';
 import { emptyLayoutJson } from '@/components/blocks/registry';
+import type { Viewport } from '@/lib/canvas/viewport';
 import { HOLD_MS } from '@/lib/layer-stack';
 import type { Screen } from '@/lib/files/repository';
 import { renderInEditor } from '@/test/craft-harness';
+import { CanvasViewportProvider } from './canvas';
 import { LayerStackMenu } from './layer-stack-menu';
 import { Stage } from './stage';
+import { useStage } from './stage-context';
 
-const ONE_SCREEN: Screen[] = [{ id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 }];
+const ONE_SCREEN: Screen = { id: 's1', name: 'Frame 1', layout: emptyLayoutJson(), stageWidth: 1440 };
+
+// Stage no longer computes its own fit-to-column zoom (that lived in the
+// pre-infinite-canvas Stage; zoom now belongs to the canvas viewport,
+// components/workbench/canvas.tsx, which keeps useStage().zoom in sync with
+// it) - a test that needs a non-1 zoom sets it directly through the same
+// context instead of faking a column width.
+function ZoomSetter({ zoom }: { zoom: number }) {
+  const { setZoom } = useStage();
+  useEffect(() => {
+    setZoom(zoom);
+  }, [zoom, setZoom]);
+  return null;
+}
 
 // Craft's rendered tree now lives inside the CanvasFrame iframe (stage.tsx),
 // a separate document `screen` (bound to the outer one) cannot see into -
 // waits for the iframe and returns its body so callers can query inside it.
+// Scoped inside [data-testid="artboard"] rather than a bare getByTestId:
+// the infinite canvas can have more than one [data-testid="canvas-frame"]
+// on screen (components/workbench/canvas.tsx mounts one per screen, and one
+// test below deliberately adds a decoy to prove a fix), but only the
+// focused frame's own lives inside an "artboard" wrapper.
 async function frameBody(): Promise<HTMLElement> {
   return waitFor(() => {
-    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
-    const body = iframe.contentDocument?.body;
+    const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+      | HTMLIFrameElement
+      | null;
+    const body = iframe?.contentDocument?.body;
     if (!body) throw new Error('canvas frame body not ready');
     return body;
   });
+}
+
+// LayerStackMenu closes itself when the shared canvas viewport changes (it
+// used to close on the stage column's own `scroll` event, which no longer
+// fires now that panning is a CSS transform - see canvas.tsx) - so it now
+// reads useCanvasViewport(), which throws outside a CanvasViewportProvider.
+// This harness wraps every setup() render in one with a real, settable
+// viewport (rather than a static literal) so the one test that actually
+// needs to change it after the menu opens can, through the exposed
+// `setViewport`; every other test in this file never touches it and is
+// unaffected by the wrapper being there.
+function ViewportHarness({
+  children,
+  onViewportSetter,
+}: {
+  children: ReactNode;
+  onViewportSetter: (setViewport: (viewport: Viewport) => void) => void;
+}) {
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+  useEffect(() => {
+    onViewportSetter(setViewport);
+  }, [onViewportSetter]);
+  return (
+    <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={{ width: 1000, height: 800 }} animateTo={() => {}}>
+      {children}
+    </CanvasViewportProvider>
+  );
 }
 
 // Builds ROOT(Frame) -> Card -> CardContent(zone) -> Button("Sign in"), the
@@ -30,21 +81,26 @@ async function frameBody(): Promise<HTMLElement> {
 // components/blocks/card.test.tsx and dialog.test.tsx (Card's own render
 // never reads a `children` prop, so JSX nesting under <Card> would not
 // actually place a node in its content zone).
-async function setup() {
+async function setup(zoom = 1) {
+  let setSharedViewport: ((viewport: Viewport) => void) | null = null;
   const utils = renderInEditor(
-    <>
-      <Stage
-        data={emptyLayoutJson()}
-        screens={ONE_SCREEN}
-        currentScreenId="s1"
-        onSelectScreen={() => {}}
-        onAddScreen={() => {}}
-        onRenameScreen={() => {}}
-        onDuplicateScreen={() => {}}
-        onDeleteScreen={() => {}}
-      />
+    <ViewportHarness
+      onViewportSetter={(setViewport) => {
+        setSharedViewport = setViewport;
+      }}
+    >
+      {/*
+        data-testid="canvas-root" stands in for the real infinite canvas's
+        own root element (components/workbench/canvas.tsx) - the only thing
+        LayerStackMenu's press-and-hold gesture detection needs from an
+        ancestor, queried by that test id rather than received as a prop.
+      */}
+      <div data-testid="canvas-root">
+        <ZoomSetter zoom={zoom} />
+        <Stage screen={ONE_SCREEN} viewport={{ x: 0, y: 0, zoom }} />
+      </div>
       <LayerStackMenu />
-    </>,
+    </ViewportHarness>,
   );
   const body = await frameBody();
   await within(body).findByText('This frame is empty');
@@ -69,7 +125,12 @@ async function setup() {
   // settle hangs the whole setup instead of failing fast.
   vi.useFakeTimers();
 
-  return { button, cardId, query, actions };
+  function setViewport(viewport: Viewport): void {
+    if (!setSharedViewport) throw new Error('viewport setter not ready');
+    act(() => setSharedViewport!(viewport));
+  }
+
+  return { button, cardId, query, actions, setViewport };
 }
 
 function press(target: Element, x = 100, y = 100) {
@@ -232,14 +293,23 @@ describe('LayerStackMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('closes when the stage scrolls', async () => {
-    const { button } = await setup();
+  it('closes when the canvas viewport changes (pan or zoom)', async () => {
+    const { button, setViewport } = await setup();
     press(button);
     await advance(HOLD_MS);
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
-    fireEvent.scroll(screen.getByTestId('stage-column'));
+    setViewport({ x: 50, y: 0, zoom: 1 });
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('does not close from a viewport change while it is not open', async () => {
+    const { button, setViewport } = await setup();
+    setViewport({ x: 50, y: 0, zoom: 1 });
+
+    press(button);
+    await advance(HOLD_MS);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
   it('swallows the click that follows a completed hold, exactly once', async () => {
@@ -375,10 +445,6 @@ describe('LayerStackMenu', () => {
     });
 
     it('offsets and scales the anchor by the iframe rect and the current zoom', async () => {
-      // Stage computes zoom from the column's clientWidth versus the stage
-      // width (lib/stage.ts's computeZoom); 720 available for a 1440 px
-      // frame (craft-harness's renderInEditor default) is exactly zoom 0.5.
-      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(768);
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
         if (this.dataset.testid === 'canvas-frame') {
           return { left: 100, top: 40, width: 720, height: 320, right: 820, bottom: 360, x: 100, y: 40, toJSON() {} } as DOMRect;
@@ -389,7 +455,7 @@ describe('LayerStackMenu', () => {
         return { left: 0, top: 0, width: 40, height: 20, right: 40, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
       });
 
-      const { button } = await setup();
+      const { button } = await setup(0.5);
       // Pressing at (10, 20) inside the frame, whose rect is offset by
       // (100, 40) in the parent document and currently rendered at zoom
       // 0.5, must anchor the menu at (100 + 10*0.5, 40 + 20*0.5) = (105, 50)
@@ -398,6 +464,42 @@ describe('LayerStackMenu', () => {
       await advance(HOLD_MS);
 
       expect(screen.getByRole('menu')).toHaveStyle({ left: `${105 + 8}px`, top: `${50 + 8}px` });
+    });
+
+    // The infinite canvas (components/workbench/canvas.tsx) mounts one
+    // CanvasFrame per screen at once, so more than one [data-testid=
+    // "canvas-frame"] iframe can exist simultaneously - a plain
+    // document.querySelector(that selector) could resolve to a DIFFERENT
+    // frame's iframe than the one actually pressed. The fix reads
+    // canvasDocument.window.frameElement instead (the exact iframe hosting
+    // THIS press), which this decoy iframe - present, matching the same
+    // test id, but not the one the press happened in - proves.
+    it('still anchors to the frame the press actually happened in, even with another canvas-frame iframe present', async () => {
+      const decoy = document.createElement('iframe');
+      decoy.setAttribute('data-testid', 'canvas-frame');
+      document.body.insertBefore(decoy, document.body.firstChild);
+
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this === decoy) {
+          // A wildly different rect: if this one is ever used, the anchor
+          // below would come out nowhere near the assertion.
+          return { left: 900, top: 900, width: 10, height: 10, right: 910, bottom: 910, x: 900, y: 900, toJSON() {} } as DOMRect;
+        }
+        if (this.dataset.testid === 'canvas-frame') {
+          return { left: 100, top: 40, width: 720, height: 320, right: 820, bottom: 360, x: 100, y: 40, toJSON() {} } as DOMRect;
+        }
+        return { left: 0, top: 0, width: 40, height: 20, right: 40, bottom: 20, x: 0, y: 0, toJSON() {} } as DOMRect;
+      });
+
+      try {
+        const { button } = await setup(0.5);
+        press(button, 10, 20);
+        await advance(HOLD_MS);
+
+        expect(screen.getByRole('menu')).toHaveStyle({ left: `${105 + 8}px`, top: `${50 + 8}px` });
+      } finally {
+        decoy.remove();
+      }
     });
   });
 });

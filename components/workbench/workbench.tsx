@@ -5,7 +5,9 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
+import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout } from '@/lib/files/validate';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
@@ -17,6 +19,7 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
+import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
@@ -26,11 +29,18 @@ import { LayerStackMenu } from './layer-stack-menu';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
-import { useSelectedNode, useZoneRedirect } from './selection';
-import { Stage } from './stage';
+import { ScreensStrip } from './screens-strip';
+import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
 import { Topbar } from './topbar';
+
+// Screen-px padding Shift+2 (zoom to selection/focused frame) leaves around
+// the target rect - the same idea as lib/canvas/viewport.ts's own
+// FIT_ALL_PADDING for Shift+1, kept as a separate, smaller constant here
+// since zooming to one layer or frame should not breathe as much as fitting
+// the whole file.
+const SELECTION_ZOOM_PADDING = 48;
 
 // Shown in the topbar's save-state slot for a screen whose saved layout
 // failed validation and was silently started empty (see the invalidScreenIds
@@ -89,7 +99,13 @@ export function Workbench({
 }) {
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [fileName, setFileName] = useState(file.name);
-  const [screens, setScreens] = useState<Screen[]>(() => resolveInitialScreens(file));
+  // A screen predating this feature has no x/y yet; layoutMissingPositions
+  // (lib/files/layout.ts) fills them in left to right, in screen order, the
+  // moment the file loads - so the canvas always has a concrete position for
+  // every frame, without ever queuing a save purely from loading the file
+  // (that only happens on the next real change, once these computed
+  // positions are already part of `screens` and so ride along with it).
+  const [screens, setScreens] = useState<Screen[]>(() => layoutMissingPositions(resolveInitialScreens(file)));
   const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
     screenIdFromHash(window.location.hash, resolveInitialScreens(file)),
   );
@@ -252,9 +268,19 @@ export function Workbench({
       // was added from, device included, not just its width.
       stageHeight: current.stageHeight ?? null,
       deviceName: current.deviceName ?? null,
+      // No position yet: appended at the end of the array with x/y left
+      // unset, layoutMissingPositions places it to the right of the
+      // RIGHTMOST already-positioned frame in the file, not merely the last
+      // one in array order (spec: "a new or duplicated screen is placed to
+      // the right of the rightmost frame in the file, never overlapping") -
+      // every existing screen already has a position by this point (the
+      // initial-load computation above), so this only ever fills in the new
+      // one.
+      x: null,
+      y: null,
     };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
-    const next = [...screens, newScreen];
+    const next = layoutMissingPositions([...screens, newScreen]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -268,12 +294,32 @@ export function Workbench({
     queuePatch({ screens: next });
   }
 
+  // Dragging a frame's title (components/workbench/frame-title.tsx) moves
+  // it - saved through this same path (spec docs/superpowers/specs/2026-09-
+  // 12-infinite-canvas-design.md section 6: "saves x, y through the existing
+  // save path"), debounced exactly like every other screen edit.
+  function moveScreen(id: string, position: { x: number; y: number }): void {
+    const next = screens.map((screen) => (screen.id === id ? { ...screen, x: position.x, y: position.y } : screen));
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
   function duplicateScreen(id: string): void {
     const index = screens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
-    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy` };
+    // x/y explicitly cleared, not inherited from the plain spread: the copy
+    // must not land exactly on top of its source. Placed right after the
+    // source in the array (below); layoutMissingPositions resolves its
+    // actual position from the RIGHTMOST already-positioned frame across
+    // the whole file (spec: "a new or duplicated screen is placed to the
+    // right of the rightmost frame in the file, never overlapping"), not
+    // from wherever the source itself happens to sit - a source that is not
+    // already the rightmost frame must not have its copy land on whatever
+    // frame comes after it.
+    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy`, x: null, y: null };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
-    const next = [...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)];
+    const next = layoutMissingPositions([...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -399,10 +445,10 @@ export function Workbench({
           notice={notice}
           screens={screens}
           currentScreenId={currentScreenId}
-          currentScreenLayout={currentScreen.layout}
           onSelectScreen={switchScreen}
           onAddScreen={addScreen}
           onRenameScreen={renameScreen}
+          onMoveScreen={moveScreen}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
         />
@@ -420,10 +466,10 @@ function WorkbenchShell({
   notice,
   screens,
   currentScreenId,
-  currentScreenLayout,
   onSelectScreen,
   onAddScreen,
   onRenameScreen,
+  onMoveScreen,
   onDuplicateScreen,
   onDeleteScreen,
 }: {
@@ -435,10 +481,10 @@ function WorkbenchShell({
   notice?: string;
   screens: Screen[];
   currentScreenId: string;
-  currentScreenLayout: string;
   onSelectScreen: (id: string) => void;
   onAddScreen: () => void;
   onRenameScreen: (id: string, name: string) => void;
+  onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
 }) {
@@ -465,9 +511,55 @@ function WorkbenchShell({
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
-  const { actions } = useEditor();
+  const { actions, query } = useEditor();
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
+
+  // The canvas viewport (spec docs/superpowers/specs/2026-09-12-infinite-
+  // canvas-design.md): owned here, one level above Canvas itself, so the
+  // same instance can be shared - through CanvasViewportProvider, below -
+  // with the top bar's zoom menu and the keyboard shortcuts wired just
+  // after this, neither of which is a descendant of Canvas.
+  const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
+    fileId,
+    frames: screens.map(frameRect),
+  });
+
+  // Clicking a screens tab still switches the focused screen (onSelectScreen,
+  // from Workbench) and also animates the viewport to fit that frame (spec:
+  // "200 ms ease-out, cancelled by any pan/zoom input") - wrapping it here
+  // rather than in Workbench itself, since the viewport this animates is
+  // owned by this component, one level below where switchScreen lives.
+  // Deliberately NOT used for Canvas's own onFocusScreen (clicking a frame
+  // directly on the canvas): the user is already looking at that frame, so
+  // fitting it could jump the view somewhere they did not ask for.
+  function handleSelectScreenTab(id: string): void {
+    onSelectScreen(id);
+    const target = screens.find((screen) => screen.id === id);
+    if (target) animateTo(zoomToRect(frameRect(target), viewportSize, SELECTION_ZOOM_PADDING));
+  }
+
+  // Shift+2: zooms to the selected layer's own bounds when something is
+  // selected, else the focused frame's bounds - the DOM node's
+  // getBoundingClientRect() is already in canvas-space-compatible unscaled
+  // px (it lives inside the focused frame's own iframe, whose internal
+  // layout is untouched by the canvas's ancestor pan/zoom transform - see
+  // canvas.tsx's own comments on this), so only the frame's own x/y needs
+  // adding to place it in canvas space.
+  function zoomToSelectionOrFocusedFrame(): void {
+    const focused = screens.find((screen) => screen.id === currentScreenId);
+    if (!focused) return;
+    const selectedId = selectedIdFrom(query.getState());
+    const dom = selectedId ? query.getState().nodes[selectedId]?.dom : null;
+    let target: FrameRect;
+    if (dom) {
+      const local = dom.getBoundingClientRect();
+      target = { x: (focused.x ?? 0) + local.left, y: (focused.y ?? 0) + local.top, width: local.width, height: local.height };
+    } else {
+      target = frameRect(focused);
+    }
+    setViewport(zoomToRect(target, viewportSize, SELECTION_ZOOM_PADDING));
+  }
 
   // Figma's own behaviour: picking a layer on the canvas while the
   // Components tab is showing jumps the panel to Design, the same way
@@ -525,6 +617,12 @@ function WorkbenchShell({
     }
   }
 
+  // The viewport centre (screen space, relative to the canvas's own origin -
+  // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
+  // position for a keyboard shortcut to anchor to the way a wheel gesture
+  // has one.
+  const viewportCenter = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+
   useWorkbenchKeyboard({
     onToggleUi: () => setUiHidden((hidden) => !hidden),
     onToggleChat: () => setChatOpen((open) => !open),
@@ -532,6 +630,11 @@ function WorkbenchShell({
     onToggleCommentMode: toggleCommentMode,
     commentMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
+    onZoomIn: () => setViewport((current) => stepZoom(current, viewportCenter, 'in')),
+    onZoomOut: () => setViewport((current) => stepZoom(current, viewportCenter, 'out')),
+    onZoomReset: () => setViewport((current) => zoomTo(current, viewportCenter, 1)),
+    onZoomToFit: () => setViewport(fitAll(screens.map(frameRect), viewportSize)),
+    onZoomToSelection: zoomToSelectionOrFocusedFrame,
   });
 
   const commentsProps: StageCommentsProps = {
@@ -603,84 +706,102 @@ function WorkbenchShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 
-  // The left column (the Components tray) is gone - the right panel now
-  // covers Design, Prototype and Components as tabs of one column, which
-  // narrows to a 40px rail instead of disappearing when minimized (see
-  // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md sections 1
-  // and 2). Every branch below is a complete, literal Tailwind class list
-  // (not built by interpolating a variable into the arbitrary-value bracket)
-  // so the build's class scanner can see each one.
-  const gridClass = uiHidden
-    ? 'grid h-screen grid-cols-[1fr] grid-rows-[1fr] gap-3 bg-background p-3'
-    : panelCollapsed
-      ? chatOpen
-        ? 'grid h-screen grid-cols-[1fr_40px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-        : 'grid h-screen grid-cols-[1fr_40px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-      : chatOpen
-        ? 'grid h-screen grid-cols-[1fr_320px_360px] grid-rows-[auto_1fr] gap-3 bg-background p-3'
-        : 'grid h-screen grid-cols-[1fr_320px] grid-rows-[auto_1fr] gap-3 bg-background p-3';
+  // The chat panel floats immediately to the right of the right panel,
+  // whichever width that panel currently is (spec docs/superpowers/specs/
+  // 2026-09-12-infinite-canvas-design.md section 4) - a complete, literal
+  // Tailwind class per branch (not built by interpolating a variable into
+  // the arbitrary-value bracket) so the build's class scanner can see both.
+  const chatPositionClass = panelCollapsed ? 'right-[56px]' : 'right-[336px]';
 
   return (
     <ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
-        <div data-testid="workbench-shell" className={gridClass}>
-          {!uiHidden && (
-            <Topbar
-              key="topbar"
-              fileName={fileName}
-              onRename={onRename}
-              saveState={saveState}
-              notice={notice}
-              onNew={() => setNewOpen(true)}
-              fileId={fileId}
-              folderId={folderId}
-              currentScreenId={currentScreenId}
-              chatOpen={chatOpen}
-              onToggleChat={() => setChatOpen((open) => !open)}
-              commentMode={commentMode}
-              onToggleCommentMode={toggleCommentMode}
-              commentCount={threads.length}
+        <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
+          {/*
+            No longer a grid (spec section 4): the canvas fills the window
+            and every other piece of chrome floats above it, positioned by
+            its own absolute classes - this shell just needs to be the
+            positioning context they float relative to.
+          */}
+          <div data-testid="workbench-shell" className="relative h-screen w-screen overflow-hidden bg-background">
+            {!uiHidden && (
+              <Topbar
+                key="topbar"
+                fileName={fileName}
+                onRename={onRename}
+                saveState={saveState}
+                notice={notice}
+                onNew={() => setNewOpen(true)}
+                fileId={fileId}
+                folderId={folderId}
+                currentScreenId={currentScreenId}
+                chatOpen={chatOpen}
+                onToggleChat={() => setChatOpen((open) => !open)}
+                commentMode={commentMode}
+                onToggleCommentMode={toggleCommentMode}
+                commentCount={threads.length}
+                onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
+                onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
+                onZoomToFit={() => setViewport(fitAll(screens.map(frameRect), viewportSize))}
+                onZoomToSelection={zoomToSelectionOrFocusedFrame}
+              />
+            )}
+            <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
+              <Canvas
+                screens={screens}
+                focusedScreenId={currentScreenId}
+                onFocusScreen={onSelectScreen}
+                onRenameScreen={onRenameScreen}
+                onMoveScreen={onMoveScreen}
+                comments={commentsProps}
+                rootRef={rootRef}
+              />
+              {!uiHidden && (
+                <div className="absolute top-[76px] left-3 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
+                  <ScreensStrip
+                    screens={screens}
+                    currentScreenId={currentScreenId}
+                    onSelect={handleSelectScreenTab}
+                    onAdd={onAddScreen}
+                    onRename={onRenameScreen}
+                    onDuplicate={onDuplicateScreen}
+                    onDelete={onDeleteScreen}
+                  />
+                </div>
+              )}
+              <LayerStackMenu />
+            </StageErrorBoundary>
+            {!uiHidden && (
+              <Inspector
+                key="inspector"
+                screens={screens}
+                currentScreenId={currentScreenId}
+                panelMode={panelMode}
+                onPanelModeChange={setPanelMode}
+                collapsed={panelCollapsed}
+                onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
+              />
+            )}
+            {!uiHidden && chatOpen && (
+              <ChatPanel
+                key="chat-panel"
+                fileId={fileId}
+                onClose={() => setChatOpen(false)}
+                className={chatPositionClass}
+              />
+            )}
+            <NewLayoutDialog
+              key="new-dialog"
+              open={newOpen}
+              onOpenChange={setNewOpen}
+              onConfirm={() => {
+                actions.selectNode();
+                actions.deserialize(emptyLayoutJson());
+                actions.history.clear();
+              }}
             />
-          )}
-          <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
-            <Stage
-              data={currentScreenLayout}
-              screens={screens}
-              currentScreenId={currentScreenId}
-              onSelectScreen={onSelectScreen}
-              onAddScreen={onAddScreen}
-              onRenameScreen={onRenameScreen}
-              onDuplicateScreen={onDuplicateScreen}
-              onDeleteScreen={onDeleteScreen}
-              comments={commentsProps}
-            />
-          </StageErrorBoundary>
-          {!uiHidden && (
-            <Inspector
-              key="inspector"
-              screens={screens}
-              currentScreenId={currentScreenId}
-              panelMode={panelMode}
-              onPanelModeChange={setPanelMode}
-              collapsed={panelCollapsed}
-              onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
-            />
-          )}
-          {!uiHidden && chatOpen && (
-            <ChatPanel key="chat-panel" fileId={fileId} onClose={() => setChatOpen(false)} />
-          )}
-          <NewLayoutDialog
-            key="new-dialog"
-            open={newOpen}
-            onOpenChange={setNewOpen}
-            onConfirm={() => {
-              actions.selectNode();
-              actions.deserialize(emptyLayoutJson());
-              actions.history.clear();
-            }}
-          />
-          <LayerStackMenu key="layer-stack-menu" />
-        </div>
+          </div>
+        </CanvasViewportProvider>
       </PrototypeProvider>
     </ChatTransportProvider>
   );

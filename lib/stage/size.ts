@@ -37,7 +37,10 @@ export function clampSize({ width, height }: StageSize): StageSize {
  *   - a manual fixed size: "<width> × <height>" (no breakpoint - the exact
  *     dimensions already say more than "desktop" would)
  *   - auto height:         "<width> px · <breakpoint>"
- * Any form appends " · <zoom>%" once the artboard is scaled below 100%.
+ * Any form appends " · <zoom>%" - always, at any zoom including exactly
+ * 100% and above, now that zoom is a user-controlled canvas viewport
+ * (docs/superpowers/specs/2026-09-12-infinite-canvas-design.md) rather than
+ * a fit-to-column value that was 100% only incidentally.
  */
 export function readoutFor({
   width,
@@ -56,6 +59,6 @@ export function readoutFor({
       : height != null
         ? [`${width} × ${height}`]
         : [`${width} px`, breakpointForWidth(width)];
-  if (zoom < 1) parts.push(`${Math.round(zoom * 100)}%`);
+  parts.push(`${Math.round(zoom * 100)}%`);
   return parts.join(' · ');
 }

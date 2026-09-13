@@ -110,6 +110,14 @@ export function normalizeLayout(json: string): string {
 // the JSON string form here and everywhere in the API and repository; only
 // the database stores it parsed, inside the screens jsonb column (see
 // toStoredScreen/toApiScreens in lib/files/repository.ts).
+//
+// `x`/`y` are the frame's position on the infinite canvas (spec
+// docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 5):
+// canvas-space integer px, both present or both null together - never one
+// without the other (validateScreens enforces this). A screen predating this
+// feature has both null; components/workbench/workbench.tsx runs
+// lib/files/layout.ts's layoutMissingPositions over the file's screens on
+// load to fill them in before the canvas ever renders one.
 export type Screen = {
   id: string;
   name: string;
@@ -117,6 +125,8 @@ export type Screen = {
   stageWidth: number;
   stageHeight?: number | null;
   deviceName?: string | null;
+  x?: number | null;
+  y?: number | null;
 };
 
 // The shape validateScreens accepts: a screen as given by a caller (the API
@@ -130,6 +140,8 @@ export type ScreenInput = {
   stageWidth: number;
   stageHeight?: number | null;
   deviceName?: string | null;
+  x?: number | null;
+  y?: number | null;
 };
 
 export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: false; reason: string };
@@ -188,6 +200,18 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
       return { ok: false, reason: `screen "${name}" deviceName must be at most ${DEVICE_NAME_MAX} characters` };
     }
 
+    const x = raw.x ?? null;
+    const y = raw.y ?? null;
+    if ((x === null) !== (y === null)) {
+      return { ok: false, reason: `screen "${name}" must have both x and y, or neither` };
+    }
+    if (x !== null && !Number.isInteger(x)) {
+      return { ok: false, reason: `screen "${name}" x must be an integer` };
+    }
+    if (y !== null && !Number.isInteger(y)) {
+      return { ok: false, reason: `screen "${name}" y must be an integer` };
+    }
+
     screens.push({
       id: raw.id,
       name,
@@ -195,6 +219,8 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
       stageWidth: clampWidth(raw.stageWidth),
       stageHeight,
       deviceName,
+      x,
+      y,
     });
   }
 
