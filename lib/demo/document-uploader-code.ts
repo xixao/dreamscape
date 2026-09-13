@@ -1,6 +1,6 @@
-import type { Config } from "./model";
+import type { UploadConfig } from "./upload-schema";
 
-export function documentUploaderCode(config: Config) {
+export function createDocumentUploaderCode(config: UploadConfig) {
   const settings = JSON.stringify(config, null, 2);
   return {
     "DocumentUploader.jsx": `import { useState } from "react";
@@ -23,7 +23,7 @@ export default function DocumentUploader({ onContinue, simulateFailure = true })
         <span>Sample document · 240 KB</span>
       </div>
       {state === "ready" && (
-        <button onClick={() => setState(simulateFailure ? "failed" : "complete")}>
+        <button type="button" onClick={() => setState(simulateFailure ? "failed" : "complete")}>
           {design.button}
         </button>
       )}
@@ -32,7 +32,7 @@ export default function DocumentUploader({ onContinue, simulateFailure = true })
           role={design.announceError ? "alert" : undefined}>
           <p>{design.error}</p>
           {design.retryEnabled && (
-            <button onClick={() => setState("complete")}>Try again</button>
+            <button type="button" onClick={() => setState("complete")}>Try again</button>
           )}
         </div>
       )}
@@ -44,7 +44,7 @@ export default function DocumentUploader({ onContinue, simulateFailure = true })
       <div className="document-uploader__limits">
         <span>PDF, JPG, or PNG</span><span>Up to 10 MB</span>
       </div>
-      <button disabled={state !== "complete" || finished} onClick={() => {
+      <button type="button" disabled={state !== "complete" || finished} onClick={() => {
         setFinished(true);
         onContinue?.();
       }}>Continue</button>

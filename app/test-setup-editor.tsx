@@ -1,6 +1,6 @@
 "use client";
 import { DEMO_IDS } from "@/lib/demo/registry";
-import GuidedPrompt from "./demo/guided-prompt";
+import GuidedPrompt from "@/components/guided-prompt";
 import { testPrompts } from "@/lib/demo/prompts";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";

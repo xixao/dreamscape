@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import type { Comment, Revision, UploadState } from "@/lib/model";
 
-export default function Feedback({
+export default function ReviewComments({
   comments,
   revision,
   state,

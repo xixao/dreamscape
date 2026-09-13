@@ -1,5 +1,5 @@
-export type DemoPrompt = { label: string; text: string };
-export const reviewPrompts: DemoPrompt[] = [
+import type { PromptSuggestion } from "../prompt-completion";
+export const reviewPrompts: PromptSuggestion[] = [
   {
     label: "Review upload",
     text: "Review this upload flow and show the recovery checks.",
@@ -13,7 +13,7 @@ export const reviewPrompts: DemoPrompt[] = [
     text: "Set up a Research mobile component test for the document upload.",
   },
 ];
-export const testPrompts: DemoPrompt[] = [
+export const testPrompts: PromptSuggestion[] = [
   reviewPrompts[2],
   {
     label: "Teammate test",
@@ -24,14 +24,3 @@ export const testPrompts: DemoPrompt[] = [
     text: "Set up a Pilot mobile component test for upload failure and retry.",
   },
 ];
-
-export function completeDemoPrompt(value: string, prompts: DemoPrompt[]) {
-  const prefix = value.trimStart();
-  if (!prefix) return "";
-  const match = prompts.find(
-    (p) =>
-      p.text.toLowerCase().startsWith(prefix.toLowerCase()) &&
-      p.text.length > prefix.length,
-  );
-  return match ? value + match.text.slice(prefix.length) : "";
-}

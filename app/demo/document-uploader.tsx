@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import type { Config, UploadState } from "@/lib/model";
 import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 
-export default function Uploader({
+export default function DocumentUploader({
   config,
   state,
   onState,

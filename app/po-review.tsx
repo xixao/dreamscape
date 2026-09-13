@@ -15,8 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import type { Comment, Revision, Session, UploadState } from "@/lib/model";
 import { sessionFacts } from "@/lib/results";
-import Uploader from "./demo/document-upload";
-import Feedback from "./feedback";
+import DocumentUploader from "./demo/document-uploader";
+import ReviewComments from "./review-comments";
 
 const sections = ["Update", "Experience", "Findings", "Decisions"] as const;
 const states: UploadState[] = ["ready", "failed", "complete"];
@@ -327,7 +327,7 @@ export default function POReview({
                 </Button>
               </div>
               <div className="po-prototype">
-                <Uploader
+                <DocumentUploader
                   config={revision.config}
                   state={state}
                   onState={(next, event) => {
@@ -587,7 +587,7 @@ export default function POReview({
                 <X />
               </Button>
             </div>
-            <Feedback
+            <ReviewComments
               comments={comments}
               revision={revision}
               state={state}

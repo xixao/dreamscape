@@ -5,9 +5,10 @@ import { Clipboard, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { documentUploaderCode } from "@/lib/component-code";
+import { createDocumentUploaderCode } from "@/lib/demo/document-uploader-code";
 import { download } from "@/lib/client";
 import type { Revision } from "@/lib/model";
+import { DEMO_IDS } from "@/lib/demo/registry";
 
 export default function DeveloperCode({
   revision,
@@ -16,7 +17,7 @@ export default function DeveloperCode({
   revision: Revision;
   dirty: boolean;
 }) {
-  const files = documentUploaderCode(revision.config);
+  const files = createDocumentUploaderCode(revision.config);
   type FileName = keyof typeof files;
   const [file, setFile] = useState<FileName>("DocumentUploader.jsx");
   async function copy() {
@@ -28,7 +29,7 @@ export default function DeveloperCode({
     }
   }
   return (
-    <main className="developer-code">
+    <main className="developer-code" data-demo-id={DEMO_IDS.codeExport}>
       <header>
         <div>
           <p className="eyebrow">SAVED VERSION {revision.number}</p>

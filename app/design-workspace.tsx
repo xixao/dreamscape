@@ -1,5 +1,10 @@
 "use client";
 import { improvement } from "@/lib/demo/upload";
+import { DEMO_IDS } from "@/lib/demo/registry";
+import { sameConfig } from "@/lib/review";
+import IconButton from "@/components/icon-button";
+import StateSelector from "@/components/state-selector";
+import { uploadStateShortOptions } from "@/lib/demo/upload";
 import { useState } from "react";
 import {
   ArrowRight,
@@ -22,9 +27,8 @@ import {
   Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
+import DocumentUploaderFields from "./demo/document-uploader-fields";
 import {
   type Config,
   type Comment,
@@ -32,7 +36,7 @@ import {
   type UploadState,
 } from "@/lib/model";
 import PreviewCanvas from "./preview-canvas";
-import Uploader from "@/app/demo/document-upload";
+import DocumentUploader from "@/app/demo/document-uploader";
 
 export default function DesignWorkspace({
   draft,
@@ -75,7 +79,7 @@ export default function DesignWorkspace({
     [reset, setReset] = useState(0),
     [viewport, setViewport] = useState("desktop"),
     [focus, setFocus] = useState<"page" | "component">("page");
-  const dirty = JSON.stringify(draft) !== JSON.stringify(revision.config);
+  const dirty = !sameConfig(draft, revision.config);
   const feedback = comments.filter(
     (c) => !c.parentId && c.revisionId === revision.id,
   );
@@ -83,19 +87,12 @@ export default function DesignWorkspace({
     label: string,
     icon: React.ReactNode,
     click: () => void,
-    active = false,
+    active?: boolean,
   ) {
     return (
-      <Button
-        variant="ghost"
-        size="icon"
-        title={label}
-        aria-label={label}
-        aria-pressed={active}
-        onClick={click}
-      >
+      <IconButton label={label} active={active} onClick={click} variant="ghost">
         {icon}
-      </Button>
+      </IconButton>
     );
   }
   function ask() {
@@ -108,7 +105,10 @@ export default function DesignWorkspace({
     onState("failed");
   }
   return (
-    <div className="studio design-workspace">
+    <div
+      className="studio design-workspace"
+      data-demo-id={DEMO_IDS.designWorkspace}
+    >
       <header className="design-header">
         <span className="studio-brand">
           <Layers3 />
@@ -298,7 +298,7 @@ export default function DesignWorkspace({
                 Document upload · {viewport}
                 <span>{dirty ? "Draft" : `v${revision.number}`}</span>
               </div>
-              <Uploader
+              <DocumentUploader
                 config={draft}
                 state={state}
                 onState={onState}
@@ -312,27 +312,13 @@ export default function DesignWorkspace({
               />
             </div>
           </PreviewCanvas>
-          <div
+          <StateSelector
             className="design-state-bar"
-            role="group"
-            aria-label="Component state"
-          >
-            {(["ready", "failed", "complete"] as const).map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant={state === s ? "secondary" : "ghost"}
-                aria-pressed={state === s}
-                onClick={() => onState(s)}
-              >
-                {s === "ready"
-                  ? "Ready"
-                  : s === "failed"
-                    ? "Failed"
-                    : "Complete"}
-              </Button>
-            ))}
-          </div>
+            label="Component state"
+            value={state}
+            options={uploadStateShortOptions}
+            onChange={onState}
+          />
         </section>
         <aside className="design-inspector">
           <div
@@ -366,53 +352,12 @@ export default function DesignWorkspace({
           </div>
           {tab === "design" ? (
             <div className="design-properties">
-              <label htmlFor="design-title">Heading</label>
-              <Input
-                id="design-title"
-                maxLength={80}
-                value={draft.title}
-                onChange={(e) => onChange({ ...draft, title: e.target.value })}
+              <DocumentUploaderFields
+                value={draft}
+                onChange={onChange}
+                variant="design"
+                idPrefix="design"
               />
-              <label htmlFor="design-helper">Helper text</label>
-              <Textarea
-                id="design-helper"
-                maxLength={180}
-                value={draft.helper}
-                onChange={(e) => onChange({ ...draft, helper: e.target.value })}
-              />
-              <label htmlFor="design-error">Error message</label>
-              <Textarea
-                id="design-error"
-                maxLength={220}
-                value={draft.error}
-                onChange={(e) => onChange({ ...draft, error: e.target.value })}
-              />
-              <label htmlFor="design-button">Upload button</label>
-              <Input
-                id="design-button"
-                maxLength={40}
-                value={draft.button}
-                onChange={(e) => onChange({ ...draft, button: e.target.value })}
-              />
-              <label className="design-check">
-                <Checkbox
-                  id="design-retry"
-                  checked={draft.retryEnabled}
-                  onCheckedChange={(v) =>
-                    onChange({ ...draft, retryEnabled: v === true })
-                  }
-                />
-                Retry action
-              </label>
-              <label className="design-check">
-                <Checkbox
-                  checked={draft.announceError}
-                  onCheckedChange={(v) =>
-                    onChange({ ...draft, announceError: v === true })
-                  }
-                />
-                Announce error
-              </label>
             </div>
           ) : (
             <>

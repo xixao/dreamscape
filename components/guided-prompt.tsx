@@ -3,7 +3,7 @@ import { useId, useRef, useState } from "react";
 import { ArrowRightToLine, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { completeDemoPrompt, type DemoPrompt } from "@/lib/demo/prompts";
+import { completePrompt, type PromptSuggestion } from "@/lib/prompt-completion";
 
 export default function GuidedPrompt({
   value,
@@ -16,7 +16,7 @@ export default function GuidedPrompt({
 }: {
   value: string;
   onChange: (value: string) => void;
-  prompts: DemoPrompt[];
+  prompts: readonly PromptSuggestion[];
   disabled?: boolean;
   id?: string;
   label: string;
@@ -30,7 +30,7 @@ export default function GuidedPrompt({
   const [dismissed, setDismissed] = useState<string | null>(null);
   const completion =
     focused && atEnd && !disabled && dismissed !== value
-      ? completeDemoPrompt(value, prompts)
+      ? completePrompt(value, prompts)
       : "";
   const suggestion = completion.length <= maxLength ? completion : "";
   function accept(text: string) {
@@ -55,7 +55,7 @@ export default function GuidedPrompt({
             type="button"
             variant="outline"
             size="sm"
-            disabled={disabled}
+            disabled={disabled || prompt.text.length > maxLength}
             title={prompt.text}
             onClick={() => accept(prompt.text)}
           >
@@ -134,6 +134,7 @@ export default function GuidedPrompt({
           type="button"
           variant="ghost"
           size="sm"
+          disabled={disabled}
           onPointerDown={(e) => e.preventDefault()}
           onClick={() => accept(suggestion)}
           title="Accept suggested completion (Tab)"

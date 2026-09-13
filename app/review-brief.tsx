@@ -2,6 +2,8 @@ import { ArrowRight, ClipboardCheck, MessageSquare, Flag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Workspace, Revision, UploadState } from "@/lib/model";
 import { sessionFacts } from "@/lib/results";
+import StateSelector from "@/components/state-selector";
+import { uploadStateShortOptions } from "@/lib/demo/upload";
 const briefs = {
   ready: {
     title: "Before the upload",
@@ -60,23 +62,14 @@ export default function ReviewBrief({
         <p>{brief.goal}</p>
         <h3>Decision to make</h3>
         <p>{brief.decision}</p>
-        <div
+        <StateSelector
           className="brief-state-options"
-          role="group"
-          aria-label="Review state"
-        >
-          {(["ready", "failed", "complete"] as const).map((s, i) => (
-            <Button
-              key={s}
-              variant={state === s ? "secondary" : "ghost"}
-              aria-pressed={state === s}
-              onClick={() => onState(s)}
-            >
-              {i + 1}{" "}
-              {s === "ready" ? "Ready" : s === "failed" ? "Error" : "Success"}
-            </Button>
-          ))}
-        </div>
+          label="Review state"
+          numbered
+          value={state}
+          options={uploadStateShortOptions}
+          onChange={onState}
+        />
       </section>
       <section>
         <h3>Evidence on this version</h3>

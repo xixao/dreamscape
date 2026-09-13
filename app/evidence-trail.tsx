@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ArrowRight, ChevronDown, Flag, MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Comment, Revision, Session } from "@/lib/model";
+import { sessionFacts } from "@/lib/results";
 export type EvidenceContext = {
   session: Session;
   source: Revision;
@@ -28,9 +29,7 @@ export default function EvidenceTrail({
   const feedback = comments.filter(
     (c) => c.revisionId === source.id && !c.parentId,
   );
-  const unavailable = session.interactions.filter(
-    (c) => !c.available && c.target !== "non_action",
-  ).length;
+  const unavailable = sessionFacts(session).unavailable.length;
   return (
     <section className="evidence-trail" aria-label="Evidence to decision">
       <header>

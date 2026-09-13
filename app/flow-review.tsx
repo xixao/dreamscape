@@ -1,9 +1,12 @@
 "use client";
 import DeveloperCode from "./developer-code";
+import IconButton from "@/components/icon-button";
+import StateSelector from "@/components/state-selector";
+import { uploadStateOptions } from "@/lib/demo/upload";
 import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
 import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
-import GuidedPrompt from "./demo/guided-prompt";
+import GuidedPrompt from "@/components/guided-prompt";
 import { reviewPrompts } from "@/lib/demo/prompts";
 import {
   createHandoff,
@@ -86,12 +89,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
   type Audience,
@@ -101,8 +99,8 @@ import {
   type Workspace,
 } from "@/lib/model";
 import { download, request } from "@/lib/client";
-import Uploader from "@/app/demo/document-upload";
-import Feedback from "./feedback";
+import DocumentUploader from "@/app/demo/document-uploader";
+import ReviewComments from "./review-comments";
 import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
@@ -148,44 +146,7 @@ const audienceNames: Record<Audience, string> = {
   participant: "Participant test",
 };
 const scenarioStates = uploadStates;
-const labels: Record<UploadState, string> = {
-  ready: "Ready to upload",
-  failed: "Upload interrupted",
-  complete: "Document received",
-};
 const subscribeHydration = () => () => {};
-
-function IconButton({
-  label,
-  children,
-  onClick,
-  active,
-  disabled,
-}: {
-  label: string;
-  children: React.ReactNode;
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          aria-label={label}
-          aria-pressed={active}
-          disabled={disabled}
-          size="icon"
-          variant={active ? "secondary" : "ghost"}
-          onClick={onClick}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 export default function FlowReview() {
   const [workspaceMode, setWorkspaceMode] = useState<"design" | "review">(
@@ -1202,7 +1163,7 @@ export default function FlowReview() {
                         <div className="device-label">
                           Previous · v{previous.number}
                         </div>
-                        <Uploader
+                        <DocumentUploader
                           focus={focus}
                           config={previous.config}
                           state={state}
@@ -1228,7 +1189,7 @@ export default function FlowReview() {
                           : "Desktop"}
                         <span>{dirty ? "Draft" : `v${revision.number}`}</span>
                       </div>
-                      <Uploader
+                      <DocumentUploader
                         focus={focus}
                         config={draft}
                         state={state}
@@ -1278,7 +1239,7 @@ export default function FlowReview() {
                         <div className="device-label">
                           {phoneLabel} <span>Preview</span>
                         </div>
-                        <Uploader
+                        <DocumentUploader
                           focus={focus}
                           config={draft}
                           state={state}
@@ -1317,20 +1278,16 @@ export default function FlowReview() {
                   </PreviewCanvas>
                 </div>
                 {!participant && (
-                  <div className="state-strip">
-                    <span>States</span>
-                    {scenarioStates.map((s, i) => (
-                      <button
-                        key={s}
-                        className={state === s ? "selected" : ""}
-                        onClick={() => setState(s)}
-                        aria-pressed={state === s}
-                      >
-                        <span>{i + 1}</span>
-                        {labels[s]}
-                      </button>
-                    ))}
-                  </div>
+                  <StateSelector
+                    className="state-strip"
+                    label="Review state"
+                    heading="States"
+                    appearance="strip"
+                    numbered
+                    value={state}
+                    options={uploadStateOptions}
+                    onChange={setState}
+                  />
                 )}
               </div>
               {!participant && (
@@ -1557,7 +1514,7 @@ export default function FlowReview() {
                       </TabsContent>
                     )}
                     <TabsContent value="feedback">
-                      <Feedback
+                      <ReviewComments
                         comments={data.comments}
                         revision={revision}
                         state={state}

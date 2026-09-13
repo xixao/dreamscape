@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { request } from "@/lib/client";
 import type { Revision, UploadState } from "@/lib/model";
-import Uploader from "@/app/demo/document-upload";
+import DocumentUploader from "@/app/demo/document-uploader";
 import { defaultTestSetup } from "@/lib/demo/test-setup";
 import { type TestSetup } from "@/lib/test-setup";
 
@@ -234,7 +234,7 @@ export default function ParticipantTest({
               className={`tester-product ${settings.viewport === "mobile" ? "tester-mobile" : ""}`}
               onClickCapture={capture}
             >
-              <Uploader
+              <DocumentUploader
                 config={revision.config}
                 state={state}
                 playing={!busy}

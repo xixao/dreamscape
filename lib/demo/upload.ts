@@ -86,3 +86,13 @@ export function checks(config: Config) {
     },
   ];
 }
+export const uploadStateOptions = [
+  { value: "ready", label: "Ready to upload" },
+  { value: "failed", label: "Upload interrupted" },
+  { value: "complete", label: "Document received" },
+] as const;
+export const uploadStateShortOptions = [
+  { value: "ready", label: "Ready" },
+  { value: "failed", label: "Error" },
+  { value: "complete", label: "Success" },
+] as const;

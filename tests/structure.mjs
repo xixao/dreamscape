@@ -11,12 +11,16 @@ function files(directory) {
   });
 }
 const appFiles = files("app");
+const componentFiles = files("components");
+const productSources = [...appFiles, ...componentFiles].filter((f) =>
+  /\.tsx?$/.test(f),
+);
 assert.deepEqual(
   appFiles.filter((f) => f.endsWith(".css")),
   ["app/globals.css"],
 );
 let cssImports = 0;
-for (const file of appFiles.filter((f) => /\.tsx?$/.test(f))) {
+for (const file of productSources) {
   const source = ts.createSourceFile(
     file,
     fs.readFileSync(file, "utf8"),
@@ -28,8 +32,33 @@ for (const file of appFiles.filter((f) => /\.tsx?$/.test(f))) {
     const imported = node.moduleSpecifier.text;
     if (imported.endsWith(".css")) cssImports++;
     assert.ok(
-      !/workspace\.css|\/uploader$|feedback-notifications/.test(imported),
+      !/workspace\.css|\/uploader$|feedback-notifications|\/demo\/document-upload$|\/demo\/guided-prompt$|^\.\/feedback$/.test(
+        imported,
+      ),
       `${file}: retired import`,
+    );
+    if (file.startsWith("components/") && !file.startsWith("components/ui/")) {
+      assert.ok(
+        !imported.includes("/demo/"),
+        `${file}: reusable UI must not depend on demo fixtures`,
+      );
+    }
+  }
+  if (
+    file.endsWith(".tsx") &&
+    !file.startsWith("components/ui/") &&
+    !/\/(page|layout)\.tsx$/.test(file)
+  ) {
+    const component = source.statements.find(
+      (node) =>
+        ts.isFunctionDeclaration(node) &&
+        node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword),
+    );
+    assert.ok(component?.name, `${file}: default components must be named`);
+    assert.equal(
+      component.name.text.toLowerCase(),
+      path.basename(file, ".tsx").replaceAll("-", "").toLowerCase(),
+      `${file}: filename must match component name`,
     );
   }
 }
@@ -127,9 +156,10 @@ assert.equal(
   false,
 );
 assert.equal(eventLabels.retry_success, "Retry succeeded");
-const { completeDemoPrompt, reviewPrompts, testPrompts } = await moduleAt(
-  "lib/demo/prompts.ts",
+const { completePrompt: completeDemoPrompt } = await moduleAt(
+  "lib/prompt-completion.ts",
 );
+const { reviewPrompts, testPrompts } = await moduleAt("lib/demo/prompts.ts");
 const { demoPromptIntent } = await moduleAt("lib/demo/recovery-agent.ts");
 assert.equal(completeDemoPrompt("", reviewPrompts), "");
 assert.equal(completeDemoPrompt("   ", reviewPrompts), "");
@@ -165,6 +195,16 @@ for (const key of Object.keys(DEMO_IDS))
   assert.ok(ui.includes(`DEMO_IDS.${key}`), `Unmarked demo: ${key}`);
 const { baseline, checks, improvement, uploadEventError } =
   await moduleAt("lib/demo/upload.ts");
+const { uploadStates, uploadStateOptions, uploadStateShortOptions } =
+  await moduleAt("lib/demo/upload.ts");
+assert.deepEqual(
+  uploadStateOptions.map((s) => s.value),
+  uploadStates,
+);
+assert.deepEqual(
+  uploadStateShortOptions.map((s) => s.value),
+  uploadStates,
+);
 assert.equal(checks(baseline).filter((c) => c.pass).length, 0);
 assert.equal(
   checks({ ...baseline, ...improvement }).filter((c) => c.pass).length,
@@ -223,19 +263,32 @@ assert.equal(handoff.inspectedDesign.status, "unsaved-draft");
 assert.equal(handoff.savedRevision.config.retryEnabled, false);
 assert.equal(handoff.inspectedDesign.config.retryEnabled, true);
 assert.equal(handoff.commentsApplyTo, "savedRevision");
-const { documentUploaderCode } = await moduleAt("lib/component-code.ts");
-for (const config of [baseline, draft, { ...draft, title: 'Quotes " and ` ${x} </script>\nNew line' }]) {
-  const files = documentUploaderCode(config);
+const { createDocumentUploaderCode } = await moduleAt("lib/demo/document-uploader-code.ts");
+for (const config of [
+  baseline,
+  draft,
+  { ...draft, title: 'Quotes " and ` ${x} </script>\nNew line' },
+]) {
+  const files = createDocumentUploaderCode(config);
   assert.deepEqual(Object.keys(files), ["DocumentUploader.jsx", "style.css"]);
   const source = files["DocumentUploader.jsx"];
-  const parsed = ts.createSourceFile("DocumentUploader.jsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+  const parsed = ts.createSourceFile(
+    "DocumentUploader.jsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JSX,
+  );
   assert.equal(parsed.parseDiagnostics.length, 0, "Exported JSX must parse");
-  assert.ok(source.includes(JSON.stringify(config, null, 2)), "Export preserves saved settings safely");
-  assert.ok(source.includes('export default function DocumentUploader'));
+  assert.ok(
+    source.includes(JSON.stringify(config, null, 2)),
+    "Export preserves saved settings safely",
+  );
+  assert.ok(source.includes("export default function DocumentUploader"));
   assert.ok(source.includes('import "./style.css"'));
-  assert.ok(source.includes('design.retryEnabled &&'));
+  assert.ok(source.includes("design.retryEnabled &&"));
   assert.ok(source.includes('design.announceError ? "alert"'));
-  assert.ok(source.includes('onContinue?.()'));
+  assert.ok(source.includes("onContinue?.()"));
 }
 console.log(
   "Structure, stylesheet, demo markers, scenario rules, version selection, comment placement, and handoff checks passed.",

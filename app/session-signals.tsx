@@ -1,16 +1,9 @@
 import type { Session } from "@/lib/model";
+import { sessionFacts } from "@/lib/results";
 export default function SessionSignals({ session }: { session: Session }) {
   const clicks = session.interactions ?? [];
-  const unavailable = clicks.filter(
-    (c) => !c.available && c.target !== "non_action",
-  );
+  const { unavailable, repeated } = sessionFacts(session);
   const outside = clicks.filter((c) => c.target === "non_action");
-  const groups = new Map<string, number>();
-  for (const c of unavailable) {
-    const key = `${c.target} (${c.state})`;
-    groups.set(key, (groups.get(key) ?? 0) + 1);
-  }
-  const repeated = [...groups].filter(([, count]) => count >= 5);
   return (
     <div className="session-signals">
       {session.testSetup && (
