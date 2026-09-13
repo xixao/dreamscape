@@ -72,3 +72,20 @@ export const MENU_ROW =
   'flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12.5px] hover:bg-accent';
 export const MENU_HINT = 'font-mono text-[10px] text-t4';
 export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
+
+// Shortcuts overlay/dialog (spec docs/superpowers/specs/2026-09-12-
+// shortcuts-overlay-design.md section 4). OVERLAY_SURFACE is only used by
+// the display-only, hold-triggered presentation (shortcuts-overlay.tsx),
+// which has no Radix primitive of its own to inherit chrome from; the
+// dialog presentation reuses components/ui/dialog's own surface and only
+// takes the group/row/key-cap treatment below, so the two never show
+// different shortcut content even though their outer chrome differs.
+export const OVERLAY_SURFACE =
+  'w-[880px] max-w-[calc(100%-2rem)] rounded-2xl border border-line-strong bg-card p-6 shadow-panel-lg';
+export const OVERLAY_TITLE = 'text-[17px] font-semibold text-foreground';
+export const OVERLAY_CAPTION = 'font-mono text-[11px] text-muted-foreground';
+export const OVERLAY_GRID = 'grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-3';
+export const OVERLAY_GROUP_TITLE = 'mb-2 text-[12.5px] font-semibold text-foreground';
+export const OVERLAY_ROW_LABEL = 'text-[13px] text-t2';
+export const OVERLAY_KEY_CAP =
+  'rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] shadow-[var(--bevel-hi),var(--bevel-drop)]';

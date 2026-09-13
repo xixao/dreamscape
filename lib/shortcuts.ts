@@ -65,7 +65,11 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'redo', area: 'Edit', keys: ['Shift', 'Mod', 'Z'], label: 'Redo' },
   { id: 'delete-layer', area: 'Edit', keys: ['Delete'], label: 'Delete the selected layer' },
   { id: 'escape', area: 'Edit', keys: ['Escape'], label: 'Deselect, leave a tool, close a menu' },
-  { id: 'shortcuts-help', area: 'Help', keys: ['?'], label: 'Keyboard shortcuts' },
+  // Labelled "Shortcuts dialog" rather than "Keyboard shortcuts" (the
+  // dialog's own title, and the overflow menu item's own text - spec
+  // section 3): a row inside that dialog reading the same words as the
+  // dialog's title would be an ambiguous, confusing duplicate of it.
+  { id: 'shortcuts-help', area: 'Help', keys: ['?'], label: 'Shortcuts dialog' },
   { id: 'shortcuts-overlay-hold', area: 'Help', keys: ['Hold', 'Mod'], label: 'Shortcuts overlay' },
 ];
 
