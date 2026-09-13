@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
-import { fitAll, panBy, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
+import { fitAll, panBy, toCanvasPoint, zoomAround, type FrameRect, type Size, type Viewport } from '@/lib/canvas/viewport';
 import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import type { SnapBox, SnapDistance, SnapGuide } from '@/lib/canvas/snap';
 import { createInitialDiagramState, type DiagramAction, type DiagramState } from '@/lib/diagram/store';
@@ -41,6 +41,12 @@ import { useStage } from './stage-context';
 const DEFAULT_DIAGRAM_STATE: DiagramState = createInitialDiagramState();
 function noopDiagramDispatch(): void {}
 function noop(): void {}
+function noopIds(): void {}
+// Canvas.test.tsx (and any harness predating multi-select) never passes a
+// frame selection - an empty, stable set keeps every such render exactly as
+// selection-free as before (see DEFAULT_DIAGRAM_STATE's own comment above
+// for the identical "keep old callers working" precedent).
+const DEFAULT_FRAME_SELECTION: ReadonlySet<string> = new Set();
 
 export type ViewportSize = Size;
 
@@ -104,6 +110,11 @@ export function frameRect(screen: Screen): FrameRect {
 /** frameRect, plus the screen's id - the shape lib/canvas/snap.ts's resolveSnap needs for a candidate frame to snap against or report a guide for. */
 function snapBoxFor(screen: Screen): SnapBox {
   return { id: screen.id, ...frameRect(screen) };
+}
+
+/** Whether two canvas-space boxes overlap at all - the marquee's own hit test (spec section 3: "selects every frame whose box intersects the marquee"). */
+function rectsIntersect(a: FrameRect, b: FrameRect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
 
 /**
@@ -356,6 +367,7 @@ export function Canvas({
   onFocusScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens = noopIds,
   comments,
   rootRef,
   diagram = DEFAULT_DIAGRAM_STATE,
@@ -363,12 +375,20 @@ export function Canvas({
   diagramTool = POINTER_TOOL,
   onDiagramToolConsumed = noop,
   onDeselectDiagram = noop,
+  selectedFrameIds = DEFAULT_FRAME_SELECTION,
+  onToggleFrameSelection = noop,
+  onSetFrameSelection = noopIds,
+  onClearFrameSelection = noop,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  // A multi-frame drag (spec docs/superpowers/specs/2026-09-13-grid-
+  // snapping-alignment-design.md section 3: "saves every moved x, y in one
+  // patch") - every selected frame's new position, applied together.
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   comments: StageCommentsProps;
   rootRef: RefObject<HTMLDivElement | null>;
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
@@ -383,6 +403,18 @@ export function Canvas({
   // empty canvas clears the selection") - called from the same branch,
   // below, that already calls actions.selectNode().
   onDeselectDiagram?: () => void;
+  // The canvas-level selection of frames (spec section 3), independent of
+  // Craft's own node selection inside a frame - owned by WorkbenchShell so
+  // the Design panel's alignment row (inspector.tsx) can read it too.
+  selectedFrameIds?: ReadonlySet<string>;
+  // Shift+click a frame title (spec: "adds to the selection" - toggles, so
+  // shift-clicking an already-selected title removes it).
+  onToggleFrameSelection?: (id: string) => void;
+  // A marquee drag's result, or Shift+marquee's union with the existing
+  // selection - canvas.tsx itself computes which frames intersect, this is
+  // just where the resulting id list lands.
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
 }) {
   const { actions } = useEditor();
   const setStageZoom = useStage().setZoom;
@@ -399,6 +431,43 @@ export function Canvas({
   const [snapResult, setSnapResult] = useState<{ frameId: string; guides: SnapGuide[]; distances: SnapDistance[] } | null>(
     null,
   );
+
+  // Every selected frame's own x/y at the start of the CURRENT drag gesture
+  // (spec section 3: "dragging any selected title moves all selected
+  // frames together"), snapshotted lazily on that drag's first move (see
+  // handleFrameMove below) and cleared on FrameTitle's own onDragEnd - a
+  // plain ref, not state, since writing it must never itself trigger a
+  // render (the same reasoning panRef/marqueeRef above are refs, not state).
+  const multiDragStartRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+
+  // Routes one frame's drag: a solo drag (the dragged frame is not part of
+  // a 2+ frame selection) saves through the existing single-screen path
+  // unchanged; dragging a frame that IS part of a multi-selection instead
+  // applies the SAME delta to every other selected frame's own drag-start
+  // position and saves the whole batch in one patch (onMoveScreens) -
+  // `delta` already reflects wherever resolveSnap put the dragged frame
+  // (frame-title.tsx), so the rest of the selection moves in lockstep with
+  // it, snap included, rather than being snapped independently themselves.
+  function handleFrameMove(id: string, position: { x: number; y: number }, delta: { dx: number; dy: number }): void {
+    if (selectedFrameIds.size > 1 && selectedFrameIds.has(id)) {
+      if (!multiDragStartRef.current) {
+        multiDragStartRef.current = new Map(
+          screens
+            .filter((screen) => selectedFrameIds.has(screen.id))
+            .map((screen) => [screen.id, { x: screen.x ?? 0, y: screen.y ?? 0 }]),
+        );
+      }
+      const startPositions = multiDragStartRef.current;
+      const updates = Array.from(selectedFrameIds).map((selectedId) => {
+        if (selectedId === id) return { id: selectedId, x: position.x, y: position.y };
+        const start = startPositions.get(selectedId) ?? { x: 0, y: 0 };
+        return { id: selectedId, x: start.x + delta.dx, y: start.y + delta.dy };
+      });
+      onMoveScreens(updates);
+      return;
+    }
+    onMoveScreen(id, position);
+  }
   // Read from event handlers and listener callbacks only (applyPanDelta,
   // onFrameWheel) - never during render, so synced through an effect rather
   // than assigned directly in the render body.
@@ -443,6 +512,29 @@ export function Canvas({
     viaSpace: boolean;
   } | null>(null);
   const [panning, setPanning] = useState(false);
+
+  // The active marquee-selection gesture, if any (spec docs/superpowers/
+  // specs/2026-09-13-grid-snapping-alignment-design.md section 3): a plain
+  // (non-Space, non-middle-mouse) press that starts on empty canvas. Screen
+  // px, root-relative (rootLeft/rootTop cached once at pointerdown, same
+  // reasoning frameWheel's own iframe-rect read documents) rather than
+  // canvas-space, since the visible marquee box (marqueeBox, below) is
+  // drawn OUTSIDE the pan/zoom-transformed canvas-layer - only the final
+  // hit-test against each frame's box (endMarquee) needs canvas-space,
+  // computed once at pointerup via toCanvasPoint.
+  const marqueeRef = useRef<{
+    pointerId: number;
+    shiftKey: boolean;
+    rootLeft: number;
+    rootTop: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  );
 
   // Every function below that touches panRef.current is a deliberately
   // plain, freshly-defined-per-render function (never useCallback) - see
@@ -518,6 +610,26 @@ export function Canvas({
       if (event.target === event.currentTarget) {
         actions.selectNode();
         onDeselectDiagram();
+        // Shift held keeps whatever frame selection already exists (this
+        // is the start of a Shift+marquee, which UNIONS with it instead -
+        // see endMarquee below) - a plain click/marquee start clears it
+        // immediately, matching the deselect above, so a click with no
+        // drag at all still clears with no further action needed.
+        if (!event.shiftKey) onClearFrameSelection();
+        capturePointer(event.currentTarget, event.pointerId);
+        const rect = event.currentTarget.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        marqueeRef.current = {
+          pointerId: event.pointerId,
+          shiftKey: event.shiftKey,
+          rootLeft: rect.left,
+          rootTop: rect.top,
+          startX: x,
+          startY: y,
+          currentX: x,
+          currentY: y,
+        };
       }
       return;
     }
@@ -539,6 +651,18 @@ export function Canvas({
   }
 
   function handleRootPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const marquee = marqueeRef.current;
+    if (marquee && marquee.pointerId === event.pointerId) {
+      marquee.currentX = event.clientX - marquee.rootLeft;
+      marquee.currentY = event.clientY - marquee.rootTop;
+      setMarqueeBox({
+        left: Math.min(marquee.startX, marquee.currentX),
+        top: Math.min(marquee.startY, marquee.currentY),
+        width: Math.abs(marquee.currentX - marquee.startX),
+        height: Math.abs(marquee.currentY - marquee.startY),
+      });
+      return;
+    }
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     // No `inFrame` check here, deliberately: a pan that started inside a
@@ -550,6 +674,38 @@ export function Canvas({
     applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
     pan.lastScreenX = event.screenX;
     pan.lastScreenY = event.screenY;
+  }
+
+  // Screen-px movement below which a marquee gesture is really just a plain
+  // click - matches diagram-layer.tsx's own PLACEMENT_CLICK_THRESHOLD
+  // precedent. Below this, handleRootPointerDown's own immediate clear
+  // already stands as the final state; at or above it, this replaces (or,
+  // Shift held, unions with) the selection using whichever frames the
+  // marquee box actually intersects.
+  const MARQUEE_CLICK_THRESHOLD = 4;
+
+  function endMarquee(event: { pointerId: number }): void {
+    const marquee = marqueeRef.current;
+    if (!marquee || marquee.pointerId !== event.pointerId) return;
+    marqueeRef.current = null;
+    setMarqueeBox(null);
+
+    const dx = Math.abs(marquee.currentX - marquee.startX);
+    const dy = Math.abs(marquee.currentY - marquee.startY);
+    if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) return;
+
+    const corner1 = toCanvasPoint({ x: marquee.startX, y: marquee.startY }, viewport);
+    const corner2 = toCanvasPoint({ x: marquee.currentX, y: marquee.currentY }, viewport);
+    const marqueeCanvasRect: FrameRect = {
+      x: Math.min(corner1.x, corner2.x),
+      y: Math.min(corner1.y, corner2.y),
+      width: Math.abs(corner2.x - corner1.x),
+      height: Math.abs(corner2.y - corner1.y),
+    };
+    const matchedIds = screens
+      .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate)))
+      .map((candidate) => candidate.id);
+    onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedIds])) : matchedIds);
   }
 
   // Starts a pan gesture that began inside a frame's own document - the
@@ -733,12 +889,27 @@ export function Canvas({
       onPointerDown={handleRootPointerDown}
       onPointerMove={handleRootPointerMove}
       onPointerUp={(event) => {
-        if (panRef.current?.pointerId === event.pointerId) endPan();
+        if (panRef.current?.pointerId === event.pointerId) {
+          endPan();
+          return;
+        }
+        endMarquee(event);
       }}
       onPointerCancel={(event) => {
-        if (panRef.current?.pointerId === event.pointerId) endPan();
+        if (panRef.current?.pointerId === event.pointerId) {
+          endPan();
+          return;
+        }
+        endMarquee(event);
       }}
     >
+      {marqueeBox && (
+        <div
+          data-testid="marquee-selection"
+          className="pointer-events-none absolute border border-acc bg-acc/10"
+          style={{ left: marqueeBox.left, top: marqueeBox.top, width: marqueeBox.width, height: marqueeBox.height }}
+        />
+      )}
       <div
         data-testid="canvas-layer"
         style={{
@@ -751,16 +922,21 @@ export function Canvas({
       >
         {screens.map((screen) => {
           const focused = screen.id === focusedScreenId;
-          // Every OTHER frame on this page, to snap against - excludes only
-          // this frame itself for now; once multi-select exists (spec
-          // section 3) it will also exclude every co-selected frame, so a
-          // selection never snaps against its own members.
-          const otherFrames = screens.filter((candidate) => candidate.id !== screen.id).map(snapBoxFor);
+          const selected = selectedFrameIds.has(screen.id);
+          // Every OTHER frame on this page, to snap against - excludes this
+          // frame itself, and, when it is part of a multi-selection, every
+          // co-selected frame too, so a selection never snaps against its
+          // own members while moving together (spec section 3).
+          const otherFrames = screens
+            .filter((candidate) => candidate.id !== screen.id && !(selected && selectedFrameIds.has(candidate.id)))
+            .map(snapBoxFor);
           return (
             <div
               key={screen.id}
               data-frame
               data-testid={`frame-${screen.id}`}
+              data-selected={selected || undefined}
+              className={cn(selected && 'outline-2 outline-acc outline-offset-2')}
               style={{ position: 'absolute', left: screen.x ?? 0, top: screen.y ?? 0 }}
             >
               <FrameTitle
@@ -768,9 +944,13 @@ export function Canvas({
                 focused={focused}
                 zoom={viewport.zoom}
                 onRename={(name) => onRenameScreen(screen.id, name)}
-                onMove={(position) => onMoveScreen(screen.id, position)}
+                onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
+                onShiftSelect={() => onToggleFrameSelection(screen.id)}
                 otherFrames={otherFrames}
                 onSnapGuides={(result) => setSnapResult({ frameId: screen.id, ...result })}
+                onDragEnd={() => {
+                  multiDragStartRef.current = null;
+                }}
               />
               {focused ? (
                 <Stage screen={screen} viewport={viewport} comments={comments} />

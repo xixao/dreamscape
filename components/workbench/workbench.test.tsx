@@ -701,6 +701,31 @@ describe('Workbench', () => {
       // comment on "New screen adds a screen..." above.
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
+
+    it('dragging one of several selected frames moves them all and saves every position in one patch', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title1 = within(screen.getByTestId(`frame-${SCREEN_1.id}`)).getByText(SCREEN_1.name);
+      const title2 = within(screen.getByTestId(`frame-${SCREEN_2.id}`)).getByText(SCREEN_2.name);
+      // Shift+click both titles into the selection, then drag the first one.
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title2, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerDown(title1, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title1, { pointerId: 1, clientX: 20, clientY: 0 });
+      fireEvent.pointerUp(title1, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { screens: Array<{ id: string; x: number; y: number }> };
+      const byId = Object.fromEntries(body.screens.map((entry) => [entry.id, entry]));
+      // Raw (0+20)=20 grid-snaps to 24 for the dragged frame; SCREEN_2 (not
+      // itself dragged) gets the same +24 delta applied to its own starting
+      // x, in the SAME patch as SCREEN_1's.
+      expect(byId[SCREEN_1.id]).toMatchObject({ x: 24, y: 0 });
+      expect(byId[SCREEN_2.id]).toMatchObject({ x: SCREEN_1.stageWidth + 200 + 24, y: 0 });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
   });
 
   describe('device presets', () => {

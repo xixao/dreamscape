@@ -32,20 +32,30 @@ function Harness({
   onFocusScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens,
   fileId,
   pageId = 'page1',
   extra,
   onDeselectDiagram,
+  selectedFrameIds,
+  onToggleFrameSelection,
+  onSetFrameSelection,
+  onClearFrameSelection,
 }: {
   screens: Screen[];
   focusedScreenId: string;
   onFocusScreen: (id: string) => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   fileId: string;
   pageId?: string;
   extra?: ReactNode;
   onDeselectDiagram?: () => void;
+  selectedFrameIds?: ReadonlySet<string>;
+  onToggleFrameSelection?: (id: string) => void;
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
 }) {
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
@@ -60,9 +70,14 @@ function Harness({
         onFocusScreen={onFocusScreen}
         onRenameScreen={onRenameScreen}
         onMoveScreen={onMoveScreen}
+        onMoveScreens={onMoveScreens}
         comments={DEFAULT_STAGE_COMMENTS}
         rootRef={rootRef}
         onDeselectDiagram={onDeselectDiagram}
+        selectedFrameIds={selectedFrameIds}
+        onToggleFrameSelection={onToggleFrameSelection}
+        onSetFrameSelection={onSetFrameSelection}
+        onClearFrameSelection={onClearFrameSelection}
       />
       {extra}
     </CanvasViewportProvider>
@@ -75,20 +90,30 @@ function renderCanvas({
   onFocusScreen = vi.fn(),
   onRenameScreen = vi.fn(),
   onMoveScreen = vi.fn(),
+  onMoveScreens,
   fileId = 'file1',
   pageId = 'page1',
   extra,
   onDeselectDiagram,
+  selectedFrameIds,
+  onToggleFrameSelection,
+  onSetFrameSelection,
+  onClearFrameSelection,
 }: {
   screens?: Screen[];
   focusedScreenId?: string;
   onFocusScreen?: (id: string) => void;
   onRenameScreen?: (id: string, name: string) => void;
   onMoveScreen?: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   fileId?: string;
   pageId?: string;
   extra?: ReactNode;
   onDeselectDiagram?: () => void;
+  selectedFrameIds?: ReadonlySet<string>;
+  onToggleFrameSelection?: (id: string) => void;
+  onSetFrameSelection?: (ids: string[]) => void;
+  onClearFrameSelection?: () => void;
 } = {}) {
   return renderInEditor(
     <Harness
@@ -97,10 +122,15 @@ function renderCanvas({
       onFocusScreen={onFocusScreen}
       onRenameScreen={onRenameScreen}
       onMoveScreen={onMoveScreen}
+      onMoveScreens={onMoveScreens}
       fileId={fileId}
       pageId={pageId}
       extra={extra}
       onDeselectDiagram={onDeselectDiagram}
+      selectedFrameIds={selectedFrameIds}
+      onToggleFrameSelection={onToggleFrameSelection}
+      onSetFrameSelection={onSetFrameSelection}
+      onClearFrameSelection={onClearFrameSelection}
     />,
   );
 }
@@ -280,6 +310,159 @@ describe('Canvas', () => {
       fireEvent.pointerMove(title, { pointerId: 1, clientX: 404, clientY: 0, metaKey: true });
 
       expect(onMoveScreen).toHaveBeenLastCalledWith(SCREEN_1.id, { x: 404, y: 0 });
+    });
+  });
+
+  describe('multi-select of frames', () => {
+    it('Shift+click a frame title toggles it into the selection without starting a drag', async () => {
+      const onToggleFrameSelection = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onToggleFrameSelection, onMoveScreen });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0, shiftKey: true });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 100, clientY: 0 });
+
+      expect(onToggleFrameSelection).toHaveBeenCalledWith(SCREEN_1.id);
+      expect(onMoveScreen).not.toHaveBeenCalled();
+    });
+
+    it('renders a thin accent outline on every selected frame', async () => {
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], selectedFrameIds: new Set([SCREEN_1.id]) });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveClass('outline-acc');
+      expect(screen.getByTestId(`frame-${SCREEN_2.id}`)).not.toHaveAttribute('data-selected');
+    });
+
+    it('a marquee drag on empty canvas selects every frame it intersects', async () => {
+      saveViewport(window.localStorage, 'marqueetest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        onSetFrameSelection,
+        fileId: 'marqueetest',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      // A box from (50,50) to (450,450): overlaps SCREEN_1 (0,0,400,300) but
+      // not SCREEN_2 (800,0,400,300).
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+      expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
+
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
+
+      expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
+    });
+
+    it('a plain click (no drag) on empty canvas does not treat it as a marquee', async () => {
+      saveViewport(window.localStorage, 'clicktest', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        onSetFrameSelection,
+        onClearFrameSelection,
+        fileId: 'clicktest',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 51, clientY: 50 });
+
+      expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+      expect(onSetFrameSelection).not.toHaveBeenCalled();
+    });
+
+    it('clicking empty canvas clears the frame selection', async () => {
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({ screens: [SCREEN_1], onClearFrameSelection });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      fireEvent.pointerDown(screen.getByTestId('canvas-root'));
+
+      expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('Shift+marquee unions with the existing selection instead of replacing it', async () => {
+      saveViewport(window.localStorage, 'shiftmarquee', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onSetFrameSelection = vi.fn();
+      const onClearFrameSelection = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        selectedFrameIds: new Set([SCREEN_2.id]),
+        onSetFrameSelection,
+        onClearFrameSelection,
+        fileId: 'shiftmarquee',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const root = screen.getByTestId('canvas-root');
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, shiftKey: true });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
+
+      expect(onClearFrameSelection).not.toHaveBeenCalled();
+      expect(onSetFrameSelection).toHaveBeenCalledWith(
+        expect.arrayContaining([SCREEN_1.id, SCREEN_2.id]),
+      );
+    });
+
+    it('dragging one selected title moves every selected frame by the same delta and saves them together', async () => {
+      saveViewport(window.localStorage, 'multidrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        onMoveScreen,
+        selectedFrameIds: new Set([SCREEN_1.id, SCREEN_2.id]),
+        fileId: 'multidrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      // Raw (20,0) grid-snaps to (24,0) - the same +24/+0 delta is applied
+      // to SCREEN_2's own starting position (800,0) unresolved a second time.
+      expect(onMoveScreens).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          { id: SCREEN_1.id, x: 24, y: 0 },
+          { id: SCREEN_2.id, x: 824, y: 0 },
+        ]),
+      );
+      expect(onMoveScreen).not.toHaveBeenCalled();
+    });
+
+    it('a solo drag of a frame outside the selection still uses the single-screen path', async () => {
+      saveViewport(window.localStorage, 'solodrag', 'page1', { x: 0, y: 0, zoom: 1 });
+      const onMoveScreens = vi.fn();
+      const onMoveScreen = vi.fn();
+      renderCanvas({
+        screens: [SCREEN_1, SCREEN_2],
+        focusedScreenId: SCREEN_1.id,
+        onMoveScreens,
+        onMoveScreen,
+        selectedFrameIds: new Set([SCREEN_2.id]),
+        fileId: 'solodrag',
+      });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+      const title = screen.getByText(SCREEN_1.name);
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 20, clientY: 0 });
+
+      expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_1.id, { x: 24, y: 0 });
+      expect(onMoveScreens).not.toHaveBeenCalled();
     });
   });
 

@@ -19,6 +19,8 @@ type KeysOptions = {
   onExitDiagramTool?: () => void;
   diagramSelectionActive?: boolean;
   onDeselectDiagram?: () => void;
+  frameSelectionActive?: boolean;
+  onClearFrameSelection?: () => void;
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
   onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
@@ -48,6 +50,8 @@ function Keys({
   onExitDiagramTool,
   diagramSelectionActive,
   onDeselectDiagram,
+  frameSelectionActive,
+  onClearFrameSelection,
   onDiagramDelete,
   onDiagramDuplicate,
   onDiagramNudge,
@@ -76,6 +80,8 @@ function Keys({
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
@@ -502,6 +508,35 @@ describe('useWorkbenchKeyboard diagram selection routing', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape clears the diagram selection before the frame selection when both are active', async () => {
+    const onDeselectDiagram = vi.fn();
+    const onClearFrameSelection = vi.fn();
+    mount({ diagramSelectionActive: true, onDeselectDiagram, frameSelectionActive: true, onClearFrameSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+    expect(onClearFrameSelection).not.toHaveBeenCalled();
+  });
+
+  it('Escape clears the frame selection when nothing else is active', async () => {
+    const onClearFrameSelection = vi.fn();
+    const { editor } = mount({ frameSelectionActive: true, onClearFrameSelection });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    editor().actions.selectNode(buttonId);
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
+    // Escape's frame-selection branch takes over from the plain Craft
+    // deselect (spec: "Escape clears the selection") - the button stays
+    // selected, same as the diagram-selection branch above leaves it.
+    expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true);
   });
 
   it('Delete calls onDiagramDelete instead of deleting the Craft selection', async () => {

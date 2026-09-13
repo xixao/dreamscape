@@ -47,6 +47,7 @@ export function FrameTitle({
   otherFrames = [],
   onSnapGuides,
   onDragEnd,
+  onShiftSelect,
 }: {
   screen: Screen;
   focused: boolean;
@@ -64,6 +65,12 @@ export function FrameTitle({
   otherFrames?: SnapBox[];
   onSnapGuides?: (result: FrameSnapResult) => void;
   onDragEnd?: () => void;
+  // Shift+click (spec docs/superpowers/specs/2026-09-13-grid-snapping-
+  // alignment-design.md section 3: "Shift+click a frame title adds to the
+  // selection") - a pure selection toggle, not a drag: pointerdown returns
+  // immediately below without starting the usual drag tracking, so a
+  // Shift+click never also moves the frame.
+  onShiftSelect?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +91,10 @@ export function FrameTitle({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (event.shiftKey) {
+      onShiftSelect?.();
+      return;
+    }
     capturePointer(event.currentTarget, event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,

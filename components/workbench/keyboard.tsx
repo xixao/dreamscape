@@ -89,6 +89,14 @@ export function useWorkbenchKeyboard(
     // falling through to actions.selectNode().
     diagramSelectionActive?: boolean;
     onDeselectDiagram?: () => void;
+    // Whether one or more frames are selected on the canvas (spec docs/
+    // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
+    // section 3/4: "Escape clears the selection") - checked after
+    // diagramSelectionActive and before the plain actions.selectNode()
+    // fallback, the same precedence position every other "leave this state
+    // instead of the default deselect" check above already occupies.
+    frameSelectionActive?: boolean;
+    onClearFrameSelection?: () => void;
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
     onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
@@ -152,6 +160,8 @@ export function useWorkbenchKeyboard(
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,
@@ -338,6 +348,10 @@ export function useWorkbenchKeyboard(
             onDeselectDiagram?.();
             return;
           }
+          if (frameSelectionActive) {
+            onClearFrameSelection?.();
+            return;
+          }
           actions.selectNode();
           return;
 
@@ -391,6 +405,8 @@ export function useWorkbenchKeyboard(
     onExitDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram,
+    frameSelectionActive,
+    onClearFrameSelection,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramNudge,

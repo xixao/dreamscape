@@ -619,6 +619,23 @@ export function Workbench({
     queuePatch({ screens: next });
   }
 
+  // The multi-frame counterpart to moveScreen above (spec docs/superpowers/
+  // specs/2026-09-13-grid-snapping-alignment-design.md section 3: "saves
+  // every moved x, y in one patch") - a dragged multi-selection
+  // (canvas.tsx) and the alignment/distribute/tidy up actions (the
+  // inspector's alignment fields) both move several frames at once and
+  // must land in one save, not one per frame.
+  function moveScreens(updates: { id: string; x: number; y: number }[]): void {
+    const byId = new Map(updates.map((update) => [update.id, update]));
+    const next = screens.map((screen) => {
+      const update = byId.get(screen.id);
+      return update ? { ...screen, x: update.x, y: update.y } : screen;
+    });
+    screensRef.current = next;
+    setScreens(next);
+    queuePatch({ screens: next });
+  }
+
   function duplicateScreen(id: string): void {
     const index = screens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
@@ -852,6 +869,7 @@ export function Workbench({
           onAddScreen={addScreen}
           onRenameScreen={renameScreen}
           onMoveScreen={moveScreen}
+          onMoveScreens={moveScreens}
           onDuplicateScreen={duplicateScreen}
           onDeleteScreen={deleteScreen}
           onMoveScreenToPage={moveScreenToPage}
@@ -884,6 +902,7 @@ function WorkbenchShell({
   onAddScreen,
   onRenameScreen,
   onMoveScreen,
+  onMoveScreens,
   onDuplicateScreen,
   onDeleteScreen,
   onMoveScreenToPage,
@@ -915,12 +934,28 @@ function WorkbenchShell({
   onAddScreen: () => void;
   onRenameScreen: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage: (id: string, pageId: string) => void;
 }) {
   useZoneRedirect();
   const [uiHidden, setUiHidden] = useState(false);
+  // The canvas-level selection of frames (spec docs/superpowers/specs/2026-
+  // 09-13-grid-snapping-alignment-design.md section 3), independent of
+  // Craft's own node selection inside a frame - shared with Canvas (marquee/
+  // Shift+click/outline/multi-drag) and, once it exists, the Design panel's
+  // alignment row (inspector.tsx), the same way diagram selection already
+  // lives here for both Canvas and Inspector to read.
+  const [selectedFrameIds, setSelectedFrameIds] = useState<ReadonlySet<string>>(new Set());
+  function toggleFrameSelection(id: string): void {
+    setSelectedFrameIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   // Per browser, not per file - same lazy-useState-plus-effect pattern as
   // chatOpen just below (and see lib/chat/store.ts for the precedent this
   // mirrors: lib/workbench/panel-store.ts's loadPanelMode/savePanelMode).
@@ -1204,6 +1239,8 @@ function WorkbenchShell({
     onExitDiagramTool: closeDiagramTool,
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
+    frameSelectionActive: selectedFrameIds.size > 0,
+    onClearFrameSelection: () => setSelectedFrameIds(new Set()),
     onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
     onDiagramDuplicate: () =>
       dispatchDiagram({
@@ -1384,6 +1421,7 @@ function WorkbenchShell({
                 onFocusScreen={onSelectScreen}
                 onRenameScreen={onRenameScreen}
                 onMoveScreen={onMoveScreen}
+                onMoveScreens={onMoveScreens}
                 comments={commentsProps}
                 rootRef={rootRef}
                 diagram={diagram}
@@ -1391,6 +1429,10 @@ function WorkbenchShell({
                 diagramTool={diagramTool}
                 onDiagramToolConsumed={onDiagramToolConsumed}
                 onDeselectDiagram={() => dispatchDiagram({ type: 'clearSelection' })}
+                selectedFrameIds={selectedFrameIds}
+                onToggleFrameSelection={toggleFrameSelection}
+                onSetFrameSelection={(ids) => setSelectedFrameIds(new Set(ids))}
+                onClearFrameSelection={() => setSelectedFrameIds(new Set())}
               />
               {!uiHidden && (
                 <DiagramPalette
