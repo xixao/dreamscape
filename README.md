@@ -28,6 +28,10 @@ Open http://localhost:3000. The Files page lists every file and folder; open one
 
 `.env.local` and `.vercel/` are git-ignored. Never commit them and never paste the connection string into a chat or a commit.
 
+## Download the product
+
+The download icon next to "Dreamscape" on the Files page (and "Download source" in the editor's More menu) links straight to `/dreamscape-source.zip`, a full copy of this repository's source. It is rebuilt from the deployed sources on every `npm run build` - including every Vercel build - by `scripts/pack-source.mjs`, so production always serves the archive for what's actually live. The build excludes `node_modules`, `.next`, `.git`, `.vercel`, every `.env*` file and anything else that could carry a secret, so the ZIP never contains one. After unzipping, `npm install` then `npm run dev` runs it with no database, exactly as described above.
+
 ## Checks
 
 ```bash
