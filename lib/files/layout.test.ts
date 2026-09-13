@@ -89,4 +89,61 @@ describe('layoutMissingPositions', () => {
   it('returns an empty array for an empty input', () => {
     expect(layoutMissingPositions([])).toEqual([]);
   });
+
+  describe('pages', () => {
+    it('positions each page\'s unpositioned screens independently, not chained off another page\'s frames', () => {
+      const screens = [
+        screen({ id: 'aaaaaaaaaa', pageId: 'page000001', x: 0, y: 0, stageWidth: 1440 }),
+        // Page 2's screen has no position: it must land near the origin of
+        // its OWN page, not to the right of page 1's already-positioned
+        // frame - the two pages are separate infinite canvases, never
+        // rendered together, so their coordinate spaces are independent.
+        screen({ id: 'bbbbbbbbbb', pageId: 'page000002' }),
+      ];
+
+      const result = layoutMissingPositions(screens);
+
+      expect(result.find((s) => s.id === 'bbbbbbbbbb')).toMatchObject({ x: 0, y: 0 });
+    });
+
+    it('chains several unpositioned screens on the same page left to right, independently per page', () => {
+      const screens = [
+        screen({ id: 'aaaaaaaaaa', pageId: 'page000001', stageWidth: 1000 }),
+        screen({ id: 'bbbbbbbbbb', pageId: 'page000001', stageWidth: 500 }),
+        screen({ id: 'cccccccccc', pageId: 'page000002', stageWidth: 2000 }),
+      ];
+
+      const result = layoutMissingPositions(screens);
+
+      expect(result.find((s) => s.id === 'aaaaaaaaaa')).toMatchObject({ x: 0, y: 0 });
+      expect(result.find((s) => s.id === 'bbbbbbbbbb')).toMatchObject({ x: 1000 + FRAME_GAP, y: 0 });
+      // Page 2's own first (and only) screen starts fresh at its own
+      // origin, unaffected by page 1 having two screens spanning further.
+      expect(result.find((s) => s.id === 'cccccccccc')).toMatchObject({ x: 0, y: 0 });
+    });
+
+    it('chains off the rightmost ALREADY-positioned frame on the same page only', () => {
+      const screens = [
+        screen({ id: 'aaaaaaaaaa', pageId: 'page000001', x: 5000, y: 0, stageWidth: 200 }),
+        // Same page as aaaaaaaaaa: must chain off its right edge (5200).
+        screen({ id: 'bbbbbbbbbb', pageId: 'page000001' }),
+        // A different page, positioned far to the right: must have zero
+        // effect on page000001's own layout above.
+        screen({ id: 'cccccccccc', pageId: 'page000002', x: 9000, y: 0, stageWidth: 200 }),
+        screen({ id: 'dddddddddd', pageId: 'page000002' }),
+      ];
+
+      const result = layoutMissingPositions(screens);
+
+      expect(result.find((s) => s.id === 'bbbbbbbbbb')).toMatchObject({ x: 5200 + FRAME_GAP, y: 0 });
+      expect(result.find((s) => s.id === 'dddddddddd')).toMatchObject({ x: 9200 + FRAME_GAP, y: 0 });
+    });
+
+    it('treats a missing pageId as its own group, same as any other shared pageId value', () => {
+      const screens = [screen({ id: 'aaaaaaaaaa' }), screen({ id: 'bbbbbbbbbb' })];
+      const result = layoutMissingPositions(screens);
+      expect(result[0]).toMatchObject({ x: 0, y: 0 });
+      expect(result[1]).toMatchObject({ x: 1440 + FRAME_GAP, y: 0 });
+    });
+  });
 });
