@@ -19,7 +19,7 @@ import type { FieldSchema, SectionName } from '@/components/blocks/schema';
 import type { AlignableFrame, FramePosition } from '@/lib/canvas/align';
 import { snapBoxFor } from '@/lib/canvas/viewport';
 import { distributeGapPxFromMeasurements, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
-import type { DiagramAction } from '@/lib/diagram/store';
+import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
 // Aliased: this module already imports lucide's LayoutGrid icon (the
 // Elements rail tab) under that same bare name.
 import type { LayoutGrid as LayoutGridData, Screen } from '@/lib/files/repository';
@@ -301,6 +301,7 @@ export function Inspector({
   selectedFrameIds = EMPTY_FRAME_SELECTION,
   onAlignFrames,
   diagramAlignment = null,
+  diagramMultiSelection = null,
   onUpdateLayoutGrid,
   measuredHeights,
 }: {
@@ -332,6 +333,14 @@ export function Inspector({
   // above (which would otherwise still point at the first of the several
   // selected shapes) but not over a frame selection.
   diagramAlignment?: DiagramAlignmentContext | null;
+  // Matt, 2026-09-13 (multi-selection follow-up): "the Design panel must
+  // show the alignment row AND, beneath it, the shape fields that make
+  // sense for many shapes at once" - the actual DiagramNode objects behind
+  // diagramAlignment's own `count`, built by workbench.tsx the same way
+  // (from diagram.selection's node ids), so DiagramFields below can compute
+  // Mixed/common values and dispatch setColor/setTextStyle to every one of
+  // them. Rendered only alongside diagramAlignment, never in place of it.
+  diagramMultiSelection?: DiagramNode[] | null;
   // The Design panel's Frame section (spec section 5: Columns, Gutter,
   // Margin and a "Show layout grid" switch, shown when the root frame is
   // selected) - merges a partial change into the current screen's
@@ -475,7 +484,22 @@ export function Inspector({
             ) : frameAlignmentContext ? (
               <AlignmentFields context={frameAlignmentContext} />
             ) : diagramAlignment ? (
-              <AlignmentFields context={diagramAlignment} />
+              <>
+                <AlignmentFields context={diagramAlignment} />
+                {/* Matt's multi-selection follow-up: Color/Text size/Font/
+                    Text color beneath the alignment row, for the same
+                    selection - the single-shape-only fields (Text, Shape,
+                    Width, Height) stay hidden via DiagramFields' own
+                    `multi` check, since `nodes` here always has 2+
+                    elements when diagramAlignment is non-null (both are
+                    built from the same >= 2 guard in workbench.tsx). */}
+                {diagramMultiSelection && diagramMultiSelection.length > 0 && (
+                  <DiagramFields
+                    selected={{ type: 'node', node: diagramMultiSelection[0], nodes: diagramMultiSelection }}
+                    onAction={(action) => onDiagramAction?.(action)}
+                  />
+                )}
+              </>
             ) : diagramSelection ? (
               <DiagramFields selected={diagramSelection} onAction={(action) => onDiagramAction?.(action)} />
             ) : !id || !type || !schema || !props ? (

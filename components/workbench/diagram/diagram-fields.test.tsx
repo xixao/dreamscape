@@ -66,7 +66,7 @@ describe('DiagramFields for a shape', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Color' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Blue' }));
 
-    expect(onAction).toHaveBeenCalledWith({ type: 'setColor', id: 'node000001', color: 'blue' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'setColor', ids: ['node000001'], color: 'blue' });
   });
 
   it('dispatches resize with the parsed width, keeping the current height', () => {
@@ -96,6 +96,113 @@ describe('DiagramFields for a shape', () => {
     fireEvent.change(width, { target: { value: '' } });
 
     expect(onAction).not.toHaveBeenCalled();
+  });
+});
+
+// Spec section 9: "give the diagram shapes a font selection like small,
+// medium, large... a monospaced font, a serif font, and a sans serif
+// font... let me change the color of the fonts independently". Text size
+// and Font have three options each, so Field (components/workbench/
+// inspector/field.tsx) renders them as a ToggleGroup (role "radio") - the
+// same widget the connector's own three-option fields below already use -
+// while Text color's eight options render as a Select (role "combobox"),
+// like the shape's own Color field above.
+describe('DiagramFields text styling', () => {
+  it('defaults text size, font and color to medium/sans/default when absent', () => {
+    render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: 'Medium' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('radio', { name: 'Sans' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Default');
+  });
+
+  it('shows the shape own text size, font and color when set', () => {
+    render(
+      <DiagramFields
+        selected={{ type: 'node', node: node({ textSize: 'large', textFont: 'mono', textColor: 'blue' }) }}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('radio', { name: 'Large' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('radio', { name: 'Mono' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Blue');
+  });
+
+  it('dispatches setTextStyle when text size changes', async () => {
+    const onAction = vi.fn();
+    render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={onAction} />);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Large' }));
+
+    expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textSize: 'large' });
+  });
+
+  it('dispatches setTextStyle when font changes', async () => {
+    const onAction = vi.fn();
+    render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={onAction} />);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Serif' }));
+
+    expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textFont: 'serif' });
+  });
+
+  it('dispatches setTextStyle when text color changes', async () => {
+    const onAction = vi.fn();
+    render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={onAction} />);
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Text color' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Violet' }));
+
+    expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textColor: 'violet' });
+  });
+
+  // Spec section 9: "with several shapes selected they apply to every
+  // selected shape as one history step" - `nodes` is the co-selection
+  // (DiagramFieldsSelection's own comment); a synthetic "Mixed" option
+  // pushes Text size/Font's option count past three, so they render as a
+  // Select showing the word "Mixed" here too, not a ToggleGroup with
+  // nothing pressed.
+  describe('with several shapes selected', () => {
+    const a = node({ id: 'a', textSize: 'small', textFont: 'sans', textColor: 'default' });
+    const b = node({ id: 'b', textSize: 'large', textFont: 'mono', textColor: 'red' });
+
+    it('shows Mixed for every field the selected shapes disagree on', () => {
+      render(<DiagramFields selected={{ type: 'node', node: a, nodes: [a, b] }} onAction={vi.fn()} />);
+
+      expect(screen.getByRole('combobox', { name: 'Text size' })).toHaveTextContent('Mixed');
+      expect(screen.getByRole('combobox', { name: 'Font' })).toHaveTextContent('Mixed');
+      expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Mixed');
+    });
+
+    it('shows the shared value, not Mixed, for a field the selected shapes agree on', () => {
+      const c = node({ id: 'c', textSize: 'small', textFont: 'mono', textColor: 'red' });
+      render(<DiagramFields selected={{ type: 'node', node: b, nodes: [b, c] }} onAction={vi.fn()} />);
+
+      expect(screen.getByRole('combobox', { name: 'Text size' })).toHaveTextContent('Mixed');
+      expect(screen.getByRole('radio', { name: 'Mono' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Red');
+    });
+
+    it('dispatches setTextStyle for every selected id when choosing a value from Mixed', async () => {
+      const onAction = vi.fn();
+      render(<DiagramFields selected={{ type: 'node', node: a, nodes: [a, b] }} onAction={onAction} />);
+
+      await userEvent.click(screen.getByRole('combobox', { name: 'Text size' }));
+      await userEvent.click(await screen.findByRole('option', { name: 'Medium' }));
+
+      expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['a', 'b'], textSize: 'medium' });
+    });
+
+    it('does not dispatch when Mixed itself is re-selected', async () => {
+      const onAction = vi.fn();
+      render(<DiagramFields selected={{ type: 'node', node: a, nodes: [a, b] }} onAction={onAction} />);
+
+      await userEvent.click(screen.getByRole('combobox', { name: 'Text color' }));
+      await userEvent.click(await screen.findByRole('option', { name: 'Mixed' }));
+
+      expect(onAction).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -5,6 +5,9 @@ import {
   DIAGRAM_COLORS,
   MAX_TEXT_LENGTH as DIAGRAM_TEXT_MAX,
   NODE_KINDS,
+  TEXT_COLORS,
+  TEXT_FONTS,
+  TEXT_SIZES,
   type ArrowKind,
   type ConnectorKind,
   type DiagramColor,
@@ -12,6 +15,9 @@ import {
   type DiagramNodeKind,
   type EdgeEndpoint,
   type Side,
+  type TextColor,
+  type TextFont,
+  type TextSize,
 } from '@/lib/diagram/store';
 import { clampWidth } from '@/lib/stage';
 
@@ -571,6 +577,9 @@ export type DiagramNodeInput = {
   height: number;
   text: string;
   color: string;
+  textSize?: string;
+  textFont?: string;
+  textColor?: string;
 };
 export type DiagramEdgeInput = {
   id: string;
@@ -616,9 +625,13 @@ function toEndpoint(endpoint: DiagramEdgeEndpointInput): EdgeEndpoint {
  * 500 characters (spec: "text up to 500 chars"), every edge's endpoint
  * exactly one of a nodeId or a screenId with a real side when given, an
  * edge whose nodeId endpoint(s) reference a node that actually exists in
- * THIS diagram, and every edge's own kind/arrow from their own enum. See
- * the module comment on validatePages above for why a screenId endpoint is
- * only shape-checked here, not cross-referenced against real screens.
+ * THIS diagram, and every edge's own kind/arrow from their own enum. A
+ * node's textSize/textFont/textColor (spec section 9) are all optional
+ * and, when present, checked against their own enum the same way; absent,
+ * they stay absent on the validated node rather than defaulting here, so
+ * a file saved before this feature round-trips unchanged. See the module
+ * comment on validatePages above for why a screenId endpoint is only
+ * shape-checked here, not cross-referenced against real screens.
  */
 export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
   const seenIds = new Set<string>();
@@ -639,6 +652,19 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     }
     if (node.text.length > DIAGRAM_TEXT_MAX) {
       return { ok: false, reason: `diagram node "${node.id}" text is longer than ${DIAGRAM_TEXT_MAX} characters` };
+    }
+    // Spec section 9: textSize/textFont/textColor are all optional (absent
+    // on every file saved before this feature), so only checked against
+    // their own enum when actually present - same shape as kind/color's
+    // own checks above, just skipped rather than failed when undefined.
+    if (node.textSize !== undefined && !(TEXT_SIZES as readonly string[]).includes(node.textSize)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an unknown text size "${node.textSize}"` };
+    }
+    if (node.textFont !== undefined && !(TEXT_FONTS as readonly string[]).includes(node.textFont)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an unknown text font "${node.textFont}"` };
+    }
+    if (node.textColor !== undefined && !(TEXT_COLORS as readonly string[]).includes(node.textColor)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an unknown text color "${node.textColor}"` };
     }
   }
 
@@ -669,10 +695,23 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
   return {
     ok: true,
     diagram: {
-      nodes: input.nodes.map((node) => ({
-        ...node,
-        kind: node.kind as DiagramNodeKind,
-        color: node.color as DiagramColor,
+      // textSize/textFont/textColor destructured out of the `...rest`
+      // spread (rather than spreading `node` whole and overriding them
+      // after, the way kind/color do above) because a later conditional
+      // spread narrows a property's TYPE only when nothing earlier in the
+      // same literal already contributed one - `...rest` here never does,
+      // so the three stay exactly `TextSize | undefined` and friends, and
+      // - the actual point, same as toEndpoint's identical spread above for
+      // an edge's optional `side` - absent stays absent (not a key set to
+      // `undefined`), so a file saved before this feature round-trips
+      // byte-identical.
+      nodes: input.nodes.map(({ textSize, textFont, textColor, ...rest }) => ({
+        ...rest,
+        kind: rest.kind as DiagramNodeKind,
+        color: rest.color as DiagramColor,
+        ...(textSize !== undefined ? { textSize: textSize as TextSize } : {}),
+        ...(textFont !== undefined ? { textFont: textFont as TextFont } : {}),
+        ...(textColor !== undefined ? { textColor: textColor as TextColor } : {}),
       })),
       edges: input.edges.map((edge) => ({
         ...edge,

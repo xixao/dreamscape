@@ -10,6 +10,7 @@ import { renderInEditor } from '@/test/craft-harness';
 import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
 import type { DiagramFieldsSelection } from '../diagram/diagram-fields';
 import { useStage } from '../stage-context';
+import type { DiagramAlignmentContext } from './alignment-fields';
 import { Inspector, type PanelMode } from './inspector';
 
 function WidthProbe() {
@@ -35,6 +36,8 @@ function mount(
     screens = ONE_SCREEN,
     selectedFrameIds,
     onAlignFrames,
+    diagramAlignment,
+    diagramMultiSelection,
     onUpdateLayoutGrid,
     measuredHeights,
   }: {
@@ -47,6 +50,8 @@ function mount(
     screens?: Screen[];
     selectedFrameIds?: ReadonlySet<string>;
     onAlignFrames?: (positions: { id: string; x: number; y: number }[]) => void;
+    diagramAlignment?: DiagramAlignmentContext | null;
+    diagramMultiSelection?: DiagramNode[] | null;
     onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
     measuredHeights?: ReadonlyMap<string, number>;
   } = {},
@@ -70,6 +75,8 @@ function mount(
         onDiagramAction={onDiagramAction}
         selectedFrameIds={selectedFrameIds}
         onAlignFrames={onAlignFrames}
+        diagramAlignment={diagramAlignment}
+        diagramMultiSelection={diagramMultiSelection}
         onUpdateLayoutGrid={onUpdateLayoutGrid}
         measuredHeights={measuredHeights}
       />
@@ -210,6 +217,84 @@ describe('Inspector', () => {
         { id: 's1', x: 0, y: 700 },
         { id: 's2', x: 800, y: 0 },
       ]);
+    });
+  });
+
+  // Matt's multi-selection follow-up, 2026-09-13: "the Design panel must
+  // show the alignment row AND, beneath it, the shape fields that make
+  // sense for many shapes at once: Color, Text size, Font and Text color".
+  describe('a diagram selection of two or more shapes', () => {
+    function alignmentStub(overrides: Partial<DiagramAlignmentContext> = {}): DiagramAlignmentContext {
+      return { type: 'diagram', count: 2, onAlign: vi.fn(), onDistribute: vi.fn(), ...overrides };
+    }
+
+    it('shows the alignment row and the Color/Text size/Font/Text color fields, not the empty state', async () => {
+      const nodes = [diagramNode({ id: 'a' }), diagramNode({ id: 'b' })];
+      mount(1440, { diagramAlignment: alignmentStub(), diagramMultiSelection: nodes });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).getByTestId('alignment-fields')).toBeInTheDocument();
+      expect(within(panel).queryByText('Nothing selected')).not.toBeInTheDocument();
+      expect(within(panel).getByRole('combobox', { name: 'Color' })).toBeInTheDocument();
+      expect(within(panel).getByRole('combobox', { name: 'Text color' })).toBeInTheDocument();
+      // Text size/Font have only 3 real options each, so with no Mixed
+      // entry (both nodes agree, the diagramNode() default) they render as
+      // a ToggleGroup (radio), same as a single-shape selection - see
+      // diagram-fields.test.tsx for that widget-choice behaviour directly.
+      expect(within(panel).getByRole('radio', { name: 'Medium' })).toBeInTheDocument();
+      expect(within(panel).getByRole('radio', { name: 'Sans' })).toBeInTheDocument();
+    });
+
+    it('hides the single-shape-only fields: Text, Shape, Width and Height', async () => {
+      const nodes = [diagramNode({ id: 'a' }), diagramNode({ id: 'b' })];
+      mount(1440, { diagramAlignment: alignmentStub(), diagramMultiSelection: nodes });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).queryByLabelText('Text')).not.toBeInTheDocument();
+      expect(within(panel).queryByRole('combobox', { name: 'Shape' })).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText('Width')).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText('Height')).not.toBeInTheDocument();
+    });
+
+    it('shows Mixed for Text size when the selected shapes differ, and dispatches setTextStyle for both ids when Large is chosen', async () => {
+      const onDiagramAction = vi.fn();
+      const nodes = [diagramNode({ id: 'a', textSize: 'small' }), diagramNode({ id: 'b', textSize: 'medium' })];
+      mount(1440, { diagramAlignment: alignmentStub(), diagramMultiSelection: nodes, onDiagramAction });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      // A 4th synthetic "Mixed" option pushes Text size past 3, so it is a
+      // Select (combobox) here rather than the ToggleGroup the agreeing
+      // case above showed.
+      expect(within(panel).getByRole('combobox', { name: 'Text size' })).toHaveTextContent('Mixed');
+
+      await userEvent.click(within(panel).getByRole('combobox', { name: 'Text size' }));
+      await userEvent.click(await screen.findByRole('option', { name: 'Large' }));
+
+      expect(onDiagramAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['a', 'b'], textSize: 'large' });
+    });
+
+    it('dispatches setColor for every selected id, as one call, when a color is chosen', async () => {
+      const onDiagramAction = vi.fn();
+      const nodes = [diagramNode({ id: 'a', color: 'neutral' }), diagramNode({ id: 'b', color: 'neutral' })];
+      mount(1440, { diagramAlignment: alignmentStub(), diagramMultiSelection: nodes, onDiagramAction });
+      const panel = await screen.findByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('combobox', { name: 'Color' }));
+      await userEvent.click(await screen.findByRole('option', { name: 'Violet' }));
+
+      expect(onDiagramAction).toHaveBeenCalledTimes(1);
+      expect(onDiagramAction).toHaveBeenCalledWith({ type: 'setColor', ids: ['a', 'b'], color: 'violet' });
+    });
+
+    it('does not show the multi-shape fields with no diagramMultiSelection given, even if diagramAlignment is set', async () => {
+      mount(1440, { diagramAlignment: alignmentStub() });
+      await screen.findByText('Billing');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      expect(within(panel).getByTestId('alignment-fields')).toBeInTheDocument();
+      expect(within(panel).queryByRole('combobox', { name: 'Color' })).not.toBeInTheDocument();
     });
   });
 
