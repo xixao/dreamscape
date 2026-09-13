@@ -538,6 +538,38 @@ describe('DiagramLayer Escape cancels an in-flight gesture, writing nothing (rev
 
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
   });
+
+  // Re-review finding 26: drag and resize were pinned already; connect and
+  // place were only probe-verified in the re-review, never given their own
+  // test, despite going through the exact same cancelConnect/cancelPlace
+  // path as the two above.
+  it('Escape mid-connect writes no connector; the following pointerup is a no-op', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+
+    hoverAt(50, 25); // over node a, to reveal its handles
+    const handle = screen.getByTestId('diagram-handle-node-a-right');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'connect' }));
+  });
+
+  it('Escape mid-place writes no shape; the following pointerup is a no-op', () => {
+    const { dispatch } = renderLayer({ tool: { kind: 'shape', shape: 'rect' } });
+    const surface = screen.getByTestId('diagram-placement-surface');
+
+    fireEvent.pointerDown(surface, { pointerId: 1, clientX: 200, clientY: 100 });
+    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 260, clientY: 140 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(surface, { pointerId: 1, clientX: 260, clientY: 140 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'add' }));
+  });
 });
 
 describe('DiagramLayer live connector redraw during drag/resize', () => {
@@ -803,6 +835,47 @@ describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until po
     expect(screen.getByTestId('diagram-node-node000001').querySelector('rect')).toHaveAttribute('x', '0');
     expect(screen.getByTestId('diagram-option-drag-ghosts')).toBeInTheDocument();
   });
+
+  // Re-review finding 23: the ghost previously drew only the shape body -
+  // no text, no edge label - so the preview did not actually match what
+  // the eventual copy would look like.
+  it("draws the dragged shape's own text in the ghost too, matching the eventual copy", () => {
+    renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50, text: 'Login' })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-node000001');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    // Scoped to the ghost group specifically - the real shape being
+    // dragged still shows its own "Login" text too, so a bare
+    // screen.getByText('Login') would be ambiguous.
+    expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('Login');
+  });
+
+  it("draws the ghost edge's label chip too, matching the eventual copy", () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ label: 'yes' })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('yes');
+  });
 });
 
 describe('DiagramLayer option-drag with the real reducer (review finding 1)', () => {
@@ -883,6 +956,41 @@ describe('DiagramLayer option-drag with the real reducer (review finding 1)', ()
 
     expect(screen.queryAllByTestId(/^diagram-node-/)).toHaveLength(2);
     expect(screen.queryAllByTestId(/^diagram-edge-hit-/)).toHaveLength(1);
+  });
+
+  // Re-review finding 26: the ghost edge's path was pinned to EXIST
+  // (review finding 23's tests) but never to equal what actually lands -
+  // the real point of a preview, and the same "what you see is what you
+  // get" rule findings 20/21 pin for shapes.
+  it("the ghost edge's path equals the committed copy's edge path after pointer up", () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    render(
+      <RealReducerHarness
+        initial={stateWith({
+          nodes,
+          edges: [edge()], // source a/right, target b/left
+          selection: [
+            { type: 'node', id: 'a' },
+            { type: 'node', id: 'b' },
+          ],
+        })}
+      />,
+    );
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 24, altKey: true });
+
+    const ghostPath = screen.getByTestId('diagram-option-drag-ghosts').querySelector('path')!.getAttribute('d');
+    expect(ghostPath).toBeTruthy();
+
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 40, clientY: 24, altKey: true });
+
+    const hitPaths = screen.getAllByTestId(/^diagram-edge-hit-/);
+    expect(hitPaths).toHaveLength(2); // the original, untouched, plus the copy
+    const copyPath = hitPaths.find((hit) => hit.getAttribute('data-testid') !== 'diagram-edge-hit-edge0000001')!;
+
+    expect(copyPath.getAttribute('d')).toBe(ghostPath);
   });
 });
 
@@ -1301,6 +1409,17 @@ describe('DiagramLayer context menu (shape)', () => {
     expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
   });
 
+  // Re-review finding 24: Radix still calls a DISABLED trigger's own
+  // onContextMenu straight through (disabling only stops ITS content from
+  // opening) - so ensureSelected ran and silently changed the selection
+  // in the connector/shape tools even though no menu ever appeared. The
+  // handler itself now checks tool.kind, not just the Trigger's `disabled`.
+  it('does not change the selection on right-click while the connector tool is active either', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }), tool: { kind: 'connector' } });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('leaves an existing multi-selection alone when the right-clicked shape is already part of it', () => {
     const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
     const { dispatch } = renderLayer({
@@ -1572,6 +1691,14 @@ describe('DiagramLayer context menu (connector)', () => {
     for (const label of ['Connector', 'Arrowheads', 'Edit label', 'Delete']) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
     }
+  });
+
+  // Re-review finding 24: same disabled-trigger-still-calls-onContextMenu
+  // gap as the node menu, for the edge's own ensureSelected call.
+  it('does not change the selection on right-click while the connector tool is active either', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, edges: [edge()] }), tool: { kind: 'connector' } });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('"Connector" checks the current kind and dispatches setKind on another', async () => {

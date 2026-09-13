@@ -1223,14 +1223,36 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 ? getBezierPath(sourcePoint, sourceSide, targetPoint, targetSide)
                 : getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
           return (
-            <path key={e.id} d={result.path} fill="none" className="stroke-white/60" style={{ strokeWidth: 1.5 / viewport.zoom }} />
+            <g key={e.id}>
+              <path d={result.path} fill="none" className="stroke-white/60" style={{ strokeWidth: 1.5 / viewport.zoom }} />
+              {/* Re-review finding 23: the ghost edge's own label chip, so
+                  the preview matches the eventual copy exactly, not just
+                  its path. */}
+              {e.label && (
+                <foreignObject x={result.labelX - 40} y={result.labelY - 12} width={80} height={24}>
+                  <div className={`${CHIP} min-h-0 justify-center px-2 py-0.5 text-center font-mono text-[10.5px]`}>{e.label}</div>
+                </foreignObject>
+              )}
+            </g>
           );
         })}
         {drag.ids.map((id) => {
           const source = diagram.nodes.find((n) => n.id === id);
           const box = ghostBox(id);
           if (!source || !box) return null;
-          return <g key={id}>{renderShapeBody(source, box)}</g>;
+          return (
+            <g key={id}>
+              {renderShapeBody(source, box)}
+              {/* Re-review finding 23: the ghost's own text, so the
+                  preview matches the eventual copy exactly, not just the
+                  shape's fill/stroke. */}
+              <foreignObject x={box.x} y={box.y} width={box.width} height={box.height}>
+                <div className="flex size-full items-center justify-center overflow-hidden p-1.5 text-center text-[13px] break-words whitespace-pre-wrap text-white">
+                  {source.text}
+                </div>
+              </foreignObject>
+            </g>
+          );
         })}
       </g>
     );
@@ -1254,7 +1276,18 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       <ContextMenu key={rawNode.id}>
         {/* Review nit 17: unlike the Shift+F10 path, this had no tool.kind
             guard, so the menu also opened mid-connector-tool/placement. */}
-        <ContextMenuTrigger asChild disabled={tool.kind !== 'pointer'} onContextMenu={() => ensureSelected('node', rawNode.id)}>
+        <ContextMenuTrigger
+          asChild
+          disabled={tool.kind !== 'pointer'}
+          // Re-review finding 24: Radix still calls a disabled trigger's own
+          // onContextMenu straight through - disabling only stops ITS content
+          // from opening, so this must gate itself the same way the Trigger
+          // is gated, or a right-click in the connector/shape tools silently
+          // changes the selection with no menu ever appearing.
+          onContextMenu={() => {
+            if (tool.kind === 'pointer') ensureSelected('node', rawNode.id);
+          }}
+        >
           <g
             data-testid={`diagram-node-${rawNode.id}`}
             data-diagram-kind={rawNode.kind}
@@ -1356,7 +1389,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
     return (
       <ContextMenu key={edge.id}>
-        <ContextMenuTrigger asChild disabled={tool.kind !== 'pointer'} onContextMenu={() => ensureSelected('edge', edge.id)}>
+        <ContextMenuTrigger
+          asChild
+          disabled={tool.kind !== 'pointer'}
+          // Re-review finding 24: same guard as the node trigger above.
+          onContextMenu={() => {
+            if (tool.kind === 'pointer') ensureSelected('edge', edge.id);
+          }}
+        >
           <g data-testid={`diagram-edge-${edge.id}`}>
             {/* A fat, invisible stroke carries the click/hover target so a thin
                 connector line is still easy to select - the visible path below
