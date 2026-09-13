@@ -47,7 +47,7 @@ export async function GET() {
       .bind(u.userId)
       .all();
     return {
-      name: u.fullName ?? "Designer",
+      name: u.displayName,
       revisions: r.results.map(revision),
       comments: await getComments(u.userId, u.userId),
       preferences: p
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         return { revision: await getRevision(owner, id) };
       }
       case "comment":
-        return addComment(owner, u.fullName ?? "Designer", data);
+        return addComment(owner, u.displayName, data);
       case "reaction":
         return react(
           owner,

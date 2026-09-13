@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { useTheme } from "next-themes";
 import {
   AlertCircle,
   ArrowRight,
   Bell,
+  BellOff,
   Check,
   CheckCircle2,
   Clipboard,
@@ -30,6 +32,14 @@ import {
   Smartphone,
   Sparkles,
   X,
+  Moon,
+  Sun,
+  Presentation,
+  Maximize,
+  Minimize,
+  Scan,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Empty } from "@/components/ui/empty";
@@ -72,6 +82,8 @@ import {
 import { download, request } from "@/lib/client";
 import Uploader from "./uploader";
 import Feedback from "./feedback";
+import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
+import FeedbackNotifications from "./feedback-notifications";
 
 type Data = Workspace & {
   links: {
@@ -142,6 +154,14 @@ function IconButton({
 }
 
 export default function FlowReview() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [presentation, setPresentation] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [focus, setFocus] = useState<PreviewFocus>("page");
+  const [zoom, setZoom] = useState<number | "fit">("fit");
+  const [showFeedback, setShowFeedback] = useState(false);
+  const studioRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<Data>(initial);
   const [revision, setRevision] = useState<Revision>(preview);
   const [draft, setDraft] = useState<Config>(baseline);
@@ -174,6 +194,9 @@ export default function FlowReview() {
   const passed = currentChecks.filter((c) => c.pass).length;
   const isDesigner = audience === "designer";
   const participant = audience === "participant";
+  const feedbackVisible =
+    showFeedback && data.preferences.comments && !participant;
+  const dark = mounted && resolvedTheme === "dark";
   const previous =
     data.revisions.find((r) => r.number < revision.number) ??
     data.revisions[data.revisions.length - 1];
@@ -203,6 +226,62 @@ export default function FlowReview() {
       if (aiTimer.current) clearTimeout(aiTimer.current);
     };
   }, [refresh]);
+  useEffect(() => {
+    setMounted(true);
+    const changed = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  useEffect(() => {
+    if (!feedbackVisible || !loaded) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (stopped) return;
+      if (document.visibilityState === "visible") await refresh();
+      if (!stopped) timer = setTimeout(poll, 10000);
+    };
+    timer = setTimeout(poll, 10000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [feedbackVisible, loaded, refresh]);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        presentation &&
+        !dialog &&
+        !document.fullscreenElement
+      )
+        setPresentation(false);
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [presentation, dialog]);
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      toast.error(
+        "Fullscreen is unavailable in this browser. Presentation mode still fills the window.",
+      );
+    }
+  }
+  function startPresentation() {
+    setView("review");
+    setPresentation(true);
+    setFocus("component");
+    setZoom("fit");
+    setCompare(false);
+    setViewport("desktop");
+  }
+  function exitPresentation() {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    setPresentation(false);
+  }
   async function action(payload: Record<string, unknown>) {
     if (busy) return false;
     setBusy(true);
@@ -399,7 +478,10 @@ export default function FlowReview() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="studio">
+      <div
+        className={`studio ${presentation ? "is-presenting" : ""}`}
+        ref={studioRef}
+      >
         <Toaster position="bottom-right" />
         <header className="studio-header">
           <span className="studio-brand">
@@ -410,6 +492,15 @@ export default function FlowReview() {
             Homepath <span className="dot">/</span> Document upload
           </span>
           <span className="badge amber">Scripted demo</span>
+          <IconButton
+            label={dark ? "Use light mode" : "Use dark mode"}
+            onClick={() => setTheme(dark ? "light" : "dark")}
+          >
+            {dark ? <Sun size={17} /> : <Moon size={17} />}
+          </IconButton>
+          <IconButton label="Present component" onClick={startPresentation}>
+            <Presentation size={17} />
+          </IconButton>
           <IconButton
             label="Notifications"
             onClick={() => setDialog("notifications")}
@@ -428,6 +519,35 @@ export default function FlowReview() {
             Share
           </Button>
         </header>
+        {presentation && (
+          <header className="presentation-bar">
+            <span className="presentation-name">
+              <Presentation size={18} />
+              <strong>Document upload</strong>
+              <span className="badge">
+                v{revision.number}
+                {dirty ? " · Draft" : ""}
+              </span>
+            </span>
+            <div className="presentation-actions">
+              <IconButton
+                label={dark ? "Use light mode" : "Use dark mode"}
+                onClick={() => setTheme(dark ? "light" : "dark")}
+              >
+                {dark ? <Sun size={17} /> : <Moon size={17} />}
+              </IconButton>
+              <IconButton
+                label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                onClick={() => void toggleFullscreen()}
+              >
+                {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
+              </IconButton>
+              <IconButton label="Exit presentation" onClick={exitPresentation}>
+                <X size={18} />
+              </IconButton>
+            </div>
+          </header>
+        )}
         <div className="workspace-heading">
           <div>
             <p className="eyebrow">REVIEW WORKSPACE</p>
@@ -561,7 +681,7 @@ export default function FlowReview() {
                     >
                       <GitCompareArrows size={17} />
                     </IconButton>
-                    {!participant && (
+                    {!participant && !presentation && (
                       <IconButton
                         label="Comment pins"
                         active={annotations}
@@ -572,61 +692,168 @@ export default function FlowReview() {
                     )}
                   </div>
                 </div>
-                <div
-                  className={`stage-body ${viewport === "both" || compare ? "paired" : ""}`}
-                >
-                  {compare && !participant && (
-                    <div className="device-wrap">
-                      <div className="device-label">
-                        Previous · v{previous.number}
-                      </div>
-                      <Uploader
-                        config={previous.config}
-                        state={state}
-                        onState={changeState}
-                        playing={false}
-                      />
-                    </div>
-                  )}
-                  <div
-                    className={`device-wrap ${viewport === "mobile" ? "mobile-wrap" : ""}`}
+                <div className="inspection-toolbar">
+                  <Select
+                    value={focus}
+                    onValueChange={(value) => {
+                      setFocus(value as PreviewFocus);
+                      setZoom("fit");
+                      if (value === "error") setState("failed");
+                    }}
                   >
-                    <div className="device-label">
-                      {viewport === "mobile" ? "Mobile · 340" : "Desktop"}
-                      <span>{dirty ? "Draft" : `v${revision.number}`}</span>
-                    </div>
-                    <Uploader
-                      config={draft}
-                      state={state}
-                      playing={playing}
-                      onState={changeState}
-                      compact={viewport === "mobile"}
-                      annotate={!participant && annotations}
-                      onAnchor={(a) => {
-                        setAnchor(a);
-                        setPanel("feedback");
-                        setView("review");
-                      }}
-                    />
+                    <SelectTrigger aria-label="Preview focus">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="page">Full page</SelectItem>
+                      <SelectItem value="component">Component only</SelectItem>
+                      <SelectItem value="error">Error message</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="zoom-controls">
+                    <IconButton
+                      label="Zoom out"
+                      disabled={zoom !== "fit" && zoom <= 0.5}
+                      onClick={() =>
+                        setZoom(
+                          Math.max(0.5, (zoom === "fit" ? 1 : zoom) - 0.25),
+                        )
+                      }
+                    >
+                      <ZoomOut size={17} />
+                    </IconButton>
+                    <Select
+                      value={String(zoom)}
+                      onValueChange={(value) =>
+                        setZoom(value === "fit" ? "fit" : Number(value))
+                      }
+                    >
+                      <SelectTrigger aria-label="Preview zoom">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fit">Fit</SelectItem>
+                        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((z) => (
+                          <SelectItem value={String(z)} key={z}>
+                            {Math.round(z * 100)}%
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <IconButton
+                      label="Zoom in"
+                      disabled={zoom !== "fit" && zoom >= 2}
+                      onClick={() =>
+                        setZoom(Math.min(2, (zoom === "fit" ? 1 : zoom) + 0.25))
+                      }
+                    >
+                      <ZoomIn size={17} />
+                    </IconButton>
+                    <IconButton
+                      label="Fit preview"
+                      onClick={() => setZoom("fit")}
+                    >
+                      <Scan size={17} />
+                    </IconButton>
                   </div>
-                  {viewport === "both" && !compare && (
-                    <div className="device-wrap mobile-wrap">
+                  {!participant && (
+                    <IconButton
+                      label={
+                        feedbackVisible
+                          ? "Hide feedback notifications"
+                          : "Show feedback notifications"
+                      }
+                      active={feedbackVisible}
+                      disabled={!data.preferences.comments}
+                      onClick={() => setShowFeedback(!showFeedback)}
+                    >
+                      {feedbackVisible ? (
+                        <Bell size={17} />
+                      ) : (
+                        <BellOff size={17} />
+                      )}
+                    </IconButton>
+                  )}
+                </div>
+                <div
+                  className={`stage-body ${feedbackVisible ? "with-feedback" : ""}`}
+                >
+                  <PreviewCanvas
+                    zoom={zoom}
+                    viewport={viewport}
+                    paired={viewport === "both" || (compare && !participant)}
+                    focus={focus}
+                  >
+                    {compare && !participant && (
+                      <div className="device-wrap">
+                        <div className="device-label">
+                          Previous · v{previous.number}
+                        </div>
+                        <Uploader
+                          focus={focus}
+                          config={previous.config}
+                          state={state}
+                          onState={changeState}
+                          playing={false}
+                        />
+                      </div>
+                    )}
+                    <div
+                      className={`device-wrap ${viewport === "mobile" ? "mobile-wrap" : ""}`}
+                    >
                       <div className="device-label">
-                        Mobile · 340 <span>Same state</span>
+                        {viewport === "mobile" ? "Mobile · 340" : "Desktop"}
+                        <span>{dirty ? "Draft" : `v${revision.number}`}</span>
                       </div>
                       <Uploader
+                        focus={focus}
                         config={draft}
                         state={state}
                         playing={playing}
                         onState={changeState}
-                        compact
-                        annotate={!participant && annotations}
+                        compact={viewport === "mobile"}
+                        annotate={!participant && annotations && !presentation}
                         onAnchor={(a) => {
                           setAnchor(a);
                           setPanel("feedback");
+                          setView("review");
                         }}
                       />
                     </div>
+                    {viewport === "both" && !compare && (
+                      <div className="device-wrap mobile-wrap">
+                        <div className="device-label">
+                          Mobile · 340 <span>Same state</span>
+                        </div>
+                        <Uploader
+                          focus={focus}
+                          config={draft}
+                          state={state}
+                          playing={playing}
+                          onState={changeState}
+                          compact
+                          annotate={!participant && annotations && !presentation}
+                          onAnchor={(a) => {
+                            setAnchor(a);
+                            setPanel("feedback");
+                          }}
+                        />
+                      </div>
+                    )}
+                  </PreviewCanvas>
+                  {feedbackVisible && (
+                    <FeedbackNotifications
+                      comments={data.comments}
+                      revision={revision}
+                      onClose={() => setShowFeedback(false)}
+                      onOpen={(comment) => {
+                        setState(comment.state);
+                        setAnchor(comment.anchor);
+                        setPanel("feedback");
+                        setView("review");
+                        if (presentation) exitPresentation();
+                      }}
+                    />
                   )}
                 </div>
                 {!participant && (
@@ -1354,6 +1581,14 @@ export default function FlowReview() {
                 internal review activity.
               </DialogDescription>
             </DialogHeader>
+            <label className="switch-line">
+              Show feedback on screen
+              <Switch
+                checked={feedbackVisible}
+                disabled={!data.preferences.comments || participant}
+                onCheckedChange={setShowFeedback}
+              />
+            </label>
             {(
               [
                 ["comments", "Feedback & replies"],
@@ -1408,6 +1643,8 @@ export default function FlowReview() {
             </div>
             <p className="footnote">
               In-app only. Email and push notifications are not connected.
+              {feedbackVisible &&
+                " Feedback refreshes every 10 seconds while this tab is visible."}
             </p>
           </DialogContent>
         </Dialog>

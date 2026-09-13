@@ -16,6 +16,10 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## What is real
 
+- A window-filling, non-draggable workspace with scrollable preview and feedback regions.
+- Light/dark theme switching, fit/50-200% zoom, page/component/error focus, and presentation mode with optional browser fullscreen.
+- On-screen feedback that can be hidden, with saved comment/reply text, author, state, and viewport. It polls every ten seconds while enabled and the tab is visible. New signed-in reviewer comments use their supplied display name (email fallback); old generic author labels are preserved.
+
 - The upload component, editable text, three states, retry action, and responsive layout.
 - Server-saved versions, contextual comments, replies, reactions, assignments, resolutions, link revocation, and notification preferences.
 - Scoped review/test links, consent, fixed event recording, outcome validation, and session exports.
@@ -25,7 +29,7 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 - The assistant is a deterministic sequence with a short presentation delay. No model receives prompts or files.
 - There is no real upload, lending decision, loan submission, Figma import, Design System MCP connection, arbitrary app execution, or live multi-user coediting.
-- Comments and activity update after actions or manual refresh, not real-time push. Notifications are in-app only.
+- Comments update after actions, manual refresh, or the enabled on-screen feedback poll. There is no real-time push. Notifications are in-app only.
 - Participant session timing includes idle time. Closing or reloading an unfinished task leaves an open session; sessions are not inferred to have failed.
 - Reviewer likes are per supplied session actor for anonymous links; this is not a fraud-resistant research platform.
 - Shared review links expose the pinned version and its comments. The workspace's case study/history remain internal.
@@ -43,6 +47,6 @@ The central contract lives in `lib/model.ts`; the demonstrator lives in `app/upl
 
 Build the app and apply the generated local migration, then start the built Worker with `npm start -- --port 5186`. Run the focused API checks with `node tests/api.mjs http://localhost:5186`. They use a dedicated local test identity and do not seed demo feedback into the owner's workspace. The development server intentionally strips injected identity headers, so run these tests against the built Worker only.
 
-37 API requests and their payload assertions passed, including access checks, persistence, reactions, revision pinning, consent, event sequencing, and link revocation. TypeScript and the production build passed. Browser interaction testing was not performed in this build pass.
+40 API requests and their payload assertions passed, including access checks, persistence, named reviewer attribution, reactions, revision pinning, consent, event sequencing, and link revocation. TypeScript and the production build passed. Browser interaction testing was not performed in this build pass.
 
 WebMCP preview-state tools are feature-detected. Unsupported browsers ignore them. This is optional integration groundwork, not a requirement to use the prototype. No supported WebMCP execution context was available for contract validation, so those tools are not yet verified.

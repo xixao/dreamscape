@@ -178,6 +178,38 @@ const review = await api("/api/workspace", {
 const reviewed = await api(`/api/share/${review.token}`, null, {});
 assert.equal(reviewed.comments.length, 2);
 assert.equal(reviewed.sessions, undefined);
+const namedReviewer = {
+  "oai-authenticated-user-id": "named-local-reviewer",
+  "oai-authenticated-user-email": "reviewer@example.test",
+  "oai-authenticated-user-full-name": "Alex%20Reviewer",
+  "oai-authenticated-user-full-name-encoding": "percent-encoded-utf-8",
+};
+const namedComment = await api(
+  `/api/share/${review.token}`,
+  {
+    action: "comment",
+    revisionId: first.id,
+    text: "The recovery action needs emphasis.",
+    state: "failed",
+    viewport: "desktop",
+    anchor: "upload-error",
+  },
+  namedReviewer,
+);
+await api(
+  `/api/share/${review.token}`,
+  { action: "reaction", id: namedComment.id, liked: true },
+  namedReviewer,
+);
+const namedFeedback = await api(
+  `/api/share/${review.token}`,
+  null,
+  namedReviewer,
+);
+const namedItem = namedFeedback.comments.find((c) => c.id === namedComment.id);
+assert.equal(namedItem.author, "Alex Reviewer");
+assert.equal(namedItem.liked, true);
+assert.equal(namedItem.likes, 1);
 await api(
   `/api/share/${review.token}`,
   { action: "revision", config: first.config },

@@ -21,6 +21,7 @@ export default function Uploader({
   annotate = false,
   onAnchor,
   compact = false,
+  focus = "page",
 }: {
   config: Config;
   state: UploadState;
@@ -29,9 +30,10 @@ export default function Uploader({
   annotate?: boolean;
   onAnchor?: (anchor: string) => void;
   compact?: boolean;
+  focus?: "page" | "component" | "error";
 }) {
   return (
-    <div className={`product ${compact ? "compact" : ""}`}>
+    <div className={`product ${compact ? "compact" : ""} focus-${focus}`}>
       <header className="product-header">
         <span className="product-brand">
           <House size={19} /> Homepath

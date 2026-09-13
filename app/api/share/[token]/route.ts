@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
   addComment,
   body,
@@ -19,6 +20,7 @@ export async function GET(request: Request, context: Context) {
     const link = await getShare(token);
     const revision = await getRevision(link.owner, link.revision_id);
     const actor = new URL(request.url).searchParams.get("actor") ?? "";
+    const reviewer = link.audience === "po" ? await getChatGPTUser() : null;
     return {
       audience: link.audience,
       revision:
@@ -33,7 +35,7 @@ export async function GET(request: Request, context: Context) {
         ? {
             comments: await getComments(
               link.owner,
-              `reviewer:${actor.slice(0, 80)}`,
+              reviewer?.userId ?? `reviewer:${actor.slice(0, 80)}`,
               link.revision_id,
             ),
           }
@@ -47,12 +49,18 @@ export async function POST(request: Request, context: Context) {
     const link = await getShare(token);
     const data = await body(request);
     if (link.audience === "po") {
+      const reviewer = await getChatGPTUser();
       if (data.action === "comment")
-        return addComment(link.owner, "Reviewer", data, link.revision_id);
+        return addComment(
+          link.owner,
+          reviewer?.displayName ?? "Guest reviewer",
+          data,
+          link.revision_id,
+        );
       if (data.action === "reaction")
         return react(
           link.owner,
-          `reviewer:${z.string().uuid().parse(data.actor)}`,
+          reviewer?.userId ?? `reviewer:${z.string().uuid().parse(data.actor)}`,
           z.string().uuid().parse(data.id),
           z.boolean().parse(data.liked),
           link.revision_id,
