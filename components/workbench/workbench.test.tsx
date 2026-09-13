@@ -82,6 +82,19 @@ const SCREEN_3: Screen = {
   pageId: PAGE_ID,
 };
 
+// A second page, for the "pages" describe block further down: its own id
+// and its own screen, on EXAMPLES[1] (Dashboard) so its content is visibly
+// different from PAGE_ID's own screens (a "Save changes" button never
+// appears on it, the way it does not on SCREEN_1's Login example either).
+const PAGE_2_ID = 'page000002';
+const SCREEN_4: Screen = {
+  id: 'screen0004',
+  name: 'Frame 1',
+  layout: EXAMPLES[1].layout,
+  stageWidth: EXAMPLES[1].stageWidth,
+  pageId: PAGE_2_ID,
+};
+
 const BASE_FILE: FileRecord = {
   id: 'file0000ab',
   name: 'Untitled',
@@ -1295,6 +1308,160 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('absolute', 'top-[76px]', 'bottom-3');
+    });
+  });
+
+  describe('pages', () => {
+    function twoPageFile(): FileRecord {
+      return makeFile({
+        pages: [
+          { id: PAGE_ID, name: 'Page 1' },
+          { id: PAGE_2_ID, name: 'v2' },
+        ],
+        screens: [SCREEN_1, SCREEN_4],
+      });
+    }
+
+    async function openPagesMenu(): Promise<void> {
+      await userEvent.click(screen.getByRole('button', { name: 'Pages' }));
+    }
+
+    it('shows only the current page\'s screens, and switching pages via the menu swaps the canvas and the hash', async () => {
+      render(<Workbench file={twoPageFile()} />);
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+
+      expect(await within(frameBody()).findByText('Dashboard')).toBeInTheDocument();
+      expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
+      expect(window.location.hash).toBe(`#s=${SCREEN_4.id}`);
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
+    });
+
+    it('clears Craft undo history across a page switch, the same way it already does across a screen switch', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await changeRootLayoutMode();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled());
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      await within(frameBody()).findByText('Dashboard');
+
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+    });
+
+    it('New page switches to a fresh, empty page showing the "no screens yet" chip; the existing New screen button still works on it', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'New page' }));
+
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 3');
+      expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
+      const tablist = screen.getByRole('tablist', { name: 'Screens' });
+      expect(within(tablist).queryAllByRole('tab')).toHaveLength(0);
+
+      await userEvent.click(screen.getByRole('button', { name: 'New screen' }));
+      expect(screen.queryByText('This page has no screens yet')).toBeNull();
+      expect(within(screen.getByRole('tablist', { name: 'Screens' })).getAllByRole('tab')).toHaveLength(1);
+    });
+
+    it('Duplicate page copies the current page\'s screens onto a new page with new ids', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate page' }));
+
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1 copy');
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      const tab = within(screen.getByRole('tablist', { name: 'Screens' })).getByRole('tab');
+      expect(tab).toHaveTextContent(SCREEN_1.name);
+
+      // Switching back confirms the original page and screen are untouched
+      // (a real, independent copy, not a move).
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 1' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+
+    it('Delete page confirms naming the screen count, removes the page and switches away from it', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      await within(frameBody()).findByText('Dashboard');
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete page' }));
+      expect(await screen.findByText('Delete v2?')).toBeInTheDocument();
+      expect(screen.getByText(/removes 1 screen\b/)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1');
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      await openPagesMenu();
+      expect(screen.queryByRole('menuitem', { name: 'v2' })).toBeNull();
+      expect(screen.getByRole('menuitem', { name: 'Delete page' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('Move up reorders pages, reflected in the menu and in which page Cmd+Shift+[ cycles to', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      await within(frameBody()).findByText('Dashboard');
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Move up' }));
+
+      // v2 is now first: Cmd+Shift+[ (previous page) from v2 wraps to the
+      // new last page, "Page 1".
+      fireEvent.keyDown(window, { key: '[', metaKey: true, shiftKey: true });
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1');
+    });
+
+    it('Move to page (screens strip chevron) moves a screen, which then shows up on the target page', async () => {
+      render(<Workbench file={twoPageFile()} />);
+
+      await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to page' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+
+      // The only screen on page 1 just left it: the page is now empty.
+      expect(await screen.findByText('This page has no screens yet')).toBeInTheDocument();
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      const tabs = within(screen.getByRole('tablist', { name: 'Screens' })).getAllByRole('tab');
+      expect(tabs.map((tab) => tab.textContent)).toEqual([SCREEN_4.name, SCREEN_1.name]);
+    });
+
+    it('Cmd+Shift+]/[ cycle to the next/previous page, wrapping at either end, and never fire in a text field', async () => {
+      render(<Workbench file={twoPageFile()} />);
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1');
+
+      fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
+      expect(await within(frameBody()).findByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
+
+      // Wraps back to "Page 1" from the last page.
+      fireEvent.keyDown(window, { key: ']', metaKey: true, shiftKey: true });
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 1');
+
+      // Wraps forward to "v2" going backward from the first page.
+      fireEvent.keyDown(window, { key: '[', metaKey: true, shiftKey: true });
+      expect(await within(frameBody()).findByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
+
+      await userEvent.click(screen.getByTestId('file-name'));
+      fireEvent.keyDown(screen.getByTestId('file-name'), { key: ']', metaKey: true, shiftKey: true });
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
     });
   });
 });

@@ -5,7 +5,6 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
-import { Button } from '@/components/ui/button';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
@@ -24,7 +23,7 @@ import {
 import { Canvas, CanvasViewportProvider, frameRect, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
-import { CHIP, SECONDARY_BUTTON } from './chrome';
+import { CHIP } from './chrome';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -1120,17 +1119,16 @@ function WorkbenchShell({
               {/*
                 Spec docs/superpowers/specs/2026-09-12-pages-design.md
                 section 3: creating a screen for an empty page is never
-                automatic - this chip and its own "New screen" button are
-                the only way in, alongside the screens strip's own "+"
-                just below (still rendered with zero tabs).
+                automatic - this chip names the state; "the New screen
+                button" it refers to is the screens strip's own existing
+                "+" just below (still rendered with zero tabs) - a second,
+                separate button here would only duplicate it under the same
+                accessible name.
               */}
               {pageScreens.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                  <div className={cn(CHIP, 'pointer-events-auto gap-3 px-3')}>
+                  <div className={cn(CHIP, 'px-3')}>
                     <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
-                    <Button type="button" className={SECONDARY_BUTTON} onClick={onAddScreen}>
-                      New screen
-                    </Button>
                   </div>
                 </div>
               )}
