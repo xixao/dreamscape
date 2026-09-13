@@ -112,6 +112,45 @@ describe('CanvasFrame', () => {
     }
   });
 
+  it('re-copies a stylesheet when an existing link href or style text is rewritten in place (HMR), not just on add/remove', async () => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://example.test/original.css';
+    document.head.appendChild(link);
+
+    const style = document.createElement('style');
+    const styleText = document.createTextNode('.original-marker { color: blue; }');
+    style.appendChild(styleText);
+    document.head.appendChild(style);
+
+    try {
+      renderFrame(<div>hi</div>);
+      const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+      await waitFor(() => {
+        expect(iframe.contentDocument?.head.querySelector('link[data-canvas-sync][href$="original.css"]')).not.toBeNull();
+      });
+
+      // In-place attribute change on the existing <link> node (no node
+      // added or removed) - only `attributes` observation catches this.
+      link.setAttribute('href', 'https://example.test/updated.css');
+      // In-place characterData change on the existing text node inside
+      // <style> (no node added or removed) - only `characterData`
+      // observation catches this.
+      styleText.data = '.updated-marker { color: green; }';
+
+      await waitFor(() => {
+        expect(iframe.contentDocument?.head.querySelector('link[data-canvas-sync][href$="updated.css"]')).not.toBeNull();
+      });
+      await waitFor(() => {
+        const copiedStyles = Array.from(iframe.contentDocument?.head.querySelectorAll('style[data-canvas-sync]') ?? []);
+        expect(copiedStyles.some((node) => node.textContent?.includes('updated-marker'))).toBe(true);
+      });
+    } finally {
+      link.remove();
+      style.remove();
+    }
+  });
+
   it('updates the iframe size and the zoom transform when props change', async () => {
     function Resizable() {
       const [zoom, setZoom] = useState(1);
@@ -195,6 +234,122 @@ describe('CanvasFrame', () => {
     Object.defineProperty(iframe.contentDocument!.body, 'scrollHeight', { value: 900, configurable: true });
     resizeObserver.trigger();
     await waitFor(() => expect(onContentHeightChange).toHaveBeenLastCalledWith(900));
+  });
+
+  it('re-prepares into a replaced iframe document on load (WebKit can swap the initial document) and stops updating the old one', async () => {
+    const beforeSwapStyle = document.createElement('style');
+    beforeSwapStyle.textContent = '.before-swap-marker { color: blue; }';
+    document.head.appendChild(beforeSwapStyle);
+
+    try {
+      renderFrame(<div data-testid="probe">hello</div>);
+      const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+
+      const oldDoc = await waitFor(() => {
+        const doc = iframe.contentDocument;
+        if (!doc?.body.querySelector('[data-testid="probe"]')) throw new Error('not ready yet');
+        return doc;
+      });
+      await waitFor(() => {
+        expect(oldDoc.head.querySelector('style[data-canvas-sync]')?.textContent).toContain('before-swap-marker');
+      });
+
+      // Simulate WebKit replacing the iframe's initial about:blank document
+      // with a fresh one after this component already latched onto the
+      // first one synchronously on mount - `contentDocument` now returns a
+      // different Document instance, the same as after a real
+      // navigation/reopen.
+      const newDoc = document.implementation.createHTMLDocument('');
+      Object.defineProperty(iframe, 'contentDocument', { value: newDoc, configurable: true });
+      fireEvent.load(iframe);
+
+      await waitFor(() => {
+        expect(newDoc.body.querySelector('[data-testid="probe"]')).not.toBeNull();
+      });
+      // Prepared into the new document too (styles copied, not just the
+      // portal moved).
+      expect(newDoc.head.querySelector('style[data-canvas-sync]')?.textContent).toContain('before-swap-marker');
+      // The portal re-targeted rather than duplicated: gone from the old
+      // document.
+      expect(oldDoc.body.querySelector('[data-testid="probe"]')).toBeNull();
+
+      // A style change after the swap must sync into the new document only
+      // - the old document's MutationObserver was torn down, not left
+      // running against a document nothing renders into anymore.
+      const afterSwapStyle = document.createElement('style');
+      afterSwapStyle.textContent = '.after-swap-marker { color: red; }';
+      document.head.appendChild(afterSwapStyle);
+      try {
+        await waitFor(() => {
+          const copied = Array.from(newDoc.head.querySelectorAll('style[data-canvas-sync]'));
+          expect(copied.some((node) => node.textContent?.includes('after-swap-marker'))).toBe(true);
+        });
+        const oldCopied = Array.from(oldDoc.head.querySelectorAll('style[data-canvas-sync]'));
+        expect(oldCopied.some((node) => node.textContent?.includes('after-swap-marker'))).toBe(false);
+      } finally {
+        afterSwapStyle.remove();
+      }
+    } finally {
+      beforeSwapStyle.remove();
+    }
+  });
+
+  it('does not re-prepare when load fires but contentDocument is unchanged (idempotent)', async () => {
+    renderFrame(<div data-testid="probe">hello</div>);
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    await waitFor(() => {
+      if (!iframe.contentDocument?.body.querySelector('[data-testid="probe"]')) throw new Error('not ready yet');
+    });
+
+    const disconnectSpy = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    fireEvent.load(iframe);
+    // Re-running prepare for the SAME document must not tear down and
+    // recreate the style-sync observer.
+    expect(disconnectSpy).not.toHaveBeenCalled();
+  });
+
+  it('bridges a scroll inside the iframe document to the parent window, for Craft.js\'s Positioner (which only listens on window)', async () => {
+    renderFrame(<div>hi</div>);
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
+
+    const onWindowScroll = vi.fn();
+    window.addEventListener('scroll', onWindowScroll);
+    try {
+      fireEvent.scroll(iframe.contentDocument!);
+      expect(onWindowScroll).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('scroll', onWindowScroll);
+    }
+  });
+
+  it('prevents default on dragover anywhere inside the iframe document, so drops are allowed everywhere (matching Craft.js in the parent)', async () => {
+    renderFrame(<div>hi</div>);
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
+
+    const notCanceled = fireEvent.dragOver(iframe.contentDocument!.body);
+    expect(notCanceled).toBe(false);
+  });
+
+  it('tears down the scroll/dragover bridge on unmount', async () => {
+    const { unmount } = renderFrame(<div>hi</div>);
+    const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+    const frameDoc = await waitFor(() => {
+      if (!iframe.contentDocument?.body) throw new Error('not ready yet');
+      return iframe.contentDocument;
+    });
+
+    unmount();
+
+    const onWindowScroll = vi.fn();
+    window.addEventListener('scroll', onWindowScroll);
+    try {
+      fireEvent.scroll(frameDoc);
+      expect(onWindowScroll).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('scroll', onWindowScroll);
+    }
   });
 });
 
