@@ -28,6 +28,7 @@ import {
   BellOff,
   Check,
   CheckCircle2,
+  ClipboardCheck,
   Clipboard,
   Download,
   ExternalLink,
@@ -105,6 +106,7 @@ import PreviewCanvas, { type PreviewFocus } from "./preview-canvas";
 import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
 import ReviewResults from "./review-results";
+import ReviewBrief from "./review-brief";
 import JourneyView from "./journey-view";
 import UploadCaseStudy, { buildCaseStudy } from "./demo/upload-case-study";
 import UploadProperties from "./demo/upload-properties";
@@ -224,7 +226,7 @@ export default function FlowReview() {
     useState<Revision | null>(null);
   const [view, setView] = useState("review");
   const [journeyDirty, setJourneyDirty] = useState(false);
-  const [panel, setPanel] = useState("assistant");
+  const [panel, setPanel] = useState("brief");
   const [anchor, setAnchor] = useState("document-uploader");
   const [commentViewport, setCommentViewport] = useState("desktop");
   const [annotations, setAnnotations] = useState(true);
@@ -596,7 +598,7 @@ export default function FlowReview() {
           setWorkspaceMode("review");
           setAudience("designer");
           setView("review");
-          if (feedback) setPanel("feedback");
+          setPanel(feedback ? "feedback" : "brief");
         }}
       />
     );
@@ -1332,6 +1334,15 @@ export default function FlowReview() {
                   <Tabs value={panel} onValueChange={setPanel}>
                     <TabsList className="inspector-tabs" variant="line">
                       {isDesigner && (
+                        <TabsTrigger
+                          value="brief"
+                          aria-label="Review brief"
+                          title="Review brief"
+                        >
+                          <ClipboardCheck />
+                        </TabsTrigger>
+                      )}
+                      {isDesigner && (
                         <TabsTrigger value="assistant" aria-label="Assistant">
                           <Sparkles />
                         </TabsTrigger>
@@ -1340,6 +1351,21 @@ export default function FlowReview() {
                       <TabsTrigger value="checks">Checks</TabsTrigger>
                       <TabsTrigger value="history">History</TabsTrigger>
                     </TabsList>
+                    {isDesigner && (
+                      <TabsContent value="brief">
+                        <ReviewBrief
+                          data={data}
+                          revision={revision}
+                          state={state}
+                          dirty={dirty}
+                          onState={setState}
+                          onFeedback={() => setPanel("feedback")}
+                          onResults={() => setView("results")}
+                          onChecks={() => setPanel("checks")}
+                          onSuggest={inspect}
+                        />
+                      </TabsContent>
+                    )}
                     {isDesigner && (
                       <TabsContent
                         value="assistant"
@@ -1657,6 +1683,7 @@ export default function FlowReview() {
         )}
         {view === "results" && !participant && (
           <ReviewResults
+            revisionId={revision.id}
             data={data}
             loaded={loaded}
             refresh={refresh}

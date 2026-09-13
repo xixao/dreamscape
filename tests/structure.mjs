@@ -60,6 +60,38 @@ async function moduleAt(file) {
     `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`
   );
 }
+const { sessionFacts, eventLabels } = await moduleAt("lib/results.ts");
+const sample = { outcome: "started", interactions: [] };
+assert.equal(sessionFacts(sample).attention, false);
+assert.equal(sessionFacts(sample).finding, "No final outcome recorded");
+assert.equal(sessionFacts({ ...sample, outcome: "gave_up" }).attention, true);
+assert.equal(sessionFacts({ ...sample, outcome: "complete" }).attention, false);
+const attempts = Array.from({ length: 5 }, () => ({
+  target: "retry",
+  state: "failed",
+  available: false,
+}));
+assert.equal(
+  sessionFacts({ ...sample, interactions: attempts }).repeated.length,
+  1,
+);
+assert.equal(
+  sessionFacts({ ...sample, interactions: attempts.slice(1) }).repeated.length,
+  0,
+);
+assert.equal(
+  sessionFacts({ ...sample, outcome: "complete", interactions: attempts })
+    .attention,
+  true,
+);
+assert.equal(
+  sessionFacts({
+    ...sample,
+    interactions: attempts.map((c) => ({ ...c, target: "non_action" })),
+  }).attention,
+  false,
+);
+assert.equal(eventLabels.retry_success, "Retry succeeded");
 const { completeDemoPrompt, reviewPrompts, testPrompts } = await moduleAt(
   "lib/demo/prompts.ts",
 );
