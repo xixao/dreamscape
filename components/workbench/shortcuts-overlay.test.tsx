@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { WIDE_DIALOG_CONTENT } from './chrome';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 
 function mockPlatform(value: string): void {
@@ -259,6 +260,13 @@ describe('ShortcutsOverlay', () => {
       // (read-only) for the base classes this must out-rank.
       expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[calc(100vw-48px)]');
       expect(dialog.className.split(/\s+/)).toContain('xl:max-w-[1800px]');
+      // The width classes come from the one WIDE_DIALOG_CONTENT constant the
+      // Element documentation dialog shares (spec docs/superpowers/specs/
+      // 2026-09-13-element-docs-design.md section 1), so the two dialogs
+      // cannot drift apart in size.
+      for (const widthClass of WIDE_DIALOG_CONTENT.split(' ')) {
+        expect(dialog.className.split(/\s+/)).toContain(widthClass);
+      }
     });
 
     it('renders nothing else when open is false', () => {

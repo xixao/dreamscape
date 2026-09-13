@@ -3,7 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { detectPlatform, displayRows, formatKeys, type Platform, type ShortcutArea, type ShortcutRow } from '@/lib/shortcuts';
-import { OVERLAY_CAPTION, OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, OVERLAY_SURFACE, OVERLAY_TITLE } from './chrome';
+import {
+  OVERLAY_CAPTION,
+  OVERLAY_GRID,
+  OVERLAY_GROUP_TITLE,
+  OVERLAY_KEY_CAP,
+  OVERLAY_ROW_LABEL,
+  OVERLAY_SURFACE,
+  OVERLAY_TITLE,
+  WIDE_DIALOG_CONTENT,
+} from './chrome';
 import { isEditableTarget } from './keyboard';
 
 // Spec docs/superpowers/specs/2026-09-12-shortcuts-overlay-design.md section
@@ -151,12 +160,11 @@ export function ShortcutsOverlay({
   if (open) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
-        plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
-        variant scope, later in the cascade) - only a same-variant override
-        (`sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]`) actually wins. The unprefixed class is just the
-        sensible base for narrower viewports. */}
-        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]">
+        {/* WIDE_DIALOG_CONTENT carries the same-variant `sm:max-w-*` override
+        that shadcn's own `sm:max-w-sm` needs (see its comment in chrome.ts),
+        shared with the Element documentation dialog so the two stay the
+        same size. */}
+        <DialogContent className={WIDE_DIALOG_CONTENT}>
           <DialogHeader>
             <DialogTitle>Keyboard shortcuts</DialogTitle>
           </DialogHeader>

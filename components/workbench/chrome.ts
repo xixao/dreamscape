@@ -89,6 +89,15 @@ export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 // displays.
 export const OVERLAY_SURFACE =
   'w-[calc(100vw-48px)] max-w-[1800px] rounded-2xl border border-line-strong bg-card p-8 shadow-panel-lg';
+// The same footprint for the shadcn DialogContent presentations (the "?"
+// shortcuts dialog and the Element documentation dialog, spec docs/
+// superpowers/specs/2026-09-13-element-docs-design.md section 1): one
+// constant so the two dialogs cannot drift apart in size. shadcn's own
+// DialogContent hardcodes `sm:max-w-sm`, which beats any plain `max-w-*`
+// override at every viewport >= 640px (same "sm:" variant scope, later in
+// the cascade) - only the same-variant `sm:max-w-*` actually wins; the
+// unprefixed class is just the sensible base for narrower viewports.
+export const WIDE_DIALOG_CONTENT = 'max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]';
 export const OVERLAY_TITLE = 'text-[20px] font-semibold text-foreground';
 export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
 export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
