@@ -1320,6 +1320,39 @@ describe('DiagramLayer context menu (shape)', () => {
     fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
     expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
   });
+
+  // Review finding 3: previously required EXACTLY one selected element, so
+  // a keyboard user could never reach the Align submenu (which needs two)
+  // or Distribute (three) at all.
+  it('opens for a multi-selection too, anchored on the last selected item', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.keyDown(window, { key: 'F10', shiftKey: true });
+    expect(await screen.findByRole('menuitem', { name: 'Edit text' })).toBeInTheDocument();
+  });
+
+  // Review finding 3: also ran while focus was in an editable target (e.g.
+  // the Design panel's own text fields), hijacking the browser's own
+  // Shift+F10 there instead of leaving it alone.
+  it('does not open while focus is in an editable target', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    fireEvent.keyDown(input, { key: 'F10', shiftKey: true });
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit text' })).not.toBeInTheDocument();
+    input.remove();
+  });
 });
 
 describe('DiagramLayer context menu (Align submenu)', () => {

@@ -52,6 +52,9 @@ import type { Viewport } from '@/lib/canvas/viewport';
 import { capturePointer, releasePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { CHIP, MENU_HINT, MENU_POPOVER, MENU_ROW } from '../chrome';
+// Read-only import (review finding 3) - keyboard.tsx/lib/shortcuts.ts
+// themselves belong to a different branch and are not touched here.
+import { isEditableTarget } from '../keyboard';
 import { ARROW_LABELS, CONNECTOR_LABELS, COLOR_LABELS, KIND_LABELS } from './diagram-fields';
 
 // Build step 3's Align submenu (Left, Center, Right, Top, Middle, Bottom) -
@@ -288,24 +291,31 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     };
   }, []);
 
-  // Shift+F10 and the Menu key open the right-click menu for a selected
-  // element (Build step 3), the standard keyboard equivalent of a right
-  // click: real browsers already translate them into a native `contextmenu`
-  // event targeting the focused element, but jsdom does not, and this layer
-  // does not otherwise give any shape/connector DOM focus to target - so
-  // this synthesizes exactly that event directly on the selected element's
-  // own node, found the same way the option-drag/menu code elsewhere here
-  // already identifies "the DOM element for id X" (its own data-testid).
-  // Harmless alongside a real browser's native translation, if any ever
-  // reaches here too: opening an already-open ContextMenu a second time at
-  // the same point is a no-op.
+  // Shift+F10 and the Menu key open the right-click menu for any non-empty
+  // selection (Build step 3; review finding 3 widened this from exactly
+  // one - the Align submenu needs two selected shapes and Distribute
+  // three, so a keyboard user could never reach either under the old
+  // one-only guard), anchored on the LAST selected item, the standard
+  // keyboard equivalent of a right click: real browsers already translate
+  // them into a native `contextmenu` event targeting the focused element,
+  // but jsdom does not, and this layer does not otherwise give any shape/
+  // connector DOM focus to target - so this synthesizes exactly that event
+  // directly on the selected element's own node, found the same way the
+  // option-drag/menu code elsewhere here already identifies "the DOM
+  // element for id X" (its own data-testid). isEditableTarget (read-only
+  // import from keyboard.tsx, which is not otherwise touched here) stops
+  // this from also running while focus is in an editable target - the
+  // Design panel's own text fields, for one - which used to hijack the
+  // browser's own Shift+F10 there. Harmless alongside a real browser's
+  // native translation, if any ever reaches here too: opening an already-
+  // open ContextMenu a second time at the same point is a no-op.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (editing || tool.kind !== 'pointer') return;
       const isMenuKey = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
       if (!isMenuKey) return;
-      if (diagram.selection.length !== 1) return;
-      const [item] = diagram.selection;
+      if (diagram.selection.length === 0 || isEditableTarget(event.target)) return;
+      const item = diagram.selection[diagram.selection.length - 1];
       const target = svgRef.current?.querySelector(`[data-testid="diagram-${item.type}-${item.id}"]`);
       if (!target) return;
       event.preventDefault();
