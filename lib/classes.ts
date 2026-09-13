@@ -152,6 +152,39 @@ export function distributeGapPx(containerMainSize: number, childMainSizes: reado
   return snapToSpacing(available / (childMainSizes.length - 1));
 }
 
+/** One child's own measurement along the container's main axis, for distributeGapPxFromMeasurements below. */
+export interface DistributeChildMeasurement {
+  size: number;
+  // A LayoutBox with its own `grow: true` (flex-1 min-w-0) renders at
+  // whatever size is LEFT OVER after every other child and gap already
+  // took their share - its own getBoundingClientRect is a RESULT of the
+  // current gap, not an independent content size, so feeding it back into
+  // this same calculation would be circular.
+  growing: boolean;
+}
+
+/**
+ * distributeGapPx above, but padding- and growing-child-aware (review
+ * fix wave re-review R5): components/workbench/inspector/inspector.tsx's
+ * measureDistributeGapPx reads a container's real getBoundingClientRect,
+ * which is the BORDER box (padding included) - subtracting it here matches
+ * how flexbox actually allocates space (children and gaps sit inside the
+ * CONTENT box only). A growing child still counts toward the gap COUNT
+ * (distributeGapPx's own `childMainSizes.length - 1`, one array entry per
+ * child regardless of size) but contributes 0 to the total occupied size
+ * instead of its own circular rect.
+ */
+export function distributeGapPxFromMeasurements(
+  containerMainSize: number,
+  paddingStart: number,
+  paddingEnd: number,
+  children: readonly DistributeChildMeasurement[],
+): SpacingPx | null {
+  const available = Math.max(0, containerMainSize - paddingStart - paddingEnd);
+  const sizes = children.map((child) => (child.growing ? 0 : child.size));
+  return distributeGapPx(available, sizes);
+}
+
 export const LAYOUT_BOX_DEFAULTS: LayoutBoxProps = {
   mode: 'flex',
   direction: { mobile: 'column', desktop: 'row' },

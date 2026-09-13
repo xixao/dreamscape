@@ -1229,8 +1229,12 @@ function WorkbenchShell({
   // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
   // diagram bounds") - folds the current page's diagram nodes' bounding box
   // in alongside every frame's own, when the diagram has any.
+  // measuredHeights (review re-review R6): a tall auto-height frame's
+  // preview now renders at its real, measured height (item 8), so fitting
+  // "every frame" without the same map could crop exactly the frame this
+  // is meant to fit.
   function zoomToFitTargets(): FrameRect[] {
-    const targets: FrameRect[] = pageScreens.map((screen) => frameRect(screen));
+    const targets: FrameRect[] = pageScreens.map((screen) => frameRect(screen, measuredHeights));
     const diagramBox = diagramBounds(diagram.nodes);
     if (diagramBox) targets.push(diagramBox);
     return targets;
@@ -1239,7 +1243,7 @@ function WorkbenchShell({
   const { viewport, setViewport, viewportSize, rootRef, animateTo } = useCanvasViewportController({
     fileId,
     pageId: currentPageId,
-    frames: pageScreens.map((screen) => frameRect(screen)),
+    frames: pageScreens.map((screen) => frameRect(screen, measuredHeights)),
   });
 
   // Clicking a screens tab still switches the focused screen (onSelectScreen,
@@ -1253,7 +1257,7 @@ function WorkbenchShell({
   function handleSelectScreenTab(id: string): void {
     onSelectScreen(id);
     const target = pageScreens.find((screen) => screen.id === id);
-    if (target) animateTo(zoomToRect(frameRect(target), viewportSize, SELECTION_ZOOM_PADDING));
+    if (target) animateTo(zoomToRect(frameRect(target, measuredHeights), viewportSize, SELECTION_ZOOM_PADDING));
   }
 
   // Shift+2: zooms to the selected layer's own bounds when something is
@@ -1273,7 +1277,7 @@ function WorkbenchShell({
       const local = dom.getBoundingClientRect();
       target = { x: (focused.x ?? 0) + local.left, y: (focused.y ?? 0) + local.top, width: local.width, height: local.height };
     } else {
-      target = frameRect(focused);
+      target = frameRect(focused, measuredHeights);
     }
     setViewport(zoomToRect(target, viewportSize, SELECTION_ZOOM_PADDING));
   }

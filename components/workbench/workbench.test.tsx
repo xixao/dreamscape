@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { loadViewport } from '@/lib/canvas/viewport-store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -1841,6 +1842,80 @@ describe('Workbench', () => {
         // (e.g. from page 2) is silently union'd back in.
         expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
       });
+    });
+  });
+
+  // Review re-review R6: zoom-to-fit/zoom-to-selection used to always fall
+  // back to ARTBOARD_MIN_HEIGHT for an auto-height frame, even after item 8
+  // taught snapping/alignment/marquee about its real, measured height -
+  // fit-all could crop a tall frame that everything else already treated
+  // correctly.
+  describe('zoom-to-fit uses a fed measured height (review re-review R6)', () => {
+    // Mirrors canvas-frame.test.tsx's own installFakeResizeObserver: the
+    // global ResizeObserverStub (vitest.setup.ts) never actually calls
+    // back, so a real content-height change needs a fake that can be
+    // triggered on demand. Must be installed before the frame mounts.
+    // Unlike canvas-frame.test.tsx's single-observer fake, this keeps EVERY
+    // callback: the workbench mounts several observers at once (CanvasFrame's
+    // own auto-height one, Stage's content-height one, and more), and only
+    // Stage's feeds onMeasuredHeight, so triggering just the last one
+    // constructed measured nothing the fit could see.
+    function installFakeResizeObserver(): { trigger: () => void } {
+      const callbacks: ResizeObserverCallback[] = [];
+      class FakeResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          callbacks.push(cb);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+      return {
+        trigger: () => {
+          for (const cb of callbacks) cb([], {} as ResizeObserver);
+        },
+      };
+    }
+
+    it('fits a tall auto-height frame around its real content height once measured, not ARTBOARD_MIN_HEIGHT', async () => {
+      // jsdom gives every element a zeroed getBoundingClientRect, so the
+      // canvas's own measured viewportSize is effectively 0x0 here - fitAll
+      // clamps zoom to MIN_ZOOM (10%) regardless of the frame's height,
+      // making the zoom READOUT identical in both cases below. The centre
+      // it fits AROUND still depends on the frame's own height even at a
+      // pinned zoom, so this reads the persisted viewport's own y (every
+      // change is saved per file/page, canvas.tsx's useCanvasViewportController)
+      // instead of the readout.
+      const resizeObserver = installFakeResizeObserver();
+      render(<Workbench file={makeFile({ screens: [SCREEN_1] })} />);
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+      // Fit at the unmeasured default (ARTBOARD_MIN_HEIGHT = 640, centre y = 320).
+      fireEvent.keyDown(window, { key: '!', code: 'Digit1', shiftKey: true });
+      const before = loadViewport(window.localStorage, 'file0000ab', PAGE_ID);
+      expect(before).not.toBeNull();
+
+      // Feed a much taller measured height (centre y = 2000) and re-fit.
+      Object.defineProperty(frameBody(), 'scrollHeight', { value: 4000, configurable: true });
+      act(() => resizeObserver.trigger());
+      // Waits for Stage's own contentHeight (and so its onMeasuredHeight
+      // report) to actually land before re-fitting - the height resize
+      // handle already reads directly off it (stage.tsx's effectiveHeight).
+      await waitFor(() => expect(screen.getByTestId('resize-handle-height')).toHaveAttribute('aria-valuenow', '4000'));
+      fireEvent.keyDown(window, { key: '!', code: 'Digit1', shiftKey: true });
+      const after = loadViewport(window.localStorage, 'file0000ab', PAGE_ID);
+      expect(after).not.toBeNull();
+
+      // y = viewportSize.height/2 - centreY*zoom: at the same (clamped)
+      // zoom, fitting around a centre more than 6x further down must move
+      // the viewport measurably further too. The old, un-fixed code would
+      // fit around the same 640px-tall box both times (identical y)
+      // regardless of what scrollHeight reports.
+      expect(after!.zoom).toBe(before!.zoom);
+      expect(Math.abs(after!.y)).toBeGreaterThan(Math.abs(before!.y) * 2);
+
+      vi.unstubAllGlobals();
     });
   });
 

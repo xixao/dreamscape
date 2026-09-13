@@ -701,7 +701,10 @@ export function Canvas({
             currentX: canvasPoint.x,
             currentY: canvasPoint.y,
           };
-          setMarqueeBox({ left: x, top: y, width: 0, height: 0 });
+          // Review re-review R4: the box itself is not painted until a
+          // pointermove actually crosses MARQUEE_CLICK_THRESHOLD (below) -
+          // setting it here unconditionally used to flash a visible 1px-
+          // bordered 0x0 box under the cursor on every plain click.
         }
       }
       return;
@@ -735,6 +738,15 @@ export function Canvas({
       const canvasPoint = toCanvasPoint({ x, y }, viewport);
       marquee.currentX = canvasPoint.x;
       marquee.currentY = canvasPoint.y;
+      // Review re-review R4: the box paints only once the gesture has
+      // actually moved past the click threshold - the same screen-space
+      // dx/dy check endMarquee itself uses to decide "was this really just
+      // a click." Painting an immediate 0x0 box at pointerdown used to
+      // flash a visible 1px-bordered dot under the cursor on every plain
+      // click, gone again by pointerup.
+      const dx = Math.abs(marquee.currentScreenX - marquee.startScreenX);
+      const dy = Math.abs(marquee.currentScreenY - marquee.startScreenY);
+      if (dx < MARQUEE_CLICK_THRESHOLD && dy < MARQUEE_CLICK_THRESHOLD) return;
       // The visual box stays screen-space (drawn outside the transformed
       // canvas-layer) - the start corner is re-projected through the
       // CURRENT viewport every move, so a pan since pointerdown still
@@ -1041,6 +1053,11 @@ export function Canvas({
                 screen={screen}
                 focused={focused}
                 zoom={viewport.zoom}
+                // Review re-review R1: the same measured-height-aware box
+                // otherFrames (above) is already built from, so the DRAGGED
+                // frame's own snap box for an auto-height screen matches
+                // every other frame's instead of lagging a step behind.
+                height={frameRect(screen, measuredHeights).height}
                 onRename={(name) => onRenameScreen(screen.id, name)}
                 onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
                 onShiftSelect={() => onToggleFrameSelection(screen.id)}

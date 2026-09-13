@@ -460,10 +460,15 @@ describe('Canvas', () => {
 
       const root = screen.getByTestId('canvas-root');
       fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
+      // Review re-review R4: pointerdown alone must never paint the box - it
+      // used to set an immediate 0x0 marqueeBox, flashing a visible
+      // 1px-bordered dot under the cursor on every plain click.
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
       fireEvent.pointerUp(root, { pointerId: 1, clientX: 51, clientY: 50 });
 
       expect(onClearFrameSelection).toHaveBeenCalledTimes(1);
       expect(onSetFrameSelection).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('marquee-selection')).toBeNull();
     });
 
     it('clicking empty canvas clears the frame selection', async () => {

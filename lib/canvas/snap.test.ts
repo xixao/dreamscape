@@ -183,6 +183,20 @@ describe('resolveSnap - equal spacing between two neighbours', () => {
     const result = resolveSnap(box(126, 0, 50, 100), [left], 1);
     expect(result.position.x).toBe(128); // grid, not equal-spacing
   });
+
+  // Review re-review R3: candidate order is edges -> spacing -> grid, so an
+  // exact tie between spacing and the grid must go to spacing too (the same
+  // "earlier in the array wins a tie" rule nit 3's own edge-vs-grid test
+  // already pins - this is the other pairing).
+  it('an equal-spacing match wins an exact tie against the grid', () => {
+    const left = box(0, 0, 96, 100, 'left'); // right edge at 96
+    const right = box(200, 0, 100, 100, 'right'); // left edge at 200
+    // Equal-spacing x = (96 + 200 - 50) / 2 = 123, distance |123-125.5| = 2.5.
+    // nearestGrid(125.5) = 128, distance |128-125.5| = 2.5 - an exact tie.
+    const result = resolveSnap(box(125.5, 0, 50, 100), [left, right], 1);
+    expect(result.position.x).toBe(123);
+    expect(result.guides.filter((g) => g.kind === 'spacing')).toHaveLength(2);
+  });
 });
 
 describe('resolveSnap - Cmd disables snapping', () => {

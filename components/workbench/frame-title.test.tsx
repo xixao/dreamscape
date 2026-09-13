@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Screen } from '@/lib/files/repository';
 import type { SnapBox } from '@/lib/canvas/snap';
+import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { FrameTitle } from './frame-title';
 
 const SCREEN: Screen = { id: 's1', name: 'Frame 1', layout: '{}', stageWidth: 400, x: 100, y: 200 };
@@ -16,6 +17,11 @@ function renderTitle(overrides: Partial<Omit<ComponentProps<typeof FrameTitle>, 
     screen: SCREEN,
     focused: true,
     zoom: 1,
+    // SCREEN has no stageHeight of its own - ARTBOARD_MIN_HEIGHT is what
+    // the real caller (canvas.tsx, via frameRect) would resolve for it too
+    // absent a fed measured height, matching this suite's previous
+    // (pre-R1) implicit default.
+    height: ARTBOARD_MIN_HEIGHT,
     onRename,
     onMove,
     onSnapGuides,
@@ -32,10 +38,14 @@ describe('FrameTitle', () => {
   });
 
   it('is text-t2 when focused, text-t4 otherwise', () => {
-    const { rerender } = render(<FrameTitle screen={SCREEN} focused zoom={1} onRename={vi.fn()} onMove={vi.fn()} />);
+    const { rerender } = render(
+      <FrameTitle screen={SCREEN} focused zoom={1} height={ARTBOARD_MIN_HEIGHT} onRename={vi.fn()} onMove={vi.fn()} />,
+    );
     expect(screen.getByText('Frame 1')).toHaveClass('text-t2');
 
-    rerender(<FrameTitle screen={SCREEN} focused={false} zoom={1} onRename={vi.fn()} onMove={vi.fn()} />);
+    rerender(
+      <FrameTitle screen={SCREEN} focused={false} zoom={1} height={ARTBOARD_MIN_HEIGHT} onRename={vi.fn()} onMove={vi.fn()} />,
+    );
     expect(screen.getByText('Frame 1')).toHaveClass('text-t4');
   });
 
@@ -49,6 +59,32 @@ describe('FrameTitle', () => {
 
       // start (100,200) + (20,30) = (120,230), grid-snapped to (120,232).
       expect(onMove).toHaveBeenLastCalledWith({ x: 120, y: 232 }, { dx: 20, dy: 32 });
+    });
+
+    // Review re-review R1: the dragged frame's own box used to always use
+    // screen.stageHeight ?? ARTBOARD_MIN_HEIGHT internally, one step behind
+    // otherFrames (which canvas.tsx already builds with a fed measured
+    // height) - for an auto-height frame taller than ARTBOARD_MIN_HEIGHT,
+    // its own bottom/middle snaps landed 640px too high. A fed `height`
+    // prop fixes this: the frame's real height (1000) is what its bottom
+    // edge is measured from, not the 640px fallback.
+    it('uses the fed height prop for the dragged frame\'s own box, not ARTBOARD_MIN_HEIGHT', () => {
+      const other: SnapBox = { id: 'other', x: 0, y: 0, width: 400, height: 1004 };
+      const { onMove } = renderTitle({ height: 1000, otherFrames: [other] });
+      const title = screen.getByText('Frame 1');
+
+      // start y=200; drag to raw y=5 (clientY delta -195) - the moving
+      // frame's raw bottom (5+1000=1005) sits 1px from other's bottom
+      // (1004), well within tolerance and nearer than the grid's own
+      // candidate (nearestGrid(5)=8, distance 3).
+      fireEvent.pointerDown(title, { pointerId: 1, clientX: 0, clientY: 0 });
+      fireEvent.pointerMove(title, { pointerId: 1, clientX: 4, clientY: -195 });
+
+      // Bottom-to-bottom edge match resolves y to 1004-1000=4 regardless of
+      // exactly how close the raw position was - ARTBOARD_MIN_HEIGHT (640)
+      // would have put the raw bottom at 5+640=645, nowhere near other's
+      // 1004, and the grid (8) would have won instead.
+      expect(onMove).toHaveBeenLastCalledWith({ x: 104, y: 4 }, { dx: 4, dy: -196 });
     });
 
     it('divides the screen-pixel delta by the current zoom before snapping', () => {

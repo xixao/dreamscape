@@ -15,6 +15,7 @@ import {
   type LayoutBoxProps,
   blockClasses,
   distributeGapPx,
+  distributeGapPxFromMeasurements,
   layoutBoxClasses,
   normalizeSpacing,
   snapToSpacing,
@@ -224,6 +225,47 @@ describe('distributeGapPx', () => {
   it('returns null with fewer than two children - nothing to distribute', () => {
     expect(distributeGapPx(100, [50])).toBeNull();
     expect(distributeGapPx(100, [])).toBeNull();
+  });
+});
+
+// Review fix wave re-review R5: measureDistributeGapPx (inspector.tsx) reads
+// a container's real getBoundingClientRect, the BORDER box (padding
+// included) - jsdom has no real layout engine to exercise that DOM read
+// itself, so this pins the pure math it feeds into instead.
+describe('distributeGapPxFromMeasurements', () => {
+  function child(size: number, growing = false) {
+    return { size, growing };
+  }
+
+  it('subtracts the container\'s own padding before distributing, matching the un-padded case', () => {
+    // 116 border-box - 8 - 8 padding = 100 content-box, same as
+    // distributeGapPx(100, [20,20,20])'s own 24 above.
+    const result = distributeGapPxFromMeasurements(116, 8, 8, [child(20), child(20), child(20)]);
+    expect(result).toBe(24);
+  });
+
+  it('sums asymmetric start/end padding', () => {
+    const result = distributeGapPxFromMeasurements(116, 4, 12, [child(20), child(20), child(20)]);
+    expect(result).toBe(24);
+  });
+
+  it('treats a growing child as 0 width, but still counts it toward the gap count', () => {
+    // sizes become [20, 0, 20] - available 100-40=60 over (3-1)=2 gaps = 30,
+    // snapped to the nearer of 24/32 -> 32. Not measuring the growing
+    // child's own rect at all (its real width, whatever it may be, would
+    // just be a result of this very calculation).
+    const result = distributeGapPxFromMeasurements(100, 0, 0, [child(20), child(999, true), child(20)]);
+    expect(result).toBe(32);
+  });
+
+  it('floors at 0 when padding and children already fill or overflow the container', () => {
+    const result = distributeGapPxFromMeasurements(50, 10, 10, [child(30), child(30)]);
+    expect(result).toBe(0);
+  });
+
+  it('clamps to the 64px maximum when every child is growing (0 occupied size)', () => {
+    const result = distributeGapPxFromMeasurements(100, 0, 0, [child(500, true), child(500, true)]);
+    expect(result).toBe(64);
   });
 });
 

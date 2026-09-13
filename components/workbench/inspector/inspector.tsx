@@ -18,7 +18,7 @@ import { schemaFor } from '@/components/blocks/registry';
 import type { FieldSchema, SectionName } from '@/components/blocks/schema';
 import type { AlignableFrame, FramePosition } from '@/lib/canvas/align';
 import { snapBoxFor } from '@/lib/canvas/viewport';
-import { distributeGapPx, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
+import { distributeGapPxFromMeasurements, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
 import type { DiagramAction } from '@/lib/diagram/store';
 // Aliased: this module already imports lucide's LayoutGrid icon (the
 // Elements rail tab) under that same bare name.
@@ -179,6 +179,17 @@ function buildLayoutAlignmentContext({
  * not actually mounted a DOM node yet (disables the button rather than
  * distributing against a bogus zero size).
  */
+// Review re-review R5: getComputedStyle's padding is a live CSS read (the
+// same "trust the DOM, not the stored prop" reasoning containerRect itself
+// already relies on) rather than layoutContainer.props.paddingPx, so this
+// stays correct even if something else ever overrides the padding outside
+// the normal paddingPx prop path. `parseFloat` of a missing/empty value is
+// NaN, which Number.isFinite catches.
+function computedPx(value: string | undefined): number {
+  const parsed = value ? parseFloat(value) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function measureDistributeGapPx(
   query: MinimalEditor['query'],
   containerId: string,
@@ -188,19 +199,34 @@ function measureDistributeGapPx(
   const containerNode = state.nodes[containerId];
   const containerDom = containerNode?.dom;
   if (!containerDom) return null;
-  const childDoms = containerNode.data.nodes
-    .map((childId) => state.nodes[childId]?.dom)
-    .filter((dom): dom is HTMLElement => !!dom);
-  if (childDoms.length < 2) return null;
+  const childNodes = containerNode.data.nodes
+    .map((childId) => state.nodes[childId])
+    .filter((node): node is NonNullable<typeof node> => !!node?.dom);
+  if (childNodes.length < 2) return null;
 
   const isRow = direction === 'row';
   const containerRect = containerDom.getBoundingClientRect();
   const containerMain = isRow ? containerRect.width : containerRect.height;
-  const childMainSizes = childDoms.map((dom) => {
-    const rect = dom.getBoundingClientRect();
-    return isRow ? rect.width : rect.height;
+  // getBoundingClientRect is the BORDER box (padding included) - subtracted
+  // here via distributeGapPxFromMeasurements so the measurement matches how
+  // flexbox actually allocates space to children (inside the content box
+  // only). Read fresh from the live DOM rather than the container's own
+  // paddingPx prop for the same reason containerRect itself is a live read.
+  const containerStyle = containerDom.ownerDocument.defaultView?.getComputedStyle(containerDom);
+  const paddingStart = computedPx(containerStyle?.[isRow ? 'paddingLeft' : 'paddingTop']);
+  const paddingEnd = computedPx(containerStyle?.[isRow ? 'paddingRight' : 'paddingBottom']);
+
+  const children = childNodes.map((node) => {
+    const rect = node.dom!.getBoundingClientRect();
+    return {
+      size: isRow ? rect.width : rect.height,
+      // A growing child (LayoutBoxProps.grow, flex-1 min-w-0) renders at
+      // whatever space is left over after this very calculation - see
+      // DistributeChildMeasurement's own doc comment in lib/classes.ts.
+      growing: Boolean((node.data.props as { grow?: boolean }).grow),
+    };
   });
-  return distributeGapPx(containerMain, childMainSizes);
+  return distributeGapPxFromMeasurements(containerMain, paddingStart, paddingEnd, children);
 }
 
 // The three rail icons shown when the panel is minimized (spec

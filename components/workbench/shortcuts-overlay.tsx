@@ -68,12 +68,6 @@ export function ShortcutsOverlay({
   // rather than syncing it in from an effect - needs no extra render pass.
   const [platform] = useState<Platform>(() => detectPlatform());
 
-  // Review fix wave item 5 (grid-snapping) added pointer-gesture-cancelling
-  // logic to the hold-Cmd presentation this component used to have; main
-  // has since dropped that presentation entirely in favour of the plain
-  // top-bar button below (see this function's own doc comment above), so
-  // that logic no longer applies to anything and is dropped here rather
-  // than resolved onto dead code.
   if (!open) return null;
 
   return (

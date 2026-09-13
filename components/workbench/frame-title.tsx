@@ -4,7 +4,6 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Screen } from '@/lib/files/repository';
 import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
-import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import { NAME_MAX, RenameInput } from './screens-strip';
 
@@ -42,6 +41,7 @@ export function FrameTitle({
   screen,
   focused,
   zoom,
+  height,
   onRename,
   onMove,
   otherFrames = [],
@@ -52,6 +52,17 @@ export function FrameTitle({
   screen: Screen;
   focused: boolean;
   zoom: number;
+  // The frame's real, current height (review re-review R1) - the caller
+  // (canvas.tsx) always resolves this through lib/canvas/viewport.ts's
+  // frameRect/snapBoxFor (screen.stageHeight, else a fed measured height,
+  // else ARTBOARD_MIN_HEIGHT as a last resort), the same box `otherFrames`
+  // below is already built from. Required, not defaulted here: computing
+  // that fallback chain is frameRect's one job, not this component's - a
+  // second, ad hoc `?? ARTBOARD_MIN_HEIGHT` here previously left the
+  // DRAGGED frame's own box a step behind every other frame's for an
+  // auto-height screen taller than the ARTBOARD_MIN_HEIGHT estimate,
+  // corrupting its own bottom/middle snaps and Alt distances.
+  height: number;
   onRename: (name: string) => void;
   // `delta` is the drag's total movement so far (canvas px, already
   // snapped) from this frame's own position at pointerdown - how
@@ -115,7 +126,7 @@ export function FrameTitle({
       x: drag.startX + dx,
       y: drag.startY + dy,
       width: screen.stageWidth,
-      height: screen.stageHeight ?? ARTBOARD_MIN_HEIGHT,
+      height,
     };
     const resolved = resolveSnap(moving, otherFrames, zoom, {
       disabled: event.metaKey || event.ctrlKey,
