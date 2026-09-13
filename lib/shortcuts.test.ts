@@ -128,11 +128,15 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
     return key({ key: eventKey, metaKey, shiftKey, code });
   }
 
+  // Gestures, not keydown chords: each has its own listener elsewhere
+  // (shortcuts-overlay.tsx's hold detection for the Cmd-hold row,
+  // canvas.tsx's shouldStartPan/panRef for the two pan rows) and
+  // matchShortcut never returns any of these ids.
+  const GESTURE_IDS = new Set(['shortcuts-overlay-hold', 'pan-space', 'pan-middle-mouse']);
+
   it('resolves every matchable registry entry back to its own id from its own keys', () => {
     for (const shortcut of SHORTCUTS) {
-      // The Cmd-hold row describes a hold gesture, not a keydown chord -
-      // shortcuts-overlay.tsx's own listener handles it, never matchShortcut.
-      if (shortcut.id === 'shortcuts-overlay-hold') continue;
+      if (GESTURE_IDS.has(shortcut.id)) continue;
       const event = eventFromKeys(shortcut.keys);
       expect(matchShortcut(event), `matchShortcut(${shortcut.keys.join('+')}) should resolve to "${shortcut.id}"`).toBe(
         shortcut.id,
@@ -277,11 +281,33 @@ describe('README shortcut table', () => {
     return readFileSync(join(process.cwd(), 'README.md'), 'utf8');
   }
 
-  it('lists every registry entry by its label and its mac-formatted keys', () => {
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // A plain `toContain(label)` / `toContain(keys)` pair (this test's
+  // previous version) passes as long as those two strings appear ANYWHERE
+  // in the file, independently of each other - rebinding, say, the Design
+  // tab from D to F would still find a stray "F" somewhere else in the
+  // README (Files, Folder, ...) and never notice the table row itself still
+  // said D. A single-letter key is the worst case: it is such a common
+  // substring that the old assertion carried almost no signal. Requiring
+  // the mac-formatted keys cell (optionally followed by a "(... elsewhere)"
+  // note, same as the zoom/undo/redo rows) immediately followed by the
+  // label's own cell ties both to one specific `| ... | ... |` row, so a
+  // row that quietly fell out of sync with the registry actually fails
+  // this.
+  it('lists every registry entry as one table row: the mac-formatted keys cell followed by the label cell', () => {
     const text = readme();
     for (const shortcut of SHORTCUTS) {
-      expect(text, `README is missing the label for "${shortcut.id}"`).toContain(shortcut.label);
-      expect(text, `README is missing the mac keys for "${shortcut.id}"`).toContain(formatKeys(shortcut.keys, 'mac'));
+      const macKeys = formatKeys(shortcut.keys, 'mac');
+      const rowPattern = new RegExp(
+        `\\|\\s*${escapeRegExp(macKeys)}[^|\\n]*\\|\\s*${escapeRegExp(shortcut.label)}\\s*\\|`,
+      );
+      expect(
+        rowPattern.test(text),
+        `README has no table row matching "| ${macKeys} ... | ${shortcut.label} |" for "${shortcut.id}"`,
+      ).toBe(true);
     }
   });
 });

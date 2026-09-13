@@ -60,6 +60,12 @@ describe('ShortcutsOverlay', () => {
       expect(screen.getByText('D')).toBeInTheDocument();
       expect(screen.getByText('Present the focused screen')).toBeInTheDocument();
       expect(screen.getByText('⌘R')).toBeInTheDocument();
+      // The Space+drag and middle-mouse-drag pan gestures (canvas.tsx) are
+      // registered in SHORTCUTS under Canvas even though matchShortcut
+      // never returns their ids, specifically so they show up here.
+      expect(screen.getAllByText('Pan the canvas')).toHaveLength(2);
+      expect(screen.getByText('Hold Space + drag')).toBeInTheDocument();
+      expect(screen.getByText('Middle mouse drag')).toBeInTheDocument();
     });
 
     it('does not show before 600ms', async () => {
@@ -69,6 +75,34 @@ describe('ShortcutsOverlay', () => {
       fireEvent.keyDown(window, { key: 'Meta' });
       await advance(500);
 
+      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
+    });
+
+    it('a repeat:true keydown of the hold modifier neither restarts nor doubles the 600ms timer', async () => {
+      vi.useFakeTimers();
+      renderOverlay();
+
+      fireEvent.keyDown(window, { key: 'Meta' });
+      expect(vi.getTimerCount()).toBe(1);
+
+      await advance(400);
+      // Simulates the OS auto-repeating a still-held-down key.
+      fireEvent.keyDown(window, { key: 'Meta', repeat: true });
+      // Still exactly one pending timer: the repeat neither cleared and
+      // rescheduled it (a "restart") nor left a second one running
+      // alongside it (a "double").
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Not restarted: the ORIGINAL timer (started at t=0) still fires
+      // 600ms after that keydown, not 600ms after the repeat at t=400.
+      await advance(200);
+      expect(screen.getByText('Keyboard shortcuts')).toBeInTheDocument();
+
+      // Not doubled: releasing the modifier hides it, and no leftover
+      // second timer from the repeat flips it back on later.
+      fireEvent.keyUp(window, { key: 'Meta' });
+      expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
+      await advance(1000);
       expect(screen.queryByText('Keyboard shortcuts')).toBeNull();
     });
 
@@ -208,6 +242,21 @@ describe('ShortcutsOverlay', () => {
       expect(within(dialog).getByText('D')).toBeInTheDocument();
       expect(within(dialog).getByText('Present the focused screen')).toBeInTheDocument();
       expect(within(dialog).getByText('⌘R')).toBeInTheDocument();
+      expect(within(dialog).getAllByText('Pan the canvas')).toHaveLength(2);
+      expect(within(dialog).getByText('Hold Space + drag')).toBeInTheDocument();
+      expect(within(dialog).getByText('Middle mouse drag')).toBeInTheDocument();
+    });
+
+    it('widens the dialog past the shadcn default max-width at sm and above', () => {
+      renderOverlay(true);
+      const dialog = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
+
+      // shadcn's own DialogContent hardcodes `sm:max-w-sm`, which wins over
+      // a plain `max-w-[880px]` override at any viewport >= 640px (same
+      // "sm:" variant scope, later in the cascade) - only a same-variant
+      // override actually takes effect. See components/ui/dialog.tsx
+      // (read-only) for the base classes this must out-rank.
+      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[880px]');
     });
 
     it('renders nothing else when open is false', () => {

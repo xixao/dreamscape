@@ -55,6 +55,20 @@ export const SHORTCUTS: Shortcut[] = [
   // Registered for the overlay/README only - no handler yet (spec: "when
   // diagrams land").
   { id: 'tool-diagram', area: 'Tools', keys: ['Shift', 'D'], label: 'Diagram palette' },
+  // Space+drag and middle-mouse-drag both pan the canvas (canvas.tsx's
+  // shouldStartPan/panRef, gated on the Space key or the middle mouse
+  // button) - a held pointer gesture, not a keydown chord, so
+  // matchShortcut never returns either id (see the GESTURE_IDS exclusion
+  // in shortcuts.test.ts's "never drift apart" describe block; canvas.tsx
+  // owns the actual gesture, not keyboard.tsx). Registered here only so
+  // the hold-Cmd overlay, the "?" dialog and the README list them
+  // alongside every other Canvas shortcut. The single-token 'keys' entries
+  // below (rather than separate modifier/key tokens) are gesture
+  // descriptions, not chords - formatKeys renders a lone token unchanged
+  // on both platforms, which is exactly the platform-neutral text wanted
+  // here.
+  { id: 'pan-space', area: 'Canvas', keys: ['Hold', 'Space + drag'], label: 'Pan the canvas' },
+  { id: 'pan-middle-mouse', area: 'Canvas', keys: ['Middle mouse drag'], label: 'Pan the canvas' },
   { id: 'zoom-in', area: 'Canvas', keys: ['Mod', '='], label: 'Zoom in', always: true },
   { id: 'zoom-out', area: 'Canvas', keys: ['Mod', '-'], label: 'Zoom out', always: true },
   { id: 'zoom-reset', area: 'Canvas', keys: ['Mod', '0'], label: 'Zoom to 100%', always: true },

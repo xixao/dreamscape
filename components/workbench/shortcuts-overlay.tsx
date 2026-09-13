@@ -144,7 +144,12 @@ export function ShortcutsOverlay({
   if (open) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-[880px]">
+        {/* shadcn's own DialogContent hardcodes `sm:max-w-sm`, which beats a
+        plain `max-w-[880px]` override at any viewport >= 640px (same "sm:"
+        variant scope, later in the cascade) - only a same-variant override
+        (`sm:max-w-[880px]`) actually wins. The unprefixed class is just the
+        sensible base for narrower viewports. */}
+        <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[880px]">
           <DialogHeader>
             <DialogTitle>Keyboard shortcuts</DialogTitle>
           </DialogHeader>

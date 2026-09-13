@@ -80,6 +80,8 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Tools | V | Pointer |
 | Tools | ⇧C (Shift+C elsewhere) | Comment tool |
 | Tools | ⇧D (Shift+D elsewhere) | Diagram palette |
+| Canvas | Hold Space + drag | Pan the canvas |
+| Canvas | Middle mouse drag | Pan the canvas |
 | Canvas | ⌘= (Ctrl+= elsewhere) | Zoom in |
 | Canvas | ⌘- (Ctrl+- elsewhere) | Zoom out |
 | Canvas | ⌘0 (Ctrl+0 elsewhere) | Zoom to 100% |
