@@ -3,7 +3,17 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { detectPlatform, displayRows, formatKeys, type Platform, type ShortcutArea, type ShortcutRow } from '@/lib/shortcuts';
-import { OVERLAY_GRID, OVERLAY_GROUP_TITLE, OVERLAY_KEY_CAP, OVERLAY_ROW_LABEL, OVERLAY_TITLE, WIDE_DIALOG_CONTENT } from './chrome';
+import {
+  OVERLAY_COLUMN,
+  OVERLAY_GRID,
+  OVERLAY_GROUP_TITLE,
+  OVERLAY_KEY_CAP,
+  OVERLAY_KEYS,
+  OVERLAY_ROW,
+  OVERLAY_ROW_LABEL,
+  OVERLAY_TITLE,
+  SHORTCUTS_DIALOG_CONTENT,
+} from './chrome';
 
 // Display order for the grouped list - matches the Area column order in
 // docs/superpowers/specs/2026-09-13-shortcuts-and-elements-design.md
@@ -21,23 +31,23 @@ function ShortcutGroups({ platform }: { platform: Platform }) {
   return (
     <div className={OVERLAY_GRID}>
       {groupedShortcuts().map((group) => (
-        <div key={group.area}>
+        <section key={group.area} className={OVERLAY_COLUMN} aria-label={group.area}>
           <h3 className={OVERLAY_GROUP_TITLE}>{group.area}</h3>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col">
             {group.items.map((item: ShortcutRow) => (
-              <div key={item.ids.join('+')} className="flex items-center justify-between gap-6">
+              <div key={item.ids.join('+')} className={OVERLAY_ROW}>
                 <span className={OVERLAY_ROW_LABEL}>{item.label}</span>
-                <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+                <span className={OVERLAY_KEYS}>
                   {item.keys.map((keys, index) => (
-                    <span key={item.ids[index] ?? index} className={OVERLAY_KEY_CAP}>
+                    <kbd key={item.ids[index] ?? index} className={OVERLAY_KEY_CAP}>
                       {formatKeys(keys, platform)}
-                    </span>
+                    </kbd>
                   ))}
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   );
@@ -76,7 +86,7 @@ export function ShortcutsOverlay({
       that shadcn's own `sm:max-w-sm` needs (see its comment in chrome.ts),
       shared with the Element documentation dialog so the two stay the same
       size. */}
-      <DialogContent className={WIDE_DIALOG_CONTENT}>
+      <DialogContent className={SHORTCUTS_DIALOG_CONTENT}>
         <DialogHeader>
           {/* OVERLAY_TITLE, the same 20px treatment as the Element
           documentation dialog's title. */}
