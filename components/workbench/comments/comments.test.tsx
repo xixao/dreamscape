@@ -103,7 +103,7 @@ describe('comments placeholder', () => {
     window.localStorage.clear();
   });
 
-  it('toggles comment mode with the button (aria-pressed, crosshair cursor) and the "c" key', async () => {
+  it('toggles comment mode with the button (aria-pressed, crosshair cursor) and Shift+C', async () => {
     render(<Workbench file={BASE_FILE} />);
     const button = screen.getByRole('button', { name: 'Comment tool' });
     const artboard = screen.getByTestId('artboard-zoom');
@@ -118,7 +118,7 @@ describe('comments placeholder', () => {
     expect(button).toHaveAttribute('aria-pressed', 'false');
     expect(artboard).not.toHaveClass('cursor-crosshair');
 
-    fireEvent.keyDown(window, { key: 'c' });
+    fireEvent.keyDown(window, { key: 'c', shiftKey: true });
     expect(button).toHaveAttribute('aria-pressed', 'true');
     expect(artboard).toHaveClass('cursor-crosshair');
   });

@@ -313,41 +313,50 @@ describe('useWorkbenchKeyboard with a CanvasFrame', () => {
 });
 
 describe('useWorkbenchKeyboard onToggleCommentMode', () => {
-  it('toggles comment mode with the "c" key', async () => {
+  it('toggles the comment tool with Shift+C (spec: C alone now opens the chat panel)', async () => {
+    const onToggleCommentMode = vi.fn();
+    mount({ onToggleCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'c', shiftKey: true });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('is case-insensitive and ignores Cmd/Ctrl+Shift+C', async () => {
+    const onToggleCommentMode = vi.fn();
+    mount({ onToggleCommentMode });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'C', shiftKey: true });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: 'c', shiftKey: true, metaKey: true });
+    fireEvent.keyDown(window, { key: 'c', shiftKey: true, ctrlKey: true });
+    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('no longer toggles on a bare "c"', async () => {
     const onToggleCommentMode = vi.fn();
     mount({ onToggleCommentMode });
     await screen.findByRole('button', { name: 'Doomed' });
 
     fireEvent.keyDown(window, { key: 'c' });
-    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
+    expect(onToggleCommentMode).not.toHaveBeenCalled();
   });
 
-  it('is case-insensitive and ignores Cmd/Ctrl+C (copy)', async () => {
+  it('ignores Shift+C while typing in a field', async () => {
     const onToggleCommentMode = vi.fn();
     mount({ onToggleCommentMode });
     await screen.findByRole('button', { name: 'Doomed' });
 
-    fireEvent.keyDown(window, { key: 'C' });
-    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
-
-    fireEvent.keyDown(window, { key: 'c', metaKey: true });
-    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
-    expect(onToggleCommentMode).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores "c" while typing in a field', async () => {
-    const onToggleCommentMode = vi.fn();
-    mount({ onToggleCommentMode });
-    await screen.findByRole('button', { name: 'Doomed' });
-
-    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'c' });
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'c', shiftKey: true });
     expect(onToggleCommentMode).not.toHaveBeenCalled();
   });
 
   it('does nothing when onToggleCommentMode is not provided', async () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
-    expect(() => fireEvent.keyDown(window, { key: 'c' })).not.toThrow();
+    expect(() => fireEvent.keyDown(window, { key: 'c', shiftKey: true })).not.toThrow();
   });
 
   it('calls onExitCommentMode instead of deselecting when Escape is pressed in comment mode', async () => {
@@ -447,6 +456,32 @@ describe('useWorkbenchKeyboard onToggleChat', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'j', metaKey: true })).not.toThrow();
+  });
+
+  it('also toggles chat with a bare "c", case-insensitively, unlike Cmd+J it is ignored while typing', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'c' });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: 'C' });
+    expect(onToggleChat).toHaveBeenCalledTimes(2);
+
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'c' });
+    expect(onToggleChat).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores Cmd/Ctrl+C and Shift+C (the comment tool) for the chat toggle', async () => {
+    const onToggleChat = vi.fn();
+    mount(undefined, onToggleChat);
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'c', metaKey: true });
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'c', shiftKey: true });
+    expect(onToggleChat).not.toHaveBeenCalled();
   });
 });
 
