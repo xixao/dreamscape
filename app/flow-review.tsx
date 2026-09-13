@@ -107,6 +107,7 @@ import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
 import ReviewResults from "./review-results";
 import ReviewBrief from "./review-brief";
+import POReview from "./po-review";
 import JourneyView from "./journey-view";
 import UploadCaseStudy, { buildCaseStudy } from "./demo/upload-case-study";
 import UploadProperties from "./demo/upload-properties";
@@ -602,6 +603,26 @@ export default function FlowReview() {
         }}
       />
     );
+  if (audience === "po")
+    return (
+      <POReview
+        key={revision.id}
+        revision={revision}
+        previous={previous}
+        sessions={data.sessions}
+        comments={data.comments}
+        busy={busy || !loaded}
+        error={error}
+        onAction={action}
+        onBack={() => {
+          setAudience("designer");
+          setView("review");
+          setPanel("brief");
+        }}
+        dark={dark}
+        onTheme={() => setTheme(dark ? "light" : "dark")}
+      />
+    );
   return (
     <TooltipProvider delayDuration={250}>
       <div className={`studio ${presentation ? "is-presenting" : ""}`}>
@@ -764,6 +785,13 @@ export default function FlowReview() {
             <Select
               value={audience}
               onValueChange={async (v) => {
+                if (v !== "designer" && journeyDirty) {
+                  setView("journey");
+                  toast.error(
+                    "Save or discard your journey changes before switching audience.",
+                  );
+                  return;
+                }
                 if (v === "participant") {
                   if (dirty || journeyDirty || mutationPending.current) {
                     toast.error(

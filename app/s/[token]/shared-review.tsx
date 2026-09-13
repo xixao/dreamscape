@@ -1,11 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Layers3 } from "lucide-react";
+import { Layers3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Comment, Revision, UploadState } from "@/lib/model";
+import type { Comment, Revision } from "@/lib/model";
 import { request } from "@/lib/client";
-import Uploader from "@/app/demo/document-upload";
-import Feedback from "@/app/feedback";
+import POReview from "@/app/po-review";
 import ParticipantTest from "@/app/participant-test";
 import type { TestSetup } from "@/lib/test-setup";
 type SharedData =
@@ -23,11 +22,9 @@ export default function SharedReview({ token }: { token: string }) {
   return <SharedReviewContent key={token} token={token} />;
 }
 function SharedReviewContent({ token }: { token: string }) {
-  const [data, setData] = useState<SharedData | null>(null),
-    [state, setState] = useState<UploadState>("ready");
+  const [data, setData] = useState<SharedData | null>(null);
   const [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [anchor, setAnchor] = useState("document-uploader");
+    [busy, setBusy] = useState(false);
   const actor = useRef("");
   const pending = useRef(false);
   const sequence = useRef(0);
@@ -93,62 +90,12 @@ function SharedReviewContent({ token }: { token: string }) {
       />
     );
   return (
-    <div className="shared-page">
-      <header className="studio-header">
-        <span className="studio-brand">
-          <Layers3 />
-          Flow Review
-        </span>
-        <span className="breadcrumb">Homepath · Document upload</span>
-        <span className="badge">Product review · v{data.revision.number}</span>
-      </header>
-      {error && (
-        <div className="error-banner" role="alert">
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-      <div className="workspace-heading">
-        <div>
-          <p className="eyebrow">PRODUCT OWNER REVIEW</p>
-          <h1>Document upload</h1>
-          <p>
-            Version {data.revision.number} · {data.revision.note}
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => setState("ready")}>
-          Restart scenario
-        </Button>
-      </div>
-      <main className="preview-grid">
-        <div className="stage">
-          <div className="stage-body">
-            <Uploader
-              config={data.revision.config}
-              state={state}
-              onState={setState}
-              annotate
-              onAnchor={setAnchor}
-            />
-          </div>
-        </div>
-        <aside className="review-panel">
-          <Feedback
-            comments={data.comments ?? []}
-            revision={data.revision}
-            state={state}
-            viewport="desktop"
-            anchor={anchor}
-            busy={busy}
-            canModerate={false}
-            onAction={reviewAction}
-            onJump={(c) => {
-              setAnchor(c.anchor);
-              setState(c.state);
-            }}
-          />
-        </aside>
-      </main>
-    </div>
+    <POReview
+      revision={data.revision}
+      comments={data.comments ?? []}
+      busy={busy}
+      error={error}
+      onAction={reviewAction}
+    />
   );
 }
