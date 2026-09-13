@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getBezierPath, getHandlePosition, getSmoothStepPath, type Box } from './geometry';
 import { DIAGRAM_COLORS, type DiagramEdge, type DiagramNode, type DiagramSelection } from './store';
@@ -11,6 +13,13 @@ import {
 
 const SHAPE_FONT_FAMILY = "Archivo, 'Helvetica Neue', Arial, sans-serif";
 const LABEL_FONT_FAMILY = "'IBM Plex Mono', ui-monospace, Menlo, monospace";
+// The screen's tokens (app/globals.css): the canvas surface, the accent the
+// arrowheads use, and the CHIP surface a label sits on.
+const CANVAS = '#14121B';
+const ACCENT = '#8C97DB';
+const CHIP_FILL = 'rgba(255,255,255,0.055)';
+const CHIP_STROKE = 'rgba(255,255,255,0.09)';
+const CHIP_TEXT = '#EAE8F0';
 
 // A deterministic stand-in for canvas measureText: 7 px per character, whatever
 // the font, so every wrapping expectation below can be worked out by hand.
@@ -45,10 +54,13 @@ function frame(overrides: Partial<ExportFrame> = {}): ExportFrame {
   return { id: 'f1', name: 'Login', x: 400, y: 100, width: 200, height: 300, ...overrides };
 }
 
-// Three boxes in a row, 100 px apart, for the edge and selection tests.
+// Three boxes in a row, 100 px apart, and the two connectors joining them,
+// for the edge, order and selection tests.
 const A = node({ id: 'a', x: 0, y: 0, width: 100, height: 50, text: '' });
 const B = node({ id: 'b', x: 200, y: 0, width: 100, height: 50, text: '' });
 const C = node({ id: 'c', x: 400, y: 0, width: 100, height: 50, text: '' });
+const AB = edge({ id: 'ab', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } });
+const BC = edge({ id: 'bc', source: { nodeId: 'b', side: 'right' }, target: { nodeId: 'c', side: 'left' } });
 
 function render(input: Partial<RenderDiagramSvgInput> = {}) {
   return renderDiagramSvg({ nodes: [], edges: [], frames: [], measureText: measure, ...input });
@@ -90,6 +102,23 @@ function only(parent: Element | Document, selector: string): Element {
 
 function shifted(box: Box, by: number): Box {
   return { x: box.x + by, y: box.y + by, width: box.width, height: box.height };
+}
+
+// The geometry's own path with its numbers written the way the export
+// writes them: at most three decimals.
+function rounded(path: string): string {
+  return path.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (n) => String(Number(Number(n).toFixed(3))));
+}
+
+// Every x,y pair in a path built from M/L/C/Q commands.
+function pathPoints(d: string): { x: number; y: number }[] {
+  return Array.from(d.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g), (match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+}
+
+function drawnGroups(doc: Document): ('frame' | 'edge' | 'node')[] {
+  return Array.from(doc.documentElement.children)
+    .filter((child) => child.tagName === 'g')
+    .map((child) => (child.hasAttribute('data-frame') ? 'frame' : child.hasAttribute('data-edge') ? 'edge' : 'node'));
 }
 
 describe('DIAGRAM_EXPORT_COLORS', () => {
@@ -161,10 +190,56 @@ describe('renderDiagramSvg', () => {
       expect(width).toBe(400 + 64);
       expect(height).toBe(450 + 64);
     });
+
+    it("extends the bounds to a curve's control points and its label chip so nothing is clipped", () => {
+      // Two stacked 100 x 50 rects joined left-to-left by a curve: the
+      // control points sit 56 px (0.28 x the 200 px distance) left of the
+      // shapes and the "maybe" chip (35 + 16 px wide) centres on the curve's
+      // midpoint 42 px out, so the chip's left edge is the leftmost thing.
+      const top = node({ id: 'a', x: 0, y: 0, width: 100, height: 50, text: '' });
+      const bottom = node({ id: 'b', x: 0, y: 200, width: 100, height: 50, text: '' });
+      const curve = edge({ source: { nodeId: 'a', side: 'left' }, target: { nodeId: 'b', side: 'left' }, kind: 'curve', label: 'maybe' });
+      const { svg, width, height } = renderSvg({ nodes: [top, bottom], edges: [curve] });
+      expect(width).toBe(100 + 67.5 + 64);
+      const labelled = group(parse(svg), 'data-edge', 'e1');
+      const points = pathPoints(only(labelled, 'path').getAttribute('d') ?? '');
+      expect(points.length).toBeGreaterThan(0);
+      for (const point of points) {
+        expect(point.x).toBeGreaterThanOrEqual(0);
+        expect(point.x).toBeLessThanOrEqual(width);
+        expect(point.y).toBeGreaterThanOrEqual(0);
+        expect(point.y).toBeLessThanOrEqual(height);
+      }
+      const chip = only(labelled, 'rect');
+      expect(chip.getAttribute('x')).toBe('32');
+      expect(Number(chip.getAttribute('x')) + Number(chip.getAttribute('width'))).toBeLessThanOrEqual(width);
+    });
+
+    it("extends the bounds to a label chip on a step route's corner", () => {
+      // Top-to-top between two boxes in a row: the route runs along y = 0,
+      // so the 20 px chip pokes 10 px above the shapes.
+      const overTop = edge({ source: { nodeId: 'a', side: 'top' }, target: { nodeId: 'b', side: 'top' }, kind: 'step', label: 'yes' });
+      const { svg, height } = renderSvg({ nodes: [A, B], edges: [overTop] });
+      expect(height).toBe(50 + 10 + 64);
+      const chip = only(group(parse(svg), 'data-edge', 'e1'), 'rect');
+      expect(chip.getAttribute('y')).toBe('32');
+      expect(only(group(parse(svg), 'data-node', 'a'), 'rect').getAttribute('y')).toBe('42');
+    });
+
+    it('returns width and height equal to the root attributes (three decimals)', () => {
+      const offGrid = frame({ x: 300.11111, y: 0, width: 100, height: 50 });
+      const toFrame = edge({ source: { nodeId: 'a', side: 'right' }, target: { screenId: 'f1', side: 'left' } });
+      const { svg, width, height } = renderSvg({ nodes: [A], edges: [toFrame], frames: [offGrid] });
+      const root = parse(svg).documentElement;
+      expect(root.getAttribute('width')).toBe('464.111');
+      expect(width).toBe(464.111);
+      expect(String(height)).toBe(root.getAttribute('height'));
+      expect(root.getAttribute('viewBox')).toBe(`0 0 ${width} ${height}`);
+    });
   });
 
   describe('background', () => {
-    it('draws a background rect over the whole export before anything else', () => {
+    it('draws a background rect in the canvas surface colour over the whole export before anything else', () => {
       const doc = renderDoc({ nodes: [node()] });
       const drawn = Array.from(doc.documentElement.children).filter((child) => child.tagName !== 'defs');
       const background = drawn[0];
@@ -173,7 +248,15 @@ describe('renderDiagramSvg', () => {
       expect(background.getAttribute('y')).toBe('0');
       expect(background.getAttribute('width')).toBe('224');
       expect(background.getAttribute('height')).toBe('144');
-      expect(background.getAttribute('fill')).toBe('#1B1922');
+      expect(background.getAttribute('fill')).toBe(CANVAS);
+    });
+  });
+
+  describe('drawing order', () => {
+    it('draws frames, then connectors, then shapes, so connectors sit beneath shapes as on screen', () => {
+      const toFrame = edge({ id: 'af', source: { nodeId: 'a', side: 'right' }, target: { screenId: 'f1', side: 'left' } });
+      const doc = renderDoc({ nodes: [A, B], edges: [AB, toFrame], frames: [frame()] });
+      expect(drawnGroups(doc)).toEqual(['frame', 'edge', 'edge', 'node', 'node']);
     });
   });
 
@@ -193,6 +276,19 @@ describe('renderDiagramSvg', () => {
       const polygon = only(group(renderDoc({ nodes: [node({ kind: 'decision' })] }), 'data-node', 'n1'), 'polygon');
       expect(polygon.getAttribute('points')).toBe('112,32 192,72 112,112 32,72');
       expect(polygon.getAttribute('stroke-width')).toBe('1.5');
+    });
+
+    it("centres a decision's text on the full box, in the same group as the polygon", () => {
+      const shape = group(
+        renderDoc({ nodes: [node({ kind: 'decision', x: 0, y: 0, width: 160, height: 100, text: 'Valid?' })], padding: 0 }),
+        'data-node',
+        'n1',
+      );
+      expect(Array.from(shape.children).map((child) => child.tagName)).toEqual(['polygon', 'text']);
+      const span = only(shape, 'tspan');
+      expect(span.getAttribute('x')).toBe('80');
+      expect(span.getAttribute('y')).toBe('50');
+      expect(span.textContent).toBe('Valid?');
     });
 
     it('draws a terminal as a pill (rx = height / 2)', () => {
@@ -230,7 +326,8 @@ describe('renderDiagramSvg', () => {
 
   describe('shape text', () => {
     // A 160 x 80 box at the origin with no padding: inner width 148 (21
-    // characters at 7 px), inner height 68 (four 16.25 px lines).
+    // characters at 7 px), inner height 68 (three 18.85 px lines - 13 px at
+    // the body line height of 1.45).
     const box = { x: 0, y: 0, width: 160, height: 80 };
 
     it('centres a single line in the box with the app font stack', () => {
@@ -248,15 +345,15 @@ describe('renderDiagramSvg', () => {
       expect(spans[0].textContent).toBe('Hello');
     });
 
-    it('wraps to the inner width with the supplied measurer and centres the block', () => {
+    it('wraps to the inner width with the supplied measurer and centres the block at line height 1.45', () => {
       const text = only(
         group(renderDoc({ nodes: [node({ ...box, text: 'The quick brown fox jumps over the lazy dog' })], padding: 0 }), 'data-node', 'n1'),
         'text',
       );
       const spans = Array.from(text.querySelectorAll('tspan'));
       expect(spans.map((span) => span.textContent)).toEqual(['The quick brown fox', 'jumps over the lazy', 'dog']);
-      // Three 16.25 px lines centred on y = 40: 40 - 16.25, 40, 40 + 16.25.
-      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['23.75', '40', '56.25']);
+      // Three 18.85 px lines centred on y = 40: 40 - 18.85, 40, 40 + 18.85.
+      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['21.15', '40', '58.85']);
       expect(spans.every((span) => span.getAttribute('x') === '80')).toBe(true);
     });
 
@@ -264,6 +361,12 @@ describe('renderDiagramSvg', () => {
       const text = only(group(renderDoc({ nodes: [node({ ...box, text: 'a\n\nb' })], padding: 0 }), 'data-node', 'n1'), 'text');
       const spans = Array.from(text.querySelectorAll('tspan'));
       expect(spans.map((span) => span.textContent)).toEqual(['a', '', 'b']);
+    });
+
+    it('preserves runs of spaces like the on-screen pre-wrap div', () => {
+      const text = only(group(renderDoc({ nodes: [node({ ...box, text: 'a  b' })], padding: 0 }), 'data-node', 'n1'), 'text');
+      expect(text.getAttribute('xml:space')).toBe('preserve');
+      expect(only(text, 'tspan').textContent).toBe('a  b');
     });
 
     it('breaks a word wider than the box character by character', () => {
@@ -275,7 +378,10 @@ describe('renderDiagramSvg', () => {
       expect(spans.map((span) => span.textContent)).toEqual(['abcdefghijklmnopqrstu', 'vwxyz']);
     });
 
-    it('drops the lines that overflow the inner height', () => {
+    it('drops the lines that overflow the inner height, keeping the first ones', () => {
+      // 160 x 80: inner height 68 fits three 18.85 px lines, as on screen.
+      const tall = only(group(renderDoc({ nodes: [node({ ...box, text: 'one\ntwo\nthree\nfour' })], padding: 0 }), 'data-node', 'n1'), 'text');
+      expect(Array.from(tall.querySelectorAll('tspan')).map((span) => span.textContent)).toEqual(['one', 'two', 'three']);
       // 100 x 40: inner width 88 (12 characters), inner height 28 (one line).
       const text = only(
         group(renderDoc({ nodes: [node({ x: 0, y: 0, width: 100, height: 40, text: 'hello world foo' })], padding: 0 }), 'data-node', 'n1'),
@@ -316,6 +422,18 @@ describe('renderDiagramSvg', () => {
       expect(only(group(doc, 'data-edge', 'e1'), 'text').textContent).toBe(unsafe);
       expect(only(group(doc, 'data-frame', 'f1'), 'text').textContent).toBe(unsafe);
     });
+
+    it('drops characters XML forbids (controls, lone surrogates, U+FFFE/U+FFFF) and keeps real astral ones', () => {
+      // A lone high surrogate, the two non-characters and a backspace, next
+      // to a thumbs-up (a surrogate pair, which must survive).
+      const loneSurrogate = String.fromCharCode(0xd800);
+      const nonCharacters = String.fromCharCode(0xfffe) + String.fromCharCode(0xffff);
+      const control = String.fromCharCode(0x08);
+      const thumbsUp = String.fromCodePoint(0x1f44d);
+      const text = `ab${loneSurrogate}c${nonCharacters}d${control}e ${thumbsUp}`;
+      const { svg } = renderSvg({ nodes: [node({ x: 0, y: 0, width: 400, height: 80, text })] });
+      expect(only(group(parse(svg), 'data-node', 'n1'), 'tspan').textContent).toBe(`abcde ${thumbsUp}`);
+    });
   });
 
   describe('edges', () => {
@@ -351,7 +469,7 @@ describe('renderDiagramSvg', () => {
         getHandlePosition(shifted(lower, 32), 'left'),
         'left',
       );
-      expect(path.getAttribute('d')).toBe(expected.path);
+      expect(path.getAttribute('d')).toBe(rounded(expected.path));
       expect(expected.path).toContain('Q');
     });
 
@@ -364,8 +482,18 @@ describe('renderDiagramSvg', () => {
         getHandlePosition(shifted(lower, 32), 'left'),
         'left',
       );
-      expect(path.getAttribute('d')).toBe(expected.path);
+      expect(path.getAttribute('d')).toBe(rounded(expected.path));
       expect(expected.path).toContain('C');
+    });
+
+    it('writes path numbers with at most three decimals', () => {
+      // hypot(100, 100) x 0.28 = 39.5979...: the raw geometry carries the
+      // full float, the export writes 132 + 39.598.
+      const lower = node({ id: 'b', x: 200, y: 100, width: 100, height: 50, text: '' });
+      const d = only(group(renderDoc({ nodes: [A, lower], edges: [edge({ kind: 'curve' })] }), 'data-edge', 'e1'), 'path').getAttribute('d') ?? '';
+      expect(d).toContain('171.598');
+      expect(d).not.toMatch(/\.\d{4}/);
+      expect(d).not.toMatch(/e/i);
     });
 
     it('skips an edge whose endpoint does not exist', () => {
@@ -375,7 +503,7 @@ describe('renderDiagramSvg', () => {
     });
 
     describe('arrowheads', () => {
-      it('defines one white marker shaped like the on-screen arrowhead', () => {
+      it('defines one accent-coloured marker shaped like the on-screen arrowhead', () => {
         const doc = renderDoc({ nodes: [A, B], edges: [edge()] });
         const marker = only(doc, 'defs > marker');
         expect(marker.getAttribute('id')).toBe('diagram-export-arrowhead');
@@ -387,7 +515,7 @@ describe('renderDiagramSvg', () => {
         expect(marker.getAttribute('orient')).toBe('auto-start-reverse');
         const head = only(marker, 'path');
         expect(head.getAttribute('d')).toBe('M0,0 L10,5 L0,10 z');
-        expect(head.getAttribute('fill')).toBe('#ffffff');
+        expect(head.getAttribute('fill')).toBe(ACCENT);
       });
 
       it('puts the marker at the end for arrow: end', () => {
@@ -411,7 +539,7 @@ describe('renderDiagramSvg', () => {
   });
 
   describe('edge labels', () => {
-    it('draws a chip centred on the label point, sized from the measurer', () => {
+    it('draws a CHIP-surfaced chip centred on the label point, sized from the measurer', () => {
       const labelled = group(renderDoc({ nodes: [A, B], edges: [edge({ label: 'yes' })], padding: 0 }), 'data-edge', 'e1');
       // The straight path M100,25 L200,25 has its label point at 150,25;
       // "yes" measures 21 px, plus 8 px padding each side.
@@ -421,14 +549,14 @@ describe('renderDiagramSvg', () => {
       expect(chip.getAttribute('width')).toBe('37');
       expect(chip.getAttribute('height')).toBe('20');
       expect(chip.getAttribute('rx')).toBe('4');
-      expect(chip.getAttribute('fill')).toBe('#1B1922');
-      expect(chip.getAttribute('stroke')).toBe('rgba(255,255,255,0.2)');
+      expect(chip.getAttribute('fill')).toBe(CHIP_FILL);
+      expect(chip.getAttribute('stroke')).toBe(CHIP_STROKE);
       const text = only(labelled, 'text');
       expect(text.getAttribute('x')).toBe('150');
       expect(text.getAttribute('y')).toBe('25');
       expect(text.getAttribute('font-size')).toBe('10.5');
       expect(text.getAttribute('font-family')).toBe(LABEL_FONT_FAMILY);
-      expect(text.getAttribute('fill')).toBe('#ffffff');
+      expect(text.getAttribute('fill')).toBe(CHIP_TEXT);
       expect(text.getAttribute('text-anchor')).toBe('middle');
       expect(text.getAttribute('dominant-baseline')).toBe('central');
       expect(text.textContent).toBe('yes');
@@ -447,13 +575,11 @@ describe('renderDiagramSvg', () => {
   });
 
   describe('selection', () => {
-    const ab = edge({ id: 'ab', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } });
-    const bc = edge({ id: 'bc', source: { nodeId: 'b', side: 'right' }, target: { nodeId: 'c', side: 'left' } });
     const ids = (doc: Document, attribute: string) =>
       Array.from(doc.querySelectorAll(`g[${attribute}]`)).map((element) => element.getAttribute(attribute));
 
     it('exports everything when no selection is given', () => {
-      const doc = renderDoc({ nodes: [A, B, C], edges: [ab, bc] });
+      const doc = renderDoc({ nodes: [A, B, C], edges: [AB, BC] });
       expect(ids(doc, 'data-node')).toEqual(['a', 'b', 'c']);
       expect(ids(doc, 'data-edge')).toEqual(['ab', 'bc']);
     });
@@ -463,7 +589,7 @@ describe('renderDiagramSvg', () => {
         { type: 'node', id: 'a' },
         { type: 'node', id: 'b' },
       ];
-      const doc = renderDoc({ nodes: [A, B, C], edges: [ab, bc], selection });
+      const doc = renderDoc({ nodes: [A, B, C], edges: [AB, BC], selection });
       expect(ids(doc, 'data-node')).toEqual(['a', 'b']);
     });
 
@@ -474,17 +600,17 @@ describe('renderDiagramSvg', () => {
         { type: 'edge', id: 'ab' },
         { type: 'edge', id: 'bc' },
       ];
-      const doc = renderDoc({ nodes: [A, B, C], edges: [ab, bc], selection });
+      const doc = renderDoc({ nodes: [A, B, C], edges: [AB, BC], selection });
       expect(ids(doc, 'data-edge')).toEqual(['ab']);
     });
 
-    it('drops an unselected edge even when both of its nodes are selected', () => {
+    it('keeps an unselected edge whose two ends are both exported nodes (Shift+click two connected shapes)', () => {
       const selection: DiagramSelection = [
         { type: 'node', id: 'a' },
         { type: 'node', id: 'b' },
       ];
-      const doc = renderDoc({ nodes: [A, B, C], edges: [ab, bc], selection });
-      expect(ids(doc, 'data-edge')).toEqual([]);
+      const doc = renderDoc({ nodes: [A, B, C], edges: [AB, BC], selection });
+      expect(ids(doc, 'data-edge')).toEqual(['ab']);
     });
 
     it('keeps a selected edge that attaches to a frame', () => {
@@ -496,6 +622,25 @@ describe('renderDiagramSvg', () => {
       const doc = renderDoc({ nodes: [A, B], edges: [toFrame], frames: [frame()], selection });
       expect(ids(doc, 'data-edge')).toEqual(['af']);
       expect(ids(doc, 'data-frame')).toEqual(['f1']);
+    });
+
+    it('keeps an unselected edge from an exported node to a frame, and draws that frame', () => {
+      const toFrame = edge({ id: 'af', source: { nodeId: 'a', side: 'right' }, target: { screenId: 'f1', side: 'left' } });
+      const doc = renderDoc({ nodes: [A, B], edges: [toFrame, AB], frames: [frame()], selection: [{ type: 'node', id: 'a' }] });
+      expect(ids(doc, 'data-edge')).toEqual(['af']);
+      expect(ids(doc, 'data-frame')).toEqual(['f1']);
+    });
+
+    it('drops a selected edge to a frame when its node end is not exported', () => {
+      const toFrame = edge({ id: 'af', source: { nodeId: 'a', side: 'right' }, target: { screenId: 'f1', side: 'left' } });
+      const selection: DiagramSelection = [
+        { type: 'node', id: 'b' },
+        { type: 'edge', id: 'af' },
+      ];
+      const doc = renderDoc({ nodes: [A, B], edges: [toFrame], frames: [frame()], selection });
+      expect(ids(doc, 'data-node')).toEqual(['b']);
+      expect(ids(doc, 'data-edge')).toEqual([]);
+      expect(ids(doc, 'data-frame')).toEqual([]);
     });
 
     it('keeps the node array order whatever the selection order', () => {
@@ -576,10 +721,50 @@ describe('renderDiagramSvg', () => {
       expect(renderDiagramSvg(input)).toEqual(renderDiagramSvg(input));
     });
   });
+
+  describe('mirrors the app theme (app/globals.css read from disk)', () => {
+    const css = readFileSync(join(process.cwd(), 'app', 'globals.css'), 'utf8');
+    // The first definition of a token is the `:root` (dark, SF2) theme the
+    // canvas renders in; `.theme-basic` redefines some further down.
+    const token = (name: string): string => {
+      const match = new RegExp(`--${name}:\\s*([^;]+);`).exec(css);
+      if (!match) throw new Error(`no --${name} in app/globals.css`);
+      return match[1].replace(/\s+/g, '');
+    };
+
+    it('paints the background in the canvas surface colour (--canvas)', () => {
+      const doc = renderDoc({ nodes: [node()] });
+      const background = Array.from(doc.documentElement.children).filter((child) => child.tagName !== 'defs')[0];
+      expect(background.getAttribute('fill')).toBe(token('canvas'));
+    });
+
+    it('fills arrowheads with the accent (--acc)', () => {
+      const doc = renderDoc({ nodes: [A, B], edges: [edge()] });
+      expect(only(doc, 'defs > marker > path').getAttribute('fill')).toBe(token('acc'));
+    });
+
+    it('surfaces label chips like CHIP (--chip, --bevel-line, --foreground)', () => {
+      const labelled = group(renderDoc({ nodes: [A, B], edges: [edge({ label: 'yes' })] }), 'data-edge', 'e1');
+      expect(only(labelled, 'rect').getAttribute('fill')).toBe(token('chip'));
+      expect(only(labelled, 'rect').getAttribute('stroke')).toBe(token('bevel-line'));
+      expect(only(labelled, 'text').getAttribute('fill')).toBe(token('foreground'));
+    });
+
+    it('spaces shape text at the body line height', () => {
+      const match = /body\s*\{[^}]*line-height:\s*([\d.]+)/.exec(css);
+      const lineHeight = Number(match?.[1]);
+      expect(lineHeight).toBeGreaterThan(1);
+      const text = only(group(renderDoc({ nodes: [node({ x: 0, y: 0, text: 'a\nb\nc' })], padding: 0 }), 'data-node', 'n1'), 'text');
+      const ys = Array.from(text.querySelectorAll('tspan')).map((span) => Number(span.getAttribute('y')));
+      expect(ys).toHaveLength(3);
+      expect(ys[1] - ys[0]).toBeCloseTo(13 * lineHeight, 6);
+      expect(ys[2] - ys[1]).toBeCloseTo(13 * lineHeight, 6);
+    });
+  });
 });
 
 describe('svgToPngBlob', () => {
-  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150" viewBox="0 0 300 150"><rect width="300" height="150" fill="#1B1922"/></svg>';
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150" viewBox="0 0 300 150"><rect width="300" height="150" fill="#14121B"/></svg>';
 
   class ImageStub {
     static instances: ImageStub[] = [];
@@ -609,6 +794,7 @@ describe('svgToPngBlob', () => {
 
   const drawImage = vi.fn();
   const pngBlob = new Blob(['png-bytes'], { type: 'image/png' });
+  let pngResult: Blob | null = pngBlob;
   let toBlobCalls: { width: number; height: number; type: string | undefined }[] = [];
   let context: { drawImage: typeof drawImage } | null = { drawImage };
   const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:mock-url');
@@ -619,6 +805,7 @@ describe('svgToPngBlob', () => {
   beforeEach(() => {
     ImageStub.instances = [];
     ImageStub.fail = false;
+    pngResult = pngBlob;
     toBlobCalls = [];
     context = { drawImage };
     drawImage.mockClear();
@@ -634,7 +821,7 @@ describe('svgToPngBlob', () => {
       type?: string,
     ) {
       toBlobCalls.push({ width: this.width, height: this.height, type });
-      callback(pngBlob);
+      callback(pngResult);
     });
   });
 
@@ -685,6 +872,13 @@ describe('svgToPngBlob', () => {
   it('rejects when the canvas has no 2D context', async () => {
     context = null;
     await expect(svgToPngBlob(SVG)).rejects.toThrow(/2D/);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+  });
+
+  it('rejects when the canvas hands back no PNG data, still revoking the URL', async () => {
+    pngResult = null;
+    await expect(svgToPngBlob(SVG)).rejects.toThrow(/no PNG data/);
+    expect(drawImage).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
   });
 });

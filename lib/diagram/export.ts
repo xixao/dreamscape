@@ -2,11 +2,12 @@
 // diagrams-design.md section 8): `renderDiagramSvg` is a pure, fully
 // unit-tested renderer that turns nodes, edges and the frames connectors
 // attach to into a standalone SVG string mirroring what
-// components/workbench/diagram/diagram-layer.tsx draws on screen (same
-// geometry, same fills and strokes translated to hex/rgba, same edge paths
-// from lib/diagram/geometry.ts, same arrowhead marker); `svgToPngBlob` is
-// the thin browser-only wrapper that rasterises that string at 2x through an
-// Image and a canvas. Text is native <text>/<tspan> (never foreignObject,
+// components/workbench/diagram/diagram-layer.tsx draws on screen in every
+// case - the same geometry, the same fills, strokes and theme tokens
+// translated to hex/rgba, the same edge paths from lib/diagram/geometry.ts,
+// the same arrowhead marker, connectors beneath shapes; `svgToPngBlob` is
+// the thin browser-only wrapper that rasterises that string at 2x through
+// an Image and a canvas. Text is native <text>/<tspan> (never foreignObject,
 // which PNG rasterisation and most viewers drop), wrapped with a pluggable
 // text measurer so the pure part never touches the DOM. The UI hookup
 // (Cmd+A, menu entries, Design panel buttons, the download) is a follow-on
@@ -14,13 +15,16 @@
 
 import {
   anchorOnBox,
+  bezierControlPoints,
   bounds,
   getBezierPath,
   getHandlePosition,
   getSmoothStepPath,
+  getStepPoints,
   getStraightPath,
   sideFromPoint,
   type Box,
+  type PathResult,
   type Point,
   type Side,
 } from './geometry';
@@ -49,10 +53,9 @@ export interface RenderDiagramSvgInput {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   frames: ExportFrame[];
-  // Omitted: everything is exported. Given: the selected nodes, plus the
-  // selected edges whose two ends are each a selected node or a frame
-  // (spec: "Connectors are exported only when both ends are in the
-  // selection or attach to a frame").
+  // Omitted: everything is exported. Given: the selected nodes, plus every
+  // connector that is selected itself, joins two exported nodes, or joins
+  // an exported node to a frame - see the filter in renderDiagramSvg.
   selection?: DiagramSelection;
   measureText: MeasureText;
   padding?: number;
@@ -64,10 +67,25 @@ export interface RenderedDiagramSvg {
   height: number;
 }
 
-// The canvas surface the diagram sits on (app/globals.css `--background`).
-export const EXPORT_BACKGROUND = '#1B1922';
+// --- Theme ------------------------------------------------------------------
+// The screen's tokens (app/globals.css `:root`), mirrored by value so the
+// SVG stands alone outside the app; lib/diagram/export.test.ts reads that
+// CSS from disk and fails if any of these drift.
+
+// The canvas surface the diagram sits on: `--canvas`, painted by
+// components/workbench/canvas.tsx's `bg-canvas` root (not `--background`,
+// which is the workbench shell around it).
+export const EXPORT_BACKGROUND = '#14121B';
 // Spec section 8: "32 px padding around the selection bounds".
 export const DEFAULT_EXPORT_PADDING = 32;
+// `--acc`: the on-screen marker is `fill-(--acc)` (diagram-layer.tsx).
+const ARROWHEAD_FILL = '#8C97DB';
+// The CHIP surface a label sits in (components/workbench/chrome.ts CHIP:
+// `bg-(--chip)`, border `--bevel-line`) and the `--foreground` its text
+// inherits from body.
+const LABEL_CHIP_FILL = 'rgba(255,255,255,0.055)';
+const LABEL_CHIP_STROKE = 'rgba(255,255,255,0.09)';
+const LABEL_TEXT_FILL = '#EAE8F0';
 
 // The app's font stacks (app/layout.tsx loads Archivo and IBM Plex Mono via
 // next/font) with generic fallbacks; no font files are embedded, so a
@@ -76,9 +94,11 @@ export const SHAPE_FONT: ExportTextFont = { size: 13, family: "Archivo, 'Helveti
 export const LABEL_FONT: ExportTextFont = { size: 10.5, family: "'IBM Plex Mono', ui-monospace, Menlo, monospace", weight: 400 };
 
 // On-screen equivalents: the shape text is a 13 px flex-centred div with
-// 6 px padding (`p-1.5`) and overflow hidden; the label a `font-mono
-// text-[10.5px]` chip; strokes 1.5 px at zoom 1.
-const SHAPE_LINE_HEIGHT = 1.25;
+// 6 px padding (`p-1.5`) and overflow hidden whose `text-[13px]` sets only
+// the font size, so it inherits body's `line-height: 1.45`
+// (app/globals.css); the label a `font-mono text-[10.5px]` CHIP; strokes
+// 1.5 px at zoom 1.
+const SHAPE_LINE_HEIGHT = 1.45;
 const SHAPE_TEXT_INSET = 6;
 const SHAPE_STROKE_WIDTH = 1.5;
 const TEXT_FILL = '#ffffff';
@@ -87,8 +107,6 @@ const EDGE_STROKE_WIDTH = 1.5;
 const LABEL_PADDING_X = 8;
 const LABEL_HEIGHT = 20;
 const LABEL_RADIUS = 4;
-const LABEL_FILL = EXPORT_BACKGROUND;
-const LABEL_STROKE = 'rgba(255,255,255,0.2)';
 // A frame is live HTML, never rasterised: an attached one is drawn as a 1 px
 // outline carrying its name, nothing else (spec section 8).
 const FRAME_STROKE = 'rgba(255,255,255,0.5)';
@@ -130,20 +148,35 @@ function fmt(value: number): string {
   return String(Number(value.toFixed(3)));
 }
 
+/**
+ * Path data with every number written through fmt: geometry.ts hands back
+ * raw floats (a bezier control point at -24.000000000000007), the export
+ * writes -24. Only M/L/C/Q coordinates ever appear, so every number in the
+ * string is a coordinate.
+ */
+function formatPath(d: string): string {
+  return d.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (n) => fmt(Number(n)));
+}
+
 const XML_ENTITIES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' };
 
 /**
  * Every piece of user text (shape text, labels, frame names, ids) goes
- * through this: the five XML-special characters become entities, and the
- * control characters XML 1.0 forbids outright (anything below U+0020 other
- * than tab, newline and carriage return) are dropped so pasted text can
- * never produce a document a parser rejects.
+ * through this: the five XML-special characters become entities, and
+ * anything that is not an XML character at all is dropped - the C0
+ * controls other than tab, newline and carriage return, lone surrogates
+ * (iterating by code point, a surrogate that failed to pair comes through
+ * as a single unit in D800-DFFF) and the two non-characters U+FFFE and
+ * U+FFFF - so text from a corrupted file can never produce a document a
+ * parser rejects.
  */
 function escapeXml(value: string): string {
   let out = '';
   for (const char of value) {
     const code = char.codePointAt(0) ?? 0;
     if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) continue;
+    if (code >= 0xd800 && code <= 0xdfff) continue;
+    if (code === 0xfffe || code === 0xffff) continue;
     out += XML_ENTITIES[char] ?? char;
   }
   return out;
@@ -217,13 +250,21 @@ function center(box: Box): Point {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+function pointBox(point: Point): Box {
+  return { x: point.x, y: point.y, width: 0, height: 0 };
+}
+
 function shapeText(box: Box, text: string, measureText: MeasureText): string {
   if (text === '') return '';
   const innerWidth = box.width - 2 * SHAPE_TEXT_INSET;
   const innerHeight = box.height - 2 * SHAPE_TEXT_INSET;
   const lineHeight = SHAPE_FONT.size * SHAPE_LINE_HEIGHT;
-  // The on-screen div is overflow hidden: lines past the inner height are
-  // dropped (the first line always survives so a tiny box is never blank).
+  // Lines past the inner height are dropped from the END - a deliberate
+  // deviation from the screen, where the overflow-hidden flex block stays
+  // centred and clips its first and last lines equally: an export that
+  // keeps the opening lines reads better than one that shows the middle of
+  // a paragraph. The first line always survives so a tiny box is never
+  // blank.
   const maxLines = Math.max(1, Math.floor(innerHeight / lineHeight));
   const lines = wrapText(text, innerWidth, (line) => measureText(line, SHAPE_FONT)).slice(0, maxLines);
   const { x: centerX, y: centerY } = center(box);
@@ -294,27 +335,56 @@ function renderFrame(frame: ExportFrame, box: Box): string {
  * The side an edge leaves or arrives on: the stored one when present,
  * otherwise whichever side of `box` faces the OTHER endpoint's centre -
  * the same fallback diagram-layer.tsx's resolveEndpoint uses for an edge
- * saved before a side was chosen.
+ * saved before a side was chosen. The anchorOnBox round trip is that
+ * function's own (sideFromPoint of a side's handle is that side again, so
+ * this equals sideFromPoint(box, center(other))); kept as written there so
+ * the two stay line-for-line comparable.
  */
 function resolveSide(endpoint: EdgeEndpoint, box: Box, other: Box): Side {
   if (endpoint.side && (SIDES as readonly string[]).includes(endpoint.side)) return endpoint.side;
   return sideFromPoint(box, anchorOnBox(box, center(other)));
 }
 
-function renderEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, measureText: MeasureText): string {
+interface ResolvedEdge {
+  route: PathResult;
+  chip: Box | null;
+  // Everything the connector draws outside its two endpoint boxes, for the
+  // export's bounds: a curve's control points and a step's corners (each
+  // path lies inside the hull of those points), plus the label chip.
+  extent: Box[];
+}
+
+/** The path, chip rect and extent of `edge` between two boxes, in whichever space the boxes are in. */
+function resolveEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, chipWidth: number | undefined): ResolvedEdge {
   const sourceSide = resolveSide(edge.source, sourceBox, targetBox);
   const targetSide = resolveSide(edge.target, targetBox, sourceBox);
   const sourcePoint = getHandlePosition(sourceBox, sourceSide);
   const targetPoint = getHandlePosition(targetBox, targetSide);
-  const route =
-    edge.kind === 'straight'
-      ? getStraightPath(sourcePoint, targetPoint)
-      : edge.kind === 'curve'
-        ? getBezierPath(sourcePoint, sourceSide, targetPoint, targetSide)
-        : getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
+  let route: PathResult;
+  let extent: Box[];
+  if (edge.kind === 'straight') {
+    route = getStraightPath(sourcePoint, targetPoint);
+    extent = [];
+  } else if (edge.kind === 'curve') {
+    route = getBezierPath(sourcePoint, sourceSide, targetPoint, targetSide);
+    const { c1, c2 } = bezierControlPoints(sourcePoint, sourceSide, targetPoint, targetSide);
+    extent = [pointBox(c1), pointBox(c2)];
+  } else {
+    route = getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
+    extent = getStepPoints(sourcePoint, sourceSide, targetPoint, targetSide).map(pointBox);
+  }
+  const chip =
+    chipWidth === undefined
+      ? null
+      : { x: route.labelX - chipWidth / 2, y: route.labelY - LABEL_HEIGHT / 2, width: chipWidth, height: LABEL_HEIGHT };
+  if (chip) extent.push(chip);
+  return { route, chip, extent };
+}
+
+function renderEdge(edge: DiagramEdge, resolved: ResolvedEdge): string {
   const marker = `url(#${ARROWHEAD_ID})`;
   const path = element('path', {
-    d: route.path,
+    d: formatPath(resolved.route.path),
     fill: 'none',
     stroke: EDGE_STROKE,
     'stroke-width': EDGE_STROKE_WIDTH,
@@ -322,24 +392,23 @@ function renderEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, measureTe
     'marker-start': edge.arrow === 'both' ? marker : undefined,
   });
   let chip = '';
-  if (edge.label) {
-    const width = measureText(edge.label, LABEL_FONT) + 2 * LABEL_PADDING_X;
+  if (edge.label && resolved.chip) {
     chip =
       element('rect', {
-        x: route.labelX - width / 2,
-        y: route.labelY - LABEL_HEIGHT / 2,
-        width,
-        height: LABEL_HEIGHT,
+        x: resolved.chip.x,
+        y: resolved.chip.y,
+        width: resolved.chip.width,
+        height: resolved.chip.height,
         rx: LABEL_RADIUS,
-        fill: LABEL_FILL,
-        stroke: LABEL_STROKE,
+        fill: LABEL_CHIP_FILL,
+        stroke: LABEL_CHIP_STROKE,
       }) +
       element(
         'text',
         {
-          x: route.labelX,
-          y: route.labelY,
-          fill: TEXT_FILL,
+          x: resolved.route.labelX,
+          y: resolved.route.labelY,
+          fill: LABEL_TEXT_FILL,
           'font-family': LABEL_FONT.family,
           'font-size': LABEL_FONT.size,
           'text-anchor': 'middle',
@@ -352,26 +421,31 @@ function renderEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, measureTe
 }
 
 // The on-screen marker (diagram-layer.tsx `#diagram-arrowhead`) verbatim,
-// filled white instead of the accent colour so it reads on the dark
-// background of a file viewed outside the app.
+// filled with the accent colour it uses there.
 const ARROWHEAD_DEFS = element(
   'defs',
   {},
   element(
     'marker',
     { id: ARROWHEAD_ID, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
-    element('path', { d: 'M0,0 L10,5 L0,10 z', fill: TEXT_FILL }),
+    element('path', { d: 'M0,0 L10,5 L0,10 z', fill: ARROWHEAD_FILL }),
   ),
 );
 
 // --- Entry points --------------------------------------------------------------
 
+function boxFor(endpoint: EdgeEndpoint, nodeBoxes: ReadonlyMap<string, Box>, frameBoxes: ReadonlyMap<string, Box>): Box | undefined {
+  return endpoint.nodeId ? nodeBoxes.get(endpoint.nodeId) : endpoint.screenId ? frameBoxes.get(endpoint.screenId) : undefined;
+}
+
 /**
  * The SVG document for a diagram (or the selected part of it) plus its
  * pixel size, or `null` when nothing is exportable. Canvas units at zoom 1,
- * translated so the padded bounds of the exported shapes and attached
- * frames start at 0,0; deterministic for the same input (frames, then
- * nodes in array order, then edges).
+ * translated so the padded bounds of everything drawn start at 0,0;
+ * deterministic for the same input. Drawn in the screen's own order: the
+ * frame outlines, then the connectors, then the shapes (each in array
+ * order), so a connector passes beneath a shape and an arrowhead tucks
+ * under a border exactly as in diagram-layer.tsx.
  */
 export function renderDiagramSvg(input: RenderDiagramSvgInput): RenderedDiagramSvg | null {
   const padding = input.padding ?? DEFAULT_EXPORT_PADDING;
@@ -379,53 +453,71 @@ export function renderDiagramSvg(input: RenderDiagramSvgInput): RenderedDiagramS
   const selectedEdgeIds = input.selection ? new Set(input.selection.filter((item) => item.type === 'edge').map((item) => item.id)) : null;
 
   const nodes = input.nodes.filter((node) => selectedNodeIds === null || selectedNodeIds.has(node.id));
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const frameIds = new Set(input.frames.map((frame) => frame.id));
-  // An endpoint counts only when it lands on an exported node or an
-  // existing frame - so with a selection, an edge to an unselected node is
-  // dropped; without one, an edge to a missing node is skipped the way the
-  // layer's renderEdge skips it.
-  const resolvable = (endpoint: EdgeEndpoint): boolean =>
-    endpoint.nodeId ? nodeIds.has(endpoint.nodeId) : endpoint.screenId ? frameIds.has(endpoint.screenId) : false;
-  const edges = input.edges.filter(
-    (edge) => (selectedEdgeIds === null || selectedEdgeIds.has(edge.id)) && resolvable(edge.source) && resolvable(edge.target),
-  );
+  const nodeBoxes = new Map<string, Box>(nodes.map((node) => [node.id, node]));
+  const frameBoxes = new Map<string, Box>(input.frames.map((frame) => [frame.id, frame]));
+
+  // Which connectors come along - the export mirrors the screen, where a
+  // connector shows whenever both of its ends are visible. An end resolves
+  // when it is an exported node or an existing frame; a connector whose
+  // two ends resolve is exported when there is no selection, when it is
+  // itself selected, when it joins two exported nodes, or when it joins an
+  // exported node to a frame. So Shift+clicking two connected shapes
+  // exports the connector between them, while a selected connector whose
+  // node end is not exported is dropped (and no frame is drawn for it), and
+  // an unselected frame-to-frame connector never drags frames in on its
+  // own.
+  const exportedEdges: { edge: DiagramEdge; source: Box; target: Box }[] = [];
+  for (const edge of input.edges) {
+    const source = boxFor(edge.source, nodeBoxes, frameBoxes);
+    const target = boxFor(edge.target, nodeBoxes, frameBoxes);
+    if (!source || !target) continue;
+    const selected = selectedEdgeIds === null || selectedEdgeIds.has(edge.id);
+    const joinsAnExportedNode = Boolean(edge.source.nodeId || edge.target.nodeId);
+    if (!selected && !joinsAnExportedNode) continue;
+    exportedEdges.push({ edge, source, target });
+  }
   const attachedFrameIds = new Set<string>();
-  for (const edge of edges) {
+  for (const { edge } of exportedEdges) {
     for (const endpoint of [edge.source, edge.target]) {
       if (!endpoint.nodeId && endpoint.screenId) attachedFrameIds.add(endpoint.screenId);
     }
   }
   const frames = input.frames.filter((frame) => attachedFrameIds.has(frame.id));
 
-  if (nodes.length === 0 && edges.length === 0) return null;
-  const extent = bounds([...nodes, ...frames]);
+  if (nodes.length === 0 && exportedEdges.length === 0) return null;
+
+  const chipWidths = new Map<string, number>();
+  for (const { edge } of exportedEdges) {
+    if (edge.label) chipWidths.set(edge.id, input.measureText(edge.label, LABEL_FONT) + 2 * LABEL_PADDING_X);
+  }
+
+  // Canvas-space pass: the bounds cover the shapes, the attached frames and
+  // everything the connectors draw (control points, step corners, label
+  // chips), so the padding is measured from what actually lands on the
+  // page and nothing is clipped.
+  const extent = bounds([
+    ...nodes,
+    ...frames,
+    ...exportedEdges.flatMap(({ edge, source, target }) => resolveEdge(edge, source, target, chipWidths.get(edge.id)).extent),
+  ]);
   if (!extent) return null;
 
-  const width = extent.width + 2 * padding;
-  const height = extent.height + 2 * padding;
+  const width = Number(fmt(extent.width + 2 * padding));
+  const height = Number(fmt(extent.height + 2 * padding));
   const offsetX = padding - extent.x;
   const offsetY = padding - extent.y;
   const shift = (box: Box): Box => ({ x: box.x + offsetX, y: box.y + offsetY, width: box.width, height: box.height });
-  const placedNodes = nodes.map((node) => ({ node, box: shift(node) }));
-  const placedFrames = frames.map((frame) => ({ frame, box: shift(frame) }));
-  const nodeBoxes = new Map(placedNodes.map(({ node, box }) => [node.id, box] as const));
-  const frameBoxes = new Map(placedFrames.map(({ frame, box }) => [frame.id, box] as const));
-  const boxFor = (endpoint: EdgeEndpoint): Box | undefined =>
-    endpoint.nodeId ? nodeBoxes.get(endpoint.nodeId) : endpoint.screenId ? frameBoxes.get(endpoint.screenId) : undefined;
 
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(width)}" height="${fmt(height)}" viewBox="0 0 ${fmt(width)} ${fmt(height)}">`,
     ARROWHEAD_DEFS,
     element('rect', { x: 0, y: 0, width, height, fill: EXPORT_BACKGROUND }),
   ];
-  for (const { frame, box } of placedFrames) parts.push(renderFrame(frame, box));
-  for (const { node, box } of placedNodes) parts.push(renderNode(node, box, input.measureText));
-  for (const edge of edges) {
-    const sourceBox = boxFor(edge.source);
-    const targetBox = boxFor(edge.target);
-    if (sourceBox && targetBox) parts.push(renderEdge(edge, sourceBox, targetBox, input.measureText));
+  for (const frame of frames) parts.push(renderFrame(frame, shift(frame)));
+  for (const { edge, source, target } of exportedEdges) {
+    parts.push(renderEdge(edge, resolveEdge(edge, shift(source), shift(target), chipWidths.get(edge.id))));
   }
+  for (const node of nodes) parts.push(renderNode(node, shift(node), input.measureText));
   parts.push('</svg>');
 
   return { svg: parts.join('\n'), width, height };
