@@ -36,7 +36,8 @@ function layoutContext(overrides: Partial<LayoutAlignmentContext> = {}): LayoutA
     align: 'stretch',
     justify: 'start',
     onChange: vi.fn(),
-    distributeGapPx: 24,
+    canDistribute: true,
+    onDistribute: vi.fn(),
     ...overrides,
   };
 }
@@ -189,8 +190,13 @@ describe('AlignmentFields - Auto layout context', () => {
     expect(context.onChange).toHaveBeenLastCalledWith({ justify: 'end' });
   });
 
-  it('Distribute horizontally is enabled and sets gapPx for a row container', () => {
-    const context = layoutContext({ direction: 'row', distributeGapPx: 24 });
+  // Review fix wave nit 13: the real DOM measurement (measureDistributeGapPx)
+  // now happens inside onDistribute itself, called only on an actual click -
+  // this component just calls it, never touching onChange directly for a
+  // Distribute click (onDistribute does its own actions.setProp, in the
+  // real inspector.tsx wiring).
+  it('Distribute horizontal spacing is enabled and calls onDistribute for a row container', () => {
+    const context = layoutContext({ direction: 'row', canDistribute: true });
     renderFields(context);
 
     const horizontal = screen.getByRole('button', { name: 'Distribute horizontal spacing' });
@@ -199,11 +205,12 @@ describe('AlignmentFields - Auto layout context', () => {
     expect(vertical).toBeDisabled();
 
     fireEvent.click(horizontal);
-    expect(context.onChange).toHaveBeenLastCalledWith({ gapPx: 24 });
+    expect(context.onDistribute).toHaveBeenCalledTimes(1);
+    expect(context.onChange).not.toHaveBeenCalled();
   });
 
-  it('Distribute vertically is enabled and sets gapPx for a column container', () => {
-    const context = layoutContext({ direction: 'column', distributeGapPx: 16 });
+  it('Distribute vertical spacing is enabled and calls onDistribute for a column container', () => {
+    const context = layoutContext({ direction: 'column', canDistribute: true });
     renderFields(context);
 
     const horizontal = screen.getByRole('button', { name: 'Distribute horizontal spacing' });
@@ -212,12 +219,18 @@ describe('AlignmentFields - Auto layout context', () => {
     expect(vertical).not.toBeDisabled();
 
     fireEvent.click(vertical);
-    expect(context.onChange).toHaveBeenLastCalledWith({ gapPx: 16 });
+    expect(context.onDistribute).toHaveBeenCalledTimes(1);
+    expect(context.onChange).not.toHaveBeenCalled();
   });
 
-  it('disables the on-axis distribute button when distributeGapPx is null (fewer than two children)', () => {
-    renderFields(layoutContext({ direction: 'row', distributeGapPx: null }));
-    expect(screen.getByRole('button', { name: 'Distribute horizontal spacing' })).toBeDisabled();
+  it('disables the on-axis distribute button when canDistribute is false (fewer than two children)', () => {
+    const context = layoutContext({ direction: 'row', canDistribute: false });
+    renderFields(context);
+    const horizontal = screen.getByRole('button', { name: 'Distribute horizontal spacing' });
+    expect(horizontal).toBeDisabled();
+
+    fireEvent.click(horizontal);
+    expect(context.onDistribute).not.toHaveBeenCalled();
   });
 
   // Review fix wave item 7: only this context has a persisted align/justify

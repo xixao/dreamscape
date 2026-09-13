@@ -258,6 +258,33 @@ describe('Inspector', () => {
       expect(within(alignmentRow).getByRole('button', { name: 'Distribute vertical spacing' })).toBeDisabled();
     });
 
+    // Review fix wave nit 13: the real DOM measurement behind Distribute
+    // (getBoundingClientRect, on the container and every child) must run
+    // only when the button is actually clicked - not on every Inspector
+    // render, which used to force a needless layout reflow each time
+    // (rendering the panel, selecting a different node, or re-selecting the
+    // same one, all included).
+    it('measures the DOM only on an actual Distribute click, not on every render', async () => {
+      const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect');
+      const { editor } = mount();
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const horizontal = within(panel).getByRole('button', { name: 'Distribute horizontal spacing' });
+      expect(horizontal).not.toBeDisabled();
+
+      // Re-selecting the same node re-renders the alignment row with no
+      // click involved - must not measure anything on its own.
+      rectSpy.mockClear();
+      await select(editor, 'root');
+      expect(rectSpy).not.toHaveBeenCalled();
+
+      await userEvent.click(horizontal);
+      expect(rectSpy).toHaveBeenCalled();
+
+      rectSpy.mockRestore();
+    });
+
     it('does not show the alignment row when nothing is selected', async () => {
       mount();
       await screen.findByText('Billing');

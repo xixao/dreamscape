@@ -113,13 +113,20 @@ type MinimalEditor = { actions: ReturnType<typeof useEditor>['actions']; query: 
  * Builds the alignment row's props for a layer inside Auto layout (spec
  * docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
  * section 4): resolves the container's responsive direction/align/justify
- * for the CURRENT breakpoint, measures its real DOM (container and every
- * child's size along the main axis) for the Distribute button's gap, and
- * returns an `onChange` that writes align/justify back for only that same
- * breakpoint - the same merge Field.tsx's own `commit` does for every other
- * responsive field - so the icon row and the existing Alignment/
- * Distribution selects never fight over what a plain click just changed at
- * the other breakpoint.
+ * for the CURRENT breakpoint, and returns an `onChange` that writes align/
+ * justify back for only that same breakpoint - the same merge Field.tsx's
+ * own `commit` does for every other responsive field - so the icon row and
+ * the existing Alignment/Distribution selects never fight over what a
+ * plain click just changed at the other breakpoint.
+ *
+ * Review fix wave nit 13: Distribute's real DOM measurement
+ * (measureDistributeGapPx, a getBoundingClientRect read) now happens only
+ * inside `onDistribute`, run when the button is actually clicked - this
+ * function itself runs on every Inspector render, and eagerly measuring
+ * here forced a layout reflow far more often than needed (and always read
+ * zero in a test environment, which never actually lays anything out).
+ * `canDistribute` gates the button on the container's own child count
+ * instead - cheap node-tree data, not a DOM read.
  */
 function buildLayoutAlignmentContext({
   query,
@@ -127,7 +134,7 @@ function buildLayoutAlignmentContext({
   layoutContainer,
   breakpoint,
 }: MinimalEditor & {
-  layoutContainer: { id: string; props: LayoutBoxProps };
+  layoutContainer: { id: string; props: LayoutBoxProps; childCount: number };
   breakpoint: Breakpoint;
 }): LayoutAlignmentContext {
   const direction = resolve(layoutContainer.props.direction, breakpoint);
@@ -139,7 +146,14 @@ function buildLayoutAlignmentContext({
     direction,
     align,
     justify,
-    distributeGapPx: measureDistributeGapPx(query, layoutContainer.id, direction),
+    canDistribute: layoutContainer.childCount >= 2,
+    onDistribute: () => {
+      const gapPx = measureDistributeGapPx(query, layoutContainer.id, direction);
+      if (gapPx === null) return;
+      actions.setProp(layoutContainer.id, (draft: LayoutBoxProps) => {
+        draft.gapPx = gapPx;
+      });
+    },
     onChange: (patch) => {
       actions.setProp(layoutContainer.id, (draft: LayoutBoxProps) => {
         if (patch.align !== undefined) {
@@ -319,13 +333,22 @@ export function Inspector({
     // inside an Auto layout container (or the container itself)"). Grid
     // mode has no align/justify axes to map the icon row onto, so it is
     // excluded the same as any non-LayoutBox node.
-    function asFlexLayoutBox(candidateId: string | null | undefined): { id: string; props: LayoutBoxProps } | null {
+    function asFlexLayoutBox(
+      candidateId: string | null | undefined,
+    ): { id: string; props: LayoutBoxProps; childCount: number } | null {
       if (!candidateId) return null;
       const candidate = state.nodes[candidateId];
       if (!candidate || candidate.data.name !== 'LayoutBox') return null;
       const candidateProps = candidate.data.props as LayoutBoxProps;
       if (candidateProps.mode === 'grid') return null;
-      return { id: candidateId, props: candidateProps };
+      // Review fix wave nit 13: the container's OWN child count (not
+      // whatever `childCount` below resolves to - that tracks the
+      // SELECTED node/zone, which is the layoutContainer's PARENT rather
+      // than itself when a child inside it is what's actually selected),
+      // so Distribute's enabled state never depends on a real DOM
+      // measurement (unreliable in a test environment, and unnecessary
+      // work on every render just to decide whether a button is clickable).
+      return { id: candidateId, props: candidateProps, childCount: candidate.data.nodes.length };
     }
     const layoutContainer = asFlexLayoutBox(selectedId) ?? asFlexLayoutBox(node?.data.parent);
 

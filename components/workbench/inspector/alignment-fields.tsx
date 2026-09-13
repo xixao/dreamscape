@@ -57,17 +57,20 @@ export type FrameAlignmentContext = {
 // section 4) - the same icon row instead maps onto the CONTAINER's own
 // align/justify props (`onChange` always targets the container, even when
 // the selected node is one of its children - see inspector.tsx for how the
-// two are told apart). `distributeGapPx` is precomputed by the caller (real
-// DOM measurement of the container and its children, lib/classes.ts's own
-// distributeGapPx) - null disables the on-axis Distribute button (fewer
-// than two children, or nothing measurable yet).
+// two are told apart). Review fix wave nit 13: the on-axis Distribute
+// button's real DOM measurement (lib/classes.ts's own distributeGapPx,
+// over a live getBoundingClientRect read) is deferred to `onDistribute`,
+// called only on an actual click - `canDistribute` gates the button on the
+// container's own child count (>= 2) instead, cheap node-tree data rather
+// than a DOM read on every render.
 export type LayoutAlignmentContext = {
   type: 'layout';
   direction: 'row' | 'column';
   align: Align;
   justify: Justify;
   onChange: (patch: { align?: Align; justify?: Justify; gapPx?: SpacingPx }) => void;
-  distributeGapPx: SpacingPx | null;
+  canDistribute: boolean;
+  onDistribute: () => void;
 };
 
 // A diagram selection of two or more shapes (Matt, 2026-09-13: "i also need
@@ -292,7 +295,7 @@ function LayoutAlignmentFields({ context }: { context: LayoutAlignmentContext })
 
   function handleDistribute(axis: DistributeAxis): void {
     const isMainAxis = (axis === 'horizontal') === isRow;
-    if (isMainAxis && context.distributeGapPx !== null) context.onChange({ gapPx: context.distributeGapPx });
+    if (isMainAxis) context.onDistribute();
   }
 
   // Review fix wave item 7: this is the only context with a persisted
@@ -324,11 +327,7 @@ function LayoutAlignmentFields({ context }: { context: LayoutAlignmentContext })
     <AlignmentRow
       onAlign={handleAlign}
       onDistribute={handleDistribute}
-      enabled={uniformEnabled(
-        true,
-        isRow && context.distributeGapPx !== null,
-        !isRow && context.distributeGapPx !== null,
-      )}
+      enabled={uniformEnabled(true, isRow && context.canDistribute, !isRow && context.canDistribute)}
       active={active}
       extra={
         <>
