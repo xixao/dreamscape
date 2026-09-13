@@ -70,9 +70,9 @@ server, the same way the rest of this app's client code never sees
 
 To go live, change that one prop to the real transport (import it in place of
 `placeholderTransport` from `@/lib/chat/transport`). `ChatPanel` reads the
-transport through `useChatTransport()` (`components/workbench/chat/chat-
-transport-context.tsx`) and never imports a transport implementation
-directly, so this is the only line that needs to change.
+transport through `useChatTransport()`
+(`components/workbench/chat/chat-transport-context.tsx`) and never imports a
+transport implementation directly, so this is the only line that needs to change.
 
 ## What the panel guarantees
 

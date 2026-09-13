@@ -91,6 +91,40 @@ describe('validateScreens', () => {
     expect(result.screens[0]).toMatchObject({ stageHeight: 900, deviceName: 'iPhone 17 Pro' });
   });
 
+  it('rejects a stageHeight that is zero, negative, or not an integer', () => {
+    expect(validateScreens([screen({ stageHeight: 0 })], knownTypes)).toEqual({
+      ok: false,
+      reason: expect.any(String),
+    });
+    expect(validateScreens([screen({ stageHeight: -100 })], knownTypes)).toEqual({
+      ok: false,
+      reason: expect.any(String),
+    });
+    expect(validateScreens([screen({ stageHeight: 87.5 })], knownTypes)).toEqual({
+      ok: false,
+      reason: expect.any(String),
+    });
+  });
+
+  it('accepts a stageHeight of exactly 1 and normal device heights', () => {
+    const result = validateScreens([screen({ stageHeight: 1 })], knownTypes);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.screens[0].stageHeight).toBe(1);
+  });
+
+  it('rejects a deviceName longer than 80 characters', () => {
+    const result = validateScreens([screen({ deviceName: 'x'.repeat(81) })], knownTypes);
+    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  });
+
+  it('accepts a deviceName at exactly the 80 character limit', () => {
+    const result = validateScreens([screen({ deviceName: 'x'.repeat(80) })], knownTypes);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.screens[0].deviceName).toBe('x'.repeat(80));
+  });
+
   it('rejects zero screens', () => {
     const result = validateScreens([], knownTypes);
     expect(result).toEqual({ ok: false, reason: expect.any(String) });
@@ -150,7 +184,7 @@ describe('validateScreens', () => {
     expect(low.ok).toBe(true);
     expect(high.ok).toBe(true);
     if (!low.ok || !high.ok) throw new Error('expected ok');
-    expect(low.screens[0].stageWidth).toBe(320);
+    expect(low.screens[0].stageWidth).toBe(120);
     expect(high.screens[0].stageWidth).toBe(1920);
   });
 });

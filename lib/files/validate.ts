@@ -136,16 +136,19 @@ export type ValidateScreensResult = { ok: true; screens: Screen[] } | { ok: fals
 
 const SCREEN_NAME_MAX = 80;
 const SCREEN_ID_LENGTH = 10;
+const DEVICE_NAME_MAX = 80;
 
 /**
  * Validates and normalizes a whole file's screens array in one pass: every
  * screen's layout must pass validateLayout, names are trimmed to 1..80
- * characters, widths are clamped to the same [320, 1920] range a lone
- * stageWidth always was, ids must be exactly 10 characters and unique
- * within the array, and at least one screen must be present. zod
- * (lib/files/http.ts) only checks the shape (an array of 1..50 objects with
- * the right field types); this is where the content rules live, the same
- * split validateLayout already has with the zod `layout: z.string()` check
+ * characters, widths are clamped to the same [120, 1920] range a lone
+ * stageWidth always was, stageHeight (when given) must be a positive
+ * integer, deviceName (when given) must be at most 80 characters, ids must
+ * be exactly 10 characters and unique within the array, and at least one
+ * screen must be present. zod (lib/files/http.ts) only checks the shape (an
+ * array of 1..50 objects with the right field types); this is where the
+ * content rules live, the same split validateLayout already has with the
+ * zod `layout: z.string()` check
  * one level up.
  */
 export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<string>): ValidateScreensResult {
@@ -175,13 +178,23 @@ export function validateScreens(input: ScreenInput[], knownTypes: ReadonlySet<st
       return { ok: false, reason: `screen "${name}" layout ${validatedLayout.reason}` };
     }
 
+    const stageHeight = raw.stageHeight ?? null;
+    if (stageHeight !== null && (!Number.isInteger(stageHeight) || stageHeight <= 0)) {
+      return { ok: false, reason: `screen "${name}" stageHeight must be a positive integer or null` };
+    }
+
+    const deviceName = raw.deviceName ?? null;
+    if (deviceName !== null && deviceName.length > DEVICE_NAME_MAX) {
+      return { ok: false, reason: `screen "${name}" deviceName must be at most ${DEVICE_NAME_MAX} characters` };
+    }
+
     screens.push({
       id: raw.id,
       name,
       layout: raw.layout,
       stageWidth: clampWidth(raw.stageWidth),
-      stageHeight: raw.stageHeight ?? null,
-      deviceName: raw.deviceName ?? null,
+      stageHeight,
+      deviceName,
     });
   }
 
