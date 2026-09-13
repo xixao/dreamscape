@@ -977,6 +977,25 @@ body {
   display: flex;
   flex-direction: column;
 }
+.inspection-toolbar {
+  flex-wrap: wrap;
+}
+.fold-controls {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+.phone-simulation > .product {
+  border: 8px solid var(--border);
+  border-radius: 28px;
+  min-height: 600px;
+}
+.phone-simulation .device-label {
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .assistant-open > [data-slot="tabs"] {
   flex: 1;
   min-height: 0;

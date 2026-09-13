@@ -160,6 +160,13 @@ export default function FlowReview() {
   const [focus, setFocus] = useState<PreviewFocus>("page");
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [canvasReset, setCanvasReset] = useState(0);
+  const [phoneModel, setPhoneModel] = useState("iphone");
+  const [phoneUnfolded, setPhoneUnfolded] = useState(false);
+  const phoneWidth = phoneModel === "duo" && phoneUnfolded ? 740 : 390;
+  const phoneLabel =
+    phoneModel === "duo"
+      ? `iPhone Duo · ${phoneUnfolded ? "Unfolded" : "Folded"}`
+      : "iPhone";
   const [showFeedback, setShowFeedback] = useState(false);
   const studioRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<Data>(initial);
@@ -692,6 +699,55 @@ export default function FlowReview() {
                   </div>
                 </div>
                 <div className="inspection-toolbar">
+                  {viewport !== "desktop" && (
+                    <>
+                      <Select
+                        value={phoneModel}
+                        onValueChange={(value) => {
+                          setPhoneModel(value);
+                          setZoom("fit");
+                        }}
+                      >
+                        <SelectTrigger aria-label="Phone model">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="iphone">iPhone</SelectItem>
+                          <SelectItem value="duo">iPhone Duo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {phoneModel === "duo" && (
+                        <div
+                          className="fold-controls"
+                          role="group"
+                          aria-label="Phone posture"
+                        >
+                          <Button
+                            size="sm"
+                            variant={phoneUnfolded ? "ghost" : "secondary"}
+                            aria-pressed={!phoneUnfolded}
+                            onClick={() => {
+                              setPhoneUnfolded(false);
+                              setZoom("fit");
+                            }}
+                          >
+                            Folded
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={phoneUnfolded ? "secondary" : "ghost"}
+                            aria-pressed={phoneUnfolded}
+                            onClick={() => {
+                              setPhoneUnfolded(true);
+                              setZoom("fit");
+                            }}
+                          >
+                            Unfolded
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
                   <Select
                     value={focus}
                     onValueChange={(value) => {
@@ -793,6 +849,7 @@ export default function FlowReview() {
                     resetKey={canvasReset}
                     feedback={feedbackVisible}
                     viewport={viewport}
+                    phoneWidth={phoneWidth}
                     paired={viewport === "both" || (compare && !participant)}
                     focus={focus}
                   >
@@ -811,10 +868,20 @@ export default function FlowReview() {
                       </div>
                     )}
                     <div
-                      className={`device-wrap ${feedbackVisible ? "review-device" : ""} ${viewport === "mobile" ? "mobile-wrap" : ""}`}
+                      className={`device-wrap ${feedbackVisible ? "review-device" : ""} ${viewport === "mobile" ? "mobile-wrap phone-simulation" : ""}`}
+                      style={
+                        viewport === "mobile"
+                          ? {
+                              flex: `0 0 ${phoneWidth}px`,
+                              maxWidth: phoneWidth,
+                            }
+                          : undefined
+                      }
                     >
                       <div className="device-label">
-                        {viewport === "mobile" ? "Mobile · 340" : "Desktop"}
+                        {viewport === "mobile"
+                          ? `${phoneLabel} · Preview`
+                          : "Desktop"}
                         <span>{dirty ? "Draft" : `v${revision.number}`}</span>
                       </div>
                       <Uploader
@@ -823,7 +890,10 @@ export default function FlowReview() {
                         state={state}
                         playing={playing}
                         onState={changeState}
-                        compact={viewport === "mobile"}
+                        compact={
+                          viewport === "mobile" &&
+                          !(phoneModel === "duo" && phoneUnfolded)
+                        }
                         annotate={!participant && annotations && !presentation}
                         onAnchor={(a) => {
                           setAnchor(a);
@@ -857,10 +927,14 @@ export default function FlowReview() {
                     </div>
                     {viewport === "both" && !compare && (
                       <div
-                        className={`device-wrap mobile-wrap ${feedbackVisible ? "review-device" : ""}`}
+                        className={`device-wrap mobile-wrap phone-simulation ${feedbackVisible ? "review-device" : ""}`}
+                        style={{
+                          flex: `0 0 ${phoneWidth}px`,
+                          maxWidth: phoneWidth,
+                        }}
                       >
                         <div className="device-label">
-                          Mobile · 340 <span>Same state</span>
+                          {phoneLabel} <span>Preview</span>
                         </div>
                         <Uploader
                           focus={focus}
@@ -868,7 +942,7 @@ export default function FlowReview() {
                           state={state}
                           playing={playing}
                           onState={changeState}
-                          compact
+                          compact={!(phoneModel === "duo" && phoneUnfolded)}
                           annotate={
                             !participant && annotations && !presentation
                           }

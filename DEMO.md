@@ -29,6 +29,8 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## What is scripted or limited
 
+- Phone preview includes iPhone and iPhone Duo folded/unfolded. The 390px and 740px layout widths are illustrative CSS viewports, not certified hardware dimensions or an iOS emulator. Switching posture preserves the upload state and mobile feedback; it does not create a new revision.
+
 - The assistant is a deterministic sequence with a short presentation delay. No model receives prompts or files.
 - There is no real upload, lending decision, loan submission, Figma import, Design System MCP connection, arbitrary app execution, or live multi-user coediting.
 - Comments update after actions, manual refresh, or the enabled on-screen feedback poll. There is no real-time push. Notifications are in-app only.

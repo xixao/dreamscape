@@ -12,6 +12,7 @@ export default function PreviewCanvas({
   paired,
   focus,
   feedback,
+  phoneWidth = 340,
 }: {
   children: React.ReactNode;
   zoom: number | "fit";
@@ -21,6 +22,7 @@ export default function PreviewCanvas({
   paired: boolean;
   focus: PreviewFocus;
   feedback: boolean;
+  phoneWidth?: number;
 }) {
   const outer = useRef<HTMLDivElement>(null),
     inner = useRef<HTMLDivElement>(null);
@@ -50,12 +52,12 @@ export default function PreviewCanvas({
   }, []);
   useLayoutEffect(() => {
     setPan({ x: 0, y: 0 });
-  }, [resetKey, viewport, paired, focus, feedback]);
+  }, [resetKey, viewport, paired, focus, feedback, phoneWidth]);
   const width =
     (paired
-      ? 1180
+      ? 1180 + (viewport === "both" ? phoneWidth - 340 : 0)
       : viewport === "mobile"
-        ? 340
+        ? phoneWidth
         : focus === "page"
           ? 920
           : 560) + (feedback ? (paired ? 520 : 260) : 0);
