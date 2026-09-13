@@ -30,7 +30,7 @@ function presetButton(label: string) {
 const user = userEvent.setup({ delay: null });
 
 // Select a frame from the frames chip dropdown menu by name. Opens the menu
-// and clicks the frame name to switch to it.
+// and clicks the frame row, which switches to it and closes the menu.
 async function selectFrame(frameName: string): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
   await user.click(framesButton);
@@ -41,29 +41,47 @@ async function selectFrame(frameName: string): Promise<void> {
 // Add a new frame via the frames chip menu.
 async function addNewFrame(): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
+  const beforeLabel = framesButton.textContent;
   await user.click(framesButton);
   const newFrameItem = await screen.findByRole('menuitem', { name: 'New frame' });
   await user.click(newFrameItem);
-  // Wait a bit for the frame to be added and any re-renders to complete
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // Waits for the new screen's own state update (and Craft's first-render
+  // pass for its brand new empty layout) to actually land, rather than a
+  // blind sleep: the chip's own name-and-count text is the one thing every
+  // caller can assert changed, regardless of how many frames existed
+  // before or what the new one gets named.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Frames' }).textContent).not.toBe(beforeLabel));
 }
 
-// Duplicate a frame by name. Switches to the frame first, then clicks Duplicate.
-async function duplicateFrame(frameName: string): Promise<void> {
-  await selectFrame(frameName);
-  // After selecting the frame, open the menu again and click Duplicate
+// Opens a frame row's own per-row submenu - Rename/Duplicate/Move to
+// page/Delete for THAT specific frame (spec: "each row has" these, not only
+// the focused frame's own) - via the keyboard, the same "press Right"
+// contract a Radix DropdownMenuSubTrigger offers alongside hover. Opens
+// synchronously (unlike hover's own 100ms-delayed open), so callers don't
+// need a waitFor just to reach it. Deliberately does not click the row
+// itself first: that would instead just focus and zoom to it and close the
+// whole menu (frames-chip.tsx's own onClick on the row), which is exactly
+// the "must switch to a frame before acting on it" limitation this helper
+// exists to avoid exercising.
+async function openFrameRowMenu(frameName: string): Promise<void> {
   const framesButton = screen.getByRole('button', { name: 'Frames' });
   await user.click(framesButton);
+  const row = await screen.findByRole('menuitem', { name: frameName });
+  fireEvent.keyDown(row, { key: 'ArrowRight' });
+}
+
+// Duplicate a frame by name, via its own row submenu - see
+// openFrameRowMenu's own comment on why this never selects it first.
+async function duplicateFrame(frameName: string): Promise<void> {
+  await openFrameRowMenu(frameName);
   const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' });
   await user.click(duplicateItem);
 }
 
-// Delete a frame by name. Switches to the frame first, then clicks Delete.
+// Delete a frame by name, via its own row submenu - see openFrameRowMenu's
+// own comment on why this never selects it first.
 async function deleteFrame(frameName: string): Promise<void> {
-  await selectFrame(frameName);
-  // After selecting the frame, open the menu again and click Delete
-  const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await user.click(framesButton);
+  await openFrameRowMenu(frameName);
   const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
   await user.click(deleteItem);
 }
@@ -92,15 +110,15 @@ function selectFrameWithFakeTimers(frameName: string): void {
   fireEvent.click(frameItem);
 }
 
-// Move a frame to another page by frame name and page name.
-// Switches to the frame first, then clicks Move to page and the target page.
+// Move a frame to another page by frame name and page name, via its own
+// row submenu - see openFrameRowMenu's own comment on why this never
+// selects it first.
 async function moveFrameToPage(frameName: string, pageName: string): Promise<void> {
-  await selectFrame(frameName);
-  // After selecting the frame, open the menu again and navigate Move to page
-  const framesButton = screen.getByRole('button', { name: 'Frames' });
-  await user.click(framesButton);
-  // A Radix DropdownMenuSubTrigger renders as role="menuitem" (aria-haspopup
-  // set on the same menuitem element), not role="button".
+  await openFrameRowMenu(frameName);
+  // "Move to page" is itself a nested submenu trigger, one level inside the
+  // frame row's own submenu; a Radix DropdownMenuSubTrigger renders as
+  // role="menuitem" (aria-haspopup set on the same menuitem element), not
+  // role="button".
   const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
   await user.click(moveToPageTrigger);
   const pageItem = await screen.findByRole('menuitem', { name: pageName });
@@ -746,6 +764,25 @@ describe('Workbench', () => {
       });
 
       await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('duplicating a non-focused frame does not change focus', async () => {
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+      expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+      // Opening Frame 2's own row submenu (to reach its Duplicate item)
+      // must not, along the way, switch focus to it - the whole point of a
+      // per-row action reachable without first selecting the frame.
+      await openFrameRowMenu(SCREEN_2.name);
+      expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+
+      const duplicateItem = await screen.findByRole('menuitem', { name: 'Duplicate' });
+      await user.click(duplicateItem);
+
+      // The new copy becomes current (duplicateScreen's own existing,
+      // pre-existing behaviour, unrelated to this test) - but SCREEN_2
+      // itself, the frame duplicated FROM, was never focused along the way.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 2 copy'));
     });
 
     it('Duplicating the first of three screens places the copy right of the third, not the second', async () => {
@@ -1681,6 +1718,24 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('absolute', 'top-[76px]', 'bottom-3');
     });
+
+    // Spec docs/superpowers/specs/2026-09-13-frames-chip-design.md section
+    // 1: the diagram palette moves to "the bottom centre of the canvas" -
+    // the second headline change of that spec, alongside the frames chip
+    // itself. diagram-palette.test.tsx (unaffected by this branch) only
+    // covers open/closed/tool-arming/close-button, never these classes -
+    // without this, a regression back to the old `absolute top-[76px]`
+    // position would pass every other existing test.
+    it('the diagram palette floats at the bottom centre of the canvas, not below the top bar', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toHaveClass(
+        'fixed',
+        'bottom-4',
+        'left-1/2',
+        '-translate-x-1/2',
+      );
+    });
   });
 
   describe('pages', () => {
@@ -1733,16 +1788,14 @@ describe('Workbench', () => {
 
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 3');
       expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
-      // Empty page should not show frames chip (no frames yet)
-      let framesButton = screen.queryByRole('button', { name: /Frames/ });
-      // The button is hidden when there are 0 frames, but we can check via the "no screens yet" message
-      expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
+      // The Frames chip still renders at zero frames - it's the only way to
+      // add the page's first one - showing the no-current-frame placeholder
+      // name and a zero count.
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('— · 0');
 
       await addNewFrame();
       expect(screen.queryByText('This page has no screens yet')).toBeNull();
-      // Now the frames chip should show "Frame 1 · 1"
-      framesButton = screen.getByRole('button', { name: /Frames/ });
-      expect(framesButton).toHaveTextContent('1');
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 1 · 1');
     });
 
     it('Duplicate page copies the current page\'s screens onto a new page with new ids', async () => {

@@ -28,7 +28,7 @@ const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
  * `onSnapGuides` fires on every move with the current guides/distances, and
  * again with both empty right before `onDragEnd` - so a caller drawing them
  * in the canvas overlay never has to guess when to clear them - and, on
- * double-click, an inline rename reusing the screens strip's own input and
+ * double-click, an inline rename reusing rename-input.tsx's shared input and
  * Enter/Escape rules.
  *
  * Rendered by components/workbench/canvas.tsx as a sibling of each frame's

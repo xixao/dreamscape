@@ -22,24 +22,28 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import type { Page, Screen } from '@/lib/files/repository';
 import { cn } from '@/lib/utils';
-import { CHIP, CHIP_INPUT, DANGER_GHOST } from './chrome';
-
-// Same cap as a page's own name - both come from validateScreens' shared 1..80 rule
-// (lib/files/validate.ts).
-const FRAME_NAME_MAX = 80;
+import { CHIP, DANGER_GHOST } from './chrome';
+import { NAME_MAX, RenameInput } from './rename-input';
 
 /**
  * The top bar's frame chip and frames menu (spec docs/superpowers/specs/
  * 2026-09-13-frames-chip-design.md section 1): the chip shows the focused
- * frame's name and the page's frame count in mono ("Login · 9"), opening a
- * menu that lists the current page's frames in canvas order with the focused
- * one marked, and per-row actions Rename (inline field, Enter commits, Escape
- * cancels), Duplicate, Delete (confirms when the frame has content), and a
- * "New frame" item at the end. Clicking a row focuses that frame and zooms
- * to it. Keyboard navigation via Radix dropdown arrows and type-ahead.
+ * frame's name and the page's frame count in mono ("Login · 9"). The menu
+ * lists the current page's frames in canvas order, focused one marked with
+ * a check; clicking a row focuses that frame and zooms to it, closing the
+ * menu, while hovering a row (or pressing Right/Enter/Space with it
+ * focused - a Radix DropdownMenuSubTrigger's own open contract) reveals
+ * that SPECIFIC frame's own actions - Rename (an inline field swapped in
+ * for the row itself, dropdown staying open around it; Enter commits,
+ * Escape cancels; components/workbench/rename-input.tsx, shared with
+ * frame-title.tsx's double-click rename), Duplicate, Move to page and
+ * Delete (confirms when the frame has content) - reachable for ANY row,
+ * not only the focused one, the same per-row reach the deleted
+ * screens-strip.tsx's own chevron menu offered. "New frame" sits at the
+ * end, outside every row. Keyboard navigation and type-ahead are Radix
+ * dropdown/submenu defaults.
  */
 export function FramesChip({
   frames,
@@ -64,8 +68,13 @@ export function FramesChip({
   onMoveToPage?: (id: string, pageId: string) => void;
   onZoomToFrame: (id: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Screen | null>(null);
+  // At most one RenameInput is ever mounted (renaming is a single id) - one
+  // shared ref covers whichever row is currently being renamed, the same
+  // "one ref, whichever item is active" shape frame-title.tsx's own use of
+  // this component already has.
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const currentFrame = frames.find((frame) => frame.id === currentFrameId);
@@ -73,7 +82,7 @@ export function FramesChip({
 
   function commitRename(target: Screen, raw: string): void {
     setRenaming(null);
-    const trimmed = raw.trim().slice(0, FRAME_NAME_MAX);
+    const trimmed = raw.trim().slice(0, NAME_MAX);
     if (!trimmed || trimmed === target.name) return;
     onRename(target.id, trimmed);
   }
@@ -81,36 +90,12 @@ export function FramesChip({
   function handleSelectFrame(id: string): void {
     onSwitch(id);
     onZoomToFrame(id);
-  }
-
-  if (renaming === currentFrameId) {
-    return (
-      <div className={cn(CHIP, 'w-40')}>
-        <Input
-          ref={renameInputRef}
-          autoFocus
-          aria-label="Frame name"
-          defaultValue={currentFrame?.name ?? ''}
-          maxLength={FRAME_NAME_MAX}
-          className={CHIP_INPUT}
-          onFocus={(event) => event.currentTarget.select()}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              if (currentFrame) commitRename(currentFrame, event.currentTarget.value);
-            } else if (event.key === 'Escape') {
-              event.preventDefault();
-              setRenaming(null);
-            }
-          }}
-        />
-      </div>
-    );
+    setOpen(false);
   }
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -125,47 +110,80 @@ export function FramesChip({
             <ChevronDown className="size-3 text-muted-foreground" aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          onCloseAutoFocus={(event) => {
-            if (!renameInputRef.current) return;
-            event.preventDefault();
-            renameInputRef.current.focus();
-            renameInputRef.current.select();
-          }}
-        >
-          {frames.map((frame) => (
-            <DropdownMenuItem key={frame.id} onSelect={() => handleSelectFrame(frame.id)}>
-              <span className="flex-1 truncate">{frame.name}</span>
-              {frame.id === currentFrameId && (
-                <Check data-testid="frame-check" className="size-3.5 shrink-0" aria-hidden />
-              )}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setRenaming(currentFrameId)}>Rename</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onDuplicate(currentFrameId)}>Duplicate</DropdownMenuItem>
-          {pages && pages.length > 1 && currentFrame && (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {pages
-                  .filter((page) => page.id !== currentFrame.pageId)
-                  .map((page) => (
-                    <DropdownMenuItem key={page.id} onSelect={() => onMoveToPage?.(currentFrame.id, page.id)}>
-                      {page.name}
-                    </DropdownMenuItem>
-                  ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+        <DropdownMenuContent align="start">
+          {frames.map((frame) =>
+            renaming === frame.id ? (
+              <div key={frame.id} className="px-1.5 py-1">
+                <RenameInput
+                  screen={frame}
+                  onCommit={(name) => commitRename(frame, name)}
+                  onCancel={() => setRenaming(null)}
+                  inputRef={renameInputRef}
+                />
+              </div>
+            ) : (
+              <DropdownMenuSub key={frame.id}>
+                <DropdownMenuSubTrigger
+                  onClick={(event) => {
+                    // A plain click on the row itself still just focuses
+                    // and zooms to it (spec: "clicking a frame focuses it
+                    // and zooms to it") rather than opening this row's own
+                    // submenu, which is Radix's own default for a click on
+                    // a SubTrigger - preventDefault short-circuits that
+                    // default (see @radix-ui/react-menu's MenuSubTrigger:
+                    // its onClick bails out once defaultPrevented), while
+                    // leaving hover and ArrowRight/Enter/Space, which don't
+                    // go through this handler, free to open it normally.
+                    event.preventDefault();
+                    handleSelectFrame(frame.id);
+                  }}
+                >
+                  <span className="flex-1 truncate">{frame.name}</span>
+                  {frame.id === currentFrameId && (
+                    <Check data-testid="frame-check" className="size-3.5 shrink-0" aria-hidden />
+                  )}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      // Keeps the whole menu tree open (Radix's own default
+                      // on selecting any item is to close it via
+                      // rootContext.onClose(), unless prevented here) so
+                      // the row above swaps to its RenameInput in place,
+                      // rather than this closing everything and having
+                      // nowhere left to show the field.
+                      event.preventDefault();
+                      setRenaming(frame.id);
+                    }}
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onDuplicate(frame.id)}>Duplicate</DropdownMenuItem>
+                  {pages && pages.length > 1 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {pages
+                          .filter((page) => page.id !== frame.pageId)
+                          .map((page) => (
+                            <DropdownMenuItem key={page.id} onSelect={() => onMoveToPage?.(frame.id, page.id)}>
+                              {page.name}
+                            </DropdownMenuItem>
+                          ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={frames.length <= 1}
+                    onSelect={() => setDeleteTarget(frame)}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ),
           )}
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={frames.length <= 1}
-            onSelect={() => setDeleteTarget(currentFrame ?? null)}
-          >
-            Delete
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onAdd}>New frame</DropdownMenuItem>
         </DropdownMenuContent>

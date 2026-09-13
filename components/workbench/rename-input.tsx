@@ -11,11 +11,11 @@ import { CHIP_INPUT } from './chrome';
 export const NAME_MAX = 80;
 
 /**
- * A reusable inline rename input used by both the frames chip menu and the frame
- * title's double-click rename. Commits on Enter, cancels on Escape. autoFocus
- * covers the double-click path; the chip's menu path relies on
- * DropdownMenuContent's onCloseAutoFocus focusing the input directly once the
- * menu has fully finished closing.
+ * A reusable inline rename input used by both the frames chip menu (a frame
+ * row's own Rename item swaps that row for this one, the dropdown staying
+ * open around it - see frames-chip.tsx) and the frame title's double-click
+ * rename (no menu involved there). Commits on Enter, cancels on Escape;
+ * autoFocus covers both call sites.
  */
 export function RenameInput({
   screen,
@@ -37,6 +37,16 @@ export function RenameInput({
       className={cn(CHIP_INPUT, 'w-28 rounded-sm bg-(--chip) px-2 py-1')}
       onFocus={(event) => event.currentTarget.select()}
       onKeyDown={(event) => {
+        // Stops every keystroke here - not just Enter/Escape - from
+        // bubbling up: when this renders inside the frames chip's still-
+        // open DropdownMenuContent, Radix's own menu-level onKeyDown
+        // handler treats any un-prevented single-character key as
+        // type-ahead search input (@radix-ui/react-menu's
+        // handleTypeaheadSearch) and would otherwise steal focus to
+        // whichever row's name starts with the letter just typed, out from
+        // under this input mid-rename. Harmless where there is no
+        // surrounding menu (the frame title's double-click path).
+        event.stopPropagation();
         if (event.key === 'Enter') {
           event.preventDefault();
           onCommit(event.currentTarget.value);
