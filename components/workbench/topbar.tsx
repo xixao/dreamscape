@@ -34,6 +34,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { zoomTo } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
+import { formatKeys, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
 import { STAGE_PRESETS, STAGE_PRESET_ORDER, type StagePreset } from '@/lib/stage';
 import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
 import { readoutFor } from '@/lib/stage/size';
@@ -227,6 +228,17 @@ function DevicePresetMenu({
   );
 }
 
+// The zoom menu's own mono shortcut labels, read from the shared registry
+// (lib/shortcuts.ts) so this menu and the keyboard handler can never drift
+// apart. Pinned to the 'mac' glyph set rather than the viewer's actual
+// platform: every other label in this top bar (Undo/Redo tooltips, the rest
+// of the app's chrome) is mac-styled unconditionally today, with no
+// existing platform detection anywhere in the UI - only the shortcuts
+// overlay (components/workbench/shortcuts-overlay.tsx) is platform-aware.
+function zoomKeys(id: 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'zoom-to-fit' | 'zoom-to-selection'): string {
+  return formatKeys(SHORTCUTS_BY_ID[id].keys, 'mac');
+}
+
 // Fixed zoom percentages the menu jumps straight to, alongside the stepped
 // Zoom in/out and the Zoom to fit/selection items that call back up to
 // whoever built those (WorkbenchShell shares the same callbacks with the
@@ -281,25 +293,25 @@ function ZoomMenu({
       <DropdownMenuContent align="end" className={MENU_POPOVER}>
         <DropdownMenuItem className={MENU_ROW} onSelect={onZoomIn}>
           <span className="flex-1">Zoom in</span>
-          <span className={LABEL}>⌘=</span>
+          <span className={LABEL}>{zoomKeys('zoom-in')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem className={MENU_ROW} onSelect={onZoomOut}>
           <span className="flex-1">Zoom out</span>
-          <span className={LABEL}>⌘-</span>
+          <span className={LABEL}>{zoomKeys('zoom-out')}</span>
         </DropdownMenuItem>
         {FIXED_ZOOM_ITEMS.map(({ label, target }) => (
           <DropdownMenuItem key={label} className={MENU_ROW} onSelect={() => zoomToPercent(target)}>
             <span className="flex-1">{label}</span>
-            {target === 1 && <span className={LABEL}>⌘0</span>}
+            {target === 1 && <span className={LABEL}>{zoomKeys('zoom-reset')}</span>}
           </DropdownMenuItem>
         ))}
         <DropdownMenuItem className={MENU_ROW} onSelect={onZoomToFit}>
           <span className="flex-1">Zoom to fit</span>
-          <span className={LABEL}>⇧1</span>
+          <span className={LABEL}>{zoomKeys('zoom-to-fit')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem className={MENU_ROW} onSelect={onZoomToSelection}>
           <span className="flex-1">Zoom to selection</span>
-          <span className={LABEL}>⇧2</span>
+          <span className={LABEL}>{zoomKeys('zoom-to-selection')}</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
