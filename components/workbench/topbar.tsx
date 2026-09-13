@@ -9,6 +9,7 @@ import {
   ChevronDown,
   FilePlus2,
   MessageCircle,
+  Command,
   MessageSquareText,
   Monitor,
   MoreHorizontal,
@@ -324,8 +325,8 @@ function ZoomMenu({
 
 // The top bar's overflow menu (spec docs/superpowers/specs/2026-09-13-
 // shortcuts-and-elements-design.md section 3): today this is only "Keyboard
-// shortcuts", which opens the same content the Cmd-hold overlay shows
-// (shortcuts-overlay.tsx) as a dialog that stays open until Escape.
+// shortcuts", which opens the shortcuts dialog (shortcuts-overlay.tsx), the
+// same one the ⌘ button next to this menu opens.
 function MoreMenu({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
   return (
     <DropdownMenu>
@@ -525,6 +526,7 @@ export function Topbar({
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
         <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
         <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
+        <IconAction label="Keyboard shortcuts" icon={Command} onClick={() => onOpenShortcuts?.()} />
         <MoreMenu onOpenShortcuts={onOpenShortcuts} />
       </header>
     </TooltipProvider>

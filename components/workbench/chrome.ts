@@ -76,19 +76,12 @@ export const MENU_ROW =
 export const MENU_HINT = 'font-mono text-[10px] text-t4';
 export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 
-// Shortcuts overlay/dialog (spec docs/superpowers/specs/2026-09-12-
-// shortcuts-overlay-design.md section 4). OVERLAY_SURFACE is only used by
-// the display-only, hold-triggered presentation (shortcuts-overlay.tsx),
-// which has no Radix primitive of its own to inherit chrome from; the
-// dialog presentation reuses components/ui/dialog's own surface and only
-// takes the group/row/key-cap treatment below, so the two never show
-// different shortcut content even though their outer chrome differs.
-// Fills the window minus a 24 px margin on each side (Matt, 2026-09-13:
-// "make the panel larger. you have plenty of space... a small padding value
-// between the edge of the window and the modal"), capped only on very wide
-// displays.
-export const OVERLAY_SURFACE =
-  'w-[calc(100vw-48px)] max-w-[1800px] rounded-2xl border border-line-strong bg-card p-8 shadow-panel-lg';
+// Shortcuts dialog (spec docs/superpowers/specs/2026-09-12-
+// shortcuts-overlay-design.md section 4): the dialog reuses
+// components/ui/dialog's own surface and takes only the title/caption/
+// group/row/key-cap treatment below. The hold-Cmd presentation that once
+// had its own surface was removed on 2026-09-13 in favour of the top bar's
+// ⌘ button.
 export const OVERLAY_TITLE = 'text-[20px] font-semibold text-foreground';
 export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
 export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
