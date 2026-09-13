@@ -250,6 +250,50 @@ describe('files repository', () => {
       expect(file.pages?.[0].diagram?.edges).toEqual([edge]);
     });
 
+    it('save() drops a dangling diagram edge instead of rejecting the patch (never wedges the file)', async () => {
+      // Simulates exactly what deleteScreen/moveScreenToPage's own
+      // same-patch pruning (components/workbench/workbench.tsx) is meant to
+      // prevent, arriving anyway - e.g. from a file saved before that fix
+      // existed. save() must drop the dangling edge and still succeed:
+      // lib/persistence.ts's saver never retries a non-409/5xx response, so
+      // a 400 here would wedge the file on every future autosave.
+      const pageA = page();
+      const frame = screen({ pageId: pageA.id });
+      const node = diagramNode();
+      const danglingEdge = {
+        id: nanoid(10),
+        source: { nodeId: node.id, side: 'right' as const },
+        target: { screenId: nanoid(10) }, // no such screen exists at all
+        kind: 'step' as const,
+        arrow: 'end' as const,
+      };
+      const created = await repo.create({
+        pages: [pageA],
+        screens: [frame],
+      });
+
+      const result = await repo.save(created.id, {
+        pages: [{ ...pageA, diagram: { nodes: [node], edges: [danglingEdge] } }],
+        screens: [frame],
+      });
+
+      expect(result.ok).toBe(true);
+      const found = await repo.get(created.id);
+      expect(found?.pages?.[0].diagram?.edges).toEqual([]);
+      // The node itself, and every OTHER content rule, are untouched - only
+      // the dangling edge was dropped.
+      expect(found?.pages?.[0].diagram?.nodes).toEqual([node]);
+    });
+
+    it('save() still rejects a genuinely invalid diagram (not just dangling references)', async () => {
+      const pageA = page();
+      const created = await repo.create({ pages: [pageA] });
+      const result = await repo.save(created.id, {
+        pages: [{ ...pageA, diagram: { nodes: [diagramNode({ width: 0 })], edges: [] } }],
+      });
+      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
+    });
+
     it('refuses a connector that targets a frame on a different page', async () => {
       const pageA = page();
       const pageB = page({ name: 'v2' });

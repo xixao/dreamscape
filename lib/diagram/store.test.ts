@@ -4,8 +4,10 @@ import {
   diagramReducer,
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
+  pruneEdgesForScreen,
   selectionBounds,
   validateConnection,
+  type DiagramData,
   type DiagramEdge,
   type DiagramNode,
   type DiagramState,
@@ -97,6 +99,26 @@ describe('diagramReducer: resize', () => {
     const next = diagramReducer(state, { type: 'resize', id: 'n1', width: -20, height: 2 });
     expect(next.nodes[0].width).toBeGreaterThan(0);
     expect(next.nodes[0].height).toBeGreaterThan(0);
+  });
+
+  it('also repositions the node, snapped to the grid, when x/y are given (a corner resize)', () => {
+    const state = stateWith({ nodes: [node({ x: 100, y: 100, width: 100, height: 50 })] });
+    const next = diagramReducer(state, { type: 'resize', id: 'n1', width: 120, height: 64, x: 80, y: 90 });
+    // y:90 is not a multiple of 8 - snapped the same way move() snaps x/y.
+    expect(next.nodes[0]).toMatchObject({ x: 80, y: 88, width: 120, height: 64 });
+  });
+
+  it('leaves x/y untouched when they are not given (bottom-right corner, or a plain width/height resize)', () => {
+    const state = stateWith({ nodes: [node({ x: 100, y: 100, width: 100, height: 50 })] });
+    const next = diagramReducer(state, { type: 'resize', id: 'n1', width: 140, height: 90 });
+    expect(next.nodes[0]).toMatchObject({ x: 100, y: 100 });
+  });
+
+  it('undoes a corner resize (size and position together) in a single step', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1', x: 100, y: 100, width: 100, height: 50 })] });
+    const resized = diagramReducer(state, { type: 'resize', id: 'n1', width: 120, height: 60, x: 80, y: 90 });
+    const undone = diagramReducer(resized, { type: 'undo' });
+    expect(undone.nodes[0]).toMatchObject({ x: 100, y: 100, width: 100, height: 50 });
   });
 });
 
@@ -304,6 +326,49 @@ describe('diagramReducer: load', () => {
     const state = { ...stateWith({ nodes: [node()] }), selection: [{ type: 'node' as const, id: 'n1' }] };
     const next = diagramReducer(state, { type: 'load', data: { nodes: [], edges: [] } });
     expect(next).toEqual(createInitialDiagramState());
+  });
+});
+
+describe('pruneEdgesForScreen', () => {
+  it('removes an edge whose source references the given screenId', () => {
+    const diagram: DiagramData = {
+      nodes: [node()],
+      edges: [edge({ source: { screenId: 'screen1' }, target: { nodeId: 'n1' } })],
+    };
+    expect(pruneEdgesForScreen(diagram, 'screen1')).toEqual({ nodes: diagram.nodes, edges: [] });
+  });
+
+  it('removes an edge whose target references the given screenId', () => {
+    const diagram: DiagramData = {
+      nodes: [node()],
+      edges: [edge({ source: { nodeId: 'n1' }, target: { screenId: 'screen1' } })],
+    };
+    expect(pruneEdgesForScreen(diagram, 'screen1')).toEqual({ nodes: diagram.nodes, edges: [] });
+  });
+
+  it('leaves an edge referencing a different screenId untouched', () => {
+    const diagram: DiagramData = {
+      nodes: [],
+      edges: [edge({ source: { screenId: 'screen1' }, target: { screenId: 'screen2' } })],
+    };
+    expect(pruneEdgesForScreen(diagram, 'screen9')).toEqual(diagram);
+  });
+
+  it('leaves node-to-node edges (no screenId at all) untouched', () => {
+    const diagram: DiagramData = { nodes: [node({ id: 'n1' }), node({ id: 'n2' })], edges: [edge()] };
+    expect(pruneEdgesForScreen(diagram, 'screen1')).toEqual(diagram);
+  });
+
+  it('returns the exact same diagram reference when nothing needed pruning', () => {
+    const diagram: DiagramData = { nodes: [node()], edges: [edge()] };
+    expect(pruneEdgesForScreen(diagram, 'screen1')).toBe(diagram);
+  });
+
+  it('prunes only the edges that reference the given screenId, keeping the rest', () => {
+    const kept = edge({ id: 'e-kept', source: { nodeId: 'n1' }, target: { screenId: 'screen2' } });
+    const removed = edge({ id: 'e-removed', source: { nodeId: 'n1' }, target: { screenId: 'screen1' } });
+    const diagram: DiagramData = { nodes: [node()], edges: [kept, removed] };
+    expect(pruneEdgesForScreen(diagram, 'screen1')).toEqual({ nodes: diagram.nodes, edges: [kept] });
   });
 });
 

@@ -7,7 +7,14 @@ import { files, folders } from '@/db/schema';
 // repository is loaded from a plain server module such as a files API
 // route handler (see known-types.ts for the full explanation).
 import { KNOWN_TYPES, defaultScreen } from '@/components/blocks/known-types';
-import { validateDiagramReferences, validatePages, validateScreens, type Page, type Screen } from './validate';
+import {
+  dropDanglingDiagramEdges,
+  validateDiagramReferences,
+  validatePages,
+  validateScreens,
+  type Page,
+  type Screen,
+} from './validate';
 
 // Re-exported so callers only need to know about lib/files/repository.ts,
 // the file-level domain module - Screen/Page themselves live in validate.ts
@@ -321,13 +328,16 @@ export function createFilesRepository(db: Db) {
       const validatedScreens = validateScreens(screensInput, KNOWN_TYPES, pageIds);
       if (!validatedScreens.ok) return { ok: false, invalid: validatedScreens.reason };
 
-      // Same cross-check as create() above, and for the same reason: only
-      // possible once this patch's pages and screens have each already
-      // validated on their own.
-      const diagramReferences = validateDiagramReferences(validatedPages.pages, validatedScreens.screens);
-      if (!diagramReferences.ok) return { ok: false, invalid: diagramReferences.reason };
-
-      patch.pages = validatedPages.pages;
+      // Unlike create() (which still hard-rejects through
+      // validateDiagramReferences, imported above for that one remaining
+      // use), a PATCH drops a dangling diagram edge instead of rejecting
+      // the save - see dropDanglingDiagramEdges' own doc comment in
+      // lib/files/validate.ts for why: a screen leaving this page (deleted,
+      // or moved elsewhere) is routine editing, not a malformed payload,
+      // and this saver's client (lib/persistence.ts) never retries a
+      // non-409/5xx response - hard-rejecting here would wedge the file on
+      // every future autosave instead of just cleaning up after this one.
+      patch.pages = dropDanglingDiagramEdges(validatedPages.pages, validatedScreens.screens);
       patch.screens = validatedScreens.screens.map(toStoredScreen);
     }
     if (input.folderId !== undefined) {

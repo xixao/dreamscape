@@ -238,6 +238,26 @@ describe('Stage', () => {
       expect(screen.getByTestId('probe-width')).toHaveTextContent('1000');
     });
 
+    it('stops an arrow key from bubbling past the handle, so it does not ALSO fire a window-level shortcut (e.g. a diagram nudge)', async () => {
+      renderInEditor(
+        <>
+          <Stage screen={SCREEN_1} viewport={IDENTITY_VIEWPORT} />
+          <StageProbe />
+        </>,
+        { width: 1000 },
+      );
+      const handle = screen.getByRole('separator', { name: 'Resize width' });
+      const onWindowKeyDown = vi.fn();
+      window.addEventListener('keydown', onWindowKeyDown);
+      try {
+        fireEvent.keyDown(handle, { key: 'ArrowRight' });
+        expect(screen.getByTestId('probe-width')).toHaveTextContent('1008');
+        expect(onWindowKeyDown).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('keydown', onWindowKeyDown);
+      }
+    });
+
     it('steps the height by 8 px with the arrow keys, starting from the measured auto height', async () => {
       renderInEditor(
         <>

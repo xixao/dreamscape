@@ -312,16 +312,20 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   function endResize(event: ReactPointerEvent<SVGElement>): void {
     if (!resize || resize.pointerId !== event.pointerId) return;
     if (resizeBox) {
-      dispatch({ type: 'resize', id: resize.id, width: resizeBox.width, height: resizeBox.height });
-      // resize only snaps width/height (store.ts); the top-left corner the
-      // live preview computed above is not itself persisted, so a shape
-      // resized from its top or left edge is re-anchored back to its
-      // original x/y here and the reducer's own snapped width/height simply
-      // grows/shrinks it from that corner instead of from wherever the drag
-      // preview put its edge.
-      if (resizeBox.x !== resize.box.x || resizeBox.y !== resize.box.y) {
-        dispatch({ type: 'move', ids: [resize.id], dx: resizeBox.x - resize.box.x, dy: resizeBox.y - resize.box.y });
-      }
+      // A resize from the top or left edge (nw/ne/sw) also moves the box's
+      // top-left corner - reported in this SAME dispatch (store.ts's
+      // `resize` snaps x/y the same way `move` already snaps a dx/dy) so
+      // undo/redo treats the whole drag as one history entry. Omitted
+      // entirely, not just equal to the pre-drag value, when the corner
+      // (se) never moves the box at all.
+      const moved = resizeBox.x !== resize.box.x || resizeBox.y !== resize.box.y;
+      dispatch({
+        type: 'resize',
+        id: resize.id,
+        width: resizeBox.width,
+        height: resizeBox.height,
+        ...(moved ? { x: resizeBox.x, y: resizeBox.y } : {}),
+      });
     }
     setResize(null);
     setResizeBox(null);
@@ -431,21 +435,37 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
 
   // --- Rendering helpers ------------------------------------------------
 
-  function resolveEndpoint(endpoint: EdgeEndpoint): { box: Box; side: Side } | null {
-    const box = endpoint.nodeId
-      ? diagram.nodes.find((n) => n.id === endpoint.nodeId)
-      : frames.find((f) => f.id === endpoint.screenId);
+  function endpointBox(endpoint: EdgeEndpoint): Box | null {
+    if (endpoint.nodeId) return diagram.nodes.find((n) => n.id === endpoint.nodeId) ?? null;
+    if (endpoint.screenId) return frames.find((f) => f.id === endpoint.screenId) ?? null;
+    return null;
+  }
+
+  // `otherBox` is the OTHER endpoint's box (pathFor below resolves both
+  // boxes up front so each call can hand the far one in) - used only by the
+  // no-side fallback further down, so a side-less edge anchors toward
+  // wherever the far end of the connector actually is.
+  function resolveEndpoint(endpoint: EdgeEndpoint, otherBox: Box | null): { box: Box; side: Side } | null {
+    const box = endpointBox(endpoint);
     if (!box) return null;
     const anchorForOther = (other: Box) => anchorOnBox(box, { x: other.x + other.width / 2, y: other.y + other.height / 2 });
     if (endpoint.side && (SIDES as readonly string[]).includes(endpoint.side)) {
       return { box, side: endpoint.side as StoreSide };
     }
-    return { box, side: sideFromPoint(box, anchorForOther(box)) };
+    // No stored side: face whichever side of `box` points toward the OTHER
+    // endpoint - `otherBox`, not `box` itself. Passing `box` here (the bug
+    // this fixes) made `anchorForOther` always measure toward its own
+    // center, which sideFromPoint's own dx=0/dy=0 tie-break resolves to
+    // "bottom" every time, regardless of where the other end of the edge
+    // actually was. Falls back to `box` only when there truly is no other
+    // endpoint to resolve, which pathFor below never actually hits (every
+    // edge has both a source and a target).
+    return { box, side: sideFromPoint(box, anchorForOther(otherBox ?? box)) };
   }
 
   function pathFor(edge: DiagramEdge): { path: string; labelX: number; labelY: number; sourcePoint: Point; targetPoint: Point } | null {
-    const sourceResolved = resolveEndpoint(edge.source);
-    const targetResolved = resolveEndpoint(edge.target);
+    const sourceResolved = resolveEndpoint(edge.source, endpointBox(edge.target));
+    const targetResolved = resolveEndpoint(edge.target, endpointBox(edge.source));
     if (!sourceResolved || !targetResolved) return null;
     const sourcePoint = getHandlePosition(sourceResolved.box, sourceResolved.side);
     const targetPoint = getHandlePosition(targetResolved.box, targetResolved.side);

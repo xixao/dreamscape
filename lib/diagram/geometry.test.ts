@@ -3,9 +3,6 @@ import {
   anchorOnBox,
   bezierControlPoints,
   bounds,
-  distanceToPath,
-  distanceToPolyline,
-  distanceToSegment,
   getBezierPath,
   getHandlePosition,
   getSmoothStepPath,
@@ -201,64 +198,6 @@ describe('getSmoothStepPath', () => {
     const result = getSmoothStepPath(source, 'right', target, 'top', 8);
     expect(result.path.startsWith('M0,0')).toBe(true);
     expect(result.path.endsWith('10,4')).toBe(true);
-  });
-});
-
-describe('distanceToSegment', () => {
-  it('is 0 for a point on the segment', () => {
-    expect(distanceToSegment({ x: 50, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 })).toBeCloseTo(0);
-  });
-
-  it('is the perpendicular distance for a point off a horizontal segment', () => {
-    expect(distanceToSegment({ x: 50, y: 5 }, { x: 0, y: 0 }, { x: 100, y: 0 })).toBeCloseTo(5);
-  });
-
-  it('is the distance to the nearer endpoint when the point is beyond the segment', () => {
-    expect(distanceToSegment({ x: 150, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 })).toBeCloseTo(50);
-  });
-});
-
-describe('distanceToPolyline', () => {
-  it('is the minimum distance across every segment', () => {
-    const points = [
-      { x: 0, y: 0 },
-      { x: 100, y: 0 },
-      { x: 100, y: 100 },
-    ];
-    expect(distanceToPolyline({ x: 100, y: 50 }, points)).toBeCloseTo(0);
-    expect(distanceToPolyline({ x: 50, y: 10 }, points)).toBeCloseTo(10);
-  });
-});
-
-describe('distanceToPath', () => {
-  it('matches distanceToSegment for a straight connector', () => {
-    const source = { x: 0, y: 0 };
-    const target = { x: 100, y: 0 };
-    const result = distanceToPath(
-      { x: 50, y: 6 },
-      { kind: 'straight', source, sourceSide: 'right', target, targetSide: 'left' },
-    );
-    expect(result).toBeCloseTo(6);
-  });
-
-  it('is small near a step path and large far away', () => {
-    const source = { x: 0, y: 0 };
-    const target = { x: 200, y: 100 };
-    const params = { kind: 'step' as const, source, sourceSide: 'right' as const, target, targetSide: 'left' as const };
-    const onPath = distanceToPath({ x: 100, y: 0 }, params);
-    const farAway = distanceToPath({ x: 100, y: 500 }, params);
-    expect(onPath).toBeLessThan(2);
-    expect(farAway).toBeGreaterThan(300);
-  });
-
-  it('is small near a bezier curve and large far away', () => {
-    const source = { x: 0, y: 0 };
-    const target = { x: 200, y: 0 };
-    const params = { kind: 'curve' as const, source, sourceSide: 'right' as const, target, targetSide: 'left' as const };
-    const midpoint = distanceToPath({ x: 100, y: 0 }, params);
-    const farAway = distanceToPath({ x: 100, y: 500 }, params);
-    expect(midpoint).toBeLessThan(5);
-    expect(farAway).toBeGreaterThan(300);
   });
 });
 

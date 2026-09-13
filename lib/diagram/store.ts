@@ -109,7 +109,14 @@ export function createInitialDiagramState(data: DiagramData = createEmptyDiagram
 export type DiagramAction =
   | { type: 'add'; node: DiagramNode }
   | { type: 'move'; ids: string[]; dx: number; dy: number }
-  | { type: 'resize'; id: string; width: number; height: number }
+  // `x`/`y`, when given, reposition the node in the SAME action - a corner
+  // resize (nw/ne/sw) moves the box's top-left as well as its size, and
+  // without this the diagram layer had to dispatch a second, separate
+  // `move` right after, splitting one drag into two undo steps. Omitted
+  // (not just equal to the current value) for a plain width/height resize,
+  // or a resize from the bottom-right corner, which never move the box at
+  // all - see diagram-layer.tsx's endResize.
+  | { type: 'resize'; id: string; width: number; height: number; x?: number; y?: number }
   | { type: 'setText'; id: string; text: string }
   | { type: 'setColor'; id: string; color: DiagramColor }
   | { type: 'setKind'; id: string; kind: DiagramNodeKind | ConnectorKind }
@@ -203,7 +210,14 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const index = state.nodes.findIndex((n) => n.id === action.id);
       if (index === -1) return state;
       const nodes = [...state.nodes];
-      nodes[index] = { ...nodes[index], width: snapSize(action.width), height: snapSize(action.height) };
+      const current = nodes[index];
+      nodes[index] = {
+        ...current,
+        width: snapSize(action.width),
+        height: snapSize(action.height),
+        x: action.x === undefined ? current.x : snapToGrid(action.x),
+        y: action.y === undefined ? current.y : snapToGrid(action.y),
+      };
       return commit(state, { nodes, edges: state.edges });
     }
 
@@ -336,6 +350,31 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
     default:
       return state;
   }
+}
+
+/**
+ * Removes every edge whose source or target references `screenId` - the
+ * cleanup a screen leaving a page (deleted, or moved to a different page)
+ * needs before that page's diagram is saved again: a dangling `screenId`
+ * endpoint is exactly what lib/files/validate.ts's validateDiagramReferences
+ * rejects a save for, and lib/persistence.ts's saver never retries a
+ * non-409/5xx response - left behind, it wedges the file, repeating the same
+ * rejection on every future autosave with no way to recover short of
+ * reloading and losing unsaved work. Called from components/workbench/
+ * workbench.tsx's deleteScreen and moveScreenToPage, in the same patch as
+ * the screens array itself (deletePage needs no equivalent call: it removes
+ * a page's own diagram along with every one of its screens together, and a
+ * diagram edge's screenId can only ever reference a screen on that SAME
+ * page, so there is no other page's diagram it could have left dangling).
+ * Pure and non-mutating: returns `diagram` itself, unchanged, when nothing
+ * referenced `screenId` at all, so a caller can cheaply tell whether
+ * anything actually needs saving.
+ */
+export function pruneEdgesForScreen(diagram: DiagramData, screenId: string): DiagramData {
+  const edges = diagram.edges.filter(
+    (edge) => edge.source.screenId !== screenId && edge.target.screenId !== screenId,
+  );
+  return edges.length === diagram.edges.length ? diagram : { nodes: diagram.nodes, edges };
 }
 
 /**

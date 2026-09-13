@@ -34,6 +34,19 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.closest(POPUP_SELECTOR) !== null;
 }
 
+// stage.tsx's resize handles (role="separator") handle their own arrow-key
+// stepping and stop that keydown from bubbling here at all (see the comment
+// there) - this is the second, independent half of that fix: the diagram
+// shortcuts below must not ALSO act on a press meant for a focused handle,
+// regardless of propagation. Scoped to just those three diagram shortcuts
+// (nudge, delete, duplicate) rather than folded into isEditableTarget
+// itself, which gates every OTHER shortcut too (zoom, present, page
+// navigation, ...) - none of which conflict with a resize handle the way a
+// diagram nudge, delete or duplicate does.
+function isSeparatorTarget(target: EventTarget | null): boolean {
+  return isElementLike(target) && target.closest('[role="separator"]') !== null;
+}
+
 export function useWorkbenchKeyboard(
   options: {
     onToggleUi?: () => void;
@@ -245,7 +258,7 @@ export function useWorkbenchKeyboard(
           return;
 
         case 'diagram-duplicate':
-          if (!diagramSelectionActive) return;
+          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
           event.preventDefault();
           onDiagramDuplicate?.();
           return;
@@ -254,7 +267,7 @@ export function useWorkbenchKeyboard(
         case 'diagram-nudge-down':
         case 'diagram-nudge-left':
         case 'diagram-nudge-right':
-          if (!diagramSelectionActive) return;
+          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
           event.preventDefault();
           onDiagramNudge?.(
             id.slice('diagram-nudge-'.length) as 'up' | 'down' | 'left' | 'right',
@@ -330,6 +343,7 @@ export function useWorkbenchKeyboard(
 
         case 'delete-layer': {
           if (diagramSelectionActive) {
+            if (isSeparatorTarget(event.target)) return;
             event.preventDefault();
             onDiagramDelete?.();
             return;

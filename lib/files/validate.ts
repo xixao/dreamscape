@@ -522,3 +522,50 @@ export function validateDiagramReferences(
 
   return { ok: true };
 }
+
+/**
+ * The lenient counterpart to validateDiagramReferences, above, used by the
+ * repository's save() (PATCH) specifically rather than that hard rejection:
+ * instead of failing the whole save when a diagram edge references a screen
+ * that is not (or no longer) on that same page, drops just those edges and
+ * keeps everything else untouched. A dangling screenId reference here is a
+ * routine, expected side effect of ordinary editing - deleting a screen, or
+ * moving one to another page - that the client is also expected to clean up
+ * itself in the same patch (see lib/diagram/store.ts's pruneEdgesForScreen
+ * and its callers in components/workbench/workbench.tsx), not a sign of a
+ * malformed payload: this is a backstop for whatever reaches here anyway
+ * (data saved before that client-side fix existed, or any other gap), since
+ * lib/persistence.ts's saver never retries a non-409/5xx response - a hard
+ * reject here would wedge the file, repeating the exact same 400 on every
+ * future autosave with no way for the user to recover short of reloading
+ * and losing every change since the last good save. create() still uses
+ * validateDiagramReferences as a hard rejection: a brand new file has no
+ * autosave history to wedge, so there is nothing to protect by being
+ * lenient there instead.
+ */
+export function dropDanglingDiagramEdges(pages: readonly Page[], screens: readonly Screen[]): Page[] {
+  const screenIdsByPage = new Map<string, Set<string>>();
+  for (const screen of screens) {
+    if (!screen.pageId) continue;
+    const set = screenIdsByPage.get(screen.pageId) ?? new Set<string>();
+    set.add(screen.id);
+    screenIdsByPage.set(screen.pageId, set);
+  }
+
+  return pages.map((page) => {
+    if (!page.diagram) return page;
+    const screenIds = screenIdsByPage.get(page.id) ?? new Set<string>();
+    const edges = page.diagram.edges.filter((edge) => {
+      const dangling = [edge.source, edge.target].some(
+        (endpoint) => endpoint.screenId && !screenIds.has(endpoint.screenId),
+      );
+      if (dangling) {
+        console.warn(
+          `Dropping diagram edge "${edge.id}" on page "${page.name}": it references a screen that is not on this page.`,
+        );
+      }
+      return !dangling;
+    });
+    return edges.length === page.diagram.edges.length ? page : { ...page, diagram: { nodes: page.diagram.nodes, edges } };
+  });
+}

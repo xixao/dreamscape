@@ -1621,5 +1621,95 @@ describe('Workbench', () => {
       expect(percentMatch).not.toBeNull();
       expect(Number(percentMatch![1])).toBeLessThan(50);
     });
+
+    // Review finding: deleteScreen/moveScreenToPage left behind a diagram
+    // edge whose endpoint was the screen that just left the page.
+    // validateDiagramReferences (lib/files/validate.ts) then rejects EVERY
+    // later save with a 400 that lib/persistence.ts's saver never retries -
+    // the file is stuck, and a reload loses everything since the last good
+    // save.
+    describe('pruning dangling screen references', () => {
+      // Connects a rectangle (placed well outside SCREEN_1's own frame) to
+      // SCREEN_1's frame, via its left handle - the same drag-a-handle-to-a-
+      // frame gesture components/workbench/diagram/diagram-layer.test.tsx
+      // covers in isolation, exercised here through the full Workbench so
+      // the resulting edge actually lands in `pages[].diagram` the way a
+      // real save would see it.
+      async function connectRectangleToScreen1(): Promise<void> {
+        await placeRectangle({ x: 2000, y: 100 });
+        const rectId = diagramNodes()[0].getAttribute('data-testid')!.replace('diagram-node-', '');
+        const handle = screen.getByTestId(`diagram-handle-node-${rectId}-left`);
+        fireEvent.pointerDown(handle, { pointerId: 1, clientX: 1920, clientY: 104 });
+        fireEvent.pointerMove(handle, { pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerUp(handle, { pointerId: 1, clientX: 50, clientY: 50 });
+        expect(screen.getByTestId(/^diagram-edge-hit-/)).toBeInTheDocument();
+      }
+
+      it('deleting the connected screen prunes the edge from the next save, and the layer stops rendering it', async () => {
+        render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
+        await connectRectangleToScreen1();
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+        fetchMock.mockClear();
+
+        await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+        await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        // The frame is gone, so the edge can no longer resolve an endpoint -
+        // it stops rendering immediately, with no separate dispatch needed.
+        expect(screen.queryByTestId(/^diagram-edge-hit-/)).not.toBeInTheDocument();
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+        const body = JSON.parse((fetchMock.mock.calls.at(-1) as [string, { body: string }])[1].body);
+        const page1 = body.pages.find((p: { id: string }) => p.id === PAGE_ID);
+        expect(page1.diagram.edges).toEqual([]);
+      });
+
+      it('moving the connected screen to another page prunes the edge from the next save, and the layer stops rendering it', async () => {
+        const file = makeFile({
+          pages: [
+            { id: PAGE_ID, name: 'Page 1' },
+            { id: PAGE_2_ID, name: 'v2' },
+          ],
+          screens: [SCREEN_1, SCREEN_4],
+        });
+        render(<Workbench file={file} />);
+        await connectRectangleToScreen1();
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+        fetchMock.mockClear();
+
+        await userEvent.click(screen.getByRole('button', { name: `${SCREEN_1.name} menu` }));
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'Move to page' }));
+        await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+
+        expect(screen.queryByTestId(/^diagram-edge-hit-/)).not.toBeInTheDocument();
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+        const body = JSON.parse((fetchMock.mock.calls.at(-1) as [string, { body: string }])[1].body);
+        const page1 = body.pages.find((p: { id: string }) => p.id === PAGE_ID);
+        expect(page1.diagram.edges).toEqual([]);
+      });
+
+      it('loading a file whose diagram already has a dangling screen reference renders without it, and the next save drops it', async () => {
+        const staleEdge = {
+          id: 'edge000001',
+          source: { screenId: 'ghost00001' },
+          target: { screenId: SCREEN_1.id },
+          kind: 'step' as const,
+          arrow: 'end' as const,
+        };
+        const file = makeFile({
+          pages: [{ id: PAGE_ID, name: 'Page 1', diagram: { nodes: [], edges: [staleEdge] } }],
+        });
+
+        render(<Workbench file={file} />);
+        expect(screen.queryByTestId(/^diagram-edge-hit-/)).not.toBeInTheDocument();
+
+        await placeRectangle({ x: 500, y: 500 });
+        await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+        const body = JSON.parse((fetchMock.mock.calls.at(-1) as [string, { body: string }])[1].body);
+        expect(body.pages[0].diagram.edges).toEqual([]);
+      });
+    });
   });
 });

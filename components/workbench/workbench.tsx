@@ -8,7 +8,7 @@ import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
-import { createInitialDiagramState, diagramReducer, type DiagramData } from '@/lib/diagram/store';
+import { createInitialDiagramState, diagramReducer, pruneEdgesForScreen, type DiagramData } from '@/lib/diagram/store';
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, Page, Screen } from '@/lib/files/repository';
@@ -121,6 +121,55 @@ function screenIdForPage(hash: string, screens: Screen[], pageId: string): strin
 // to `pageId`, or '' when that page currently has none.
 function firstScreenIdForPage(screens: Screen[], pageId: string): string {
   return screens.find((screen) => screen.pageId === pageId)?.id ?? '';
+}
+
+// Shared by deleteScreen and moveScreenToPage (below): once a screen has
+// left `pageId` (deleted outright, or moved to a different page), any
+// diagram edge on THAT page that connected to it is now dangling -
+// lib/files/validate.ts's validateDiagramReferences rejects a save for
+// exactly that, and lib/persistence.ts's saver never retries a non-409/5xx
+// response, so left uncleaned the file is stuck 400ing on every future
+// autosave. Pruned here, in the SAME patch as the screens array, via
+// lib/diagram/store.ts's own pruneEdgesForScreen. deletePage needs no
+// equivalent call: it removes a page's own diagram along with every one of
+// its screens together, and a diagram edge's screenId can only ever
+// reference a screen on that SAME page, so there is no other page's
+// diagram it could have left dangling. Returns `pages` itself, unchanged,
+// when the affected page has no diagram or nothing on it referenced the
+// screen, so callers can cheaply skip touching `pages` state - and the
+// patch - at all when nothing needs saving.
+function pruneScreenFromPages(pages: Page[], pageId: string | undefined, screenId: string): Page[] {
+  if (!pageId) return pages;
+  const page = pages.find((candidate) => candidate.id === pageId);
+  if (!page?.diagram) return pages;
+  const pruned = pruneEdgesForScreen(page.diagram, screenId);
+  if (pruned === page.diagram) return pages;
+  return pages.map((candidate) => (candidate.id === pageId ? { ...candidate, diagram: pruned } : candidate));
+}
+
+// Defensive counterpart to pruneScreenFromPages above, applied to a page's
+// diagram wherever it is about to be READ (WorkbenchShell's own hydration,
+// further down) or WRITTEN (updatePageDiagram, below): drops any edge whose
+// screenId does not belong to `validScreenIds`, the current page's own
+// screens. pruneScreenFromPages already keeps `pages` clean the moment a
+// screen leaves through this file's own deleteScreen/moveScreenToPage, but
+// this is the backstop for a dangling reference that reached here some
+// other way - most plausibly a file saved before that fix existed - so
+// hydrating a stale diagram (or writing one straight back out unchanged, as
+// updatePageDiagram's own sync effect otherwise would on the very next
+// UNRELATED edit) never keeps it around. Only ever drops edges, never a
+// node, and returns `diagram` itself, unchanged, when nothing needed it.
+function sanitizeDiagram(diagram: DiagramData, validScreenIds: ReadonlySet<string>): DiagramData {
+  const referencedScreenIds = new Set<string>();
+  for (const edge of diagram.edges) {
+    if (edge.source.screenId) referencedScreenIds.add(edge.source.screenId);
+    if (edge.target.screenId) referencedScreenIds.add(edge.target.screenId);
+  }
+  let sanitized = diagram;
+  for (const screenId of referencedScreenIds) {
+    if (!validScreenIds.has(screenId)) sanitized = pruneEdgesForScreen(sanitized, screenId);
+  }
+  return sanitized;
 }
 
 type MinimalQuery = { serialize: () => string };
@@ -392,7 +441,16 @@ export function Workbench({
   // shape ever reaches here, the same split screens/layout already has
   // between Craft's live editing state and what queuePatch saves.
   function updatePageDiagram(pageId: string, diagram: DiagramData): void {
-    const next = pages.map((page) => (page.id === pageId ? { ...page, diagram } : page));
+    // Defensive (see sanitizeDiagram's own doc comment above): every real
+    // diagram edit funnels through here, so this is also where a dangling
+    // screenId reference that slipped past deleteScreen/moveScreenToPage's
+    // own pruning - most plausibly data saved before that fix existed -
+    // gets cleaned up, rather than being written straight back out.
+    const validScreenIds = new Set(
+      screens.filter((screen) => screen.pageId === pageId).map((screen) => screen.id),
+    );
+    const sanitized = sanitizeDiagram(diagram, validScreenIds);
+    const next = pages.map((page) => (page.id === pageId ? { ...page, diagram: sanitized } : page));
     setPages(next);
     queuePatch({ pages: next });
   }
@@ -443,6 +501,12 @@ export function Workbench({
     screensRef.current = nextScreens;
     setPages(nextPages);
     setScreens(nextScreens);
+    // No pruneScreenFromPages call needed here, unlike deleteScreen/
+    // moveScreenToPage below: this removes page `id`'s own diagram along
+    // with every one of its screens in the very same patch, and a diagram
+    // edge's screenId can only ever reference a screen on that SAME page
+    // (validateDiagramReferences) - there is no OTHER page's diagram that
+    // could have pointed at one of them.
     queuePatch({ pages: nextPages, screens: nextScreens });
     if (id === currentPageId) switchPage(nextPages[0].id);
   }
@@ -580,7 +644,16 @@ export function Workbench({
     delete lastSavedLayoutsRef.current[id];
     screensRef.current = next;
     setScreens(next);
-    queuePatch({ screens: next });
+    // The screen just left its page - see pruneScreenFromPages' own doc
+    // comment above for why any diagram edge that connected to it must be
+    // cleaned up in this SAME patch.
+    const nextPages = pruneScreenFromPages(pages, target.pageId, id);
+    const patch: FilePatch = { screens: next };
+    if (nextPages !== pages) {
+      setPages(nextPages);
+      patch.pages = nextPages;
+    }
+    queuePatch(patch);
     if (id === currentScreenId) switchScreen(firstScreenIdForPage(next, target.pageId!));
   }
 
@@ -613,7 +686,18 @@ export function Workbench({
     const next = layoutMissingPositions([...without.slice(0, insertAt), moved, ...without.slice(insertAt)]);
     screensRef.current = next;
     setScreens(next);
-    queuePatch({ screens: next });
+    // The screen just left originPageId - see pruneScreenFromPages' own doc
+    // comment above and deleteScreen's identical treatment just above this
+    // function. Only the ORIGIN page's diagram can have a now-dangling
+    // edge; landing on targetPageId never invalidates anything already
+    // there.
+    const nextPages = pruneScreenFromPages(pages, originPageId, id);
+    const patch: FilePatch = { screens: next };
+    if (nextPages !== pages) {
+      setPages(nextPages);
+      patch.pages = nextPages;
+    }
+    queuePatch(patch);
     if (id === currentScreenId) {
       const remainingId = firstScreenIdForPage(next, originPageId!);
       if (remainingId) {
@@ -866,13 +950,24 @@ function WorkbenchShell({
   // lastSelectedNodeId pattern already handles "a prop I do not own just
   // changed", rather than an effect, so the newly-focused page's diagram
   // paints on the very first frame it is visible.
+  // sanitizeDiagram (defined above, in Workbench's own module scope) drops
+  // any edge left dangling by data saved before deleteScreen/
+  // moveScreenToPage pruned this themselves - defensive loading, so this
+  // component never re-hydrates state it would only have to clean up again
+  // on the next real edit (see that function's own doc comment).
+  const pageScreenIds = new Set(pageScreens.map((screen) => screen.id));
   const [diagram, dispatchDiagram] = useReducer(diagramReducer, undefined, () =>
-    createInitialDiagramState(pages.find((page) => page.id === currentPageId)?.diagram),
+    createInitialDiagramState(
+      sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
+    ),
   );
   const [lastDiagramPageId, setLastDiagramPageId] = useState(currentPageId);
   if (currentPageId !== lastDiagramPageId) {
     setLastDiagramPageId(currentPageId);
-    dispatchDiagram({ type: 'load', data: pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] } });
+    dispatchDiagram({
+      type: 'load',
+      data: sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
+    });
   }
 
   // Persists a real edit (onDiagramChange, ultimately queuePatch) without

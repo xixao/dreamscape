@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalLayout,
+  dropDanglingDiagramEdges,
   normalizeLayout,
   validateDiagram,
   validateDiagramReferences,
@@ -663,5 +664,91 @@ describe('validateDiagramReferences', () => {
     });
     const result = validateDiagramReferences([withDiagram], [screen({ id: 'screen00001' })]);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('dropDanglingDiagramEdges', () => {
+  function screen(overrides: Partial<Screen> = {}): Screen {
+    return {
+      id: 'screen00001',
+      name: 'Frame 1',
+      layout: '{}',
+      stageWidth: 375,
+      pageId: 'page000001',
+      ...overrides,
+    };
+  }
+
+  function page(overrides: Partial<Page> = {}): Page {
+    return { id: 'page000001', name: 'Page 1', ...overrides };
+  }
+
+  function danglingEdge() {
+    return {
+      id: 'edge0000001',
+      source: { screenId: 'screen00001' },
+      target: { screenId: 'ghost0000001' },
+      kind: 'step' as const,
+      arrow: 'end' as const,
+    };
+  }
+
+  it('is a no-op (same page objects) when nothing is dangling, including when there is no diagram at all', () => {
+    const pages = [page()];
+    const screens = [screen()];
+    expect(dropDanglingDiagramEdges(pages, screens)).toEqual(pages);
+    expect(dropDanglingDiagramEdges(pages, screens)[0]).toBe(pages[0]);
+  });
+
+  it('drops an edge referencing a screen that does not exist at all, keeping the rest of the page', () => {
+    const withDiagram = page({ diagram: { nodes: [], edges: [danglingEdge()] } });
+    const result = dropDanglingDiagramEdges([withDiagram], [screen({ id: 'screen00001' })]);
+    expect(result[0].diagram?.edges).toEqual([]);
+    // The page object itself is otherwise untouched.
+    expect(result[0]).toMatchObject({ id: withDiagram.id, name: withDiagram.name });
+  });
+
+  it('drops an edge referencing a screen that belongs to a different page', () => {
+    const withDiagram = page({
+      diagram: {
+        nodes: [],
+        edges: [
+          {
+            id: 'edge0000001',
+            source: { screenId: 'screen00001' },
+            target: { screenId: 'screen00002' },
+            kind: 'step' as const,
+            arrow: 'end' as const,
+          },
+        ],
+      },
+    });
+    const otherPage = page({ id: 'page000002', name: 'v2' });
+    const screens = [
+      screen({ id: 'screen00001', pageId: 'page000001' }),
+      screen({ id: 'screen00002', pageId: 'page000002' }),
+    ];
+    const result = dropDanglingDiagramEdges([withDiagram, otherPage], screens);
+    expect(result[0].diagram?.edges).toEqual([]);
+  });
+
+  it('keeps an edge whose screenId endpoints all belong to the same page', () => {
+    const edge = {
+      id: 'edge0000001',
+      source: { screenId: 'screen00001' },
+      target: { screenId: 'screen00002' },
+      kind: 'step' as const,
+      arrow: 'end' as const,
+    };
+    const withDiagram = page({ diagram: { nodes: [], edges: [edge] } });
+    const screens = [screen({ id: 'screen00001' }), screen({ id: 'screen00002' })];
+    const result = dropDanglingDiagramEdges([withDiagram], screens);
+    expect(result[0].diagram?.edges).toEqual([edge]);
+  });
+
+  it('never touches a page with no diagram', () => {
+    const plain = page();
+    const result = dropDanglingDiagramEdges([plain], [screen()]);
+    expect(result[0]).toBe(plain);
   });
 });

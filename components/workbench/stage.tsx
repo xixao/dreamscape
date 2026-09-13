@@ -209,6 +209,14 @@ function ResizeHandle({
           return;
         }
         event.preventDefault();
+        // Stops the same keydown from also reaching keyboard.tsx's
+        // window-level listener: with a diagram element selected, that
+        // listener's diagram-nudge-* shortcut would otherwise ALSO fire on
+        // this exact arrow press - this handle already fully owns it once
+        // focused. keyboard.tsx's own isSeparatorTarget check is a second,
+        // independent guard against the same conflict, not a replacement
+        // for this one.
+        event.stopPropagation();
         const widthStep =
           event.key === "ArrowRight"
             ? ARROW_STEP

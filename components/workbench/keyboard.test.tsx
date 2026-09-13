@@ -98,6 +98,12 @@ function Keys({
       <div role="alertdialog">
         <button type="button">Clear frame</button>
       </div>
+      {/* Stands in for one of stage.tsx's resize handles (role="separator")
+          for the "ignores diagram shortcuts on a separator target" tests
+          below - a real handle already stops its own arrow keys from
+          bubbling here at all (see stage.test.tsx), so this is the second,
+          independent half of that fix. */}
+      <div role="separator" aria-label="fake resize handle" tabIndex={0} data-testid="fake-separator" />
     </>
   );
 }
@@ -564,6 +570,23 @@ describe('useWorkbenchKeyboard diagram selection routing', () => {
 
     fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'ArrowUp' });
     expect(onDiagramNudge).not.toHaveBeenCalled();
+  });
+
+  it('ignores arrow keys, Cmd+D and Delete when the target is a resize handle (role="separator"), even with a diagram selection', async () => {
+    const onDiagramNudge = vi.fn();
+    const onDiagramDuplicate = vi.fn();
+    const onDiagramDelete = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramNudge, onDiagramDuplicate, onDiagramDelete });
+    await screen.findByRole('button', { name: 'Doomed' });
+    const separator = screen.getByTestId('fake-separator');
+
+    fireEvent.keyDown(separator, { key: 'ArrowUp' });
+    fireEvent.keyDown(separator, { key: 'd', metaKey: true });
+    fireEvent.keyDown(separator, { key: 'Delete' });
+
+    expect(onDiagramNudge).not.toHaveBeenCalled();
+    expect(onDiagramDuplicate).not.toHaveBeenCalled();
+    expect(onDiagramDelete).not.toHaveBeenCalled();
   });
 
   it('routes Cmd+Z/Shift+Cmd+Z to the diagram history instead of Craft while a diagram element is selected', async () => {

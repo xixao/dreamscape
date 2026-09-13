@@ -1,10 +1,10 @@
 // Pure path and hit-testing maths for the canvas diagram tool (spec
 // docs/superpowers/specs/2026-09-13-diagrams-design.md section 4): the
 // straight/bezier/orthogonal-step edge paths, handle positions on a shape or
-// frame's four sides, 8 px grid snapping, distance-to-path hit tests and the
-// bounding box every diagram node sits in. Ported from the architecture and
-// path maths of React Flow's `@xyflow/system` package (MIT licensed) - see
-// lib/diagram/README.md for the full attribution and license text. Kept
+// frame's four sides, 8 px grid snapping, and the bounding box every diagram
+// node sits in. Ported from the architecture and path maths of React Flow's
+// `@xyflow/system` package (MIT licensed) - see lib/diagram/README.md for
+// the full attribution and license text. Kept
 // free of any DOM read or app-specific type (same discipline as
 // lib/canvas/viewport.ts) so it is exhaustively unit-testable and reusable
 // from both lib/diagram/store.ts and the diagram layer/palette components.
@@ -33,17 +33,11 @@ export interface PathResult {
   labelY: number;
 }
 
-export type EdgeKind = 'straight' | 'step' | 'curve';
-
 // The corner radius getSmoothStepPath rounds to when nothing else is given -
 // also the grid diagram nodes snap to (spec section 2: "8 px snapping on
 // move and resize").
 export const GRID_SIZE = 8;
 export const DEFAULT_CORNER_RADIUS = 8;
-// How many straight segments a bezier curve is sampled into for hit-testing
-// (distanceToPath below) - enough to keep the polyline approximation within
-// a pixel or two of the real curve for any edge this app draws.
-const BEZIER_SAMPLES = 24;
 
 /** Rounds `value` to the nearest multiple of `size` (default the 8 px grid). */
 export function snapToGrid(value: number, size: number = GRID_SIZE): number {
@@ -207,15 +201,6 @@ function cubicBezierPoint(p0: Point, p1: Point, p2: Point, p3: Point, t: number)
   };
 }
 
-/** Samples a cubic bezier into `steps + 1` points, for hit-testing. */
-function sampleBezier(p0: Point, p1: Point, p2: Point, p3: Point, steps: number): Point[] {
-  const points: Point[] = [];
-  for (let i = 0; i <= steps; i++) {
-    points.push(cubicBezierPoint(p0, p1, p2, p3, i / steps));
-  }
-  return points;
-}
-
 /** A cubic bezier curve leaving/arriving perpendicular to each handle's side. */
 export function getBezierPath(source: Point, sourceSide: Side, target: Point, targetSide: Side): PathResult {
   const { c1, c2 } = bezierControlPoints(source, sourceSide, target, targetSide);
@@ -340,52 +325,6 @@ export function getSmoothStepPath(
   const points = getStepPoints(source, sourceSide, target, targetSide);
   const label = polylineMidpoint(points);
   return { path: buildRoundedPath(points, radius), labelX: label.x, labelY: label.y };
-}
-
-// --- Hit testing ----------------------------------------------------------
-
-/** The shortest distance from `point` to the segment `a`-`b`. */
-export function distanceToSegment(point: Point, a: Point, b: Point): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return Math.hypot(point.x - a.x, point.y - a.y);
-  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared));
-  const projection = { x: a.x + t * dx, y: a.y + t * dy };
-  return Math.hypot(point.x - projection.x, point.y - projection.y);
-}
-
-/** The shortest distance from `point` to any segment of a polyline. */
-export function distanceToPolyline(point: Point, points: readonly Point[]): number {
-  let min = Infinity;
-  for (let i = 1; i < points.length; i++) {
-    min = Math.min(min, distanceToSegment(point, points[i - 1], points[i]));
-  }
-  return min;
-}
-
-export interface EdgePathParams {
-  kind: EdgeKind;
-  source: Point;
-  sourceSide: Side;
-  target: Point;
-  targetSide: Side;
-}
-
-/**
- * Hit-testing distance from `point` to whichever kind of connector path
- * `params` describes: exact segment distance for a straight or step
- * connector, and distance to a sampled polyline approximation for a curve
- * (spec section 5: "hit-testing tolerance"). Callers compare the result
- * against a fixed pixel tolerance (the diagram layer's own hit radius) to
- * decide whether a click landed on the edge.
- */
-export function distanceToPath(point: Point, params: EdgePathParams): number {
-  const { kind, source, sourceSide, target, targetSide } = params;
-  if (kind === 'straight') return distanceToSegment(point, source, target);
-  if (kind === 'step') return distanceToPolyline(point, getStepPoints(source, sourceSide, target, targetSide));
-  const { c1, c2 } = bezierControlPoints(source, sourceSide, target, targetSide);
-  return distanceToPolyline(point, sampleBezier(source, c1, c2, target, BEZIER_SAMPLES));
 }
 
 // --- Bounds -----------------------------------------------------------

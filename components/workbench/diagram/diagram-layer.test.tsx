@@ -79,6 +79,21 @@ describe('DiagramLayer rendering', () => {
     expect(hit.getAttribute('d')).toContain('300,25');
   });
 
+  it('anchors a side-less edge toward the OTHER endpoint, not toward itself', () => {
+    // Neither endpoint stores a side - the renderer must fall back to
+    // wherever the far end actually is. a sits left of b: the path should
+    // leave a's right handle and arrive at b's left handle, not both
+    // resolving to "bottom" (the bug: the fallback always measured toward
+    // its own box instead of the other endpoint's).
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const noSideEdge = edge({ source: { nodeId: 'a' }, target: { nodeId: 'b' } });
+    renderLayer({ diagram: stateWith({ nodes, edges: [noSideEdge] }) });
+
+    const hit = screen.getByTestId('diagram-edge-hit-edge0000001');
+    expect(hit.getAttribute('d')).toContain('M100,25');
+    expect(hit.getAttribute('d')).toContain('300,25');
+  });
+
   it('gives an edge a marker-end for "end", both markers for "both", and neither for "none"', () => {
     const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
     const { rerender } = render(
@@ -298,7 +313,7 @@ describe('DiagramLayer resize', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 140, height: 90 });
   });
 
-  it('resizing from the top-left handle also repositions the node', () => {
+  it('resizing from the top-left handle repositions the node in the SAME dispatch (one history entry, not a resize plus a move)', () => {
     const { dispatch } = renderLayer({
       diagram: stateWith({
         nodes: [node({ x: 100, y: 100, width: 100, height: 50 })],
@@ -309,10 +324,29 @@ describe('DiagramLayer resize', () => {
 
     fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 100 });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 80, clientY: 90 });
+    dispatch.mockClear();
     fireEvent.pointerUp(handle, { pointerId: 1, clientX: 80, clientY: 90 });
 
-    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 120, height: 60 });
-    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['node000001'], dx: -20, dy: -10 });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 120, height: 60, x: 80, y: 90 });
+  });
+
+  it('does not report x/y at all when a corner resize does not move the box (bottom-right)', () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes: [node({ x: 0, y: 0, width: 100, height: 50 })],
+        selection: [{ type: 'node', id: 'node000001' }],
+      }),
+    });
+    const handle = screen.getByTestId('diagram-resize-node000001-se');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140, clientY: 90 });
+    dispatch.mockClear();
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 140, clientY: 90 });
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'resize', id: 'node000001', width: 140, height: 90 });
   });
 });
 
