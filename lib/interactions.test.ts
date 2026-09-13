@@ -58,7 +58,11 @@ describe('setInteraction', () => {
 });
 
 describe('describeInteraction', () => {
-  const screens: Screen[] = [screen({ id: 's1', name: 'Login' }), screen({ id: 's2', name: 'Hello world' })];
+  const screens: Screen[] = [
+    screen({ id: 's1', name: 'Login' }),
+    screen({ id: 's2', name: 'Hello world' }),
+    screen({ id: 'o1', name: 'Confirm delete', kind: 'overlay', presentation: { type: 'dialog', dismissible: true } }),
+  ];
   const nodes: DescribeNodes = {
     dialog1: { data: { name: 'Dialog', displayName: 'Dialog', props: { title: 'Confirm delete' } } },
     dialog2: { data: { name: 'Dialog', displayName: 'Dialog', props: {} } },
@@ -97,11 +101,26 @@ describe('describeInteraction', () => {
     const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'back' };
     expect(describeInteraction(interaction, screens, nodes)).toBe('← Back');
   });
+
+  it('describes an openOverlay interaction with the target overlay name', () => {
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'openOverlay', targetScreenId: 'o1' };
+    expect(describeInteraction(interaction, screens, nodes)).toBe('→ Overlay: Confirm delete');
+  });
+
+  it('falls back to a generic label when the target overlay no longer exists', () => {
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'openOverlay', targetScreenId: 'gone' };
+    expect(describeInteraction(interaction, screens, nodes)).toBe('→ Unknown overlay');
+  });
+
+  it('describes a closeOverlay interaction', () => {
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'closeOverlay' };
+    expect(describeInteraction(interaction, screens, nodes)).toBe('× Close overlay');
+  });
 });
 
 describe('interactionHandler', () => {
   function runner() {
-    return { navigate: vi.fn(), back: vi.fn(), openDialog: vi.fn() };
+    return { navigate: vi.fn(), back: vi.fn(), openDialog: vi.fn(), openOverlay: vi.fn(), closeOverlay: vi.fn() };
   }
 
   it('returns undefined for no interaction', () => {
@@ -132,5 +151,24 @@ describe('interactionHandler', () => {
     interactionHandler(interaction, play)?.();
     expect(play.back).toHaveBeenCalledWith();
     expect(play.navigate).not.toHaveBeenCalled();
+  });
+
+  it('calls openOverlay with the target screen id', () => {
+    const play = runner();
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'openOverlay', targetScreenId: 'o1' };
+    interactionHandler(interaction, play)?.();
+    expect(play.openOverlay).toHaveBeenCalledWith('o1');
+    expect(play.navigate).not.toHaveBeenCalled();
+    expect(play.openDialog).not.toHaveBeenCalled();
+    expect(play.closeOverlay).not.toHaveBeenCalled();
+  });
+
+  it('calls closeOverlay with no arguments', () => {
+    const play = runner();
+    const interaction: Interaction = { id: 'i1', trigger: 'click', action: 'closeOverlay' };
+    interactionHandler(interaction, play)?.();
+    expect(play.closeOverlay).toHaveBeenCalledWith();
+    expect(play.back).not.toHaveBeenCalled();
+    expect(play.openOverlay).not.toHaveBeenCalled();
   });
 });

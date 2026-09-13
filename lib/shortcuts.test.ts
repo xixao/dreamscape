@@ -145,7 +145,7 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
   // (shortcuts-overlay.tsx's hold detection for the Cmd-hold row,
   // canvas.tsx's shouldStartPan/panRef for the two pan rows) and
   // matchShortcut never returns any of these ids.
-  const GESTURE_IDS = new Set(['shortcuts-overlay-hold', 'pan-space', 'pan-middle-mouse']);
+  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse']);
 
   it('resolves every matchable registry entry back to its own id from its own keys', () => {
     for (const shortcut of SHORTCUTS) {

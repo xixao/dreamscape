@@ -76,19 +76,28 @@ export const MENU_ROW =
 export const MENU_HINT = 'font-mono text-[10px] text-t4';
 export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 
-// Shortcuts overlay/dialog (spec docs/superpowers/specs/2026-09-12-
-// shortcuts-overlay-design.md section 4). OVERLAY_SURFACE is only used by
-// the display-only, hold-triggered presentation (shortcuts-overlay.tsx),
-// which has no Radix primitive of its own to inherit chrome from; the
-// dialog presentation reuses components/ui/dialog's own surface and only
-// takes the group/row/key-cap treatment below, so the two never show
-// different shortcut content even though their outer chrome differs.
-export const OVERLAY_SURFACE =
-  'w-[1240px] max-w-[calc(100vw-4rem)] rounded-2xl border border-line-strong bg-card p-8 shadow-panel-lg';
+// Shortcuts dialog (spec docs/superpowers/specs/2026-09-12-
+// shortcuts-overlay-design.md section 4): the dialog reuses
+// components/ui/dialog's own surface and takes only the title/caption/
+// group/row/key-cap treatment below. The hold-Cmd presentation that once
+// had its own surface was removed on 2026-09-13 in favour of the top bar's
+// ⌘ button.
+// The same footprint for the shadcn DialogContent presentations (the
+// shortcuts dialog and the Element documentation dialog, spec docs/
+// superpowers/specs/2026-09-13-element-docs-design.md section 1): one
+// constant so the two dialogs cannot drift apart in size. shadcn's own
+// DialogContent hardcodes `sm:max-w-sm`, which beats any plain `max-w-*`
+// override at every viewport >= 640px (same "sm:" variant scope, later in
+// the cascade) - only the same-variant `sm:max-w-*` actually wins; the
+// unprefixed class is just the sensible base for narrower viewports.
+export const WIDE_DIALOG_CONTENT = 'max-w-[calc(100%-2rem)] sm:max-w-[calc(100vw-48px)] xl:max-w-[1800px]';
 export const OVERLAY_TITLE = 'text-[20px] font-semibold text-foreground';
 export const OVERLAY_CAPTION = 'font-mono text-[12px] text-muted-foreground';
 export const OVERLAY_GRID = 'grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-2 xl:grid-cols-3';
 export const OVERLAY_GROUP_TITLE = 'mb-3 font-mono text-[12px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
 export const OVERLAY_ROW_LABEL = 'text-[15px] leading-6 whitespace-nowrap text-t2';
+// OVERLAY_ROW_LABEL for running text (the Element documentation dialog's
+// paragraphs and table cells): the same size and colour, allowed to wrap.
+export const OVERLAY_PARAGRAPH = 'text-[15px] leading-6 text-t2';
 export const OVERLAY_KEY_CAP =
   'rounded-sm border border-border bg-muted px-2 py-0.5 font-mono text-[13px] whitespace-nowrap shadow-[var(--bevel-hi),var(--bevel-drop)]';

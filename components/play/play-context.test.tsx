@@ -26,6 +26,8 @@ describe('usePlay', () => {
         play.back();
         play.openDialog('d1');
         play.closeDialog('d1');
+        play.openOverlay('o1');
+        play.closeOverlay();
       }, [play]);
       return <output data-testid="result">{String(play.isDialogOpen('d1'))}</output>;
     }
@@ -41,6 +43,8 @@ describe('usePlay', () => {
       openDialog: vi.fn(),
       closeDialog: vi.fn(),
       isDialogOpen: (nodeId) => nodeId === 'd1',
+      openOverlay: vi.fn(),
+      closeOverlay: vi.fn(),
     };
     render(
       <PlayProvider value={value}>

@@ -16,6 +16,18 @@ export interface PlayContextValue {
   closeDialog: (nodeId: string) => void;
   /** Whether the Dialog block with this node id is currently open. */
   isDialogOpen: (nodeId: string) => boolean;
+  /**
+   * Runs an `openOverlay` interaction: opens the overlay frame with this
+   * screen id on top of the current screen (spec docs/superpowers/specs/
+   * 2026-09-13-overlay-frames-design.md sections 3 and 4).
+   */
+  openOverlay: (screenId: string) => void;
+  /**
+   * Runs a `closeOverlay` interaction: closes the top overlay - inside an
+   * overlay's own layout, the overlay it lives in (see
+   * components/play/player.tsx's OverlayHost).
+   */
+  closeOverlay: () => void;
 }
 
 const noop = () => {};
@@ -32,6 +44,8 @@ const DEFAULT_VALUE: PlayContextValue = {
   openDialog: noop,
   closeDialog: noop,
   isDialogOpen: () => false,
+  openOverlay: noop,
+  closeOverlay: noop,
 };
 
 const PlayContext = createContext<PlayContextValue>(DEFAULT_VALUE);
