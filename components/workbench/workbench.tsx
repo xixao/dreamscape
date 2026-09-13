@@ -1205,13 +1205,20 @@ function WorkbenchShell({
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
     onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
-    onDiagramDuplicate: () =>
-      dispatchDiagram({
-        type: 'duplicate',
-        pairs: diagram.selection
-          .filter((item) => item.type === 'node')
-          .map((item) => ({ sourceId: item.id, newId: nanoid(10) })),
-      }),
+    onDiagramDuplicate: () => {
+      // Also copies a connector whose both endpoints are themselves being
+      // duplicated (lib/diagram/store.ts's own re-validated edgePairs) - so
+      // Cmd+D behaves exactly like the diagram layer's own "Duplicate ⌘D"
+      // context-menu item and Option-drag gesture, all three of which go
+      // through the very same reducer action.
+      const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+      const idSet = new Set(nodeIds);
+      const pairs = nodeIds.map((id) => ({ sourceId: id, newId: nanoid(10) }));
+      const edgePairs = diagram.edges
+        .filter((edge) => !!edge.source.nodeId && idSet.has(edge.source.nodeId) && !!edge.target.nodeId && idSet.has(edge.target.nodeId))
+        .map((edge) => ({ sourceId: edge.id, newId: nanoid(10) }));
+      dispatchDiagram({ type: 'duplicate', pairs, edgePairs });
+    },
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;

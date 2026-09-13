@@ -1716,6 +1716,49 @@ describe('Workbench', () => {
       expect(diagramNodes()).toHaveLength(2);
     });
 
+    it('Cmd+D also duplicates a connector whose both endpoints are in the selection', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 300, y: 300 });
+      // The palette itself stays open after a placement (only the armed
+      // shape resets to the pointer) - re-arm Rectangle for a second shape
+      // without re-clicking "Diagram tool" itself, which would toggle the
+      // still-open palette closed instead.
+      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
+      const surface = screen.getByTestId('diagram-placement-surface');
+      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 700, clientY: 300 });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 700, clientY: 300 });
+      expect(diagramNodes()).toHaveLength(2);
+
+      const [aId, bId] = diagramNodes().map((el) => el.getAttribute('data-testid')!.replace('diagram-node-', ''));
+      const handle = screen.getByTestId(`diagram-handle-node-${aId}-right`);
+      fireEvent.pointerDown(handle, { pointerId: 2, clientX: 380, clientY: 300 });
+      fireEvent.pointerMove(handle, { pointerId: 2, clientX: 700, clientY: 300 });
+      fireEvent.pointerUp(handle, { pointerId: 2, clientX: 700, clientY: 300 });
+      expect(screen.getByTestId(/^diagram-edge-hit-/)).toBeInTheDocument();
+
+      // Select both shapes (the connect gesture above did not change the
+      // selection left over from placing b).
+      fireEvent.pointerDown(screen.getByTestId(`diagram-node-${aId}`), { pointerId: 3, clientX: 340, clientY: 300 });
+      fireEvent.pointerUp(screen.getByTestId(`diagram-node-${aId}`), { pointerId: 3, clientX: 340, clientY: 300 });
+      fireEvent.pointerDown(screen.getByTestId(`diagram-node-${bId}`), {
+        pointerId: 3,
+        clientX: 740,
+        clientY: 300,
+        shiftKey: true,
+      });
+      fireEvent.pointerUp(screen.getByTestId(`diagram-node-${bId}`), {
+        pointerId: 3,
+        clientX: 740,
+        clientY: 300,
+        shiftKey: true,
+      });
+
+      fireEvent.keyDown(window, { key: 'd', metaKey: true });
+
+      expect(diagramNodes()).toHaveLength(4);
+      expect(screen.queryAllByTestId(/^diagram-edge-hit-/)).toHaveLength(2);
+    });
+
     it('arrow keys nudge the selected shape by 8px, 64px with Shift', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
