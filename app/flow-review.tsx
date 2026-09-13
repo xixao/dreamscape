@@ -86,6 +86,7 @@ import AnchoredComments from "./anchored-comments";
 import ParticipantTest from "./participant-test";
 import SessionSignals from "./session-signals";
 import TestSetupEditor from "./test-setup-editor";
+import DesignWorkspace from "./design-workspace";
 import {
   defaultTestSetup,
   scriptedTestSetup,
@@ -162,6 +163,9 @@ function IconButton({
 }
 
 export default function FlowReview() {
+  const [workspaceMode, setWorkspaceMode] = useState<"design" | "review">(
+    "design",
+  );
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [presentation, setPresentation] = useState(false);
@@ -520,6 +524,31 @@ export default function FlowReview() {
         }}
       />
     );
+  if (workspaceMode === "design")
+    return (
+      <DesignWorkspace
+        draft={draft}
+        onChange={setDraft}
+        revision={revision}
+        state={state}
+        onState={setState}
+        anchor={anchor}
+        onAnchor={setAnchor}
+        busy={busy}
+        loaded={loaded}
+        error={error}
+        dark={dark}
+        onTheme={() => setTheme(dark ? "light" : "dark")}
+        comments={data.comments}
+        onSave={() => void save(draft, "Manual update from design workspace")}
+        onReview={(feedback) => {
+          setWorkspaceMode("review");
+          setAudience("designer");
+          setView("review");
+          if (feedback) setPanel("feedback");
+        }}
+      />
+    );
   return (
     <TooltipProvider delayDuration={250}>
       <div
@@ -527,6 +556,10 @@ export default function FlowReview() {
         ref={studioRef}
       >
         <header className="studio-header">
+          <Button variant="ghost" onClick={() => setWorkspaceMode("design")}>
+            <ArrowRight size={16} className="rotate-180" />
+            Back to design
+          </Button>
           <span className="studio-brand">
             <Layers3 />
             Flow Review
@@ -694,7 +727,21 @@ export default function FlowReview() {
                 Case study
               </TabsTrigger>
             </TabsList>
-            {isDesigner && <Button variant="ghost" className="setup-nav-action" disabled={!loaded} onClick={()=>{setShareRole("participant");setShareUrl("");setDialog("share");}}><Settings2 size={15}/>Set up test</Button>}
+            {isDesigner && (
+              <Button
+                variant="ghost"
+                className="setup-nav-action"
+                disabled={!loaded}
+                onClick={() => {
+                  setShareRole("participant");
+                  setShareUrl("");
+                  setDialog("share");
+                }}
+              >
+                <Settings2 size={15} />
+                Set up test
+              </Button>
+            )}
           </Tabs>
         )}
         {participant && (

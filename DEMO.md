@@ -4,7 +4,7 @@
 
 The designer created one document uploader, not a full mortgage application. It uses a fictional, preselected PDF and three states: ready, failed, complete. It does not accept real files or personal mortgage information.
 
-1. Open the workspace and sign in if prompted. Play the scenario and select **Upload document**. The original component reaches an error with no recovery action.
+1. Open Flow Studio, the labeled design workspace demo, and sign in if prompted. Select layers, edit the uploader in the Design inspector, or prepare the simulated agent's recovery patch. Review & Test enters Flow Review; Back to design returns to the same draft, version, component selection, and upload state. Play the scenario and select Upload document. The original design preview reaches an error with no recovery action.
 2. Open **Feedback**, or select the error's numbered pin, and add a comment. Reply, like, assign, or resolve it. Feedback belongs to this version, state, component, and viewport.
 3. Open the assistant and select **Review this flow**. It presents the prepared error-copy, retry-button, and alert-announcement changes. Nothing applies until **Apply changes** is selected.
 4. Retry the upload. It succeeds. Switch to mobile or both viewports to see the same component state.
@@ -36,6 +36,8 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 - Deterministic checks of this component's configured behavior and a copy-length heuristic. No overall accessibility or production-readiness certification.
 
 ## What is scripted or limited
+
+- Flow Studio is a bounded stand-in for Matt's app, not a general drawing tool. It uses the same live uploader, draft configuration, selected component ID, upload state, comments, and save operation as Flow Review. Its agent proposes the fixed recovery patch. There is no live model selection, arbitrary drawing, or integration with Matt's app. Reloading resets the workspace to Design and discards unsaved in-memory drafts; saved versions persist.
 
 - The simulated setup prompt recognizes audience names, mobile/phone, component, and recovery/retry/failure keywords and fills a prepared draft. It does not interpret arbitrary workflow requests. Example: "Set up a Research mobile component test for the document upload." The designer reviews and creates the link before the test is marked ready. The main assistant input also routes test/study/pilot/research requests into setup.
 
