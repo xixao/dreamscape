@@ -79,7 +79,7 @@ export function DiagramPalette({
     <div
       role="toolbar"
       aria-label="Diagram palette"
-      className={cn(PANEL, 'absolute top-[76px] left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 p-1')}
+      className={cn(PANEL, 'fixed bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 p-1')}
     >
       {SHAPE_ITEMS.map(({ kind, label, icon }) => (
         <PaletteButton

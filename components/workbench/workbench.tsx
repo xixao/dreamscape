@@ -48,7 +48,6 @@ import { DEFAULT_LAYOUT_GRID, resolveLayoutGrid } from './layout-grid';
 import { NewLayoutDialog } from './new-layout-dialog';
 import { NodeIndicator } from './node-indicator';
 import { PrototypeProvider } from './prototype-context';
-import { ScreensStrip } from './screens-strip';
 import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 import { StageErrorBoundary } from './stage-error-boundary';
@@ -429,11 +428,12 @@ export function Workbench({
   // it has one. Deliberately does NOT create a screen when the target page
   // is empty (spec: "creating a screen when the page is empty is NOT
   // automatic") - WorkbenchShell/Canvas render a "This page has no screens
-  // yet" chip and the New screen button instead, the same one every page
-  // already has. currentScreenId becomes '' in that case: nothing in
-  // `screens` has that id, so every consumer (Canvas, ScreensStrip) simply
-  // shows nothing focused - the same fallback resolveInitialScreens/
-  // screenIdForPage already rely on elsewhere.
+  // yet" chip instead; the Frames chip's own "New frame" item (it still
+  // renders at zero frames) is the only way to add one. currentScreenId
+  // becomes '' in that case: nothing in `screens` has that id, so every
+  // consumer (Canvas, the Frames chip) simply shows nothing focused - the
+  // same fallback resolveInitialScreens/screenIdForPage already rely on
+  // elsewhere.
   function switchPage(pageId: string): void {
     if (pageId === currentPageId) return;
     void saver.flush();
@@ -725,8 +725,9 @@ export function Workbench({
     switchScreen(copy.id);
   }
 
-  // Disabled in the UI (screens-strip.tsx) once a page is down to one
-  // screen, the same way it always disabled Delete at one screen file-wide
+  // Disabled in the UI (a frame row's own Delete item in the Frames chip,
+  // frames-chip.tsx) once a page is down to one screen, the same way it
+  // always disabled Delete at one screen file-wide
   // before pages existed - now scoped to the screen's OWN page rather than
   // the whole file, since a page emptying out entirely is a real, supported
   // state (reached instead through "Move to page", or a page that started
@@ -753,7 +754,8 @@ export function Workbench({
     if (id === currentScreenId) switchScreen(firstScreenIdForPage(next, target.pageId!));
   }
 
-  // "Move to page" (screens-strip.tsx's chevron menu): keeps the screen's
+  // "Move to page" (a frame row's own submenu in the Frames chip,
+  // frames-chip.tsx): keeps the screen's
   // layout, comments (comments are keyed by screen id, not page - see
   // lib/comments/store.ts - so they simply travel with it) and everything
   // else, only repointing pageId and clearing its position so
@@ -993,7 +995,7 @@ function WorkbenchShell({
   onDiagramChange: (pageId: string, diagram: DiagramData) => void;
   // The whole file's screens, every page's own - WorkbenchShell itself
   // filters to the current page's screens (pageScreens, below) for Canvas,
-  // ScreensStrip and the viewport controller's frames; the full array is
+  // the Frames chip and the viewport controller's frames; the full array is
   // still what onMoveScreenToPage needs to reach a screen that is about to
   // leave the current page altogether.
   screens: Screen[];
@@ -1086,10 +1088,10 @@ function WorkbenchShell({
   // same instance can be shared - through CanvasViewportProvider, below -
   // with the top bar's zoom menu and the keyboard shortcuts wired just
   // after this, neither of which is a descendant of Canvas.
-  // Only the current page's own screens - Canvas, ScreensStrip and the
+  // Only the current page's own screens - Canvas, the Frames chip and the
   // viewport controller's frames all scope to this, never the whole file's
-  // `screens` (spec: "the screens strip shows only the current page's
-  // screens"; "the canvas... frames of the current page only").
+  // `screens` (the Frames chip lists only the current page's frames; spec:
+  // "the canvas... frames of the current page only").
   const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
 
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
@@ -1255,16 +1257,11 @@ function WorkbenchShell({
     frames: pageScreens.map((screen) => frameRect(screen, measuredHeights)),
   });
 
-  // Clicking a screens tab still switches the focused screen (onSelectScreen,
-  // from Workbench) and also animates the viewport to fit that frame (spec:
-  // "200 ms ease-out, cancelled by any pan/zoom input") - wrapping it here
-  // rather than in Workbench itself, since the viewport this animates is
-  // owned by this component, one level below where switchScreen lives.
-  // Deliberately NOT used for Canvas's own onFocusScreen (clicking a frame
-  // directly on the canvas): the user is already looking at that frame, so
-  // fitting it could jump the view somewhere they did not ask for.
-  function handleSelectScreenTab(id: string): void {
-    onSelectScreen(id);
+  // Frames chip zoom handler: when a frame is selected in the frames chip menu,
+  // animate the viewport to fit that frame (spec: "200 ms ease-out, cancelled by
+  // any pan/zoom input"). The frames chip menu handles the focus switch via
+  // onSelectScreen; this handler only animates the zoom.
+  function handleZoomToFrame(id: string): void {
     const target = pageScreens.find((screen) => screen.id === id);
     if (target) animateTo(zoomToRect(frameRect(target, measuredHeights), viewportSize, SELECTION_ZOOM_PADDING));
   }
@@ -1583,6 +1580,7 @@ function WorkbenchShell({
                 saveState={saveState}
                 notice={notice}
                 onNew={() => setNewOpen(true)}
+                onAddScreen={onAddScreen}
                 fileId={fileId}
                 folderId={folderId}
                 pages={pages}
@@ -1595,6 +1593,12 @@ function WorkbenchShell({
                 onDeletePage={onDeletePage}
                 onMovePage={onMovePage}
                 currentScreenId={currentScreenId}
+                onSwitchScreen={onSelectScreen}
+                onRenameScreen={onRenameScreen}
+                onDuplicateScreen={onDuplicateScreen}
+                onDeleteScreen={onDeleteScreen}
+                onMoveScreenToPage={onMoveScreenToPage}
+                onZoomToFrame={handleZoomToFrame}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((open) => !open)}
                 commentMode={commentMode}
@@ -1663,32 +1667,17 @@ function WorkbenchShell({
               {/*
                 Spec docs/superpowers/specs/2026-09-12-pages-design.md
                 section 3: creating a screen for an empty page is never
-                automatic - this chip names the state; "the New screen
-                button" it refers to is the screens strip's own existing
-                "+" just below (still rendered with zero tabs) - a second,
-                separate button here would only duplicate it under the same
-                accessible name.
+                automatic - this chip just names the state. The only way to
+                add the page's first frame is the Frames chip's own "New
+                frame" item, up in the top bar (it still renders at zero
+                frames, showing "— · 0" - see frames-chip.tsx) - a second,
+                separate button here would only duplicate it.
               */}
               {pageScreens.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                   <div className={cn(CHIP, 'px-3')}>
                     <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
                   </div>
-                </div>
-              )}
-              {!uiHidden && (
-                <div className="absolute top-[76px] left-3 z-10 flex items-center rounded-lg border border-line-soft bg-canvas/95 px-1 py-1 shadow-panel">
-                  <ScreensStrip
-                    screens={pageScreens}
-                    pages={pages}
-                    currentScreenId={currentScreenId}
-                    onSelect={handleSelectScreenTab}
-                    onAdd={onAddScreen}
-                    onRename={onRenameScreen}
-                    onDuplicate={onDuplicateScreen}
-                    onDelete={onDeleteScreen}
-                    onMoveToPage={onMoveScreenToPage}
-                  />
                 </div>
               )}
               <LayerStackMenu />

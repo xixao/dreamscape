@@ -45,6 +45,7 @@ function renderTopbar(
 ) {
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
+  const onAddScreen = overrides.onAddScreen ?? vi.fn();
   const onToggleChat = overrides.onToggleChat ?? vi.fn();
   const onZoomIn = overrides.onZoomIn ?? vi.fn();
   const onZoomOut = overrides.onZoomOut ?? vi.fn();
@@ -56,6 +57,11 @@ function renderTopbar(
   const onDuplicatePage = overrides.onDuplicatePage ?? vi.fn();
   const onDeletePage = overrides.onDeletePage ?? vi.fn();
   const onMovePage = overrides.onMovePage ?? vi.fn();
+  const onSwitchScreen = overrides.onSwitchScreen ?? vi.fn();
+  const onRenameScreen = overrides.onRenameScreen ?? vi.fn();
+  const onDuplicateScreen = overrides.onDuplicateScreen ?? vi.fn();
+  const onDeleteScreen = overrides.onDeleteScreen ?? vi.fn();
+  const onZoomToFrame = overrides.onZoomToFrame ?? vi.fn();
   const props: ComponentProps<typeof Topbar> = {
     fileName: 'Untitled',
     saveState: 'saved',
@@ -69,6 +75,7 @@ function renderTopbar(
     ...overrides,
     onRename,
     onNew,
+    onAddScreen,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -80,6 +87,11 @@ function renderTopbar(
     onDuplicatePage,
     onDeletePage,
     onMovePage,
+    onSwitchScreen,
+    onRenameScreen,
+    onDuplicateScreen,
+    onDeleteScreen,
+    onZoomToFrame,
   };
   return {
     ...renderInEditor(
@@ -90,6 +102,7 @@ function renderTopbar(
     ),
     onRename,
     onNew,
+    onAddScreen,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -140,6 +153,7 @@ describe('Topbar', () => {
             onRename={() => {}}
             saveState="saved"
             onNew={() => {}}
+            onAddScreen={() => {}}
             fileId="file123abc"
             folderId={null}
             pages={[{ id: 'page000001', name: 'Page 1' }]}
@@ -152,6 +166,11 @@ describe('Topbar', () => {
             onDeletePage={() => {}}
             onMovePage={() => {}}
             currentScreenId="screen0001"
+            onSwitchScreen={() => {}}
+            onRenameScreen={() => {}}
+            onDuplicateScreen={() => {}}
+            onDeleteScreen={() => {}}
+            onZoomToFrame={() => {}}
             chatOpen={false}
             onToggleChat={() => {}}
             onZoomIn={() => {}}

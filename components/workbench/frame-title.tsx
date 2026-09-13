@@ -5,7 +5,7 @@ import type { Screen } from '@/lib/files/repository';
 import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
 import { cn } from '@/lib/utils';
-import { NAME_MAX, RenameInput } from './screens-strip';
+import { NAME_MAX, RenameInput } from './rename-input';
 
 export interface FrameSnapResult {
   guides: SnapGuide[];
@@ -28,7 +28,7 @@ const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
  * `onSnapGuides` fires on every move with the current guides/distances, and
  * again with both empty right before `onDragEnd` - so a caller drawing them
  * in the canvas overlay never has to guess when to clear them - and, on
- * double-click, an inline rename reusing the screens strip's own input and
+ * double-click, an inline rename reusing rename-input.tsx's shared input and
  * Enter/Escape rules.
  *
  * Rendered by components/workbench/canvas.tsx as a sibling of each frame's

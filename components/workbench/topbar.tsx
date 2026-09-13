@@ -45,6 +45,7 @@ import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
 import { useCanvasViewport } from './canvas';
 import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { FramesChip } from './frames-chip';
 import { PagesMenu } from './pages-menu';
 import { useStage } from './stage-context';
 
@@ -358,6 +359,7 @@ export function Topbar({
   saveState,
   notice,
   onNew,
+  onAddScreen,
   fileId,
   folderId,
   pages,
@@ -370,6 +372,12 @@ export function Topbar({
   onDeletePage,
   onMovePage,
   currentScreenId,
+  onSwitchScreen,
+  onRenameScreen,
+  onDuplicateScreen,
+  onDeleteScreen,
+  onMoveScreenToPage,
+  onZoomToFrame,
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
@@ -388,6 +396,7 @@ export function Topbar({
   saveState: SaveState;
   notice?: string;
   onNew: () => void;
+  onAddScreen: () => void;
   fileId: string;
   folderId: string | null;
   pages: Page[];
@@ -400,6 +409,12 @@ export function Topbar({
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: 'up' | 'down') => void;
   currentScreenId: string;
+  onSwitchScreen: (id: string) => void;
+  onRenameScreen: (id: string, name: string) => void;
+  onDuplicateScreen: (id: string) => void;
+  onDeleteScreen: (id: string) => void;
+  onMoveScreenToPage?: (id: string, pageId: string) => void;
+  onZoomToFrame: (id: string) => void;
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
@@ -467,6 +482,27 @@ export function Topbar({
           onDuplicate={onDuplicatePage}
           onDelete={onDeletePage}
           onMove={onMovePage}
+        />
+        {/*
+          onAdd is onAddScreen (same action Shift+N triggers), not onNew:
+          onNew opens the "Start a new frame?" dialog that clears the
+          FOCUSED frame's own layout (the standalone "New frame" IconAction
+          below, a pre-existing, unrelated feature) - the chip's own "New
+          frame" menu item instead adds another screen to the page, per
+          spec docs/superpowers/specs/2026-09-13-frames-chip-design.md
+          section 1 ("the same actions the old chips' menus offered").
+        */}
+        <FramesChip
+          frames={screens.filter((screen) => screen.pageId === currentPageId)}
+          currentFrameId={currentScreenId}
+          pages={pages}
+          onSwitch={onSwitchScreen}
+          onAdd={onAddScreen}
+          onRename={onRenameScreen}
+          onDuplicate={onDuplicateScreen}
+          onDelete={onDeleteScreen}
+          onMoveToPage={onMoveScreenToPage}
+          onZoomToFrame={onZoomToFrame}
         />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
         <ToggleGroup
