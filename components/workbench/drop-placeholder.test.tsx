@@ -4,8 +4,19 @@ import { act, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/blocks/button';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
+import { invalidateDropCache } from '@/lib/craft-positioner';
 import { StageProvider, useStage } from './stage-context';
 import { useDropPlaceholder } from './drop-placeholder';
+
+// Craft's drop-target cache is cleared through the same reach-through
+// invalidateDropCache uses in canvas-frame.tsx (see lib/craft-positioner.ts);
+// mocked here the same way canvas-frame.test.tsx already does, so the tests
+// below can assert on call timing without depending on a real Positioner
+// instance (which only exists for the lifetime of a real Craft drag).
+vi.mock('@/lib/craft-positioner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/craft-positioner')>()),
+  invalidateDropCache: vi.fn(),
+}));
 
 // The Editor config workbench.tsx itself will use (see workbench.tsx's
 // <Editor indicator={...}>) - reproduced here rather than imported, so this
@@ -79,8 +90,11 @@ function placeholdersOf(root: HTMLElement): HTMLElement[] {
 // --- getBoundingClientRect stubbing -----------------------------------
 // jsdom has no layout engine (every real box is 0x0 at 0,0) - individual
 // tests that care about a specific element's box register one here, keyed
-// by the element itself so it survives being moved/reparented.
-const rectMap = new WeakMap<Element, Partial<DOMRect>>();
+// by the element itself so it survives being moved/reparented. A rect may
+// also be a function of the element, recomputed on every call instead of
+// once: that is what lets a test simulate a REAL reflow (below).
+type RectSource = Partial<DOMRect> | ((element: Element) => Partial<DOMRect>);
+const rectMap = new WeakMap<Element, RectSource>();
 const ZERO_RECT: DOMRect = {
   top: 0,
   left: 0,
@@ -92,8 +106,31 @@ const ZERO_RECT: DOMRect = {
   y: 0,
   toJSON: () => ({}),
 };
-function setRect(element: Element, rect: Partial<DOMRect>): void {
+function setRect(element: Element, rect: RectSource): void {
   rectMap.set(element, rect);
+}
+
+// Registers a rect on `element` that reflects its CURRENT index among its
+// parent's live DOM children (as if every sibling were stacked ROW_HEIGHT
+// px tall) - a cheap stand-in for a real layout engine's reflow. Every
+// OTHER element in this file (not passed through this or setRect) still
+// reports the static ZERO_RECT, unaffected.
+//
+// Without this, every test's rect is either the same static ZERO_RECT or a
+// fixed override, so a sibling's "before" and "after" getBoundingClientRect
+// during one drag-state update are always identical - flipDeltas is always
+// zero, and the FLIP path (the transform, .animate(), the finished/reset)
+// never actually runs anywhere in this file (finding 5 of the drop-
+// placeholder review). Opting individual elements into this instead makes
+// the placeholder's own insertBefore (which really does shift these
+// elements' DOM index) produce a real, non-zero delta.
+const ROW_HEIGHT = 50;
+function setReflowingRect(element: Element): void {
+  setRect(element, (el) => {
+    const parent = el.parentElement;
+    const index = parent ? Array.from(parent.children).indexOf(el) : 0;
+    return { top: index * ROW_HEIGHT, left: 0, width: 200, height: ROW_HEIGHT };
+  });
 }
 
 // --- Element.prototype.animate stubbing --------------------------------
@@ -111,7 +148,9 @@ let animateCalls: FakeAnimation[] = [];
 function installStubs() {
   animateCalls = [];
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    return { ...ZERO_RECT, ...rectMap.get(this) };
+    const source = rectMap.get(this);
+    const rect = typeof source === 'function' ? source(this) : source;
+    return { ...ZERO_RECT, ...rect };
   });
   Element.prototype.animate = vi.fn(function () {
     let resolveFinished!: () => void;
@@ -137,7 +176,17 @@ function installStubs() {
 
 beforeEach(() => {
   installStubs();
+  vi.mocked(invalidateDropCache).mockClear();
 });
+
+// A macrotask hop, not just a microtask one: flushes every pending
+// `finished.then(...)` reset handler AND a `Promise.allSettled(...).then`
+// layered on top of them (components/workbench/drop-placeholder.tsx's own
+// "invalidate again once every FLIP animation this cycle has settled"),
+// without needing to count exact microtask hops.
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -366,25 +415,41 @@ describe('useDropPlaceholder', () => {
     const idB = addButton(h, 'B');
     const domA = h.query.node(idA).get().dom!;
     setRect(domA, { width: 50, height: 20 });
+    const originalMargin = '4px';
+    domA.style.marginTop = originalMargin;
 
     act(() => {
       h.store.actions.setNodeEvent('dragged', [idA]);
       h.actions.setIndicator(validIndicator(h, 1, 'after', idB));
     });
 
-    // Not hidden yet - the browser still needs this frame to snapshot the
-    // drag image (spec: "hidden one frame after dragstart").
-    expect(domA.style.display).not.toBe('none');
+    // Not collapsed yet - the browser still needs this frame to snapshot
+    // the drag image (spec: "hidden one frame after dragstart").
+    expect(domA.style.visibility).not.toBe('hidden');
 
     act(() => {
       pendingRaf.splice(0).forEach((cb) => cb(0));
     });
-    expect(domA.style.display).toBe('none');
+    // visibility:hidden plus a zeroed box, not display:none: the element
+    // stays in Craft's own child list (finding 3 of the review) with a
+    // well-formed, zero-size rect at its own natural flow position, rather
+    // than collapsing to (0,0) at the document origin the way display:none
+    // would - read components/workbench/drop-placeholder.tsx's own comment
+    // on this for why that matters to Craft's placement maths.
+    expect(domA.style.visibility).toBe('hidden');
+    expect(domA.style.width).toBe('0px');
+    expect(domA.style.height).toBe('0px');
+    expect(domA.style.marginTop).toBe('0px');
+    // Craft's cached child dimensions for the hovered container must not
+    // keep serving the pre-collapse (full-size) rect for domA.
+    expect(invalidateDropCache).toHaveBeenCalled();
 
     act(() => {
       fireEvent.dragEnd(document);
     });
-    expect(domA.style.display).not.toBe('none');
+    expect(domA.style.visibility).not.toBe('hidden');
+    expect(domA.style.width).not.toBe('0px');
+    expect(domA.style.marginTop).toBe(originalMargin);
   });
 
   it('sizes a new tray component\'s placeholder from its previewSize hint, found via the dragged element\'s data-tray-item', () => {
@@ -408,5 +473,154 @@ describe('useDropPlaceholder', () => {
     // row container gives the placeholder that width and stretches height.
     const placeholder = placeholderOf(root)!;
     expect(placeholder.style.width).toBe('120px');
+  });
+
+  it('sniffs a dragged tray item even when its dragstart fires inside the focused frame document, not just the parent one', () => {
+    const { handle } = setup();
+    const h = handle();
+
+    // A REAL iframe (not document.implementation.createHTMLDocument, which
+    // has no separate realm at all): its elements have their OWN
+    // Node/Element constructors, the same way the real CanvasFrame's
+    // portaled content does (lib/dom.ts, and lib/dom.test.ts's own
+    // isNodeLike/isElementLike tests use the identical technique).
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    const frameDocument = iframe.contentDocument!;
+    act(() => {
+      h.setCanvasDocument({ document: frameDocument, window: iframe.contentWindow! });
+    });
+
+    const trayItem = frameDocument.createElement('div');
+    trayItem.setAttribute('data-tray-item', 'Button');
+    trayItem.setAttribute('draggable', 'true');
+    frameDocument.body.appendChild(trayItem);
+
+    // Confirms this is a genuine cross-realm element and not a test-setup
+    // mistake: instanceof Element, checked against the PARENT window's
+    // Element, is false for it even though it plainly is one.
+    expect(trayItem instanceof Element).toBe(false);
+
+    fireEvent.dragStart(trayItem);
+
+    const idA = addButton(h, 'A');
+    const root = h.query.node(ROOT_NODE).get().dom!;
+    act(() => {
+      h.actions.setIndicator(validIndicator(h, 0, 'before', idA));
+    });
+
+    // Button's previewSize is 120x36 (components/blocks/registry.tsx) -
+    // only reachable if the dragstart fired above was actually sniffed for
+    // pendingNewTypeRef, proving the listener (like dragend/drop already
+    // do) is attached to the focused frame document too.
+    const placeholder = placeholderOf(root)!;
+    expect(placeholder.style.width).toBe('120px');
+
+    iframe.remove();
+  });
+
+  describe('FLIP teardown clears leftover sibling transforms (review finding 1)', () => {
+    it('clears a sibling\'s transform synchronously when torn down mid-animation by a dragend, not only when its own finished promise later resolves', () => {
+      const { handle } = setup();
+      const h = handle();
+      const idA = addButton(h, 'A');
+      const idB = addButton(h, 'B');
+      const idC = addButton(h, 'C');
+      [idA, idB, idC].forEach((id) => setReflowingRect(h.query.node(id).get().dom!));
+
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 0, 'before', idA));
+      });
+
+      // Inserting the placeholder before A pushes A, B and C each one slot
+      // down - a real, non-zero FLIP delta for all three (finding 5: every
+      // rect elsewhere in this file is static, so this path never actually
+      // ran before).
+      const domB = h.query.node(idB).get().dom!;
+      expect(domB.style.transform).not.toBe('');
+      expect(Element.prototype.animate).toHaveBeenCalled();
+
+      // A dragend arriving mid-animation - the fake's `finished` has not
+      // resolved OR rejected yet - must cancel it and clear the transform
+      // it set RIGHT NOW, synchronously, rather than leaving it for a
+      // `finished` rejection handler that (before this fix) never reset
+      // anything.
+      act(() => {
+        fireEvent.dragEnd(document);
+      });
+
+      expect(domB.style.transform).toBe('');
+    });
+
+    it('cancels every still-running FLIP animation, instead of leaving it dangling, when the placement moves to a new slot before the old one finishes', () => {
+      const { handle } = setup();
+      const h = handle();
+      const idA = addButton(h, 'A');
+      const idB = addButton(h, 'B');
+      const idC = addButton(h, 'C');
+      [idA, idB, idC].forEach((id) => setReflowingRect(h.query.node(id).get().dom!));
+
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 0, 'before', idA));
+      });
+      // animateCalls[0] is the new placeholder's own grow animation; every
+      // call after it this cycle is a sibling's FLIP.
+      const flipCallsFromFirstOpen = animateCalls.slice(1);
+      expect(flipCallsFromFirstOpen.length).toBeGreaterThan(0);
+      flipCallsFromFirstOpen.forEach((call) => expect(call.cancel).not.toHaveBeenCalled());
+
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 2, 'after', null));
+      });
+
+      flipCallsFromFirstOpen.forEach((call) => expect(call.cancel).toHaveBeenCalled());
+    });
+  });
+
+  describe('Craft\'s drop cache is invalidated on every DOM change (review finding 2)', () => {
+    it('invalidates immediately when the slot opens, moves and closes', () => {
+      const { handle } = setup();
+      const h = handle();
+      const idA = addButton(h, 'A');
+      const idB = addButton(h, 'B');
+
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 0, 'before', idA));
+      });
+      expect(invalidateDropCache).toHaveBeenCalled();
+
+      vi.mocked(invalidateDropCache).mockClear();
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 1, 'after', idB));
+      });
+      expect(invalidateDropCache).toHaveBeenCalled();
+
+      vi.mocked(invalidateDropCache).mockClear();
+      act(() => {
+        h.actions.setIndicator(null);
+      });
+      expect(invalidateDropCache).toHaveBeenCalled();
+    });
+
+    it('invalidates again once every FLIP animation for a slot has settled', async () => {
+      const { handle } = setup();
+      const h = handle();
+      const idA = addButton(h, 'A');
+      const idB = addButton(h, 'B');
+      [idA, idB].forEach((id) => setReflowingRect(h.query.node(id).get().dom!));
+
+      act(() => {
+        h.actions.setIndicator(validIndicator(h, 0, 'before', idA));
+      });
+      expect(animateCalls.length).toBeGreaterThan(1); // the grow animation plus at least one FLIP
+      vi.mocked(invalidateDropCache).mockClear();
+
+      await act(async () => {
+        animateCalls.forEach((a) => a.resolveFinished());
+        await flushPromises();
+      });
+
+      expect(invalidateDropCache).toHaveBeenCalled();
+    });
   });
 });

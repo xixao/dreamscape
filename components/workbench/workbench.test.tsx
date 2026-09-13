@@ -1090,6 +1090,18 @@ describe('Workbench', () => {
   // design.md).
   describe('Drag placeholder', () => {
     it('opens a drop slot in the artboard when a tray component is dragged over it, and removes it on drop', async () => {
+      // Also the earliest, simplest reproduction of React's dev-only
+      // "Cannot update a component (WorkbenchShell) while rendering a
+      // different component" warning: drop-placeholder.tsx's collector used
+      // to update WorkbenchShell's state from inside Craft's own render
+      // pass, for even this plain "drag a new tray item over the artboard"
+      // case. Asserted on THIS test specifically (rather than a separate,
+      // later one) because React dedupes an identical warning after its
+      // first occurrence per component for the life of the module, so a
+      // second test making the same assertion later in this file would
+      // trivially pass regardless of whether the underlying bug is fixed.
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
 
@@ -1109,6 +1121,57 @@ describe('Workbench', () => {
 
       fireEvent.drop(root);
       expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
+
+      const updateWarnings = errorSpy.mock.calls.filter((call) =>
+        call.some((arg) => typeof arg === 'string' && arg.includes('Cannot update a component')),
+      );
+      expect(updateWarnings).toEqual([]);
+      errorSpy.mockRestore();
+    });
+
+    // The one path drop-placeholder.test.tsx's own unit tests cannot cover:
+    // they drive Craft's "existing" drag state directly via
+    // store.actions.setNodeEvent (see that file's own Probe comment), never
+    // through a real native dragstart on a node actually rendered inside a
+    // SEPARATE document the way the artboard's iframe is. Craft's `drag`
+    // connector attaches directly to the node's own DOM (confirmed against
+    // the vendored 0.2.12 bundle: addCraftEventListener(element, ...) is a
+    // plain element.addEventListener, realm-independent), so a real
+    // fireEvent.dragStart on a node inside frameBody() exercises the exact
+    // review-flagged path ("the controller's browser run showed the
+    // original did not collapse after dragstart at all").
+    it('collapses an existing layer\'s own box one frame after it starts dragging inside the artboard, and restores it on dragend', () => {
+      const pendingRaf: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        ((cb: FrameRequestCallback) => {
+          pendingRaf.push(cb);
+          return pendingRaf.length;
+        }) as typeof requestAnimationFrame,
+      );
+
+      render(<Workbench file={makeFile()} />);
+      const forgotButton = within(frameBody()).getByText('Forgot your password?');
+      const cardContent = forgotButton.closest('[data-zone="CardContent"]');
+      if (!cardContent) throw new Error('CardContent zone not found');
+
+      const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
+      fireEvent.dragStart(forgotButton, { dataTransfer });
+      fireEvent.dragOver(cardContent, { clientX: 10, clientY: 10 });
+
+      // Not collapsed yet - the browser still needs this frame to snapshot
+      // the drag image (spec: "hidden one frame after dragstart").
+      expect(forgotButton.style.visibility).not.toBe('hidden');
+
+      act(() => {
+        pendingRaf.splice(0).forEach((cb) => cb(0));
+      });
+      expect(forgotButton.style.visibility).toBe('hidden');
+
+      fireEvent.dragEnd(document);
+      expect(forgotButton.style.visibility).not.toBe('hidden');
+
+      vi.unstubAllGlobals();
     });
   });
 
