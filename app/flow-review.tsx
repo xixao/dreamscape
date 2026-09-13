@@ -735,7 +735,16 @@ export default function FlowReview() {
         <div className="workspace-heading">
           <div>
             <p className="eyebrow">
-              DESIGN REVIEW · {audienceNames[audience].toUpperCase()}
+              {
+                {
+                  review: "Design review",
+                  results: "Test results",
+                  journey: "User journey",
+                  build: "Edit component",
+                  case: "Case study",
+                }[view]
+              }{" "}
+              · {audienceNames[audience]}
             </p>
             <h1>Document upload</h1>
             <p>

@@ -131,7 +131,10 @@ export default function ReviewResults({
             )}
           </select>
         </label>
-        <span>{scoped.length} sessions in scope · Latest 100 available</span>
+        <span role="status" aria-live="polite">
+          {visible.length} of {scoped.length} sessions shown · Latest 100
+          available
+        </span>
       </div>
       <div className="outcome-summary">
         <button

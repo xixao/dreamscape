@@ -35,6 +35,41 @@ for (const file of appFiles.filter((f) => /\.tsx?$/.test(f))) {
 }
 assert.equal(cssImports, 1, "One application stylesheet entry point");
 const css = postcss.parse(fs.readFileSync("app/globals.css", "utf8"));
+const themes = { light: {}, dark: {} };
+css.walkRules((rule) => {
+  if (rule.selector !== ":root" && rule.selector !== ".dark") return;
+  rule.walkDecls(/^--/, (d) => {
+    themes[rule.selector === ":root" ? "light" : "dark"][d.prop] = d.value;
+  });
+});
+function luminance(hex) {
+  let value = hex.slice(1);
+  if (value.length === 3) value = [...value].map((c) => c + c).join("");
+  const [r, g, b] = value.match(/../g).map((c) => {
+    const n = parseInt(c, 16) / 255;
+    return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+for (const [name, overrides] of Object.entries(themes)) {
+  const t = { ...themes.light, ...overrides };
+  for (const [foreground, background, minimum] of [
+    ["--foreground", "--background", 4.5],
+    ["--muted-foreground", "--background", 4.5],
+    ["--muted-foreground", "--secondary", 4.5],
+    ["--primary-foreground", "--primary", 4.5],
+    ["--rating", "--background", 3],
+    ["--input", "--background", 3],
+    ["--ring", "--background", 3],
+  ]) {
+    const a = luminance(t[foreground]),
+      b = luminance(t[background]);
+    assert.ok(
+      (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= minimum,
+      `${name}: ${foreground} on ${background} contrast`,
+    );
+  }
+}
 const signatures = new Set();
 css.walkRules((rule) => {
   const context = [];
