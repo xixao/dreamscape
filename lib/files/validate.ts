@@ -165,18 +165,6 @@ export type ScreenKind = (typeof SCREEN_KINDS)[number];
 // other content rule in this module works one level below its zod check.
 export type OverlayPresentationInput = Record<string, unknown>;
 
-// A file holds several of these (files.screens, migration 0002). `layout` is
-// the JSON string form here and everywhere in the API and repository; only
-// the database stores it parsed, inside the screens jsonb column (see
-// toStoredScreen/toApiScreens in lib/files/repository.ts).
-//
-// `x`/`y` are the frame's position on the infinite canvas (spec
-// docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 5):
-// canvas-space integer px, both present or both null together - never one
-// without the other (validateScreens enforces this). A screen predating this
-// feature has both null; components/workbench/workbench.tsx runs
-// lib/files/layout.ts's layoutMissingPositions over the file's screens on
-// load to fill them in before the canvas ever renders one.
 // A frame's layout grid overlay (spec docs/superpowers/specs/2026-09-13-
 // grid-snapping-alignment-design.md section 5), like Figma's own per-frame
 // layout grids: columns evenly spaced by `gutter` px, inset `margin` px
