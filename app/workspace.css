@@ -1048,6 +1048,13 @@ body {
 .tester-fuego[aria-pressed="true"] {
   background: var(--accent);
 }
+.tester-stars .tester-fuego span {
+  margin: 0;
+  font-size: 25px;
+}
+.tester-task {
+  flex-wrap: wrap;
+}
 .signal-summary {
   display: flex;
   flex-wrap: wrap;

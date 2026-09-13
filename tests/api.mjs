@@ -294,6 +294,26 @@ const abandoned = (await api("/api/workspace")).sessions.find(
 assert.equal(abandoned.outcome, "gave_up");
 assert.equal(abandoned.rating, 1);
 assert.equal(abandoned.feedback, "I could not recover");
+const direct = await api(
+  `/api/share/${original.token}`,
+  { action: "start", consent: true },
+  {},
+);
+await api(
+  `/api/share/${original.token}`,
+  { action: "event", sessionId: direct.id, event: "upload_success" },
+  {},
+);
+await api(
+  `/api/share/${original.token}`,
+  { action: "event", sessionId: direct.id, event: "continue" },
+  {},
+);
+assert.equal(
+  (await api("/api/workspace")).sessions.find((s) => s.id === direct.id)
+    .outcome,
+  "complete",
+);
 const review = await api("/api/workspace", {
   action: "share",
   revisionId: first.id,

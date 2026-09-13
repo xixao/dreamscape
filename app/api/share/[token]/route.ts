@@ -141,7 +141,13 @@ export async function POST(request: Request, context: Context) {
     if (data.action !== "event") fail("Action not allowed", 403);
     if (session.outcome !== "started") fail("Session has already ended", 409);
     const event = z
-      .enum(["upload_attempt", "retry_success", "continue", "gave_up"])
+      .enum([
+        "upload_attempt",
+        "upload_success",
+        "retry_success",
+        "continue",
+        "gave_up",
+      ])
       .parse(data.event);
     const events = JSON.parse(session.events as string) as {
       type: string;
@@ -151,12 +157,18 @@ export async function POST(request: Request, context: Context) {
     const revision = await getRevision(link.owner, link.revision_id);
     if (event === "upload_attempt" && prior)
       fail("Upload already started", 409);
+    if (event === "upload_success" && (prior || revision.config.retryEnabled))
+      fail("Direct upload success unavailable", 409);
     if (
       event === "retry_success" &&
       (prior !== "upload_attempt" || !revision.config.retryEnabled)
     )
       fail("Retry unavailable", 409);
-    if (event === "continue" && prior !== "retry_success")
+    if (
+      event === "continue" &&
+      prior !== "retry_success" &&
+      prior !== "upload_success"
+    )
       fail("Document must be received first", 409);
     const elapsed = Math.max(
       0,

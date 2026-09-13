@@ -182,6 +182,14 @@ export default function ParticipantTest({
               Upload the sample pay statement and continue. You can stop if you
               cannot finish.
             </p>
+            {state === "complete" && (
+              <Button
+                disabled={busy}
+                onClick={() => void act(state, "continue")}
+              >
+                Complete Test
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() =>
@@ -199,6 +207,7 @@ export default function ParticipantTest({
               state={state}
               playing={!busy}
               observeDisabled
+              simulateFailure={revision.config.retryEnabled}
               onState={(s, e) => void act(s, e)}
             />
           </main>
@@ -237,17 +246,20 @@ export default function ParticipantTest({
                 />
               </Button>
             ))}
+            <Button
+              className="tester-fuego"
+              variant="ghost"
+              size="icon"
+              title="Fuego"
+              aria-label="Fuego"
+              disabled={busy}
+              aria-pressed={fuego}
+              onClick={() => void feedback(!fuego)}
+            >
+              <span aria-hidden="true">🔥</span>
+            </Button>
             <span>{rating ? `${rating} / 5` : "Not rated"}</span>
           </div>
-          <Button
-            className="tester-fuego"
-            variant="outline"
-            disabled={busy}
-            aria-pressed={fuego}
-            onClick={() => void feedback(!fuego)}
-          >
-            <span aria-hidden="true">🔥</span> Fuego
-          </Button>
           <label htmlFor="participant-comment">
             What worked, or what got in your way?
           </label>

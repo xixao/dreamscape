@@ -16,6 +16,8 @@ To repeat the failure-to-fix story, use **History > Create baseline version**. T
 
 ## What is real
 
+- Participant tasks without a configured retry use a successful upload path so the test is completable. Retry-enabled versions retain the failure/recovery task. After the document is received, Continue or Complete Test records completion. Fuego is a flame-only button immediately after the fifth star.
+
 - Participant completion and explicit abandonment records, plus a click timeline (target, state, availability, elapsed time). Five or more unavailable-control attempts on the same target/state are flagged. Non-action clicks are counted separately; these signals do not establish that a tester clicked the wrong thing or was confused.
 - Participant feedback includes optional 1-5 stars, a Fuego reaction with a bottom-screen "Fuego" confirmation, and a written comment. Feedback can be saved after completion or abandonment and is visible in the designer's Test results.
 
@@ -54,6 +56,6 @@ The central contract lives in `lib/model.ts`; the demonstrator lives in `app/upl
 
 Build the app and apply the generated local migration, then start the built Worker with `npm start -- --port 5186`. Run the focused API checks with `node tests/api.mjs http://localhost:5186`. They use a dedicated local test identity and do not seed demo feedback into the owner's workspace. The development server intentionally strips injected identity headers, so run these tests against the built Worker only.
 
-62 API requests and their payload assertions passed, including access checks, persistence, named reviewer attribution, reactions, revision pinning, consent, event sequencing, link revocation, interaction deduplication/validation/isolation, and rating/comment/Fuego persistence after completion or abandonment. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
+66 API requests and their payload assertions passed, including both successful-upload and recovery completion paths, access checks, persistence, named reviewer attribution, reactions, revision pinning, consent, event sequencing, link revocation, interaction deduplication/validation/isolation, and rating/comment/Fuego persistence after completion or abandonment. TypeScript and the production build passed. Browser interaction testing and physical Mac trackpad testing were not performed in this build pass.
 
 WebMCP preview-state tools are feature-detected. Unsupported browsers ignore them. This is optional integration groundwork, not a requirement to use the prototype. No supported WebMCP execution context was available for contract validation, so those tools are not yet verified.

@@ -23,6 +23,7 @@ export default function Uploader({
   compact = false,
   focus = "page",
   observeDisabled = false,
+  simulateFailure = true,
 }: {
   config: Config;
   state: UploadState;
@@ -33,6 +34,7 @@ export default function Uploader({
   compact?: boolean;
   focus?: "page" | "component" | "error";
   observeDisabled?: boolean;
+  simulateFailure?: boolean;
 }) {
   return (
     <div className={`product ${compact ? "compact" : ""} focus-${focus}`}>
@@ -83,7 +85,11 @@ export default function Uploader({
                 disabled={!observeDisabled && !playing}
                 aria-disabled={!playing}
                 onClick={() => {
-                  if (playing) onState("failed", "upload_attempt");
+                  if (playing)
+                    onState(
+                      simulateFailure ? "failed" : "complete",
+                      simulateFailure ? "upload_attempt" : "upload_success",
+                    );
                 }}
               >
                 {config.button}
