@@ -14,9 +14,20 @@ import type {
 // than in the repository, and free of any client-only import, so both the
 // editor (phase 2's "New overlay" menu) and server code can use it.
 
-/** True for a screen that is an overlay frame; absent `kind` means a plain screen. */
-export function isOverlay(screen: Pick<Screen, 'kind'>): boolean {
-  return screen.kind === 'overlay';
+// A Screen known to be an overlay frame: `kind` and `presentation` both
+// present, which is exactly what validateScreens guarantees for every saved
+// overlay (an overlay without a presentation never validates). Narrow with
+// isOverlay below and read `presentation` without a guard.
+export type OverlayScreen = Screen & { kind: 'overlay'; presentation: OverlayPresentation };
+
+/**
+ * True for a screen that is an overlay frame, narrowing it to OverlayScreen;
+ * absent `kind` means a plain screen. Checks the presentation is really
+ * there too, so the narrowing never lies about unvalidated data (a bare
+ * `{ kind: 'overlay' }` is not an overlay frame).
+ */
+export function isOverlay(screen: Pick<Screen, 'kind' | 'presentation'>): screen is OverlayScreen {
+  return screen.kind === 'overlay' && screen.presentation !== undefined;
 }
 
 // `stageWidth` is the overlay's own width (its blocks respond to that

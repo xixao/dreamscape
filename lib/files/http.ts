@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getDb } from '@/db/client';
 import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS } from '@/lib/diagram/store';
 import { createFilesRepository } from './repository';
-import { OVERLAY_SIDES, SCREEN_KINDS, TOAST_POSITIONS } from './validate';
+import { OVERLAY_SIDES, PRESENTATION_TYPES, SCREEN_KINDS, TOAST_POSITIONS } from './validate';
 
 export async function getRepository() {
   return createFilesRepository(await getDb());
@@ -74,9 +74,12 @@ const pagesField = z.array(pageField).min(1).max(50);
 // each key, every key but `type` optional. Which keys a given `type`
 // requires - and which it must not carry - is validatePresentation's
 // content rule (lib/files/validate.ts), called from validateScreens, the
-// same split as everything else in this module.
-const overlayPresentationField = z.object({
-  type: z.enum(['dialog', 'sheet', 'toast']),
+// same split as everything else in this module. A strict object, unlike
+// every other shape here: the spec's "must match the union exactly" holds
+// at the wire too, so an unknown key is a 400 rather than silently
+// stripped before validatePresentation could reject it.
+const overlayPresentationField = z.strictObject({
+  type: z.enum(PRESENTATION_TYPES),
   dismissible: z.boolean().optional(),
   side: z.enum(OVERLAY_SIDES).optional(),
   position: z.enum(TOAST_POSITIONS).optional(),

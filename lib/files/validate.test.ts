@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PRESENTATION_TYPES,
   canonicalLayout,
   dropDanglingDiagramEdges,
   normalizeLayout,
@@ -366,17 +367,29 @@ describe('validateScreens', () => {
       { type: 'toast', position: 'top-left', dismissible: true },
       { type: 'toast', position: 'top-left', side: 'left' },
       { type: 'dialog', dismissible: true, extra: 1 },
+      // Right key, wrong value type (or case).
+      { type: 'Dialog', dismissible: true },
+      { type: 'dialog', dismissible: null },
+      { type: 'dialog', dismissible: 1 },
+      { type: 'sheet', side: 1, dismissible: true },
+      { type: 'sheet', side: 'left', dismissible: 'true' },
+      { type: 'toast', position: null },
+      { type: 'toast', position: 3 },
     ])('rejects an overlay whose presentation does not match the union exactly: %j', (presentation) => {
       const result = validateScreens([screen({ kind: 'overlay', presentation })], knownTypes);
       expect(result).toEqual({ ok: false, reason: expect.any(String) });
     });
 
-    it('rejects a presentation that is not an object at all', () => {
+    it.each(['dialog', null, [], 7])('rejects a presentation that is not an object at all: %j', (presentation) => {
       const result = validateScreens(
-        [screen({ kind: 'overlay', presentation: 'dialog' as unknown as ScreenInput['presentation'] })],
+        [screen({ kind: 'overlay', presentation: presentation as unknown as ScreenInput['presentation'] })],
         knownTypes,
       );
       expect(result).toEqual({ ok: false, reason: expect.any(String) });
+    });
+
+    it('shares one presentation type list with the zod shape and the overlay helpers', () => {
+      expect(PRESENTATION_TYPES).toEqual(['dialog', 'sheet', 'toast']);
     });
 
     it('names the screen in the rejection reason', () => {

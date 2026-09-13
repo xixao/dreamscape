@@ -697,6 +697,35 @@ describe('files API route handlers', () => {
       expect(stored?.screens).toEqual(file.screens);
     });
 
+    // At the wire, "exactly" means exactly: an unknown presentation key is
+    // rejected by the zod shape (z.strictObject), not stripped, matching
+    // what validateScreens does for the repository's own callers.
+    it('returns 400 for a presentation with an unknown key, on PATCH (changing nothing) and on POST alike', async () => {
+      const repository = await getRepository();
+      const file = await repository.create();
+      const base = file.screens![0];
+      const presentation = { type: 'dialog', dismissible: true, extra: 1 };
+
+      const patched = await PATCH(
+        jsonRequest(`http://x/api/files/${file.id}`, 'PATCH', {
+          screens: [{ id: base.id, name: 'Frame 1', layout: base.layout, stageWidth: 512, kind: 'overlay', presentation }],
+        }),
+        withId(file.id),
+      );
+      expect(patched.status).toBe(400);
+      expect(typeof ((await readBody(patched)) as { error: string }).error).toBe('string');
+      expect((await repository.get(file.id))?.screens).toEqual(file.screens);
+
+      const created = await CREATE(
+        jsonRequest('http://x/api/files', 'POST', {
+          screens: [
+            { id: 'aaaaaaaaaa', name: 'Confirm', layout: base.layout, stageWidth: 512, kind: 'overlay', presentation },
+          ],
+        }),
+      );
+      expect(created.status).toBe(400);
+    });
+
     it('returns 400 for an invalid layout inside a screen', async () => {
       const repository = await getRepository();
       const file = await repository.create();

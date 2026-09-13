@@ -142,12 +142,16 @@ export const TOAST_POSITIONS = [
 ] as const;
 export type ToastPosition = (typeof TOAST_POSITIONS)[number];
 
+// The one list of presentation types, shared by the zod shape
+// (lib/files/http.ts), validatePresentation below and the overlay defaults
+// (lib/files/screens.ts), so the three can never disagree.
+export const PRESENTATION_TYPES = ['dialog', 'sheet', 'toast'] as const;
+export type OverlayPresentationType = (typeof PRESENTATION_TYPES)[number];
+
 export type OverlayPresentation =
   | { type: 'dialog'; dismissible: boolean }
   | { type: 'sheet'; side: OverlaySide; dismissible: boolean }
   | { type: 'toast'; position: ToastPosition };
-
-export type OverlayPresentationType = OverlayPresentation['type'];
 
 export const SCREEN_KINDS = ['screen', 'overlay'] as const;
 export type ScreenKind = (typeof SCREEN_KINDS)[number];
@@ -307,7 +311,7 @@ const PRESENTATION_KEYS: Record<OverlayPresentationType, readonly string[]> = {
 };
 
 function isPresentationType(type: unknown): type is OverlayPresentationType {
-  return type === 'dialog' || type === 'sheet' || type === 'toast';
+  return (PRESENTATION_TYPES as readonly unknown[]).includes(type);
 }
 
 export type ValidatePresentationResult =

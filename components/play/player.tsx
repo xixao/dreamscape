@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { LABEL } from '@/components/workbench/chrome';
 import { StageProvider } from '@/components/workbench/stage-context';
-import type { FileRecord, OverlayPresentation, Screen, ToastPosition } from '@/lib/files/repository';
+import type { FileRecord, OverlayPresentation, OverlayScreen, Screen, ToastPosition } from '@/lib/files/repository';
 import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
@@ -151,9 +151,8 @@ function resolveInitialScreenId(
 // a dialog or sheet says so itself (an alert dialog is `dismissible:
 // false`), a toast always can (its corner close button is the only way it
 // ever goes away, there being no auto-dismiss).
-function isDismissible(presentation: OverlayPresentation | undefined): boolean {
-  if (!presentation || presentation.type === 'toast') return true;
-  return presentation.dismissible;
+function isDismissible(presentation: OverlayPresentation): boolean {
+  return presentation.type === 'toast' || presentation.dismissible;
 }
 
 // Radix's DismissableLayer counts any pointer down or focus outside its
@@ -201,7 +200,7 @@ export function Player({
   const baseScreens = useMemo(() => screens.filter((screen) => !isOverlay(screen)), [screens]);
   const validScreenIds = useMemo(() => new Set(baseScreens.map((screen) => screen.id)), [baseScreens]);
   const overlaysById = useMemo(
-    () => new Map<string, Screen>(screens.filter((screen) => isOverlay(screen)).map((screen) => [screen.id, screen])),
+    () => new Map<string, OverlayScreen>(screens.filter(isOverlay).map((screen) => [screen.id, screen])),
     [screens],
   );
   const [state, dispatch] = useReducer(playReducer, {
@@ -264,16 +263,19 @@ export function Player({
     overlayStackRef.current = state.overlayStack;
   }, [state.overlayStack]);
 
-  // Set by an overlay wrapper's onEscapeKeyDown - Radix's own document-
+  // Written by an overlay wrapper's onEscapeKeyDown - Radix's own document-
   // level, capture-phase Escape listener, which runs before the window-
   // level bubble-phase one below - so that handler can tell "the Radix
   // layer that saw this Escape is one of OUR overlay frames" apart from
   // "it is a legacy inline Dialog block, which Radix has just dismissed on
   // its own". Both leave event.defaultPrevented true; only the former
-  // should also touch the overlay stack.
-  const escapeSeenByOverlayRef = useRef(false);
-  const markEscapeSeenByOverlay = useCallback(() => {
-    escapeSeenByOverlayRef.current = true;
+  // should also touch the overlay stack. The event instance itself, not a
+  // boolean: the window handler compares it with the event it is given, so
+  // a keypress that never reaches window (something between stopping its
+  // propagation) can never leave a stale flag behind for the next one.
+  const escapeEventRef = useRef<KeyboardEvent | null>(null);
+  const markEscapeSeenByOverlay = useCallback((event: KeyboardEvent) => {
+    escapeEventRef.current = event;
   }, []);
 
   // Re-subscribed whenever closeHref changes (a screen switch) so the
@@ -301,8 +303,8 @@ export function Player({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return;
-      const seenByOverlay = escapeSeenByOverlayRef.current;
-      escapeSeenByOverlayRef.current = false;
+      const seenByOverlay = escapeEventRef.current === event;
+      escapeEventRef.current = null;
 
       const stack = overlayStackRef.current;
       if (stack.length > 0) {
@@ -364,7 +366,11 @@ export function Player({
             />
           ) : null;
         })}
-        <div className="fixed top-3 right-3 z-50 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg">
+        {/* Above every overlay (toasts are z-[60]) and clickable behind a
+            modal (Radix puts pointer-events: none on <body>), so the Close
+            link is always a way out of Play - a non-dismissible dialog
+            included. */}
+        <div className="pointer-events-auto fixed top-3 right-3 z-[70] flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg">
           <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
           <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
           <a href={closeHref} className="text-t2 underline hover:no-underline">
@@ -405,9 +411,9 @@ function OverlayHost({
   closeOverlayById,
   onEscapeKeyDown,
 }: {
-  overlay: Screen;
+  overlay: OverlayScreen;
   closeOverlayById: (screenId: string) => void;
-  onEscapeKeyDown: () => void;
+  onEscapeKeyDown: (event: KeyboardEvent) => void;
 }) {
   const play = usePlay();
   const close = useCallback(() => closeOverlayById(overlay.id), [closeOverlayById, overlay.id]);
@@ -421,13 +427,15 @@ function OverlayHost({
   // markEscapeSeenByOverlay there), so every dialog/sheet overlay flags the
   // event for it and prevents Radix's own dismiss - dismissible or not.
   const handleEscapeKeyDown = (event: KeyboardEvent) => {
-    onEscapeKeyDown();
+    onEscapeKeyDown(event);
     event.preventDefault();
   };
   // A pointer down or focus outside closes a dismissible overlay (Radix
   // then calls onOpenChange(false)) and is ignored by a non-dismissible one.
   // Either way, one that lands on a toast overlay sitting above this one is
   // not "outside" in any sense the visitor means - see isInsideToastOverlay.
+  // onInteractOutside alone covers both the pointer and the focus case
+  // (Radix fires it right after onPointerDownOutside for a pointer).
   const handleInteractOutside = (event: Event) => {
     if (!dismissible || isInsideToastOverlay(event.target)) event.preventDefault();
   };
@@ -450,78 +458,86 @@ function OverlayHost({
   );
 
   let content: ReactNode;
-  if (presentation?.type === 'sheet') {
-    // Left/right sheets take the overlay's width (overriding the
-    // primitive's own sm:max-w-sm cap); top/bottom sheets ignore it and
-    // span the viewport (spec section 2).
-    const horizontal = presentation.side === 'left' || presentation.side === 'right';
-    content = (
-      <Sheet open modal onOpenChange={handleOpenChange}>
-        <SheetContent
-          side={presentation.side}
+  switch (presentation.type) {
+    case 'sheet': {
+      // Left/right sheets take the overlay's width, capped at the window
+      // (replacing the primitive's own sm:max-w-sm, and capped below sm
+      // too, where it has no cap at all); top/bottom sheets ignore the
+      // width and span the viewport (spec section 2).
+      const horizontal = presentation.side === 'left' || presentation.side === 'right';
+      content = (
+        <Sheet open modal onOpenChange={handleOpenChange}>
+          <SheetContent
+            side={presentation.side}
+            data-overlay-id={overlay.id}
+            className={cn(
+              'theme-basic gap-0 overflow-auto p-0 text-foreground',
+              horizontal &&
+                'data-[side=left]:max-w-full data-[side=left]:sm:max-w-full data-[side=right]:max-w-full data-[side=right]:sm:max-w-full',
+            )}
+            style={horizontal ? { width: overlay.stageWidth } : undefined}
+            showCloseButton={dismissible}
+            aria-describedby={undefined}
+            onEscapeKeyDown={handleEscapeKeyDown}
+            onInteractOutside={handleInteractOutside}
+          >
+            <SheetTitle className="sr-only">{overlay.name}</SheetTitle>
+            {artboard}
+          </SheetContent>
+        </Sheet>
+      );
+      break;
+    }
+    case 'toast': {
+      content = (
+        <div
+          role="status"
+          aria-label={overlay.name}
+          data-overlay-toast="true"
           data-overlay-id={overlay.id}
           className={cn(
-            'theme-basic gap-0 overflow-auto p-0 text-foreground',
-            horizontal && 'data-[side=left]:sm:max-w-full data-[side=right]:sm:max-w-full',
+            'theme-basic pointer-events-auto fixed z-[60] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-background text-foreground shadow-lg',
+            TOAST_POSITION_CLASSES[presentation.position],
           )}
-          style={horizontal ? { width: overlay.stageWidth } : undefined}
-          showCloseButton={dismissible}
-          aria-describedby={undefined}
-          onEscapeKeyDown={handleEscapeKeyDown}
-          onPointerDownOutside={handleInteractOutside}
-          onInteractOutside={handleInteractOutside}
-        >
-          <SheetTitle className="sr-only">{overlay.name}</SheetTitle>
-          {artboard}
-        </SheetContent>
-      </Sheet>
-    );
-  } else if (presentation?.type === 'toast') {
-    content = (
-      <div
-        role="status"
-        aria-label={overlay.name}
-        data-overlay-toast="true"
-        data-overlay-id={overlay.id}
-        className={cn(
-          'theme-basic pointer-events-auto fixed z-[60] overflow-hidden rounded-lg border bg-background text-foreground shadow-lg',
-          TOAST_POSITION_CLASSES[presentation.position],
-        )}
-        style={{ width: overlay.stageWidth }}
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Close overlay"
-          className="absolute top-2 right-2 z-10"
-          onClick={close}
-        >
-          <XIcon />
-        </Button>
-        {artboard}
-      </div>
-    );
-  } else {
-    // A dialog - also the fallback for an overlay with no presentation,
-    // which validateScreens never lets a saved file have.
-    content = (
-      <Dialog open modal onOpenChange={handleOpenChange}>
-        <DialogContent
-          data-overlay-id={overlay.id}
-          className="theme-basic max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 text-foreground sm:max-w-[calc(100vw-2rem)]"
           style={{ width: overlay.stageWidth }}
-          showCloseButton={dismissible}
-          aria-describedby={undefined}
-          onEscapeKeyDown={handleEscapeKeyDown}
-          onPointerDownOutside={handleInteractOutside}
-          onInteractOutside={handleInteractOutside}
         >
-          <DialogTitle className="sr-only">{overlay.name}</DialogTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Close overlay"
+            className="absolute top-2 right-2 z-10"
+            onClick={close}
+          >
+            <XIcon />
+          </Button>
           {artboard}
-        </DialogContent>
-      </Dialog>
-    );
+        </div>
+      );
+      break;
+    }
+    case 'dialog': {
+      // Capped at the window on both axes and scrolling inside itself: a
+      // hug-content dialog taller than the window could not be reached
+      // otherwise, since Radix locks the page behind a modal.
+      content = (
+        <Dialog open modal onOpenChange={handleOpenChange}>
+          <DialogContent
+            data-overlay-id={overlay.id}
+            className="theme-basic max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto p-0 text-foreground sm:max-w-[calc(100vw-2rem)]"
+            style={{ width: overlay.stageWidth }}
+            showCloseButton={dismissible}
+            aria-describedby={undefined}
+            onEscapeKeyDown={handleEscapeKeyDown}
+            onInteractOutside={handleInteractOutside}
+          >
+            <DialogTitle className="sr-only">{overlay.name}</DialogTitle>
+            {artboard}
+          </DialogContent>
+        </Dialog>
+      );
+      break;
+    }
   }
 
   return <PlayProvider value={boundPlay}>{content}</PlayProvider>;

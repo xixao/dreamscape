@@ -33,6 +33,9 @@ export type {
   ScreenKind,
   ToastPosition,
 } from './validate';
+// The narrowed overlay-frame type lives next to isOverlay (its predicate)
+// in screens.ts; re-exported here for the same one-import-site reason.
+export type { OverlayScreen } from './screens';
 
 export type FileSummary = {
   id: string;

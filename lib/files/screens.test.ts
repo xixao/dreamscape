@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { KNOWN_TYPES } from '@/components/blocks/known-types';
 import loginScreen from '@/lib/examples/login-screen.json';
 import { OVERLAY_DEFAULT_WIDTHS, OVERLAY_MIN_HEIGHT, createOverlayScreen, isOverlay } from './screens';
-import { validateLayout, validateScreens } from './validate';
+import { PRESENTATION_TYPES, validateLayout, validateScreens, type Screen } from './validate';
 
 // Everything createOverlayScreen leaves to its caller (spec
 // docs/superpowers/specs/2026-09-13-overlay-frames-design.md section 2: the
@@ -11,10 +11,26 @@ import { validateLayout, validateScreens } from './validate';
 const BASE = { id: 'overlay001', name: 'Dialog 1', pageId: 'page000001', x: 100, y: 200 };
 
 describe('isOverlay', () => {
-  it('is true only for a screen whose kind is "overlay" (absent means a plain screen)', () => {
-    expect(isOverlay({ kind: 'overlay' })).toBe(true);
+  it('is true only for a screen whose kind is "overlay" AND that carries a presentation (absent kind means a plain screen)', () => {
+    expect(isOverlay({ kind: 'overlay', presentation: { type: 'dialog', dismissible: true } })).toBe(true);
+    expect(isOverlay({ kind: 'overlay' })).toBe(false);
     expect(isOverlay({ kind: 'screen' })).toBe(false);
     expect(isOverlay({})).toBe(false);
+  });
+
+  it('narrows to OverlayScreen, so a filtered list reads presentation without a guard', () => {
+    const screens: Screen[] = [
+      { id: 'screen0001', name: 'Login', layout: '{}', stageWidth: 1440 },
+      createOverlayScreen({ type: 'sheet', side: 'top', ...BASE }),
+      createOverlayScreen({ type: 'toast', ...BASE, id: 'overlay002' }),
+    ];
+
+    const overlays = screens.filter(isOverlay);
+
+    // `.presentation.type` (no `?.`) only compiles because isOverlay is a
+    // type predicate - tsc pins that, this asserts the runtime filter.
+    expect(overlays.map((overlay) => overlay.presentation.type)).toEqual(['sheet', 'toast']);
+    expect(overlays.map((overlay) => overlay.kind)).toEqual(['overlay', 'overlay']);
   });
 });
 
@@ -22,6 +38,10 @@ describe('overlay constants', () => {
   it('match the spec: dialog 512, sheet 400, toast 360 wide; 120 px minimum height', () => {
     expect(OVERLAY_DEFAULT_WIDTHS).toEqual({ dialog: 512, sheet: 400, toast: 360 });
     expect(OVERLAY_MIN_HEIGHT).toBe(120);
+  });
+
+  it('cover exactly the shared presentation types, in the same order', () => {
+    expect(Object.keys(OVERLAY_DEFAULT_WIDTHS)).toEqual([...PRESENTATION_TYPES]);
   });
 });
 

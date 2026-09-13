@@ -464,11 +464,15 @@ const LOGIN_TREE = tree({
   openScreenAsOverlay: button('Open second as overlay', openOverlay('screen2')),
   closeNothing: button('Close nothing', CLOSE_OVERLAY),
   goSecond: button('Go to second screen', navigate('screen2')),
+  showAlert: button('Show alert', openOverlay('alertOverlay')),
+  openForm: button('Open form', openOverlay('formOverlay')),
+  goBackLogin: button('Back on login', BACK),
 });
 
 const SECOND_TREE = tree({
   greeting: text('Hello world'),
   openFilters: button('Open filters', openOverlay('sheetOverlay')),
+  openConfirmFromSecond: button('Open confirm from second', openOverlay('dialogOverlay')),
   goBack: button('Go back', BACK),
 });
 
@@ -482,6 +486,9 @@ const DIALOG_TREE = tree(
     openFiltersFromDialog: button('Open filters from dialog', openOverlay('sheetOverlay')),
     confirmAndGo: button('Confirm and go', navigate('screen2')),
     openConfirmAgain: button('Open confirm again', openOverlay('dialogOverlay')),
+    showToastFromDialog: button('Show toast from dialog', openOverlay('toastOverlay')),
+    backFromDialog: button('Back from dialog', BACK),
+    goLogin: button('Go to login', navigate('screen1')),
   },
   { direction: { mobile: 'column', desktop: 'row' } },
 );
@@ -493,12 +500,32 @@ const SHEET_TREE = tree({
 });
 
 const BOTTOM_SHEET_TREE = tree({ bottomText: text('Bottom sheet content') });
-const TOAST_TREE = tree({ savedText: text('Changes saved') });
+const TOAST_TREE = tree({
+  savedText: text('Changes saved'),
+  goSecondFromToast: button('Go to second from toast', navigate('screen2')),
+  closeToast: button('Close toast', CLOSE_OVERLAY),
+});
 const NOTICE_TREE = tree({ noticeText: text('Notice content') });
+const ALERT_TREE = tree({ alertText: text('Alert content') });
 const LOCKED_TREE = tree({
   lockedText: text('You must choose'),
   dismissLocked: button('Dismiss locked', CLOSE_OVERLAY),
+  openFiltersFromLocked: button('Open filters from locked', openOverlay('sheetOverlay')),
 });
+// An overlay whose own layout still holds a legacy inline Dialog block
+// (spec section 1: existing layouts keep rendering it and its "Open
+// dialog..." interaction). Same Dialog/DialogContent linked-node shape as
+// SCREEN_1_TREE's dialog1 above; the content zone is linked from the block,
+// not a child of ROOT, so it sits outside tree()'s children.
+const FORM_TREE = {
+  ...tree({
+    inlineDialog: {
+      ...node('Dialog', { props: { title: 'Inline title', triggerLabel: 'Open inline', previewOpen: false } }),
+      linkedNodes: { content: 'inlineDialogContent' },
+    },
+  }),
+  inlineDialogContent: node('DialogContent', { isCanvas: true, parent: 'inlineDialog' }),
+};
 
 function overlayScreens(): Screen[] {
   return [
@@ -559,6 +586,24 @@ function overlayScreens(): Screen[] {
       presentation: { type: 'dialog', dismissible: false },
       pageId: 'page1',
     },
+    {
+      id: 'alertOverlay',
+      name: 'Alert',
+      layout: JSON.stringify(ALERT_TREE),
+      stageWidth: 360,
+      kind: 'overlay',
+      presentation: { type: 'toast', position: 'top-right' },
+      pageId: 'page2',
+    },
+    {
+      id: 'formOverlay',
+      name: 'Form',
+      layout: JSON.stringify(FORM_TREE),
+      stageWidth: 512,
+      kind: 'overlay',
+      presentation: { type: 'dialog', dismissible: true },
+      pageId: 'page1',
+    },
   ];
 }
 
@@ -590,6 +635,21 @@ async function clickOutside() {
   await userEvent.setup({ pointerEventsCheck: 0 }).click(document.body);
 }
 
+// The z-index an element's Tailwind class asks for (`z-50`, `z-[60]`, ...),
+// since jsdom computes no layout to compare stacking any other way.
+function zIndexClass(element: Element): number {
+  const match = /(?:^|\s)z-(?:\[(\d+)\]|(\d+))(?=\s|$)/.exec(element.className);
+  if (!match) throw new Error(`no z-index class on ${element.className}`);
+  return Number(match[1] ?? match[2]);
+}
+
+// The "Esc to exit" chip: Play's own chrome, sitting above every overlay.
+function playChip(): HTMLElement {
+  const chip = screen.getByText('Esc to exit').parentElement;
+  if (!chip) throw new Error('no Play chip');
+  return chip;
+}
+
 describe('Player overlays', () => {
   async function renderOnLogin(file = makeOverlayFile(), extraProps: { initialOverlayId?: string } = {}) {
     const user = userEvent.setup();
@@ -609,6 +669,10 @@ describe('Player overlays', () => {
     expect(dialog).toHaveClass('p-0');
     expect(dialog).toHaveClass('max-w-[calc(100vw-2rem)]');
     expect(dialog).not.toHaveClass('sm:max-w-sm');
+    // A hug-content dialog taller than the window scrolls inside itself
+    // (Radix locks the page behind a modal, so nothing else could).
+    expect(dialog).toHaveClass('max-h-[calc(100vh-2rem)]', 'overflow-y-auto');
+    expect(dialog).not.toHaveClass('overflow-hidden');
     expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument();
     // A sibling of the screen's Editor, never inside its artboard.
     expect(screen.getByTestId('artboard')).not.toContainElement(dialog);
@@ -764,6 +828,10 @@ describe('Player overlays', () => {
     expect(sheet).toHaveAttribute('data-side', 'left');
     expect(sheet).toHaveStyle({ width: '400px' });
     expect(sheet).toHaveClass('p-0');
+    // Never wider than the window, at any breakpoint: the primitive's own
+    // sm:max-w-sm cap is replaced, and a cap is added below sm too.
+    expect(sheet).toHaveClass('data-[side=left]:max-w-full', 'data-[side=left]:sm:max-w-full');
+    expect(sheet).not.toHaveClass('data-[side=left]:sm:max-w-sm');
     expect(within(sheet).getByText('Filter options')).toBeInTheDocument();
     expect(within(sheet).getByRole('button', { name: 'Close' })).toBeInTheDocument();
     expect(screen.getByTestId('artboard')).not.toContainElement(sheet);
@@ -796,6 +864,7 @@ describe('Player overlays', () => {
     expect(within(toast).getByText('Changes saved')).toBeInTheDocument();
     expect(toast).toHaveClass('fixed', 'z-[60]', 'top-4', 'left-1/2', 'border', 'rounded-lg', 'bg-background');
     expect(toast).toHaveStyle({ width: '360px' });
+    expect(toast).toHaveClass('max-w-[calc(100vw-2rem)]');
     expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
     expect(document.querySelector('[data-slot="sheet-overlay"]')).toBeNull();
     expect(screen.queryByRole('dialog', { hidden: true })).toBeNull();
@@ -886,6 +955,146 @@ describe('Player overlays', () => {
     await user.keyboard('{Escape}');
 
     await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+  });
+
+  it('closes the overlay a Close overlay interaction fires from, not the toast above it', async () => {
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Open confirm' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm delete' });
+    await user.click(within(dialog).getByRole('button', { name: 'Show toast from dialog' }));
+    await screen.findByRole('status', { name: 'Saved', hidden: true });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+    expect(screen.getByRole('status', { name: 'Saved' })).toBeInTheDocument();
+    expect(within(screen.getByRole('status', { name: 'Saved' })).getByText('Changes saved')).toBeInTheDocument();
+  });
+
+  it('runs interactions from inside a toast: navigate switches screens (toast closed) and Close overlay closes just the toast', async () => {
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Show toast' }));
+    const toast = await screen.findByRole('status', { name: 'Saved' });
+
+    await user.click(within(toast).getByRole('button', { name: 'Close toast' }));
+
+    await waitFor(() => expect(screen.queryByRole('status', { hidden: true })).toBeNull());
+    expect(screen.getByRole('button', { name: 'Open confirm' })).toBeInTheDocument();
+    expect(screen.getByText('Login')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show toast' }));
+    const again = await screen.findByRole('status', { name: 'Saved' });
+    await user.click(within(again).getByRole('button', { name: 'Go to second from toast' }));
+
+    expect(await screen.findByText('Hello world')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { hidden: true })).toBeNull();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
+  });
+
+  it('keeps the Play chip above every overlay: a top-right toast sits below it, and a locked dialog leaves it clickable', async () => {
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Show alert' }));
+    const toast = await screen.findByRole('status', { name: 'Alert' });
+    expect(toast).toHaveClass('top-4', 'right-4');
+
+    const chip = playChip();
+    expect(chip).toHaveClass('fixed', 'top-3', 'right-3', 'pointer-events-auto');
+    expect(zIndexClass(chip)).toBeGreaterThan(zIndexClass(toast));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+
+    await user.click(within(toast).getByRole('button', { name: 'Close overlay' }));
+    await user.click(screen.getByRole('button', { name: 'Open locked' }));
+    await screen.findByRole('dialog', { name: 'Locked' });
+
+    // Radix puts pointer-events: none on <body> behind a modal; the chip
+    // opts back in so the Close link stays a way out of Play.
+    expect(playChip()).toHaveClass('pointer-events-auto');
+    expect(screen.getByRole('link', { hidden: true })).toHaveAttribute('href', '/f/file1#s=screen1');
+  });
+
+  it('a legacy inline Dialog block inside an overlay: Escape closes it first, then the overlay, and only then exits Play', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Open form' }));
+    const overlay = await screen.findByRole('dialog', { name: 'Form' });
+    await user.click(within(overlay).getByRole('button', { name: 'Open inline' }));
+    await screen.findByText('Inline title');
+    expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(2);
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByText('Inline title')).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'Form' })).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+    expect(assign).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(assign).toHaveBeenCalledWith('/f/file1#s=screen1');
+    vi.unstubAllGlobals();
+  });
+
+  it('back pops one overlay at a time down to the screen, and only a screen-level back moves through history', async () => {
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Go to second screen' }));
+    await screen.findByText('Hello world');
+    await user.click(screen.getByRole('button', { name: 'Open confirm from second' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm delete' });
+    await user.click(within(dialog).getByRole('button', { name: 'Open filters from dialog' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Filters' });
+
+    await user.click(within(sheet).getByRole('button', { name: 'Back from sheet' }));
+    await waitFor(() => expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(1));
+    expect(screen.getByRole('dialog', { name: 'Confirm delete' })).toBeInTheDocument();
+    expect(screen.getByText('Hello world')).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Back from dialog' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+    expect(screen.getByText('Hello world')).toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
+
+    await user.click(screen.getByRole('button', { name: 'Go back' }));
+    expect(await screen.findByRole('button', { name: 'Open confirm' })).toBeInTheDocument();
+    expect(screen.queryByText('Hello world')).toBeNull();
+  });
+
+  it('navigate to the current screen from inside an overlay closes it without adding history', async () => {
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Open confirm' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm delete' });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Go to login' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
+    expect(screen.getByText('Login')).toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+
+    // Nothing was pushed: a screen-level back has nowhere to go.
+    await user.click(screen.getByRole('button', { name: 'Back on login' }));
+    expect(screen.getByRole('button', { name: 'Open confirm' })).toBeInTheDocument();
+    expect(screen.getByText('Login')).toBeInTheDocument();
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+  });
+
+  it('a dismissible sheet above a locked dialog: Escape closes the sheet, then does nothing', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const user = await renderOnLogin();
+    await user.click(screen.getByRole('button', { name: 'Open locked' }));
+    const locked = await screen.findByRole('dialog', { name: 'Locked' });
+    await user.click(within(locked).getByRole('button', { name: 'Open filters from locked' }));
+    await screen.findByRole('dialog', { name: 'Filters' });
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(1));
+    expect(screen.getByRole('dialog', { name: 'Locked' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Locked' })).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('seeds the stack from initialOverlayId when it names an overlay screen', async () => {
