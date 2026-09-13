@@ -120,20 +120,24 @@ export const ELEMENT_DOCS: Record<string, ElementDoc> = {
     usage:
       'Use Progress to show how far along a task or a quota is: an upload, a setup checklist, storage used. Set the value to the state you want the screen to show.',
   },
-  Dialog: {
-    summary:
-      'A Dialog is a trigger button plus a modal window with a title, a description and a content zone for other layers. Show content on canvas keeps the window visible while you design it.',
-    usage:
-      'Use a Dialog for a focused task or a confirmation that interrupts the page: a short form, a warning before deleting. In Play mode the trigger opens the window, and a Button elsewhere can open it too through the Prototype tab.',
-  },
+  // Dialog removed (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 5, phase 2): no longer a tray item (a modal is an
+  // overlay frame now), and docs.test.ts's own "no entry for a type that is
+  // not in the tray" check means this key must go too, not just the tray
+  // entry - registry.tsx keeps Dialog in its resolver/schemas for existing
+  // layouts, which never reach this dialog (its "i" button is per tray row).
   Table: {
     summary: 'A Table lays out rows of placeholder cells under a comma-separated list of column headings.',
     usage:
       'Use a Table for records that people compare across the same fields: orders, members, files. Name the columns after the real data and set the row count to the density you want to show.',
   },
   // `satisfies` makes a missing or misspelt block type a compile error too,
-  // not only a docs.test.ts failure.
-} satisfies Record<BlockType, ElementDoc>;
+  // not only a docs.test.ts failure. Dialog excluded: it stays a real
+  // BlockType (registry.tsx's resolver/schemas, for an existing layout that
+  // already has one) but left the tray for an overlay frame, and
+  // docs.test.ts's own "no entry for a type that is not in the tray" check
+  // means it must have NO entry here any more, not a required one.
+} satisfies Record<Exclude<BlockType, 'Dialog'>, ElementDoc>;
 
 // Own-property lookup, not a plain index: a type such as "constructor" would
 // otherwise hand back an Object.prototype member instead of the fallback.
