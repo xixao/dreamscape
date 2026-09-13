@@ -277,7 +277,7 @@ describe('matchShortcut', () => {
   });
 
   it('returns null for an unrelated key', () => {
-    expect(matchShortcut(key({ key: 'a', metaKey: true }))).toBeNull();
+    expect(matchShortcut(key({ key: 'q', metaKey: true }))).toBeNull();
     expect(matchShortcut(key({ key: 'k' }))).toBeNull();
   });
 });

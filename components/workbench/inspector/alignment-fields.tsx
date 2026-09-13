@@ -83,6 +83,7 @@ export type DiagramAlignmentContext = {
   count: number;
   onAlign: (mode: AlignMode) => void;
   onDistribute: (axis: DistributeAxis) => void;
+  onExport?: (format: 'png' | 'svg') => void;
 };
 
 export type AlignmentContext = FrameAlignmentContext | LayoutAlignmentContext | DiagramAlignmentContext;
@@ -354,11 +355,23 @@ function DiagramAlignmentFields({ context }: { context: DiagramAlignmentContext 
   const distribute = context.count >= 3;
 
   return (
-    <AlignmentRow
-      onAlign={context.onAlign}
-      onDistribute={context.onDistribute}
-      enabled={uniformEnabled(aligned, distribute, distribute)}
-    />
+    <>
+      <AlignmentRow
+        onAlign={context.onAlign}
+        onDistribute={context.onDistribute}
+        enabled={uniformEnabled(aligned, distribute, distribute)}
+      />
+      {context.onExport && context.count > 0 && (
+        <div className="mt-4 flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => context.onExport?.('png')}>
+            Export as PNG
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => context.onExport?.('svg')}>
+            Export as SVG
+          </Button>
+        </div>
+      )}
+    </>
   );
 }
 

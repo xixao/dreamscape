@@ -176,6 +176,7 @@ export type DiagramAction =
   // follow-up.
   | { type: 'distribute'; ids: string[]; axis: DistributeAxis }
   | { type: 'select'; selection: DiagramSelection }
+  | { type: 'selectAll' }
   | { type: 'clearSelection' }
   | { type: 'undo' }
   | { type: 'redo' }
@@ -596,6 +597,17 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
 
     case 'select':
       return { ...state, selection: action.selection };
+
+    case 'selectAll': {
+      const selection: DiagramSelection = [
+        ...state.nodes.map((n) => ({ type: 'node' as const, id: n.id })),
+        ...state.edges.map((e) => ({ type: 'edge' as const, id: e.id })),
+      ];
+      return state.selection.length === selection.length &&
+        state.selection.every((item, i) => selection[i] && item.type === selection[i].type && item.id === selection[i].id)
+        ? state
+        : { ...state, selection };
+    }
 
     case 'clearSelection':
       return state.selection.length === 0 ? state : { ...state, selection: [] };

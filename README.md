@@ -96,6 +96,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Edit | ⇧⌘Z | Redo |
 | Edit | Delete | Delete the selected layer |
 | Edit | ⌘D | Duplicate the diagram selection |
+| Edit | ⌘A | Select all diagram elements |
 | Edit | ⇧F10 | Open the menu for the diagram selection |
 | Canvas | ↑ or ↓ or ← or → | Nudge the selection 1 px |
 | Canvas | ⇧↑ or ⇧↓ or ⇧← or ⇧→ | Nudge the selection 8 px |

@@ -379,6 +379,7 @@ export function Canvas({
   diagramTool = POINTER_TOOL,
   onDiagramToolConsumed = noop,
   onDeselectDiagram = noop,
+  onDiagramExport = noop,
   selectedFrameIds = DEFAULT_FRAME_SELECTION,
   onToggleFrameSelection = noop,
   onSetFrameSelection = noopIds,
@@ -410,6 +411,8 @@ export function Canvas({
   // empty canvas clears the selection") - called from the same branch,
   // below, that already calls actions.selectNode().
   onDeselectDiagram?: () => void;
+  // Exporting the diagram selection to PNG or SVG via the context menu
+  onDiagramExport?: (format: 'png' | 'svg') => void;
   // The canvas-level selection of frames (spec section 3), independent of
   // Craft's own node selection inside a frame - owned by WorkbenchShell so
   // the Design panel's alignment row (inspector.tsx) can read it too.
@@ -1122,6 +1125,7 @@ export function Canvas({
           viewport={viewport}
           tool={diagramTool}
           onToolConsumed={onDiagramToolConsumed}
+          onExport={onDiagramExport}
         />
         <SnapGuides
           guides={snapResult?.guides ?? []}
