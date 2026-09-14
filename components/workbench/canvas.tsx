@@ -302,9 +302,19 @@ export function useCanvasViewportController({
   return { viewport, setViewport, viewportSize, rootRef, animateTo };
 }
 
-// The dot grid fades out below this zoom (spec section 3) - dots that close
-// together are visual noise, not a useful reference, once zoomed out this far.
-const GRID_FADE_ZOOM = 0.25;
+// The dot grid fades out below this zoom band (spec section 3) - dots that
+// close together are visual noise, not a useful reference, once zoomed out
+// this far. Matt, 2026-09-14 ("the background seems to change color" while
+// zooming): this used to be a single cutoff (GRID_FADE_ZOOM = 0.25) that cut
+// the whole backgroundImage in or out on one wheel tick - at that exact
+// zoom, densely-packed dots (already close to a solid wash of --line-soft
+// over --canvas, not distinct dots) would blink to fully flat with no
+// transition, reading as a visible colour jump rather than a grid
+// disappearing. Fading opacity smoothly across a small band around that
+// same zoom fixes the jump without changing when the grid is effectively
+// gone.
+const GRID_FADE_ZOOM_FLOOR = 0.15;
+const GRID_FADE_ZOOM_CEILING = 0.35;
 const GRID_SPACING = 8;
 
 // `visible` is the pixel grid's own per-browser toggle (spec docs/
@@ -313,12 +323,15 @@ const GRID_SPACING = 8;
 // existing caller/test that predates the toggle keeps seeing exactly what
 // the canvas always showed.
 function dotGridStyle(viewport: Viewport, visible: boolean): CSSProperties {
-  if (!visible || viewport.zoom < GRID_FADE_ZOOM) return {};
+  if (!visible || viewport.zoom < GRID_FADE_ZOOM_FLOOR) return {};
   const spacing = GRID_SPACING * viewport.zoom;
+  const fadeRange = GRID_FADE_ZOOM_CEILING - GRID_FADE_ZOOM_FLOOR;
+  const opacity = Math.min(1, (viewport.zoom - GRID_FADE_ZOOM_FLOOR) / fadeRange);
   return {
     backgroundImage: 'radial-gradient(circle, var(--line-soft) 1px, transparent 0)',
     backgroundSize: `${spacing}px ${spacing}px`,
     backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+    opacity,
   };
 }
 

@@ -24,9 +24,13 @@ describe('DiagramToolTray', () => {
   });
 
   it('lists all seven diagram tools, in the palette\'s own order', () => {
+    // Icon-only tiles (Matt, 2026-09-14: "designers will recognize the
+    // shapes without labels, so remove those too") - each tool's name
+    // lives in aria-label/title, not visible text, so this reads the
+    // accessible name rather than textContent.
     const { container } = render(<DiagramToolTray />);
     const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-diagram-tool-item]'));
-    expect(rows.map((row) => row.textContent)).toEqual(DIAGRAM_TOOL_LABELS);
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(DIAGRAM_TOOL_LABELS);
   });
 
   it('clicking a shape row calls onSelectDiagramTool with that shape', async () => {

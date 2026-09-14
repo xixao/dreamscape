@@ -1431,18 +1431,36 @@ describe('Canvas', () => {
   });
 
   describe('the dot grid', () => {
-    it('is visible at 100% zoom', () => {
+    it('is visible at 100% zoom, at full opacity', () => {
       renderCanvas();
       const root = screen.getByTestId('canvas-root');
       expect(root.style.backgroundImage).toContain('radial-gradient');
+      expect(root.style.opacity).toBe('1');
     });
 
-    it('fades out below 25% zoom', async () => {
+    it('is gone below 15% zoom', async () => {
       saveViewport(window.localStorage, 'zoomedout', 'page1', { x: 0, y: 0, zoom: 0.1 });
       renderCanvas({ fileId: 'zoomedout' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
       const root = screen.getByTestId('canvas-root');
       expect(root.style.backgroundImage).toBeFalsy();
+    });
+
+    // Matt, 2026-09-14 ("the background seems to change color" while
+    // zooming): a single hard cutoff used to blink the whole dot layer in
+    // or out on one wheel tick, right where the dots are densest and
+    // closest to reading as a solid tint - a visible jump, not a fade.
+    // 25% zoom (the old exact cutoff) now sits mid-band, at partial
+    // opacity, proving the transition is a smooth ramp rather than a snap.
+    it('fades smoothly through the 15%-35% zoom band, rather than snapping at one cutoff', async () => {
+      saveViewport(window.localStorage, 'midfade', 'page1', { x: 0, y: 0, zoom: 0.25 });
+      renderCanvas({ fileId: 'midfade' });
+      await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+      const root = screen.getByTestId('canvas-root');
+      expect(root.style.backgroundImage).toContain('radial-gradient');
+      const opacity = Number(root.style.opacity);
+      expect(opacity).toBeGreaterThan(0);
+      expect(opacity).toBeLessThan(1);
     });
 
     it('is hidden when pixelGridVisible is false, regardless of zoom', () => {

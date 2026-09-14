@@ -116,11 +116,12 @@ export function DiagramToolTray({
                   type="button"
                   data-diagram-tool-item={docKey}
                   aria-pressed={toolsEqual(diagramTool, item.tool)}
+                  aria-label={item.label}
+                  title={item.label}
                   onClick={() => onSelectDiagramTool?.(item.tool)}
-                  className="flex w-full flex-col items-center gap-2 rounded-lg px-2 py-4"
+                  className="flex w-full items-center justify-center rounded-lg px-2 py-8"
                 >
-                  <item.icon className="size-5 shrink-0 text-acc2" aria-hidden />
-                  <span className="text-[12.5px] font-medium text-foreground">{item.label}</span>
+                  <item.icon className="size-8 shrink-0 text-acc2" aria-hidden />
                 </button>
                 <button
                   type="button"
