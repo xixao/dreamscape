@@ -1851,10 +1851,6 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (!resolved) return null;
     const selected = isSelected(diagram.selection, 'edge', edge.id);
     const isEditingLabel = editing?.id === edge.id;
-    // Spec section 12: only the pointer tool's SOLE selected connector
-    // shows end handles - soleSelectedEdgeId (above) already encodes both
-    // the tool and "exactly one, and it's an edge" checks.
-    const showEndHandles = soleSelectedEdgeId === edge.id;
 
     return (
       <ContextMenu key={edge.id}>
@@ -1921,18 +1917,34 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 </foreignObject>
               )
             )}
-            {showEndHandles && (
-              <>
-                {renderEdgeEndHandle(edge, 'source', resolved.sourcePoint, resolved.targetPoint)}
-                {renderEdgeEndHandle(edge, 'target', resolved.targetPoint, resolved.sourcePoint)}
-              </>
-            )}
           </g>
         </ContextMenuTrigger>
         <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>
           {renderEdgeMenuContent(edge)}
         </ContextMenuContent>
       </ContextMenu>
+    );
+  }
+
+  // Rendered as its own top-level layer, after every node/frame/ghost (spec
+  // section 12's handles, but painted last so nothing a shape owns can ever
+  // occlude its own connector's end handle - see the comment on
+  // showEndHandles' removal above for why that occlusion was a real bug,
+  // not a theoretical one: the handle sits exactly on the shape's boundary,
+  // so half its hit area used to be covered by the very shape it is
+  // attached to). Still gated on soleSelectedEdgeId, so at most one
+  // connector's two handles ever render.
+  function renderSelectedEdgeEndHandles(): ReactNode {
+    if (!soleSelectedEdgeId) return null;
+    const edge = diagram.edges.find((candidate) => candidate.id === soleSelectedEdgeId);
+    if (!edge) return null;
+    const resolved = pathFor(edge);
+    if (!resolved) return null;
+    return (
+      <g data-testid={`diagram-edge-handles-${edge.id}`}>
+        {renderEdgeEndHandle(edge, 'source', resolved.sourcePoint, resolved.targetPoint)}
+        {renderEdgeEndHandle(edge, 'target', resolved.targetPoint, resolved.sourcePoint)}
+      </g>
     );
   }
 
@@ -1984,6 +1996,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         <g key={frame.id}>{renderHandles({ type: 'frame', id: frame.id }, frame)}</g>
       ))}
       {renderGhosts()}
+      {renderSelectedEdgeEndHandles()}
 
       {connect && (
         <path
