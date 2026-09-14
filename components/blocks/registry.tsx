@@ -1,7 +1,6 @@
 import { Element } from '@craftjs/core';
 import {
   AlignLeft,
-  AppWindow,
   ChevronsUpDown,
   CircleDot,
   CircleUserRound,
@@ -258,15 +257,17 @@ export const trayItems: TrayItem[] = [
     create: () => <Progress />,
     previewSize: { width: 240, height: 16 },
   },
-  {
-    type: 'Dialog',
-    label: 'Dialog',
-    group: 'Feedback',
-    icon: AppWindow,
-    keywords: ['modal', 'popup', 'overlay'],
-    create: () => <Dialog />,
-    previewSize: { width: 120, height: 36 },
-  },
+  // Dialog removed from the tray (spec docs/superpowers/specs/2026-09-13-
+  // overlay-frames-design.md section 5, phase 2): a modal is now an
+  // overlay frame (Frames chip -> New overlay -> Dialog), not a block
+  // designed inline. Stays in `resolver`/`schemas` below (imported above)
+  // so an existing layout that already has one keeps rendering and keeps
+  // its "Open dialog..." interaction - only removed from this list, which
+  // is what the Elements tray and the drag/docs machinery that reads it
+  // (component-tray.tsx, layer-stack-menu.tsx, drop-placeholder.tsx,
+  // element-docs-dialog.tsx) actually iterate. component-tray.tsx shows a
+  // hint pointing at the Frames chip when a search for "modal"/"popup"/
+  // "overlay"/"dialog" finds nothing here.
   // Data
   {
     type: 'Table',

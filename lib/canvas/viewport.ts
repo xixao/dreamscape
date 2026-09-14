@@ -9,6 +9,7 @@
 // caller that touches the DOM.
 
 import type { Screen } from '@/lib/files/repository';
+import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
 import type { SnapBox } from './snap';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 
@@ -47,14 +48,20 @@ export interface FrameRect {
  * auto-height frame (fed through Canvas's onMeasuredHeight and, from
  * there, up to WorkbenchShell) - consulted only when the screen has no
  * fixed `stageHeight` of its own; ARTBOARD_MIN_HEIGHT is the last resort,
- * for a frame that has not rendered (and so not measured) yet.
+ * for a frame that has not rendered (and so not measured) yet - or, for an
+ * overlay frame (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+ * design.md section 2: "the artboard minimum height for an overlay is
+ * OVERLAY_MIN_HEIGHT, not the screen minimum"), OVERLAY_MIN_HEIGHT instead.
  */
 export function frameRect(screen: Screen, measuredHeights?: ReadonlyMap<string, number>): FrameRect {
   return {
     x: screen.x ?? 0,
     y: screen.y ?? 0,
     width: screen.stageWidth,
-    height: screen.stageHeight ?? measuredHeights?.get(screen.id) ?? ARTBOARD_MIN_HEIGHT,
+    height:
+      screen.stageHeight ??
+      measuredHeights?.get(screen.id) ??
+      (isOverlay(screen) ? OVERLAY_MIN_HEIGHT : ARTBOARD_MIN_HEIGHT),
   };
 }
 

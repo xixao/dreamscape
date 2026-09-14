@@ -22,7 +22,16 @@ import { distributeGapPxFromMeasurements, SPACING_OPTIONS, type Align, type Just
 import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
 // Aliased: this module already imports lucide's LayoutGrid icon (the
 // Elements rail tab) under that same bare name.
-import type { LayoutGrid as LayoutGridData, Screen } from '@/lib/files/repository';
+import type {
+  LayoutGrid as LayoutGridData,
+  OverlayPresentation,
+  OverlayPresentationType,
+  OverlaySide,
+  Page,
+  Screen,
+  ToastPosition,
+} from '@/lib/files/repository';
+import { isDefaultOverlayName, isOverlay, nextOverlayDefaultName } from '@/lib/files/screens';
 import { isResponsive, resolve, type Breakpoint } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
 import {
@@ -71,6 +80,12 @@ const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 // frame selection - see components/workbench/canvas.tsx's own identical
 // DEFAULT_FRAME_SELECTION for the same "keep old callers working" precedent.
 const EMPTY_FRAME_SELECTION: ReadonlySet<string> = new Set();
+// Same "keep old callers working" precedent as EMPTY_FRAME_SELECTION above,
+// for a caller/test that predates the PrototypePanel's page-grouped Overlay
+// target select (spec section 5) - it falls back to one flat, ungrouped
+// list of overlays on its own (see PrototypePanel's own `pages` doc
+// comment).
+const EMPTY_PAGES: Page[] = [];
 
 // The Frame section's own fields (spec docs/superpowers/specs/2026-09-13-
 // grid-snapping-alignment-design.md section 5), shown only when the root
@@ -103,6 +118,58 @@ const LAYOUT_GRID_MARGIN_FIELD: FieldSchema = {
 const LAYOUT_GRID_VISIBLE_FIELD: FieldSchema = {
   prop: 'visible',
   label: 'Show layout grid',
+  kind: 'boolean',
+  section: 'Layout',
+};
+
+// The Overlay section's own fields (spec docs/superpowers/specs/2026-09-13-
+// overlay-frames-design.md section 5), shown only when the root frame of an
+// OVERLAY is selected - the same "plain FieldSchema reused through
+// field.tsx" shape the layout grid fields above already use, since a
+// screen's presentation is not a Craft node prop either. `Presentation`
+// (3 options) renders as field.tsx's segmented ToggleGroup; `Side` (4) and
+// `Position` (6) each render as its Select dropdown (field.tsx's own
+// options.length <= 3 cutoff).
+const OVERLAY_PRESENTATION_FIELD: FieldSchema = {
+  prop: 'presentation',
+  label: 'Presentation',
+  kind: 'select',
+  section: 'Layout',
+  options: [
+    { value: 'dialog', label: 'Dialog' },
+    { value: 'sheet', label: 'Sheet' },
+    { value: 'toast', label: 'Toast' },
+  ],
+};
+const OVERLAY_SIDE_FIELD: FieldSchema = {
+  prop: 'side',
+  label: 'Side',
+  kind: 'select',
+  section: 'Layout',
+  options: [
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+  ],
+};
+const OVERLAY_POSITION_FIELD: FieldSchema = {
+  prop: 'position',
+  label: 'Position',
+  kind: 'select',
+  section: 'Layout',
+  options: [
+    { value: 'top-left', label: 'Top left' },
+    { value: 'top-center', label: 'Top center' },
+    { value: 'top-right', label: 'Top right' },
+    { value: 'bottom-left', label: 'Bottom left' },
+    { value: 'bottom-center', label: 'Bottom center' },
+    { value: 'bottom-right', label: 'Bottom right' },
+  ],
+};
+const OVERLAY_DISMISSIBLE_FIELD: FieldSchema = {
+  prop: 'dismissible',
+  label: 'Dismissible',
   kind: 'boolean',
   section: 'Layout',
 };
@@ -292,6 +359,7 @@ function RailButton({
 export function Inspector({
   screens,
   currentScreenId,
+  pages = EMPTY_PAGES,
   panelMode,
   onPanelModeChange,
   collapsed,
@@ -303,10 +371,16 @@ export function Inspector({
   diagramAlignment = null,
   diagramMultiSelection = null,
   onUpdateLayoutGrid,
+  onUpdatePresentation,
   measuredHeights,
 }: {
   screens: Screen[];
   currentScreenId: string;
+  // Every page, whole-file (spec section 5) - passed straight through to
+  // the Prototype panel, which groups its "Open overlay..." target select
+  // by page. Optional, defaulting to EMPTY_PAGES, for the same "keep old
+  // callers working" reason every other optional prop here has.
+  pages?: Page[];
   panelMode: PanelMode;
   onPanelModeChange: (mode: PanelMode) => void;
   collapsed: boolean;
@@ -346,6 +420,13 @@ export function Inspector({
   // selected) - merges a partial change into the current screen's
   // layoutGrid, same as Shift+G's own onToggleLayoutGrid in workbench.tsx.
   onUpdateLayoutGrid?: (id: string, patch: Partial<LayoutGridData>) => void;
+  // The Design panel's Overlay section (spec section 5: Presentation/Side/
+  // Position/Dismissible, shown when the root frame of an overlay is
+  // selected) - always the WHOLE presentation object, never a patch (the
+  // phase 1 contract: "the editor must always write a presentation that
+  // matches its type exactly ... never adding a key to the old one, or the
+  // next autosave is a 400").
+  onUpdatePresentation?: (id: string, presentation: OverlayPresentation, name?: string) => void;
   // Review fix wave item 8: an auto-height frame's real, current height
   // (owned by WorkbenchShell, fed by Stage/FramePreview through Canvas) -
   // used the same way canvas.tsx uses it, so the frame alignment row below
@@ -421,6 +502,49 @@ export function Inspector({
     onUpdateLayoutGrid?.(currentScreenId, patch);
   }
 
+  // The Overlay section's four handlers: each rebuilds a complete,
+  // correctly-shaped presentation object (never merges a bare patch into
+  // the existing one - see onUpdatePresentation's own doc comment above).
+  // Presentation switches to fresh, type-appropriate defaults (a
+  // dismissible dialog, a dismissible right sheet, or a bottom-right
+  // toast - createOverlayScreen's own defaults); Side/Position/Dismissible
+  // each keep every OTHER field of the current presentation and replace
+  // only their own, which is only possible once currentScreen is known to
+  // carry a presentation of the matching type.
+  function handlePresentationTypeChange(nextType: OverlayPresentationType): void {
+    if (!currentScreen || !isOverlay(currentScreen) || nextType === currentScreen.presentation.type) return;
+    let next: OverlayPresentation;
+    if (nextType === 'dialog') next = { type: 'dialog', dismissible: true };
+    else if (nextType === 'sheet') next = { type: 'sheet', side: 'right', dismissible: true };
+    else next = { type: 'toast', position: 'bottom-right' };
+    // Phase 2 review finding 2/3: keep the user's own name, but when it is
+    // still the auto-generated default for the type being switched AWAY
+    // FROM ("Dialog 2"), rename it to the next free default for the type
+    // being switched TO instead - isDefaultOverlayName/nextOverlayDefaultName
+    // (lib/files/screens.ts) are the same helpers addOverlay itself uses,
+    // so a renamed-on-switch overlay can never collide with a same-typed
+    // one created (or itself later switched) after it. Passed as
+    // onUpdatePresentation's own optional third argument only when a
+    // rename is actually happening - never an explicit `undefined` - so a
+    // custom name's call keeps its original two-argument shape.
+    const oldType = currentScreen.presentation.type;
+    const name = isDefaultOverlayName(currentScreen.name, oldType) ? nextOverlayDefaultName(screens, nextType) : undefined;
+    if (name !== undefined) onUpdatePresentation?.(currentScreenId, next, name);
+    else onUpdatePresentation?.(currentScreenId, next);
+  }
+  function handleSideChange(side: OverlaySide): void {
+    if (!currentScreen || !isOverlay(currentScreen) || currentScreen.presentation.type !== 'sheet') return;
+    onUpdatePresentation?.(currentScreenId, { ...currentScreen.presentation, side });
+  }
+  function handlePositionChange(position: ToastPosition): void {
+    if (!currentScreen || !isOverlay(currentScreen) || currentScreen.presentation.type !== 'toast') return;
+    onUpdatePresentation?.(currentScreenId, { ...currentScreen.presentation, position });
+  }
+  function handleDismissibleChange(dismissible: boolean): void {
+    if (!currentScreen || !isOverlay(currentScreen) || currentScreen.presentation.type === 'toast') return;
+    onUpdatePresentation?.(currentScreenId, { ...currentScreen.presentation, dismissible });
+  }
+
   if (collapsed) {
     return (
       <TooltipProvider delayDuration={0}>
@@ -480,7 +604,7 @@ export function Inspector({
         ) : (
           <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
             {panelMode === 'prototype' ? (
-              <PrototypePanel screens={screens} currentScreenId={currentScreenId} />
+              <PrototypePanel screens={screens} currentScreenId={currentScreenId} pages={pages} />
             ) : frameAlignmentContext ? (
               <AlignmentFields context={frameAlignmentContext} />
             ) : diagramAlignment ? (
@@ -548,6 +672,43 @@ export function Inspector({
                         breakpoint="mobile"
                         onChange={(next) => updateLayoutGridField({ visible: Boolean(next) })}
                       />
+                    </div>
+                  </section>
+                )}
+                {isRoot && currentScreen && isOverlay(currentScreen) && (
+                  <section className={SECTION} data-testid="overlay-section">
+                    <h3 className={SECTION_TITLE}>Overlay</h3>
+                    <div className="flex flex-col gap-3">
+                      <Field
+                        field={OVERLAY_PRESENTATION_FIELD}
+                        value={currentScreen.presentation.type}
+                        breakpoint="mobile"
+                        onChange={(next) => handlePresentationTypeChange(next as OverlayPresentationType)}
+                      />
+                      {currentScreen.presentation.type === 'sheet' && (
+                        <Field
+                          field={OVERLAY_SIDE_FIELD}
+                          value={currentScreen.presentation.side}
+                          breakpoint="mobile"
+                          onChange={(next) => handleSideChange(next as OverlaySide)}
+                        />
+                      )}
+                      {currentScreen.presentation.type === 'toast' && (
+                        <Field
+                          field={OVERLAY_POSITION_FIELD}
+                          value={currentScreen.presentation.position}
+                          breakpoint="mobile"
+                          onChange={(next) => handlePositionChange(next as ToastPosition)}
+                        />
+                      )}
+                      {currentScreen.presentation.type !== 'toast' && (
+                        <Field
+                          field={OVERLAY_DISMISSIBLE_FIELD}
+                          value={currentScreen.presentation.dismissible}
+                          breakpoint="mobile"
+                          onChange={(next) => handleDismissibleChange(Boolean(next))}
+                        />
+                      )}
                     </div>
                   </section>
                 )}

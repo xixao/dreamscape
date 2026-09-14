@@ -38,6 +38,7 @@ type KeysOptions = {
   onPointerTool?: () => void;
   onPresent?: () => void;
   onAddScreen?: () => void;
+  onAddOverlay?: () => void;
   onOpenShortcuts?: () => void;
   onToggleLayoutGrid?: () => void;
   onTogglePixelGrid?: () => void;
@@ -74,6 +75,7 @@ function Keys({
   onPointerTool,
   onPresent,
   onAddScreen,
+  onAddOverlay,
   onOpenShortcuts,
   onToggleLayoutGrid,
   onTogglePixelGrid,
@@ -109,6 +111,7 @@ function Keys({
     onPointerTool,
     onPresent,
     onAddScreen,
+    onAddOverlay,
     onOpenShortcuts,
   onToggleLayoutGrid,
   onTogglePixelGrid,
@@ -1223,6 +1226,43 @@ describe('useWorkbenchKeyboard onAddScreen', () => {
     mount();
     await screen.findByRole('button', { name: 'Doomed' });
     expect(() => fireEvent.keyDown(window, { key: 'n', shiftKey: true })).not.toThrow();
+  });
+});
+
+describe('useWorkbenchKeyboard onAddOverlay', () => {
+  it('calls onAddOverlay for Shift+O', async () => {
+    const onAddOverlay = vi.fn();
+    mount({ onAddOverlay });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'o', shiftKey: true });
+    expect(onAddOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('is case-insensitive', async () => {
+    const onAddOverlay = vi.fn();
+    mount({ onAddOverlay });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'O', shiftKey: true });
+    expect(onAddOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a bare o, and Shift+O while typing or while a popup or dialog owns the interaction', async () => {
+    const onAddOverlay = vi.fn();
+    mount({ onAddOverlay });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'o' });
+    fireEvent.keyDown(screen.getByLabelText('typing'), { key: 'o', shiftKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key: 'o', shiftKey: true });
+    expect(onAddOverlay).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when onAddOverlay is not provided', async () => {
+    mount();
+    await screen.findByRole('button', { name: 'Doomed' });
+    expect(() => fireEvent.keyDown(window, { key: 'o', shiftKey: true })).not.toThrow();
   });
 });
 

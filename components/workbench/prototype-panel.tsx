@@ -4,16 +4,25 @@ import { useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   type Interaction,
   type InteractionActionType,
   getInteraction,
   setInteraction,
 } from '@/lib/interactions';
-import type { Screen } from '@/lib/files/repository';
+import type { Page, Screen } from '@/lib/files/repository';
+import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
 import { cn } from '@/lib/utils';
-import { CHIP, DANGER_GHOST, EMPTY, LABEL, SECTION, SECTION_TITLE } from './chrome';
+import { CHIP, DANGER_GHOST, EMPTY, LABEL, MENU_HINT, SECTION, SECTION_TITLE } from './chrome';
 import { useSelectedNode } from './selection';
 
 type OnClickValue = InteractionActionType | 'none';
@@ -24,8 +33,9 @@ const ACTION_LABELS: Record<OnClickValue, string> = {
   openDialog: 'Open dialog...',
   back: 'Back',
   // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
-  // design.md section 5): labels only for now - the select below does not
-  // offer either until phase 2 wires the editor side of overlay frames.
+  // design.md section 5, phase 2): "Open overlay..." is offered when the
+  // file has at least one overlay frame on any page; "Close overlay" is
+  // always offered, regardless.
   openOverlay: 'Open overlay...',
   closeOverlay: 'Close overlay',
 };
@@ -37,7 +47,20 @@ interface DialogOption {
 
 const SELECT_TRIGGER_CLASS = cn(CHIP, 'w-full font-mono text-[12.5px] font-medium text-foreground');
 
-export function PrototypePanel({ screens, currentScreenId }: { screens: Screen[]; currentScreenId: string }) {
+export function PrototypePanel({
+  screens,
+  currentScreenId,
+  pages = [],
+}: {
+  screens: Screen[];
+  currentScreenId: string;
+  // Groups the "Open overlay..." target select's options by page (spec
+  // section 5: "target select lists overlay frames grouped by page") -
+  // optional, defaulting to no groups, so a caller that predates pages
+  // (or a test that does not care) keeps rendering exactly as before, just
+  // with an ungrouped select if it happens to also have overlay frames.
+  pages?: Page[];
+}) {
   const { id } = useSelectedNode();
   const { actions, interaction, dialogOptions } = useEditor((state) => {
     const node = id ? state.nodes[id] : undefined;
@@ -60,6 +83,22 @@ export function PrototypePanel({ screens, currentScreenId }: { screens: Screen[]
   const otherScreens = screens.filter((screen) => screen.id !== currentScreenId);
   const canNavigate = otherScreens.length > 0;
   const canOpenDialog = dialogOptions.length > 0;
+  // Overlay frames (spec section 5): "Open overlay..." is offered when the
+  // file has at least one overlay frame on any page - `screens` here is
+  // already the whole file's screens (Inspector's own prop, not scoped to
+  // the current page), so this naturally covers every page without this
+  // component needing to know which page each overlay lives on for the gate
+  // itself, only for grouping the target select below.
+  const overlayScreens = screens.filter(isOverlay);
+  const canOpenOverlay = overlayScreens.length > 0;
+  // Grouped by page when real page data is given; falls back to one flat,
+  // ungrouped list otherwise (see the `pages` prop's own doc comment).
+  const overlayGroups =
+    pages.length > 0
+      ? pages
+          .map((page) => ({ page, overlays: overlayScreens.filter((overlay) => overlay.pageId === page.id) }))
+          .filter((group) => group.overlays.length > 0)
+      : null;
   const onClickValue: OnClickValue = interaction?.action ?? 'none';
 
   function change(next: Interaction | null): void {
@@ -72,9 +111,14 @@ export function PrototypePanel({ screens, currentScreenId }: { screens: Screen[]
       change(null);
     } else if (value === 'back') {
       change({ id: nanoid(10), trigger: 'click', action: 'back' });
+    } else if (value === 'closeOverlay') {
+      change({ id: nanoid(10), trigger: 'click', action: 'closeOverlay' });
     } else if (value === 'navigate') {
       const target = otherScreens[0];
       if (target) change({ id: nanoid(10), trigger: 'click', action: 'navigate', targetScreenId: target.id });
+    } else if (value === 'openOverlay') {
+      const overlay = overlayScreens[0];
+      if (overlay) change({ id: nanoid(10), trigger: 'click', action: 'openOverlay', targetScreenId: overlay.id });
     } else {
       const dialog = dialogOptions[0];
       if (dialog) change({ id: nanoid(10), trigger: 'click', action: 'openDialog', targetNodeId: dialog.id });
@@ -96,6 +140,8 @@ export function PrototypePanel({ screens, currentScreenId }: { screens: Screen[]
               {canNavigate && <SelectItem value="navigate">{ACTION_LABELS.navigate}</SelectItem>}
               {canOpenDialog && <SelectItem value="openDialog">{ACTION_LABELS.openDialog}</SelectItem>}
               <SelectItem value="back">{ACTION_LABELS.back}</SelectItem>
+              {canOpenOverlay && <SelectItem value="openOverlay">{ACTION_LABELS.openOverlay}</SelectItem>}
+              <SelectItem value="closeOverlay">{ACTION_LABELS.closeOverlay}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -137,6 +183,40 @@ export function PrototypePanel({ screens, currentScreenId }: { screens: Screen[]
                     {dialog.title}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {interaction?.action === 'openOverlay' && (
+          <div className="flex flex-col gap-1.5">
+            <Label className={LABEL}>Overlay</Label>
+            <Select
+              value={interaction.targetScreenId}
+              onValueChange={(targetScreenId) => change({ ...interaction, targetScreenId })}
+            >
+              <SelectTrigger aria-label="Overlay" size="sm" className={SELECT_TRIGGER_CLASS}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {overlayGroups
+                  ? overlayGroups.map(({ page, overlays }) => (
+                      <SelectGroup key={page.id}>
+                        <SelectLabel>{page.name}</SelectLabel>
+                        {overlays.map((overlay) => (
+                          <SelectItem key={overlay.id} value={overlay.id}>
+                            <span>{overlay.name}</span>
+                            <span className={MENU_HINT}>{overlayBadgeLabel(overlay.presentation)}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))
+                  : overlayScreens.map((overlay) => (
+                      <SelectItem key={overlay.id} value={overlay.id}>
+                        <span>{overlay.name}</span>
+                        <span className={MENU_HINT}>{overlayBadgeLabel(overlay.presentation)}</span>
+                      </SelectItem>
+                    ))}
               </SelectContent>
             </Select>
           </div>

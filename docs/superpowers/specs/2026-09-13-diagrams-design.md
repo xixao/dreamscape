@@ -82,3 +82,7 @@ Request: "for diagram, i need to be able to drag to select multiple items, group
 - **Moving.** Dragging any selected shape moves the whole selection (already true) and therefore whole groups; arrow nudges, align, distribute, duplicate, delete, Option-drag and export treat a group as its members. Quick-add on a grouped shape adds the new shape outside the group.
 - **Data and history.** `groupId` is optional on nodes (old files unchanged); `group` and `ungroup` are one history step each; `duplicate` gives copies a fresh group id; `validateDiagram` accepts the field. Registered shortcuts: `diagram-group` (Cmd+G) and `diagram-ungroup` (Shift+Cmd+G), README rows included.
 - Order: after section 9 (text styling) merges, since both edit the store and the layer.
+
+## 11. Text tool shortcut (Matt, 2026-09-13)
+
+"if i wanted to add text outside of a frame on the canvas, how can i do that?" Free text on the canvas is the diagram's Text shape. Add `diagram-text-tool` (T, area Tools, "Text on the canvas"): opens the diagram palette if closed and arms the Text shape, so the next click places a text block and opens its editor; Escape returns to the pointer as today. README row and drift test; gated like the other single-letter tool shortcuts (never while typing). Order: after section 10 merges.

@@ -28,6 +28,25 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
   );
 }
 
+// Dialog left the tray for an overlay frame (spec docs/superpowers/specs/
+// 2026-09-13-overlay-frames-design.md section 5, phase 2), so a search for
+// any of the words a designer would still reach for now matches nothing -
+// this is what tells that specific empty state apart from a genuine
+// "no such element" search, so the fallback below can point at the Frames
+// chip instead of the generic "No elements match.". A live, as-you-type
+// search naturally means the QUERY is a prefix of one of these words while
+// it's still being typed ("dial" while typing "dialog"), not the other
+// direction - matching the same `.includes` shape filterTrayItems itself
+// uses, just with the two operands swapped.
+const OVERLAY_HINT_WORDS = ['modal', 'popup', 'overlay', 'dialog'];
+const OVERLAY_HINT_MESSAGE = 'Modals are overlay frames: Frames chip → New overlay → Dialog';
+
+function matchesOverlayHint(query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return false;
+  return OVERLAY_HINT_WORDS.some((word) => word.includes(trimmed));
+}
+
 // The Elements tab's content: search field, grouped list, Craft drag
 // sources (`connectors.create`). Rendered inside the right panel's own
 // <aside> by Inspector, which already owns that panel's chrome and header
@@ -122,7 +141,9 @@ export function ComponentTray() {
         })}
       </div>
       {filteredItems.length === 0 && (
-        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">No elements match.</p>
+        <p className="px-3 py-4 text-[12.5px] text-muted-foreground">
+          {matchesOverlayHint(filter) ? OVERLAY_HINT_MESSAGE : 'No elements match.'}
+        </p>
       )}
       {/* Follow-up (after the grid merge, which owns workbench.tsx): hoist
       this beside ShortcutsOverlay in WorkbenchShell, with the tray taking an

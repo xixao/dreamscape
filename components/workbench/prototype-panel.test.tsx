@@ -6,7 +6,8 @@ import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { Dialog } from '@/components/blocks/dialog';
 import { LayoutBox } from '@/components/blocks/layout-box';
-import type { Screen } from '@/lib/files/repository';
+import type { Page, Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import { PrototypePanel } from './prototype-panel';
 
@@ -15,7 +16,7 @@ const SCREENS: Screen[] = [
   { id: 's2', name: 'Hello world', layout: '{}', stageWidth: 1440 },
 ];
 
-function mount(children: ReactNode, screens: Screen[] = SCREENS, currentScreenId = 's1') {
+function mount(children: ReactNode, screens: Screen[] = SCREENS, currentScreenId = 's1', pages: Page[] = []) {
   return renderInEditor(
     <>
       <Frame>
@@ -23,7 +24,7 @@ function mount(children: ReactNode, screens: Screen[] = SCREENS, currentScreenId
           {children}
         </Element>
       </Frame>
-      <PrototypePanel screens={screens} currentScreenId={currentScreenId} />
+      <PrototypePanel screens={screens} currentScreenId={currentScreenId} pages={pages} />
     </>,
   );
 }
@@ -142,5 +143,77 @@ describe('PrototypePanel', () => {
 
     await waitFor(() => expect(editor().query.node(id).get().data.custom?.interactions).toBeUndefined());
     expect(screen.getByRole('combobox', { name: 'On click' })).toHaveTextContent('None');
+  });
+
+  describe('overlay frames', () => {
+    const PAGES: Page[] = [
+      { id: 'p1', name: 'Page 1' },
+      { id: 'p2', name: 'v2' },
+    ];
+    const PAGED_SCREENS: Screen[] = SCREENS.map((s) => ({ ...s, pageId: 'p1' }));
+    const OVERLAY_1 = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Confirm', pageId: 'p1', x: 0, y: 0 });
+    const OVERLAY_2 = createOverlayScreen({ type: 'sheet', id: 'o2', name: 'Filters', pageId: 'p2', x: 0, y: 0 });
+    const SCREENS_WITH_OVERLAYS: Screen[] = [...PAGED_SCREENS, OVERLAY_1, OVERLAY_2];
+
+    it('does not offer Open overlay when the file has no overlay frame, but always offers Close overlay', async () => {
+      const { editor } = mount(<Button label="Sign in" />);
+      await selectFirstChild(editor);
+
+      await userEvent.click(screen.getByRole('combobox', { name: 'On click' }));
+      expect(screen.queryByRole('option', { name: 'Open overlay...' })).toBeNull();
+      expect(screen.getByRole('option', { name: 'Close overlay' })).toBeInTheDocument();
+    });
+
+    it('offers Open overlay when the file has an overlay frame on ANY page', async () => {
+      const { editor } = mount(<Button label="Sign in" />, SCREENS_WITH_OVERLAYS, 's1', PAGES);
+      await selectFirstChild(editor);
+
+      await userEvent.click(screen.getByRole('combobox', { name: 'On click' }));
+      expect(screen.getByRole('option', { name: 'Open overlay...' })).toBeInTheDocument();
+    });
+
+    it('wires Open overlay to the first overlay, grouped by page, showing the presentation badge', async () => {
+      const { editor } = mount(<Button label="Sign in" />, SCREENS_WITH_OVERLAYS, 's1', PAGES);
+      const id = await selectFirstChild(editor);
+
+      await chooseOnClick('Open overlay...');
+
+      await waitFor(() =>
+        expect(editor().query.node(id).get().data.custom?.interactions).toEqual([
+          expect.objectContaining({ action: 'openOverlay', targetScreenId: 'o1' }),
+        ]),
+      );
+      const overlaySelect = screen.getByRole('combobox', { name: 'Overlay' });
+      expect(overlaySelect).toHaveTextContent('Confirm');
+      expect(overlaySelect).toHaveTextContent('Dialog');
+
+      await userEvent.click(overlaySelect);
+      expect(screen.getByRole('group', { name: 'Page 1' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'v2' })).toBeInTheDocument();
+      const secondOverlayOption = screen.getByRole('option', { name: /Filters/ });
+      expect(secondOverlayOption).toHaveTextContent('Sheet · Right');
+
+      await userEvent.click(secondOverlayOption);
+      await waitFor(() =>
+        expect(editor().query.node(id).get().data.custom?.interactions).toEqual([
+          expect.objectContaining({ action: 'openOverlay', targetScreenId: 'o2' }),
+        ]),
+      );
+    });
+
+    it('wires Close overlay with no target select, even with overlay frames present', async () => {
+      const { editor } = mount(<Button label="Sign in" />, SCREENS_WITH_OVERLAYS, 's1', PAGES);
+      const id = await selectFirstChild(editor);
+
+      await chooseOnClick('Close overlay');
+
+      await waitFor(() =>
+        expect(editor().query.node(id).get().data.custom?.interactions).toEqual([
+          expect.objectContaining({ action: 'closeOverlay' }),
+        ]),
+      );
+      expect(screen.queryByRole('combobox', { name: 'Overlay' })).toBeNull();
+      expect(screen.queryByRole('combobox', { name: 'Screen' })).toBeNull();
+    });
   });
 });

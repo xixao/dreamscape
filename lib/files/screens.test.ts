@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { KNOWN_TYPES } from '@/components/blocks/known-types';
 import loginScreen from '@/lib/examples/login-screen.json';
-import { OVERLAY_DEFAULT_WIDTHS, OVERLAY_MIN_HEIGHT, createOverlayScreen, isOverlay } from './screens';
+import {
+  OVERLAY_DEFAULT_WIDTHS,
+  OVERLAY_MIN_HEIGHT,
+  createOverlayScreen,
+  isDefaultOverlayName,
+  isOverlay,
+  nextOverlayDefaultName,
+  overlayBadgeLabel,
+  wouldStrandPage,
+} from './screens';
 import { PRESENTATION_TYPES, validateLayout, validateScreens, type Screen } from './validate';
 
 // Everything createOverlayScreen leaves to its caller (spec
@@ -165,5 +174,117 @@ describe('createOverlayScreen', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     expect(result.screens[0]).toEqual(screen);
+  });
+});
+
+describe('isDefaultOverlayName / nextOverlayDefaultName', () => {
+  function overlay(id: string, type: 'dialog' | 'sheet' | 'toast', name: string): Screen {
+    return createOverlayScreen({ type, id, name, pageId: 'page000001', x: 0, y: 0 });
+  }
+
+  describe('isDefaultOverlayName', () => {
+    it('is true for the exact "<Type> <N>" shape, any N', () => {
+      expect(isDefaultOverlayName('Dialog 1', 'dialog')).toBe(true);
+      expect(isDefaultOverlayName('Dialog 42', 'dialog')).toBe(true);
+      expect(isDefaultOverlayName('Sheet 3', 'sheet')).toBe(true);
+      expect(isDefaultOverlayName('Toast 7', 'toast')).toBe(true);
+    });
+
+    it('is false for a user-renamed name, a different type\'s prefix, or a malformed number', () => {
+      expect(isDefaultOverlayName('Confirm delete', 'dialog')).toBe(false);
+      expect(isDefaultOverlayName('Sheet 3', 'dialog')).toBe(false);
+      expect(isDefaultOverlayName('Dialog', 'dialog')).toBe(false);
+      expect(isDefaultOverlayName('Dialog 1 ', 'dialog')).toBe(false);
+      expect(isDefaultOverlayName('Dialog 1.5', 'dialog')).toBe(false);
+      expect(isDefaultOverlayName('My Dialog 1', 'dialog')).toBe(false);
+    });
+  });
+
+  describe('nextOverlayDefaultName', () => {
+    it('is "<Type> 1" when the file has no overlay of that type yet', () => {
+      expect(nextOverlayDefaultName([], 'dialog')).toBe('Dialog 1');
+      const onlyASheet = [overlay('o1', 'sheet', 'Sheet 1')];
+      expect(nextOverlayDefaultName(onlyASheet, 'dialog')).toBe('Dialog 1');
+    });
+
+    it('is one past the highest existing default number for that type', () => {
+      const screens = [overlay('o1', 'dialog', 'Dialog 1'), overlay('o2', 'dialog', 'Dialog 2')];
+      expect(nextOverlayDefaultName(screens, 'dialog')).toBe('Dialog 3');
+    });
+
+    it('ignores a gap left by a renamed-away overlay - the count is by NAME, not by how many exist', () => {
+      // "Dialog 1" was renamed to "Confirm delete"; only "Dialog 2" still
+      // looks like a default. The spec review's own finding 2: counting by
+      // current presentation.type (or by how many overlays of a type exist)
+      // instead of by name is exactly the bug this function fixes.
+      const screens = [overlay('o1', 'dialog', 'Confirm delete'), overlay('o2', 'dialog', 'Dialog 2')];
+      expect(nextOverlayDefaultName(screens, 'dialog')).toBe('Dialog 3');
+    });
+
+    it('ignores a plain screen that happens to share a default-looking name', () => {
+      const screens: Screen[] = [{ id: 's1', name: 'Dialog 5', layout: '{}', stageWidth: 1440, pageId: 'p1' }];
+      expect(nextOverlayDefaultName(screens, 'dialog')).toBe('Dialog 1');
+    });
+
+    it('a switched-type overlay\'s name still blocks a NEW one from reusing it - no duplicate names', () => {
+      // "Dialog 2" became a sheet without being renamed (the review's own
+      // failing-input scenario). A brand new dialog must not also become
+      // "Dialog 2" - that exact collision (two overlays both showing
+      // "Dialog 2") is the bug finding 2 describes - so dialog numbering
+      // skips past it to "Dialog 3".
+      const screens = [overlay('o1', 'dialog', 'Dialog 1'), overlay('o2', 'sheet', 'Dialog 2')];
+      expect(nextOverlayDefaultName(screens, 'dialog')).toBe('Dialog 3');
+      // Sheet numbering is unaffected by a name that merely looks like a
+      // dialog default: nothing is named "Sheet N" yet, so the first real
+      // sheet still gets "Sheet 1" (exactly the name the Design panel's
+      // presentation-type switch, tested separately, would rename this
+      // very overlay to).
+      expect(nextOverlayDefaultName(screens, 'sheet')).toBe('Sheet 1');
+    });
+  });
+});
+
+describe('overlayBadgeLabel', () => {
+  it('names a dialog "Dialog" and a toast "Toast", regardless of their own fields', () => {
+    expect(overlayBadgeLabel({ type: 'dialog', dismissible: true })).toBe('Dialog');
+    expect(overlayBadgeLabel({ type: 'dialog', dismissible: false })).toBe('Dialog');
+    expect(overlayBadgeLabel({ type: 'toast', position: 'top-left' })).toBe('Toast');
+  });
+
+  it('names a sheet with its capitalized side', () => {
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'right', dismissible: true })).toBe('Sheet · Right');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'left', dismissible: false })).toBe('Sheet · Left');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'top', dismissible: true })).toBe('Sheet · Top');
+    expect(overlayBadgeLabel({ type: 'sheet', side: 'bottom', dismissible: true })).toBe('Sheet · Bottom');
+  });
+
+  it('matches every createOverlayScreen default, for every presentation type', () => {
+    for (const type of ['dialog', 'sheet', 'toast'] as const) {
+      const screen = createOverlayScreen({ type, ...BASE });
+      expect(() => overlayBadgeLabel(screen.presentation!)).not.toThrow();
+    }
+    expect(overlayBadgeLabel(createOverlayScreen({ type: 'sheet', ...BASE }).presentation!)).toBe('Sheet · Right');
+  });
+});
+
+describe('wouldStrandPage', () => {
+  const plainA: Screen = { id: 'a', name: 'Login', layout: '{}', stageWidth: 1440, pageId: 'p1' };
+  const plainB: Screen = { id: 'b', name: 'Settings', layout: '{}', stageWidth: 1440, pageId: 'p1' };
+  const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+
+  it('is true for the last plain screen of a page that also has an overlay', () => {
+    expect(wouldStrandPage(plainA, [plainA, overlay])).toBe(true);
+  });
+
+  it('is false for a plain screen when another plain screen would remain', () => {
+    expect(wouldStrandPage(plainA, [plainA, plainB, overlay])).toBe(false);
+  });
+
+  it('is false for a plain screen when the page has no overlay at all, even as the only screen', () => {
+    expect(wouldStrandPage(plainA, [plainA])).toBe(false);
+  });
+
+  it('is always false for an overlay itself, even as the page\'s only overlay', () => {
+    expect(wouldStrandPage(overlay, [plainA, overlay])).toBe(false);
   });
 });

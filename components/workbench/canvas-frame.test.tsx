@@ -33,10 +33,13 @@ function installFakeResizeObserver(): { trigger: () => void } {
   return { trigger: () => ref.current?.([], {} as ResizeObserver) };
 }
 
-function renderFrame(ui: ReactElement, { width = 800, height = null as number | null, zoom = 1 } = {}) {
+function renderFrame(
+  ui: ReactElement,
+  { width = 800, height = null as number | null, zoom = 1, minHeight }: { width?: number; height?: number | null; zoom?: number; minHeight?: number } = {},
+) {
   function Wrapper() {
     return (
-      <CanvasFrame width={width} height={height} zoom={zoom}>
+      <CanvasFrame width={width} height={height} zoom={zoom} minHeight={minHeight}>
         {ui}
       </CanvasFrame>
     );
@@ -212,6 +215,36 @@ describe('CanvasFrame', () => {
     Object.defineProperty(iframe.contentDocument!.body, 'scrollHeight', { value: 50, configurable: true });
     resizeObserver.trigger();
     await waitFor(() => expect(iframe.style.height).toBe(`${ARTBOARD_MIN_HEIGHT}px`));
+  });
+
+  // minHeight (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 2): stage.tsx passes an overlay frame's own, smaller
+  // OVERLAY_MIN_HEIGHT here instead of the default - this component itself
+  // stays feature-agnostic (a plain, arbitrary floor), the caller decides
+  // what it means.
+  describe('minHeight', () => {
+    it('uses the given minHeight, not ARTBOARD_MIN_HEIGHT, as the initial auto height', async () => {
+      renderFrame(<div>hi</div>, { width: 800, height: null, minHeight: 120 });
+      const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+      expect(iframe.style.height).toBe('120px');
+      await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
+    });
+
+    it('never shrinks the auto height below the given minHeight', async () => {
+      const resizeObserver = installFakeResizeObserver();
+
+      renderFrame(<div>hi</div>, { width: 800, height: null, minHeight: 120 });
+      const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+      await waitFor(() => expect(iframe.contentDocument?.body).toBeTruthy());
+
+      Object.defineProperty(iframe.contentDocument!.body, 'scrollHeight', { value: 50, configurable: true });
+      resizeObserver.trigger();
+      await waitFor(() => expect(iframe.style.height).toBe('120px'));
+
+      Object.defineProperty(iframe.contentDocument!.body, 'scrollHeight', { value: 300, configurable: true });
+      resizeObserver.trigger();
+      await waitFor(() => expect(iframe.style.height).toBe('300px'));
+    });
   });
 
   it('reports the applied (unscaled) content height through onContentHeightChange, for a fixed height and for auto', async () => {

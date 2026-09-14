@@ -1,4 +1,5 @@
 import type { Screen } from './files/repository';
+import { isOverlay } from './files/screens';
 
 // v1 supports exactly one click interaction per layer (spec
 // docs/superpowers/specs/2026-09-12-screens-prototype-play-design.md #2), but
@@ -157,7 +158,7 @@ export function interactionHandler(
  */
 export function describeInteraction(
   interaction: Interaction | null,
-  screens: Pick<Screen, 'id' | 'name'>[],
+  screens: Pick<Screen, 'id' | 'name' | 'kind' | 'presentation'>[],
   nodes: DescribeNodes,
 ): string | null {
   if (!interaction) return null;
@@ -172,8 +173,15 @@ export function describeInteraction(
   }
 
   if (interaction.action === 'openOverlay') {
+    // isOverlay, not a plain id lookup (overlay frames spec docs/
+    // superpowers/specs/2026-09-13-overlay-frames-design.md section 5): an
+    // id that now names a plain screen - the overlay was deleted and the
+    // id reused, in practice unreachable through the UI, which never
+    // reuses ids, but not through this stored interaction alone - is
+    // "unknown" too, exactly like a missing id, rather than mislabeling a
+    // plain screen as an overlay.
     const target = screens.find((screen) => screen.id === interaction.targetScreenId);
-    return target ? `→ Overlay: ${target.name}` : '→ Unknown overlay';
+    return target && isOverlay(target) ? `→ Overlay: ${target.name}` : '→ Unknown overlay';
   }
 
   const node = nodes[interaction.targetNodeId];

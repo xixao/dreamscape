@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Screen } from '@/lib/files/repository';
+import { OVERLAY_MIN_HEIGHT, createOverlayScreen } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import {
   MAX_ZOOM,
@@ -272,6 +273,27 @@ describe('frameRect / snapBoxFor', () => {
       y: 20,
       width: 400,
       height: 612,
+    });
+  });
+
+  describe('overlay frames', () => {
+    const OVERLAY_SCREEN = createOverlayScreen({
+      type: 'dialog',
+      id: 'o1',
+      name: 'Dialog 1',
+      pageId: 'page1',
+      x: 5,
+      y: 15,
+    });
+
+    it('falls back to OVERLAY_MIN_HEIGHT, not ARTBOARD_MIN_HEIGHT, for an overlay with no measured height yet', () => {
+      expect(frameRect(OVERLAY_SCREEN)).toEqual({ x: 5, y: 15, width: 512, height: OVERLAY_MIN_HEIGHT });
+      expect(OVERLAY_MIN_HEIGHT).toBeLessThan(ARTBOARD_MIN_HEIGHT);
+    });
+
+    it('still prefers a fed measured height over OVERLAY_MIN_HEIGHT', () => {
+      const measuredHeights = new Map([[OVERLAY_SCREEN.id, 88]]);
+      expect(frameRect(OVERLAY_SCREEN, measuredHeights).height).toBe(88);
     });
   });
 });

@@ -143,6 +143,10 @@ export function useWorkbenchKeyboard(
     // Shift+N: adds a screen, same as the screens strip's own "New screen"
     // button.
     onAddScreen?: () => void;
+    // Shift+O (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+    // design.md section 5): adds a dialog overlay, same default the Frames
+    // chip's own "New overlay" menu leads with.
+    onAddOverlay?: () => void;
     // Cmd+Shift+]/[ (spec docs/superpowers/specs/2026-09-12-pages-design.md
     // section 3): goes to the next/previous page, guarded like every other
     // plain (non-`always`) shortcut - never fires inside a text field,
@@ -194,6 +198,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onAddOverlay,
     onPageNext,
     onPagePrev,
     onOpenShortcuts,
@@ -365,6 +370,10 @@ export function useWorkbenchKeyboard(
           onAddScreen?.();
           return;
 
+        case 'new-overlay':
+          onAddOverlay?.();
+          return;
+
         case 'page-next':
           // preventDefault: Cmd+Shift+]/Ctrl+Shift+] is a real browser
           // shortcut too (next tab, in Chrome and Safari on Mac) - the
@@ -484,6 +493,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onPresent,
     onAddScreen,
+    onAddOverlay,
     onPageNext,
     onPagePrev,
     onOpenShortcuts,

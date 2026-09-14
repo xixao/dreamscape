@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Screen } from '@/lib/files/repository';
 import type { SnapBox } from '@/lib/canvas/snap';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { FrameTitle } from './frame-title';
 
@@ -47,6 +48,41 @@ describe('FrameTitle', () => {
       <FrameTitle screen={SCREEN} focused={false} zoom={1} height={ARTBOARD_MIN_HEIGHT} onRename={vi.fn()} onMove={vi.fn()} />,
     );
     expect(screen.getByText('Frame 1')).toHaveClass('text-t4');
+  });
+
+  it('shows no badge after a plain screen\'s name', () => {
+    renderTitle();
+    expect(screen.queryByText('Dialog')).toBeNull();
+    expect(screen.queryByText(/Sheet|Toast/)).toBeNull();
+  });
+
+  describe('overlay badge', () => {
+    it('shows the mono presentation badge after an overlay frame\'s name', () => {
+      const overlay = createOverlayScreen({ type: 'sheet', side: 'left', id: 'o1', name: 'Filters', pageId: 'p1', x: 0, y: 0 });
+      renderTitle({ screen: overlay });
+
+      expect(screen.getByText('Filters')).toBeInTheDocument();
+      expect(screen.getByText('Sheet · Left')).toBeInTheDocument();
+    });
+
+    it('names a dialog and a toast badge with just their type', () => {
+      const dialog = createOverlayScreen({ type: 'dialog', id: 'o2', name: 'Confirm', pageId: 'p1', x: 0, y: 0 });
+      const { unmount } = renderTitle({ screen: dialog });
+      expect(screen.getByText('Dialog')).toBeInTheDocument();
+      unmount();
+
+      const toast = createOverlayScreen({ type: 'toast', id: 'o3', name: 'Saved', pageId: 'p1', x: 0, y: 0 });
+      renderTitle({ screen: toast });
+      expect(screen.getByText('Toast')).toBeInTheDocument();
+    });
+
+    it('hides the badge while renaming', () => {
+      const overlay = createOverlayScreen({ type: 'toast', id: 'o4', name: 'Saved', pageId: 'p1', x: 0, y: 0 });
+      renderTitle({ screen: overlay });
+      fireEvent.doubleClick(screen.getByText('Saved'));
+
+      expect(screen.queryByText('Toast')).toBeNull();
+    });
   });
 
   describe('drag to move', () => {

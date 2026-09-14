@@ -13,10 +13,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { resolver } from "@/components/blocks/registry";
-import type { Screen } from "@/lib/files/repository";
+import type { OverlaySide, Screen } from "@/lib/files/repository";
 import type { Viewport } from "@/lib/canvas/viewport";
 import { toArtboardPoint, type Rect } from "@/lib/comments/geometry";
 import { capturePointer, releasePointer } from "@/lib/dom";
+import { OVERLAY_MIN_HEIGHT, isOverlay } from "@/lib/files/screens";
 import { stackUnder, type LayerStackNode } from "@/lib/layer-stack";
 import { ARTBOARD_MIN_HEIGHT } from "@/lib/stage";
 import {
@@ -37,6 +38,62 @@ import type { CanvasDocument } from "./stage-context";
 import { StageProvider, useStage } from './stage-context';
 
 const ARTBOARD_SELECTOR = "[data-artboard]";
+
+// Diagram-mode click-to-select (spec docs/superpowers/specs/2026-09-13-
+// overlay-frames-design.md section 5): shared by Stage and FramePreview
+// below, both of which canvas.tsx feeds the same per-frame object while its
+// own diagramPaletteOpen is true. `active` (rather than the prop itself
+// being present/absent) is what canvas.tsx actually toggles, so neither
+// component has to treat "prop present" and "prop true" as two different
+// things to check.
+export interface DiagramFrameSelect {
+  active: boolean;
+  onSelect: (shiftKey: boolean) => void;
+}
+
+// Shared by Stage's artboard and FramePreview's wrapper below (spec docs/
+// superpowers/specs/2026-09-13-overlay-frames-design.md section 5): an
+// overlay frame's initial, unmeasured auto height is the overlay minimum
+// (120), not the whole-screen ARTBOARD_MIN_HEIGHT (640) every plain screen
+// still starts at.
+function initialContentHeight(screen: Screen): number {
+  return isOverlay(screen) ? OVERLAY_MIN_HEIGHT : ARTBOARD_MIN_HEIGHT;
+}
+
+// "1 px border on the attached side only" (spec section 5) mirrors the real
+// shadcn Sheet primitive (components/ui/sheet.tsx)'s own `data-[side=X]:
+// border-Y` classes: a right sheet's real seam is `border-l`, since its
+// right edge sits flush with the browser edge it slides from and never
+// shows a border there. Matching THAT (the side opposite the one named by
+// `side`, not the named side itself) is what actually makes this chrome
+// match Play - the chrome's own stated goal.
+const SHEET_BORDER_SIDE: Record<OverlaySide, string> = {
+  left: "border-r",
+  right: "border-l",
+  top: "border-b",
+  bottom: "border-t",
+};
+
+// The frame chrome around a screen's iframe, shared by Stage's artboard and
+// FramePreview's wrapper below. A plain screen keeps the unconditional
+// hairline-border, square-cornered, `shadow-panel-lg` treatment every frame
+// has always had. An overlay frame instead draws its own presentation's
+// surface (spec section 5): dialog and toast get the full border plus an
+// 8 px radius (`rounded-lg` - 10 px under this theme's own --radius, the
+// same rounding phase 1's fix wave already accepted for Play's toast, see
+// components/play/player.tsx); a sheet gets no radius (matching the shadcn
+// Sheet primitive's own square corners) and a border on only the one side
+// SHEET_BORDER_SIDE names above. `shadow-panel-lg` is kept for a sheet too
+// (undocumented either way by the spec, but Play's own Sheet primitive
+// always shows a shadow) rather than dropped.
+function overlayFrameChromeClass(screen: Screen): string {
+  if (!isOverlay(screen)) return "border border-line-strong shadow-panel-lg";
+  const { presentation } = screen;
+  if (presentation.type === "sheet") {
+    return cn(SHEET_BORDER_SIDE[presentation.side], "border-line-strong shadow-panel-lg");
+  }
+  return "border border-line-strong shadow-panel-lg rounded-lg";
+}
 
 // The innermost node under `target` (deepest first, zone nodes excluded),
 // read from Craft's own node DOM map - the same technique
@@ -283,6 +340,7 @@ function StageImpl({
   viewport,
   comments = DEFAULT_STAGE_COMMENTS,
   onMeasuredHeight,
+  diagramFrameSelect,
 }: {
   screen: Screen;
   viewport: Viewport;
@@ -291,6 +349,13 @@ function StageImpl({
   // optional so callers written before comments existed keep rendering an
   // inert, empty comment layer unchanged.
   comments?: StageCommentsProps;
+  // While active, a press on the artboard selects this frame (spec section
+  // 5) instead of reaching Craft's live content - the same cover-over-the-
+  // iframe technique `comments.commentMode` already uses just below, for
+  // the same reason (the frame lives in its own document, so a plain
+  // capture handler on this wrapper cannot intercept a press that lands
+  // inside it).
+  diagramFrameSelect?: DiagramFrameSelect;
   // Review fix wave item 8: relays this frame's real, current height (the
   // exact same value contentHeight below tracks for the artboard's own
   // sizing) up to canvas.tsx's measuredHeights map, so an auto-height
@@ -308,7 +373,7 @@ function StageImpl({
   // manual/device height or - when height is "auto" - from CanvasFrame's own
   // content measurement. Always a concrete number so the height/corner
   // handles and the wrapper's own reserved layout space never need to guess.
-  const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
+  const [contentHeight, setContentHeight] = useState(() => initialContentHeight(screen));
   const effectiveHeight = height ?? contentHeight;
 
   // Review fix wave item 8: relays this frame's real, current height up to
@@ -423,7 +488,7 @@ function StageImpl({
       <div
         ref={artboardRef}
         data-testid="artboard"
-        className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+        className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
         style={{ width, height: effectiveHeight }}
       >
         <CanvasFrame
@@ -436,10 +501,28 @@ function StageImpl({
           // comment placement below still use the real zoom, from
           // useStage() (kept in sync with the viewport by canvas.tsx).
           zoom={1}
+          minHeight={initialContentHeight(screen)}
           onContentHeightChange={setContentHeight}
         >
           {frameChildren}
         </CanvasFrame>
+        {/*
+          Diagram-mode click-to-select (spec docs/superpowers/specs/2026-
+          09-13-overlay-frames-design.md section 5): same cover technique as
+          comment mode just below, for the same reason - the frame lives in
+          its own document, so a plain handler on this wrapper cannot
+          intercept a press that lands inside the iframe.
+        */}
+        {diagramFrameSelect?.active && (
+          <div
+            data-testid="diagram-frame-cover"
+            className="absolute inset-0 cursor-pointer"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              diagramFrameSelect.onSelect(event.shiftKey);
+            }}
+          />
+        )}
         {/*
           Comment mode: the frame lives in its own document, so a click on
           it would never reach the parent's handlers and Craft would select
@@ -529,6 +612,7 @@ function FramePreviewImpl({
   onPanPointerUp,
   onFrameWheel,
   onMeasuredHeight,
+  diagramFrameSelect,
 }: {
   screen: Screen;
   // Takes the screen id (rather than a plain, no-argument `onFocus`) so
@@ -567,12 +651,16 @@ function FramePreviewImpl({
   // ARTBOARD_MIN_HEIGHT), so other frames could never snap to, align
   // against, or marquee-select it by its real bottom edge.
   onMeasuredHeight?: (id: string, height: number) => void;
+  // While active, a press anywhere in this preview selects this frame
+  // (spec section 5) instead of focusing it - see the doc comment on
+  // Stage's identical prop above.
+  diagramFrameSelect?: DiagramFrameSelect;
 }) {
   const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
   // Mirrors Stage's own contentHeight/effectiveHeight above: CanvasFrame's
   // ResizeObserver-backed measurement when this frame has no fixed height
   // of its own, otherwise the fixed height itself.
-  const [contentHeight, setContentHeight] = useState(ARTBOARD_MIN_HEIGHT);
+  const [contentHeight, setContentHeight] = useState(() => initialContentHeight(screen));
   const effectiveHeight = screen.stageHeight ?? contentHeight;
 
   useEffect(() => {
@@ -591,6 +679,10 @@ function FramePreviewImpl({
         return;
       }
       event.preventDefault();
+      if (diagramFrameSelect?.active) {
+        diagramFrameSelect.onSelect(event.shiftKey);
+        return;
+      }
       onFocusScreen(screen.id);
     }
     // TS narrowing of `frameDocument` above does not persist into this
@@ -629,6 +721,7 @@ function FramePreviewImpl({
     onPanPointerMove,
     onPanPointerUp,
     onFrameWheel,
+    diagramFrameSelect,
   ]);
 
   // Same reasoning as Stage's own frameChildren above: this component is
@@ -670,10 +763,14 @@ function FramePreviewImpl({
   return (
     <div
       data-testid="artboard-preview"
-      className="theme-basic relative overflow-hidden border border-line-strong bg-background shadow-panel-lg"
+      className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
       style={{ width: screen.stageWidth, height: effectiveHeight }}
       onPointerDown={(event) => {
         event.preventDefault();
+        if (diagramFrameSelect?.active) {
+          diagramFrameSelect.onSelect(event.shiftKey);
+          return;
+        }
         onFocusScreen(screen.id);
       }}
     >
@@ -681,6 +778,7 @@ function FramePreviewImpl({
         width={screen.stageWidth}
         height={screen.stageHeight ?? null}
         zoom={1}
+        minHeight={initialContentHeight(screen)}
         reportDocument={false}
         onCanvasDocument={setFrameDocument}
         onContentHeightChange={setContentHeight}

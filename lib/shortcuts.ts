@@ -83,6 +83,12 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'layout-grid-toggle', area: 'Canvas', keys: ['Shift', 'G'], label: 'Toggle the layout grid' },
   { id: 'pixel-grid-toggle', area: 'Canvas', keys: ['Mod', "'"], label: 'Toggle the pixel grid', always: true },
   { id: 'screen-new', area: 'Screens', keys: ['Shift', 'N'], label: 'New screen' },
+  // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+  // design.md section 5: "Shift+O (new dialog overlay) in the shortcuts
+  // registry"): always creates a dialog overlay, the same default the
+  // Frames chip's own "New overlay" menu leads with - Sheet/Toast stay
+  // menu-only, with no shortcut of their own.
+  { id: 'new-overlay', area: 'Screens', keys: ['Shift', 'O'], label: 'New overlay (dialog)' },
   { id: 'page-next', area: 'Screens', keys: ['Mod', 'Shift', ']'], label: 'Next page' },
   { id: 'page-prev', area: 'Screens', keys: ['Mod', 'Shift', '['], label: 'Previous page' },
   { id: 'undo', area: 'Edit', keys: ['Mod', 'Z'], label: 'Undo' },
@@ -280,6 +286,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && (event.code === 'Digit1' || event.key === '!')) return 'zoom-to-fit';
   if (shift && (event.code === 'Digit2' || event.key === '@')) return 'zoom-to-selection';
   if (shift && key === 'n') return 'screen-new';
+  if (shift && key === 'o') return 'new-overlay';
   if (shift && key === 'c') return 'tool-comment';
   if (shift && key === 'd') return 'tool-diagram';
   if (shift && key === 'g') return 'layout-grid-toggle';

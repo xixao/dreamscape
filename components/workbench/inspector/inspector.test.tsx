@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,6 +7,7 @@ import { Button } from '@/components/blocks/button';
 import { Card } from '@/components/blocks/card';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import type { Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
 import type { DiagramFieldsSelection } from '../diagram/diagram-fields';
@@ -39,6 +41,7 @@ function mount(
     diagramAlignment,
     diagramMultiSelection,
     onUpdateLayoutGrid,
+    onUpdatePresentation,
     measuredHeights,
   }: {
     panelMode?: PanelMode;
@@ -53,6 +56,7 @@ function mount(
     diagramAlignment?: DiagramAlignmentContext | null;
     diagramMultiSelection?: DiagramNode[] | null;
     onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
+    onUpdatePresentation?: ComponentProps<typeof Inspector>['onUpdatePresentation'];
     measuredHeights?: ReadonlyMap<string, number>;
   } = {},
 ) {
@@ -78,6 +82,7 @@ function mount(
         diagramAlignment={diagramAlignment}
         diagramMultiSelection={diagramMultiSelection}
         onUpdateLayoutGrid={onUpdateLayoutGrid}
+        onUpdatePresentation={onUpdatePresentation}
         measuredHeights={measuredHeights}
       />
       <WidthProbe />
@@ -477,6 +482,185 @@ describe('Inspector', () => {
 
       expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('4');
       expect(within(frameSection).getByLabelText('Show layout grid')).toBeChecked();
+    });
+  });
+
+  describe('the Overlay section (root only, overlay frames)', () => {
+    function overlayScreens(type: 'dialog' | 'sheet' | 'toast', overrides: Partial<Screen> = {}): Screen[] {
+      return [{ ...createOverlayScreen({ type, id: 's1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 }), ...overrides }];
+    }
+
+    it('does not show for a plain screen', async () => {
+      const { editor } = mount(1440, { screens: ONE_SCREEN });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('overlay-section')).not.toBeInTheDocument();
+    });
+
+    it('does not show for a non-root selection on an overlay frame', async () => {
+      const { editor } = mount(1440, { screens: overlayScreens('dialog') });
+      await screen.findByText('Billing');
+      await select(editor, 'button');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      expect(within(panel).queryByTestId('overlay-section')).not.toBeInTheDocument();
+    });
+
+    it('shows Presentation and Dismissible for a dialog overlay, with no Side or Position', async () => {
+      const { editor } = mount(1440, { screens: overlayScreens('dialog') });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const overlaySection = within(panel).getByTestId('overlay-section');
+
+      expect(within(overlaySection).getByLabelText('Presentation')).toBeInTheDocument();
+      expect(within(overlaySection).getByLabelText('Dismissible')).toBeChecked();
+      expect(within(overlaySection).queryByLabelText('Side')).toBeNull();
+      expect(within(overlaySection).queryByLabelText('Position')).toBeNull();
+    });
+
+    it('shows Presentation, Side and Dismissible for a sheet overlay, with no Position', async () => {
+      const { editor } = mount(1440, { screens: overlayScreens('sheet') });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const overlaySection = within(panel).getByTestId('overlay-section');
+
+      expect(within(overlaySection).getByLabelText('Side')).toHaveTextContent('Right');
+      expect(within(overlaySection).getByLabelText('Dismissible')).toBeChecked();
+      expect(within(overlaySection).queryByLabelText('Position')).toBeNull();
+    });
+
+    it('shows Presentation and Position for a toast overlay, with no Side or Dismissible', async () => {
+      const { editor } = mount(1440, { screens: overlayScreens('toast') });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+      const overlaySection = within(panel).getByTestId('overlay-section');
+
+      expect(within(overlaySection).getByLabelText('Position')).toHaveTextContent('Bottom right');
+      expect(within(overlaySection).queryByLabelText('Side')).toBeNull();
+      expect(within(overlaySection).queryByLabelText('Dismissible')).toBeNull();
+    });
+
+    // Phase 2 review finding 2/3: overlayScreens('dialog') names the screen
+    // "Dialog 1" - the dialog type's own default - so switching away from
+    // it must also rename it to the new type's next free default (there is
+    // no other sheet yet, so "Sheet 1").
+    it('switching Presentation to Sheet rebuilds the whole object with the sheet defaults, and renames a still-default name', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, { screens: overlayScreens('dialog'), onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Sheet'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: true }, 'Sheet 1');
+    });
+
+    it('switching Presentation to Toast rebuilds the whole object with the toast defaults, and renames a still-default name', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, { screens: overlayScreens('dialog'), onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Toast'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'toast', position: 'bottom-right' }, 'Toast 1');
+    });
+
+    it('switching Presentation keeps a custom name unchanged, calling onUpdatePresentation with no third argument', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, {
+        screens: overlayScreens('dialog', { name: 'Checkout confirmation' }),
+        onUpdatePresentation,
+      });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Sheet'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: true });
+      expect(onUpdatePresentation).toHaveBeenCalledTimes(1);
+      expect(onUpdatePresentation.mock.calls[0]).toHaveLength(2);
+    });
+
+    // A name that merely LOOKS like a default - but for some type other
+    // than the one this overlay is switching away FROM - is left alone too
+    // (isDefaultOverlayName checks against the OLD type specifically): this
+    // can only happen from data older than this feature, or hand-edited,
+    // but must not be swept up and renamed regardless.
+    it('switching Presentation keeps a default-looking name for a DIFFERENT type unchanged', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, {
+        screens: overlayScreens('dialog', { name: 'Sheet 3' }),
+        onUpdatePresentation,
+      });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Toast'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'toast', position: 'bottom-right' });
+      expect(onUpdatePresentation.mock.calls[0]).toHaveLength(2);
+    });
+
+    // Numbering only ever counts existing OVERLAY names (nextOverlayDefaultName's
+    // own doc comment) - a second dialog already named "Dialog 2" means the
+    // freed-up "Dialog 1" is not reused; the next free slot is "Dialog 3".
+    it('renaming on switch skips a default name already used by another overlay', async () => {
+      const onUpdatePresentation = vi.fn();
+      const other: Screen = { ...createOverlayScreen({ type: 'dialog', id: 's2', name: 'Dialog 2', pageId: 'p1', x: 400, y: 0 }) };
+      const { editor } = mount(1440, { screens: [...overlayScreens('sheet', { name: 'Sheet 1' }), other], onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Dialog'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'dialog', dismissible: true }, 'Dialog 3');
+    });
+
+    it('changing Side keeps dismissible and only replaces the side', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, { screens: overlayScreens('sheet', { presentation: { type: 'sheet', side: 'right', dismissible: false } }), onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Side'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Left' }));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'left', dismissible: false });
+    });
+
+    it('changing Position only replaces the position', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, { screens: overlayScreens('toast'), onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Position'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Top left' }));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'toast', position: 'top-left' });
+    });
+
+    it('toggling Dismissible keeps the side and only replaces dismissible', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, { screens: overlayScreens('sheet'), onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByLabelText('Dismissible'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: false });
     });
   });
 
