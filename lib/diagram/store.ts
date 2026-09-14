@@ -190,6 +190,13 @@ export type DiagramAction =
   // silently ignored, text styling has no meaning for a connector.
   | { type: 'setTextStyle'; ids: string[]; textSize?: TextSize; textFont?: TextFont; textColor?: TextColor }
   | { type: 'connect'; edge: DiagramEdge }
+  // Moves ONE end of an existing connector to a different node/frame/side
+  // (spec section 12, Matt 2026-09-14: "select a connector line and
+  // reconnect either end to a different point on a shape") - dragging a
+  // handle on a selected connector (diagram-layer.tsx's endpointDrag
+  // gesture). `end` says which end `endpoint` replaces; the other end,
+  // the label, the kind and the arrow are all untouched.
+  | { type: 'reconnect'; id: string; end: 'source' | 'target'; endpoint: EdgeEndpoint }
   | { type: 'disconnect'; id: string }
   | { type: 'delete'; ids: string[] }
   // `offset` defaults to a 16px-down-and-right offset (DUPLICATE_OFFSET) when
@@ -261,6 +268,20 @@ function endpointKey(endpoint: EdgeEndpoint): string {
   if (endpoint.nodeId) return `node:${endpoint.nodeId}`;
   if (endpoint.screenId) return `screen:${endpoint.screenId}`;
   return '';
+}
+
+/**
+ * Whether two endpoints name the exact same node/frame AND side - the same
+ * node/frame + side identity `validateConnection`'s own duplicate check
+ * below already uses, reused here as `reconnect`'s no-op guard (spec
+ * section 12: "no-op when nothing changes"). A side that differs (even on
+ * the same node/frame) is a real change, not a no-op - the spec's own
+ * "releasing over a different side of the same shape moves the end to that
+ * side" - so this compares `side` exactly like every other field, never
+ * ignoring it.
+ */
+function sameEndpoint(a: EdgeEndpoint, b: EdgeEndpoint): boolean {
+  return endpointKey(a) === endpointKey(b) && (a.side ?? null) === (b.side ?? null);
 }
 
 export type ConnectionValidation = { ok: true } | { ok: false; reason: string };
@@ -482,6 +503,28 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
     case 'connect': {
       if (!validateConnection(state, action.edge).ok) return state;
       return commit(state, { nodes: state.nodes, edges: [...state.edges, action.edge] });
+    }
+
+    // Spec section 12: one history step, refused rather than partially
+    // applied - shares `connect`'s own validateConnection rule (self-loop,
+    // duplicate) by handing it the hypothetical post-reconnect edge, same
+    // as `connect` does for a brand new one. An unknown edge id or an
+    // endpoint identical to the one already there (sameEndpoint above) is a
+    // no-op, no history entry - the same "changed"/no-op guard shape as
+    // move/setColor/setTextStyle above. Label, kind and arrow are carried
+    // over untouched since only the one endpoint key on the edge changes.
+    case 'reconnect': {
+      const index = state.edges.findIndex((e) => e.id === action.id);
+      if (index === -1) return state;
+      const current = state.edges[index];
+      const existing = action.end === 'source' ? current.source : current.target;
+      if (sameEndpoint(existing, action.endpoint)) return state;
+      const candidate: DiagramEdge =
+        action.end === 'source' ? { ...current, source: action.endpoint } : { ...current, target: action.endpoint };
+      if (!validateConnection(state, candidate).ok) return state;
+      const edges = [...state.edges];
+      edges[index] = candidate;
+      return commit(state, { nodes: state.nodes, edges });
     }
 
     case 'disconnect': {

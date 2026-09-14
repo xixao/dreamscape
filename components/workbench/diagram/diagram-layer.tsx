@@ -287,6 +287,20 @@ type ConnectState = {
   current: Point;
   target: SVGElement;
 } | null;
+// Reconnecting one end of an existing, selected connector (spec section 12,
+// Matt 2026-09-14) - a drag started on one of renderEdge's two end handles.
+// `fixedAnchor` is the OTHER end's resolved point at gesture start: it
+// never moves for the life of the drag (spec: "the other end never moves"),
+// same "compute once in startX, never re-derive mid-gesture" discipline
+// startConnect's own `anchor` already follows.
+type EndpointDragState = {
+  pointerId: number;
+  edgeId: string;
+  end: 'source' | 'target';
+  fixedAnchor: Point;
+  current: Point;
+  target: SVGElement;
+} | null;
 type PlaceState = { pointerId: number; start: Point; current: Point; target: SVGElement } | null;
 type EditState = { id: string; draft: string } | null;
 
@@ -332,6 +346,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   const [resize, setResize] = useState<ResizeState>(null);
   const [resizeBox, setResizeBox] = useState<Box | null>(null);
   const [connect, setConnect] = useState<ConnectState>(null);
+  const [endpointDrag, setEndpointDrag] = useState<EndpointDragState>(null);
   const [place, setPlace] = useState<PlaceState>(null);
   const [editing, setEditing] = useState<EditState>(null);
   // Option/Alt-drag duplicate's cursor affordance (Build step 2: "the cursor
@@ -446,13 +461,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       cancelDrag();
       cancelResize();
       cancelConnect();
+      cancelEndpointDrag();
       cancelPlace();
       setHover((current) => (current === null ? current : null));
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag, resize, connect, place]);
+  }, [drag, resize, connect, endpointDrag, place]);
 
   // Right-clicking (or Shift+F10-ing) a shape or connector that is NOT
   // already part of the current selection replaces the selection with just
@@ -513,6 +529,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // one of these, so there is never a need to fall back to `[id]` alone.
   const selectedNodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
   const selectedIds = diagram.selection.map((item) => item.id);
+
+  // Spec section 12: the two end handles (renderEdge) only ever show for
+  // the pointer tool's SOLE selected connector - a node selected alongside
+  // it (or a second connector) hides them, same as a plain node's own
+  // resize handles never show for anything but that one selected shape.
+  const soleSelection = diagram.selection.length === 1 ? diagram.selection[0] : null;
+  const soleSelectedEdgeId = tool.kind === 'pointer' && soleSelection?.type === 'edge' ? soleSelection.id : null;
 
   // Build step 4: "Ungroup (enabled when the selection is a group)" -
   // review finding A: this must require the selection to be EXACTLY one
@@ -822,7 +845,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       // already fully determines what is relevant, and hovering a
       // different shape mid-drag must not fire this shape's own hover
       // handles.
-      if (drag || resize || connect || place) return;
+      if (drag || resize || connect || endpointDrag || place) return;
       const point = clientToCanvas(event.clientX, event.clientY);
       // findLast, not find (review finding 4): nodes paint in array order,
       // so the LAST one is on top - find would resolve an overlap to
@@ -1204,6 +1227,76 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     setConnect(null);
   }
 
+  // --- Endpoint drag (reconnect an existing connector's end) --------------
+
+  // Started from one of renderEdge's two end handles - `fixedAnchor` is the
+  // OTHER end's CURRENT resolved point (passed in by the caller, which
+  // already has both from pathFor), so the drag never re-resolves it as the
+  // gesture runs (spec: "the other end never moves").
+  function startEndpointDrag(edge: DiagramEdge, end: 'source' | 'target', fixedAnchor: Point, event: ReactPointerEvent<SVGElement>): void {
+    if (event.button !== 0) return;
+    // Spec: "stopPropagation on pointerdown so the edge itself does not
+    // start anything" - same reasoning as handleResizePointerDown/
+    // startConnect's own stopPropagation, since this handle is a sibling of
+    // the edge's own hit-path inside the same <g>.
+    event.stopPropagation();
+    capturePointer(event.currentTarget, event.pointerId);
+    setEndpointDrag({
+      pointerId: event.pointerId,
+      edgeId: edge.id,
+      end,
+      fixedAnchor,
+      current: clientToCanvas(event.clientX, event.clientY),
+      target: event.currentTarget,
+    });
+  }
+
+  function handleEndpointDragMove(event: ReactPointerEvent<SVGElement>): void {
+    if (!endpointDrag || endpointDrag.pointerId !== event.pointerId) return;
+    setEndpointDrag({ ...endpointDrag, current: clientToCanvas(event.clientX, event.clientY) });
+  }
+
+  // Resolves a node or frame under the pointer exactly as endConnect does -
+  // top-most via findLast, side from sideFromPoint - and dispatches
+  // `reconnect` with it. Deliberately does NOT exclude the node/frame
+  // currently on the edge's OTHER (fixed) end the way endConnect excludes
+  // its own drag source: unlike a brand new connector, dropping back onto
+  // that same shape is not necessarily a self-loop (the shape at the OTHER
+  // end, moving the SOURCE end back onto the target's own shape, is one -
+  // but the reducer's validateConnection is the sole judge of that, same
+  // "same rule as connect" the spec calls for) and dropping onto the same
+  // shape this end already left is exactly the valid "move to another side"
+  // case. Dropping on nothing dispatches nothing, same as endConnect.
+  function endEndpointDrag(event: ReactPointerEvent<SVGElement>): void {
+    if (!endpointDrag || endpointDrag.pointerId !== event.pointerId) return;
+    const point = endpointDrag.current;
+    const targetNode = diagram.nodes.findLast((n) => boxContains(n, point));
+    const targetFrame = !targetNode ? frames.find((f) => boxContains(f, point)) : null;
+    const target = targetNode ? { type: 'node' as const, id: targetNode.id } : targetFrame ? { type: 'frame' as const, id: targetFrame.id } : null;
+
+    if (target) {
+      const targetBox = boxFor(target)!;
+      const targetSide = sideFromPoint(targetBox, point);
+      dispatch({
+        type: 'reconnect',
+        id: endpointDrag.edgeId,
+        end: endpointDrag.end,
+        endpoint: endpointFor(target, targetSide),
+      });
+    }
+    setEndpointDrag(null);
+  }
+
+  // Review finding 5's pattern applied to this gesture: resets WITHOUT
+  // dispatching and releases pointer capture - same no-arg-cancels-
+  // regardless / pointerId-checks-it-is-this-gesture split as
+  // cancelDrag/cancelResize/cancelConnect above.
+  function cancelEndpointDrag(pointerId?: number): void {
+    if (!endpointDrag || (pointerId !== undefined && endpointDrag.pointerId !== pointerId)) return;
+    releasePointer(endpointDrag.target, endpointDrag.pointerId);
+    setEndpointDrag(null);
+  }
+
   // --- Placement (palette shape tool) --------------------------------------
 
   function handlePlacePointerDown(event: ReactPointerEvent<SVGElement>): void {
@@ -1444,7 +1537,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // could otherwise leave this one's circles visibly stuck on top of a live
   // drag), and only in the plain pointer tool.
   function renderQuickAddCircles(node: DiagramNode, box: Box): ReactNode {
-    const visible = tool.kind === 'pointer' && !drag && !resize && !connect && !place && hover?.type === 'node' && hover.id === node.id;
+    const visible = tool.kind === 'pointer' && !drag && !resize && !connect && !endpointDrag && !place && hover?.type === 'node' && hover.id === node.id;
     if (!visible) return null;
     const radius = QUICK_ADD_RADIUS / viewport.zoom;
     const iconSize = QUICK_ADD_ICON_SIZE / viewport.zoom;
@@ -1728,11 +1821,40 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     );
   }
 
+  // Spec section 12: a round handle at a selected connector's resolved
+  // source/target point - "same size and 1/zoom scaling as the resize
+  // handles" (RESIZE_HANDLE_SIZE, same fill-(--acc)/stroke-white chrome),
+  // `pointer-events: all` so it is always reachable even though the SVG
+  // root itself stays pointer-events: none in the plain pointer tool.
+  // `fixedAnchor` is the OTHER end's point, handed straight to
+  // startEndpointDrag so the drag preview has it from the very first frame.
+  function renderEdgeEndHandle(edge: DiagramEdge, end: 'source' | 'target', point: Point, fixedAnchor: Point): ReactNode {
+    const size = RESIZE_HANDLE_SIZE / viewport.zoom;
+    return (
+      <circle
+        data-testid={`diagram-edge-end-${edge.id}-${end}`}
+        cx={point.x}
+        cy={point.y}
+        r={size / 2}
+        className="fill-(--acc) stroke-white"
+        style={{ strokeWidth: 1 / viewport.zoom, cursor: 'crosshair', pointerEvents: 'all' }}
+        onPointerDown={(event) => startEndpointDrag(edge, end, fixedAnchor, event)}
+        onPointerMove={handleEndpointDragMove}
+        onPointerUp={endEndpointDrag}
+        onPointerCancel={(event) => cancelEndpointDrag(event.pointerId)}
+      />
+    );
+  }
+
   function renderEdge(edge: DiagramEdge): ReactNode {
     const resolved = pathFor(edge);
     if (!resolved) return null;
     const selected = isSelected(diagram.selection, 'edge', edge.id);
     const isEditingLabel = editing?.id === edge.id;
+    // Spec section 12: only the pointer tool's SOLE selected connector
+    // shows end handles - soleSelectedEdgeId (above) already encodes both
+    // the tool and "exactly one, and it's an edge" checks.
+    const showEndHandles = soleSelectedEdgeId === edge.id;
 
     return (
       <ContextMenu key={edge.id}>
@@ -1799,6 +1921,12 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 </foreignObject>
               )
             )}
+            {showEndHandles && (
+              <>
+                {renderEdgeEndHandle(edge, 'source', resolved.sourcePoint, resolved.targetPoint)}
+                {renderEdgeEndHandle(edge, 'target', resolved.targetPoint, resolved.sourcePoint)}
+              </>
+            )}
           </g>
         </ContextMenuTrigger>
         <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>
@@ -1860,6 +1988,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       {connect && (
         <path
           d={getStraightPath(connect.anchor, connect.current).path}
+          fill="none"
+          className="stroke-(--acc)"
+          style={{ strokeWidth: 1.5 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}`, pointerEvents: 'none' }}
+        />
+      )}
+      {endpointDrag && (
+        <path
+          data-testid="diagram-endpoint-drag-preview"
+          d={getStraightPath(endpointDrag.fixedAnchor, endpointDrag.current).path}
           fill="none"
           className="stroke-(--acc)"
           style={{ strokeWidth: 1.5 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}`, pointerEvents: 'none' }}
