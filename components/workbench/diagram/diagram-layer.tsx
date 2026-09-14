@@ -183,13 +183,15 @@ const COLOR_CLASSES: Record<DiagramNode['color'], { fill: string; stroke: string
 // mono stacks plus a system serif / "each diagram colour at full strength
 // (the *-400 text tones used elsewhere)... and black" - applied verbatim
 // (medium/sans/default when a field is absent, i.e. exactly today's fixed
-// 14px white sans render) in the on-screen text div, the inline editor
+// 24px white sans render) in the on-screen text div, the inline editor
 // textarea and the Option-drag ghost (renderGhosts), so the three can never
 // drift from one another.
 const TEXT_SIZE_CLASSES: Record<TextSize, string> = {
-  small: 'text-[10px]',
-  medium: 'text-[14px]',
-  large: 'text-[20px]',
+  small: 'text-[16px]',
+  medium: 'text-[24px]',
+  large: 'text-[40px]',
+  xlarge: 'text-[64px]',
+  huge: 'text-[96px]',
 };
 const TEXT_FONT_CLASSES: Record<TextFont, string> = {
   sans: 'font-sans',
