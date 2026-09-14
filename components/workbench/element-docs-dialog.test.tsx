@@ -178,6 +178,20 @@ describe('ElementDocsDialog', () => {
     expect(within(dialog).getByText('This element has no properties.')).toBeInTheDocument();
   });
 
+  // Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 13: a
+  // diagram tool is not a tray item (no BlockType, no schema), so its own
+  // label and "Diagram" group caption come from DIAGRAM_TOOL_ITEMS instead
+  // of trayItems - see ElementDocsDialog's diagramItem fallback.
+  it('names the dialog after a diagram tool and captions it "Diagram", with no properties table', () => {
+    renderDialog('connector');
+    const dialog = screen.getByRole('dialog', { name: 'Connector' });
+
+    expect(within(header(dialog, 'Connector')).getByText('Diagram')).toBeInTheDocument();
+    expect(within(dialog).getByText(getElementDoc('connector').summary)).toBeInTheDocument();
+    expect(within(dialog).getByText(getElementDoc('connector').usage)).toBeInTheDocument();
+    expect(within(dialog).getByText('This element has no properties.')).toBeInTheDocument();
+  });
+
   it('renders a dialog for every tray item, with at least one property row each', () => {
     for (const item of trayItems) {
       const { unmount } = renderDialog(item.type);

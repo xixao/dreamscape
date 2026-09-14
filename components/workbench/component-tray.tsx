@@ -4,10 +4,11 @@ import { useRef, useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import { Info, Search } from 'lucide-react';
 import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
-import type { BlockType } from '@/components/blocks/schema';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { LABEL, SEARCH, SEARCH_INPUT } from './chrome';
+import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
+import { DIAGRAM_TOOL_ITEMS, diagramToolDocKey, toolsEqual, type DiagramToolItem } from './diagram/diagram-palette';
 import { ElementDocsDialog } from './element-docs-dialog';
 
 // Render order for the group headings; within a group, trayItems' own order wins.
@@ -47,26 +48,74 @@ function matchesOverlayHint(query: string): boolean {
   return OVERLAY_HINT_WORDS.some((word) => word.includes(trimmed));
 }
 
+// The Diagram group's rows (spec docs/superpowers/specs/2026-09-13-diagrams-
+// design.md section 13): every diagram tool the floating palette offers,
+// read from DIAGRAM_TOOL_ITEMS (diagram-palette.tsx) so the two lists can
+// never drift apart, decorated with the search keywords a designer is
+// likely to type instead of a tool's own name - "shape", "diagram" and
+// "flow" describe the group as a whole, "arrow" and "line" describe what a
+// connector actually looks like.
+const DIAGRAM_SHARED_KEYWORDS = ['shape', 'diagram', 'flow'];
+const DIAGRAM_CONNECTOR_KEYWORDS = ['connector', 'arrow', 'line'];
+
+type DiagramTrayRow = DiagramToolItem & { keywords: string[] };
+
+const DIAGRAM_TRAY_ITEMS: DiagramTrayRow[] = DIAGRAM_TOOL_ITEMS.map((item) => ({
+  ...item,
+  keywords: [...DIAGRAM_SHARED_KEYWORDS, ...(item.tool.kind === 'connector' ? DIAGRAM_CONNECTOR_KEYWORDS : [])],
+}));
+
+// filterTrayItems' sibling for the Diagram group: same blank/whitespace and
+// case-insensitive substring rules, over a row's label and keywords instead
+// of a TrayItem's label/type/keywords (a diagram tool has no BlockType).
+export function filterDiagramToolItems(items: DiagramTrayRow[], query: string): DiagramTrayRow[] {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return items;
+  return items.filter((item) =>
+    [item.label, ...item.keywords].some((field) => field.toLowerCase().includes(trimmed)),
+  );
+}
+
 // The Elements tab's content: search field, grouped list, Craft drag
 // sources (`connectors.create`). Rendered inside the right panel's own
 // <aside> by Inspector, which already owns that panel's chrome and header
 // (the Design/Prototype/Elements tabs) - this renders no landmark or
 // title of its own, so the two are never nested or duplicated (see
 // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1).
-export function ComponentTray() {
+export function ComponentTray({
+  diagramTool = POINTER_TOOL,
+  onSelectDiagramTool,
+}: {
+  // The Diagram group's own armed tool (spec section 13): the same state
+  // workbench.tsx feeds the floating palette's own `tool` prop, used only to
+  // derive each row's aria-pressed. Defaults to the plain pointer (nothing
+  // pressed) for every caller/test that predates this - the same "keep old
+  // callers working" precedent every other optional prop threaded through
+  // Inspector already follows.
+  diagramTool?: DiagramTool;
+  // Arms a diagram tool from the tray, the same as clicking it in the
+  // floating palette. Optional/no-op so a caller that never passes it
+  // (every existing test) still renders every row without throwing on
+  // click; workbench.tsx wires this to open the palette (if closed) and set
+  // the armed tool, so the placement affordance stays visible.
+  onSelectDiagramTool?: (tool: DiagramTool) => void;
+} = {}) {
   const { connectors } = useEditor();
   const [filter, setFilter] = useState('');
-  // One Element documentation dialog for the whole tray. The type outlives
-  // `open` so the dialog's closing animation keeps showing the element it
-  // was opened for instead of flashing the fallback doc.
-  const [docsType, setDocsType] = useState<BlockType | null>(null);
+  // One Element documentation dialog for the whole tray, Craft blocks and
+  // diagram tools alike (they share getElementDoc/ElementDocsDialog - see
+  // diagramToolDocKey's own doc comment for why the two never collide). The
+  // type outlives `open` so the dialog's closing animation keeps showing the
+  // element it was opened for instead of flashing the fallback doc.
+  const [docsType, setDocsType] = useState<string | null>(null);
   const [docsOpen, setDocsOpen] = useState(false);
   // The "i" button that opened the dialog; the dialog returns focus to it
   // when it closes (see ElementDocsDialog's openerRef).
   const docsOpenerRef = useRef<HTMLElement | null>(null);
   const filteredItems = filterTrayItems(trayItems, filter);
+  const filteredDiagramItems = filterDiagramToolItems(DIAGRAM_TRAY_ITEMS, filter);
 
-  function openDocs(type: BlockType, opener: HTMLElement): void {
+  function openDocs(type: string, opener: HTMLElement): void {
     docsOpenerRef.current = opener;
     setDocsType(type);
     setDocsOpen(true);
@@ -139,8 +188,54 @@ export function ComponentTray() {
             </div>
           );
         })}
+        {/* The Diagram group (spec docs/superpowers/specs/2026-09-13-
+        diagrams-design.md section 13): after every Craft group above, same
+        heading style, but its own data-diagram-tray-* attributes throughout
+        - never data-tray-group/-section/-item - so it can never be counted
+        by the Craft-only queries several tests above already rely on (e.g.
+        "every group heading" expecting exactly GROUP_ORDER's five). Rows
+        are plain buttons, not Craft drag sources: no connectors.create, no
+        draggable attribute, no data-tray-item. */}
+        {filteredDiagramItems.length > 0 && (
+          <div data-diagram-tray-section="Diagram">
+            <div data-diagram-tray-group="Diagram" className={cn(LABEL, 'px-3 pt-3 pb-1')}>
+              Diagram
+            </div>
+            <ul className="flex flex-col gap-1 px-2">
+              {filteredDiagramItems.map((item) => {
+                const docKey = diagramToolDocKey(item.tool);
+                return (
+                  <li
+                    key={docKey}
+                    className="group flex items-center rounded-lg border border-transparent transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent focus-within:border-line-strong focus-within:bg-accent"
+                  >
+                    <button
+                      type="button"
+                      data-diagram-tray-item={docKey}
+                      aria-pressed={toolsEqual(diagramTool, item.tool)}
+                      onClick={() => onSelectDiagramTool?.(item.tool)}
+                      className="flex min-w-0 flex-1 items-center gap-3 py-2 pr-2 pl-3"
+                    >
+                      <item.icon className="size-4 shrink-0 text-acc2" aria-hidden />
+                      <span className="text-[13px] font-medium text-foreground">{item.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`About ${item.label}`}
+                      draggable={false}
+                      className={INFO_BUTTON}
+                      onClick={(event) => openDocs(docKey, event.currentTarget)}
+                    >
+                      <Info className="size-3.5" aria-hidden />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
-      {filteredItems.length === 0 && (
+      {filteredItems.length === 0 && filteredDiagramItems.length === 0 && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">
           {matchesOverlayHint(filter) ? OVERLAY_HINT_MESSAGE : 'No elements match.'}
         </p>

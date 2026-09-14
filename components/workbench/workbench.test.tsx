@@ -1425,6 +1425,25 @@ describe('Workbench', () => {
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
     });
 
+    // Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 13:
+    // the Elements tab's own Diagram group arms a tool exactly like the
+    // floating palette's buttons do, and opens the palette (closed by
+    // default) so the armed tool is visible there too.
+    it("clicking Rectangle in the Elements tab arms placement (the palette's Rectangle shows active)", async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      const panel = screen.getByRole('complementary', { name: 'Elements' });
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Rectangle' }));
+
+      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
+      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
+      // The tray row itself reflects the armed tool too, now that the
+      // palette it just opened renders its own same-labelled button.
+      expect(within(panel).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
     it('there is no left column (Elements lives in the right panel); the chat panel still floats in when opened', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');

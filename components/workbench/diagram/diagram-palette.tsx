@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { PANEL } from '../chrome';
 import { POINTER_TOOL, type DiagramTool } from './diagram-layer';
 
-const SHAPE_ITEMS: { kind: DiagramNodeKind; label: string; icon: LucideIcon }[] = [
+export const SHAPE_ITEMS: { kind: DiagramNodeKind; label: string; icon: LucideIcon }[] = [
   { kind: 'rect', label: 'Rectangle', icon: Square },
   { kind: 'rounded', label: 'Rounded', icon: Squircle },
   { kind: 'decision', label: 'Decision', icon: Diamond },
@@ -15,9 +15,37 @@ const SHAPE_ITEMS: { kind: DiagramNodeKind; label: string; icon: LucideIcon }[] 
   { kind: 'note', label: 'Note', icon: StickyNote },
 ];
 
-function toolsEqual(a: DiagramTool, b: DiagramTool): boolean {
+export function toolsEqual(a: DiagramTool, b: DiagramTool): boolean {
   if (a.kind !== b.kind) return false;
   return a.kind === 'shape' && b.kind === 'shape' ? a.shape === b.shape : true;
+}
+
+export interface DiagramToolItem {
+  tool: DiagramTool;
+  label: string;
+  icon: LucideIcon;
+}
+
+// All seven diagram tools the floating palette offers, in the same order it
+// renders them below (the six shapes, then the connector) - shared with the
+// Elements tab's "Diagram" group (component-tray.tsx, spec docs/superpowers/
+// specs/2026-09-13-diagrams-design.md section 13) so the two lists can never
+// drift apart: both read the tools, icons and labels from this single
+// source of truth instead of keeping their own copies.
+export const DIAGRAM_TOOL_ITEMS: DiagramToolItem[] = [
+  ...SHAPE_ITEMS.map(({ kind, label, icon }): DiagramToolItem => ({ tool: { kind: 'shape', shape: kind }, label, icon })),
+  { tool: { kind: 'connector' }, label: 'Connector', icon: Spline },
+];
+
+// The components/blocks/docs.ts lookup key for a diagram tool (docs.test.ts
+// enforces an entry for every one of DIAGRAM_TOOL_ITEMS, keyed this way): a
+// shape's own DiagramNodeKind, or 'connector' - lowercase, and deliberately
+// never the tool's display label. A label can collide with an unrelated
+// BlockType's own label (the diagram Text shape and the Craft Text block are
+// both labelled "Text"), but docs.ts keys BlockType entries by their
+// capitalised type name, so the lowercase id here never collides with one.
+export function diagramToolDocKey(tool: DiagramTool): string {
+  return tool.kind === 'shape' ? tool.shape : tool.kind;
 }
 
 function PaletteButton({

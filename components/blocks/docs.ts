@@ -5,9 +5,18 @@
 // docs.test.ts fails when a tray item has no entry here, so adding an
 // element without its docs is caught at once. Nothing here is fetched; the
 // real documentation replaces these strings without touching the dialog.
+import type { DiagramNodeKind } from '@/lib/diagram/store';
 import type { BlockType } from './schema';
 
 export type ElementDoc = { summary: string; usage: string };
+
+// The Elements tab's Diagram group (spec docs/superpowers/specs/2026-09-13-
+// diagrams-design.md section 13) is not made of tray items (no BlockType),
+// so its own seven entries below are keyed by diagramToolDocKey's id
+// instead: a shape's lowercase DiagramNodeKind, or 'connector'. Lowercase on
+// purpose - see diagram-palette.tsx's diagramToolDocKey doc comment for why
+// this never collides with a same-labelled BlockType key such as 'Text'.
+type DiagramDocKey = DiagramNodeKind | 'connector';
 
 // The fallback for a type with no entry (an unknown type, or a stale key):
 // generic on purpose, so the dialog still reads as a whole.
@@ -131,13 +140,53 @@ export const ELEMENT_DOCS: Record<string, ElementDoc> = {
     usage:
       'Use a Table for records that people compare across the same fields: orders, members, files. Name the columns after the real data and set the row count to the density you want to show.',
   },
-  // `satisfies` makes a missing or misspelt block type a compile error too,
-  // not only a docs.test.ts failure. Dialog excluded: it stays a real
-  // BlockType (registry.tsx's resolver/schemas, for an existing layout that
-  // already has one) but left the tray for an overlay frame, and
-  // docs.test.ts's own "no entry for a type that is not in the tray" check
+  // Diagram tools (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+  // section 13): the Elements tab's "Diagram" group, keyed by
+  // diagramToolDocKey's id rather than a tray item type - see DiagramDocKey
+  // above.
+  rect: {
+    summary: 'A Rectangle is a plain rectangular shape on the diagram canvas, with a fill colour and a line of text inside it.',
+    usage:
+      'Use a Rectangle for a plain step in a flow chart, such as a process or an action that does not need a special outline.',
+  },
+  rounded: {
+    summary: 'Rounded is a rectangle with softened corners: the same shape with a gentler edge.',
+    usage:
+      'Use Rounded for a step that should read as lighter or less formal than a plain Rectangle, such as an optional or a background step in a flow.',
+  },
+  decision: {
+    summary: 'Decision is a diamond shape that marks a branch point in a flow, where the path forward depends on an answer.',
+    usage:
+      'Use Decision wherever a flow chart asks a yes-or-no or either-or question, with connectors leading out to each possible answer.',
+  },
+  terminal: {
+    summary: 'Terminal is a pill-shaped capsule that marks the start or the end of a flow.',
+    usage:
+      'Use Terminal for the very first and very last steps in a flow chart, such as "Start" or "Done", so the boundaries of the flow are obvious at a glance.',
+  },
+  text: {
+    summary: 'Text places a line of text directly on the diagram canvas, with no shape or outline around it.',
+    usage:
+      'Use Text for a label, a heading or a note beside a flow that does not belong inside any single shape. The T shortcut arms this same tool.',
+  },
+  note: {
+    summary: 'Note is a small sticky-note shape, square with a folded-corner look, meant for a short comment.',
+    usage:
+      'Use Note to leave a quick annotation next to a flow, such as a caveat or a question for a teammate, without it looking like a real step.',
+  },
+  connector: {
+    summary:
+      'Connector draws a line between two shapes, or between a shape and a frame, to show how a flow moves from one to the other.',
+    usage:
+      'Use Connector to link steps in order, point a decision toward its outcomes, or trace a flow into and out of an actual screen.',
+  },
+  // `satisfies` makes a missing or misspelt block type (or diagram tool) a
+  // compile error too, not only a docs.test.ts failure. Dialog excluded: it
+  // stays a real BlockType (registry.tsx's resolver/schemas, for an existing
+  // layout that already has one) but left the tray for an overlay frame, and
+  // docs.test.ts's own "no entry for a key that is not in either list" check
   // means it must have NO entry here any more, not a required one.
-} satisfies Record<Exclude<BlockType, 'Dialog'>, ElementDoc>;
+} satisfies Record<Exclude<BlockType, 'Dialog'> | DiagramDocKey, ElementDoc>;
 
 // Own-property lookup, not a plain index: a type such as "constructor" would
 // otherwise hand back an Object.prototype member instead of the fallback.
