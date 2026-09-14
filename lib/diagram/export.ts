@@ -90,11 +90,11 @@ const LABEL_TEXT_FILL = '#EAE8F0';
 // The app's font stacks (app/layout.tsx loads Archivo and IBM Plex Mono via
 // next/font) with generic fallbacks; no font files are embedded, so a
 // viewer without the fonts falls back gracefully.
-export const SHAPE_FONT: ExportTextFont = { size: 13, family: "Archivo, 'Helvetica Neue', Arial, sans-serif", weight: 400 };
+export const SHAPE_FONT: ExportTextFont = { size: 14, family: "Archivo, 'Helvetica Neue', Arial, sans-serif", weight: 400 };
 export const LABEL_FONT: ExportTextFont = { size: 10.5, family: "'IBM Plex Mono', ui-monospace, Menlo, monospace", weight: 400 };
 
-// On-screen equivalents: the shape text is a 13 px flex-centred div with
-// 6 px padding (`p-1.5`) and overflow hidden whose `text-[13px]` sets only
+// On-screen equivalents: the shape text is a 14 px flex-centred div with
+// 6 px padding (`p-1.5`) and overflow hidden whose `text-[14px]` sets only
 // the font size, so it inherits body's `line-height: 1.45`
 // (app/globals.css); the label a `font-mono text-[10.5px]` CHIP; strokes
 // 1.5 px at zoom 1.
@@ -150,7 +150,10 @@ export const DIAGRAM_EXPORT_COLORS: Record<DiagramColor, { fill: string; stroke:
 // default) to exactly SHAPE_FONT/TEXT_FILL's own former fixed values, so a
 // node with none of the three set (every file exported before this
 // feature) renders identically to before.
-export const SHAPE_FONT_SIZES: Record<TextSize, number> = { small: 11, medium: 13, large: 16 };
+// Matt, 2026-09-14: "the font sizes need to be much further apart from
+// each other (small/med/large)" - widened from the original 11/13/16 (each
+// step +18-23%) to a clearer ~40% step between each size.
+export const SHAPE_FONT_SIZES: Record<TextSize, number> = { small: 10, medium: 14, large: 20 };
 // The three family strings the Design panel's Font select offers: sans is
 // SHAPE_FONT's own stack (the app's default, app/layout.tsx's Archivo), a
 // system serif stack for serif, and LABEL_FONT's own IBM Plex Mono stack
