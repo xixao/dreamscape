@@ -821,10 +821,9 @@ export function Canvas({
       width: Math.abs(marquee.currentX - marquee.startX),
       height: Math.abs(marquee.currentY - marquee.startY),
     };
-    const matchedIds = screens
+    const matchedFrameIds = screens
       .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
       .map((candidate) => candidate.id);
-    onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedIds])) : matchedIds);
 
     // The diagram lives in the very same "empty canvas" space this marquee
     // already scans for frames (spec docs/superpowers/specs/2026-09-13-
@@ -860,22 +859,39 @@ export function Canvas({
         .filter((id) => !expandedSelection.some((item) => item.type === 'edge' && item.id === id))
         .map((id) => ({ type: 'edge' as const, id })),
     ];
-    // Shift unions with the diagram's OWN existing selection, independently
-    // of the frame union just above - the two selections are otherwise
-    // mutually exclusive (workbench.tsx's own "one selection model at a
-    // time" effect already resolves a marquee that happens to catch both,
-    // by clearing the frame selection the instant a non-empty diagram
-    // selection appears - the same effect that already governs every other
-    // way a diagram selection can become active).
-    const nextDiagramSelection = marquee.shiftKey
-      ? [
-          ...diagram.selection,
-          ...matchedDiagramItems.filter(
-            (item) => !diagram.selection.some((existing) => existing.type === item.type && existing.id === item.id),
-          ),
-        ]
-      : matchedDiagramItems;
-    onDiagramAction({ type: 'select', selection: nextDiagramSelection });
+
+    // Review finding C: frames and the diagram are one selection model at a
+    // time, even under Shift (the same rule FrameTitle's own Shift+click
+    // handler already enforces unconditionally elsewhere in this file) -
+    // Shift only adds within whichever model THIS marquee actually picked
+    // something up in, never across the two. Picking a diagram element
+    // wins when a box happens to touch both (matching the marquee's own
+    // node/group priority above) and unconditionally clears the frame
+    // selection; picking only frames does the reverse. A box that touches
+    // neither is a plain "empty" marquee: with no Shift it clears both
+    // (matching a plain click), but WITH Shift it is a true no-op - Shift
+    // adding nothing must never still switch away from, or clear, whichever
+    // model is already active.
+    if (matchedDiagramItems.length > 0) {
+      const nextDiagramSelection = marquee.shiftKey
+        ? [
+            ...diagram.selection,
+            ...matchedDiagramItems.filter(
+              (item) => !diagram.selection.some((existing) => existing.type === item.type && existing.id === item.id),
+            ),
+          ]
+        : matchedDiagramItems;
+      onDiagramAction({ type: 'select', selection: nextDiagramSelection });
+      onSetFrameSelection([]);
+    } else if (matchedFrameIds.length > 0) {
+      onSetFrameSelection(
+        marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedFrameIds])) : matchedFrameIds,
+      );
+      onDiagramAction({ type: 'select', selection: [] });
+    } else if (!marquee.shiftKey) {
+      onSetFrameSelection([]);
+      onDiagramAction({ type: 'select', selection: [] });
+    }
   }
 
   // Starts a pan gesture that began inside a frame's own document - the

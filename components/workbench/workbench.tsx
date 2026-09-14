@@ -14,6 +14,7 @@ import {
   diagramReducer,
   duplicatePairs,
   pruneEdgesForScreen,
+  selectedGroupId,
   type DiagramData,
   type DiagramNode,
   cloneDiagram,
@@ -1445,17 +1446,19 @@ function WorkbenchShell({
       const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       dispatchDiagram({ type: 'group', ids: nodeIds, groupId: nanoid(10) });
     },
-    // Cmd+Shift+G: ungroups the group the current selection belongs to -
-    // build step 3's own selection rules mean the selection is always
-    // either a whole group or nothing grouped at all by the time this
-    // fires, so the first selected node carrying a groupId already names
-    // the one group to dissolve.
+    // Cmd+Shift+G: ungroups the group the current selection belongs to.
+    // Review finding A: the selection is not always either a whole group
+    // or nothing grouped at all - the documented double-click-to-enter
+    // gesture (and a bare right-click on an unselected member, before that
+    // was also fixed) deliberately selects just ONE member of a larger
+    // group - so this uses the same store.ts selectedGroupId every other
+    // "is this a group?" check now shares, requiring the selection to be
+    // EXACTLY one group's full membership before dissolving it; a no-op
+    // otherwise (e.g. while "inside" a group with just one member picked).
     onDiagramUngroup: () => {
-      const grouped = diagram.nodes.find(
-        (n) => n.groupId !== undefined && diagram.selection.some((item) => item.type === 'node' && item.id === n.id),
-      );
-      if (!grouped?.groupId) return;
-      dispatchDiagram({ type: 'ungroup', groupId: grouped.groupId });
+      const groupId = selectedGroupId(diagram.nodes, diagram.selection);
+      if (!groupId) return;
+      dispatchDiagram({ type: 'ungroup', groupId });
     },
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);

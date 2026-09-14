@@ -2398,3 +2398,78 @@ describe('DiagramLayer quick-add from a grouped shape (spec: "adds the new shape
     );
   });
 });
+
+// Review finding A: right-clicking an unselected grouped shape used to
+// select only that one shape while still showing "Ungroup" as available -
+// choosing it then silently stripped groupId from sibling nodes that were
+// never selected or visible in the menu at all. ensureSelected now expands
+// to the whole group first, the same as a plain click would.
+describe('DiagramLayer context menu on an unselected grouped shape (review finding A)', () => {
+  it('right-clicking an unselected member selects the whole group, not just that one shape', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, selection: [] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'select',
+      selection: expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+      ]),
+    });
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toHaveLength(2);
+  });
+
+  it('end-to-end with the real reducer: the whole group is visibly selected and Ungroup correctly shows as available (no silent action on an invisible sibling)', async () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    render(<RealReducerHarness initial={stateWith({ nodes, selection: [] })} />);
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+
+    // The whole group is now genuinely selected (shown as one shared
+    // outline, since a fully-selected 2-member group suppresses each
+    // member's own data-selected - see the "selected-group outline"
+    // describe block above).
+    expect(screen.getByTestId('diagram-group-outline-g1')).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Ungroup' })).not.toHaveAttribute('data-disabled');
+  });
+
+  it('right-clicking an unselected member while "inside" a DIFFERENT entered group still selects just that member, not the whole group', () => {
+    const groupNodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const other = node({ id: 'c', x: 800, groupId: 'g1' });
+    // Not a realistic 3-member "entered" scenario by itself - this test
+    // only cares that ensureSelected respects enteredGroupId the same way
+    // a plain click does, via the shared groupSelectionFor helper.
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [...groupNodes, other], selection: [] }),
+    });
+    // Enter g1 via double-click on 'a' first.
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    dispatch.mockClear();
+    // Right-click the OTHER still-unselected member of the SAME (now
+    // entered) group - should select just 'b', not the whole group.
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-b'));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'b' }] });
+  });
+});
+
+// Review finding B: deleting one member of a group must not leave the
+// survivor's groupId orphaned. Confirmed here end-to-end (real reducer):
+// after group -> delete one member -> the survivor keeps its own
+// resize handles when selected alone, rather than being stuck behind a
+// permanent group-of-one outline.
+describe('DiagramLayer: deleting a partial group leaves a real, still-usable survivor (review finding B)', () => {
+  it('the surviving member of a 2-member group gets its own resize handles back after the other is deleted', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const dispatchRef: { current: (action: DiagramAction) => void } = { current: () => {} };
+    render(<RealReducerHarness initial={stateWith({ nodes })} dispatchRef={dispatchRef} />);
+
+    act(() => {
+      dispatchRef.current({ type: 'delete', ids: ['a'] });
+      dispatchRef.current({ type: 'select', selection: [{ type: 'node', id: 'b' }] });
+    });
+
+    expect(screen.queryByTestId('diagram-group-outline-g1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('diagram-resize-b-se')).toBeInTheDocument();
+    expect(screen.getByTestId('diagram-node-b')).toHaveAttribute('data-selected', 'true');
+  });
+});

@@ -8,6 +8,7 @@ import {
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
   pruneEdgesForScreen,
+  selectedGroupId,
   selectionBounds,
   validateConnection,
   type DiagramData,
@@ -352,6 +353,45 @@ describe('diagramReducer: delete', () => {
     });
     const next = diagramReducer(state, { type: 'delete', ids: ['n1'] });
     expect(next.selection).toEqual([]);
+  });
+
+  // Review finding B: "a group with a single remaining member is not a
+  // group" - deleting one member of a 2-member group must not leave the
+  // survivor with a now-unique, orphaned groupId.
+  it('clears the survivor\'s groupId when deleting drops its group to one member', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect('groupId' in next.nodes.find((n) => n.id === 'b')!).toBe(false);
+  });
+
+  it('is one undo step: undo restores both the deleted node and the survivor\'s groupId together', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes).toEqual(state.nodes);
+  });
+
+  it('leaves a group of 3+ alone when it only drops to 2 members', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c', groupId: 'g1' })],
+    });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect(next.nodes.find((n) => n.id === 'b')?.groupId).toBe('g1');
+    expect(next.nodes.find((n) => n.id === 'c')?.groupId).toBe('g1');
+  });
+
+  it('does not touch an unrelated group\'s membership', () => {
+    const state = stateWith({
+      nodes: [
+        node({ id: 'a', groupId: 'g1' }),
+        node({ id: 'b', groupId: 'g1' }),
+        node({ id: 'x', groupId: 'g2' }),
+        node({ id: 'y', groupId: 'g2' }),
+      ],
+    });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect(next.nodes.find((n) => n.id === 'x')?.groupId).toBe('g2');
+    expect(next.nodes.find((n) => n.id === 'y')?.groupId).toBe('g2');
   });
 });
 
@@ -1251,6 +1291,33 @@ describe('diagramReducer: group', () => {
     const undone = diagramReducer(next, { type: 'undo' });
     expect(undone.nodes.map((n) => n.groupId)).toEqual([undefined, undefined]);
   });
+
+  // Review finding B (the "move away" case): "a group with a single
+  // remaining member is not a group" also applies when regrouping a
+  // SUBSET of an existing group's members strands the rest at exactly one.
+  it('clears the groupId of a lone member stranded by regrouping the rest of its old group elsewhere', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'old' }), node({ id: 'b', groupId: 'old' }), node({ id: 'c', groupId: 'old' })],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'new' });
+    expect(next.nodes.find((n) => n.id === 'a')?.groupId).toBe('new');
+    expect(next.nodes.find((n) => n.id === 'b')?.groupId).toBe('new');
+    expect('groupId' in next.nodes.find((n) => n.id === 'c')!).toBe(false);
+  });
+
+  it('does not strand a lone member when the old group still has 2+ left behind', () => {
+    const state = stateWith({
+      nodes: [
+        node({ id: 'a', groupId: 'old' }),
+        node({ id: 'b', groupId: 'old' }),
+        node({ id: 'c', groupId: 'old' }),
+        node({ id: 'd', groupId: 'old' }),
+      ],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'new' });
+    expect(next.nodes.find((n) => n.id === 'c')?.groupId).toBe('old');
+    expect(next.nodes.find((n) => n.id === 'd')?.groupId).toBe('old');
+  });
 });
 
 describe('diagramReducer: ungroup', () => {
@@ -1437,5 +1504,98 @@ describe('edgeBounds', () => {
     const nodes = [node({ id: 'a' })];
     const result = edgeBounds(edge({ source: { nodeId: 'a' }, target: { nodeId: 'missing' } }), nodes, []);
     expect(result).toBeNull();
+  });
+
+  // Review finding D: for a `curve` connector, the union of the two
+  // endpoint boxes is not a safe bound - the bezier control points can
+  // bow well outside it (geometry.ts's BEZIER_CURVATURE grows the offset
+  // *linearly with distance*, unboundedly, not just at short spacing).
+  // Two same-height boxes 200px apart, connected top-to-top (a realistic
+  // "route over the top" case, not contrived): the curve peaks well above
+  // both boxes' own top edge.
+  describe('curve connectors use the actual bezier control points', () => {
+    const a = node({ id: 'a', x: 0, y: 100, width: 40, height: 40 });
+    const b = node({ id: 'b', x: 200, y: 100, width: 40, height: 40 });
+    const curveEdge = edge({ source: { nodeId: 'a', side: 'top' }, target: { nodeId: 'b', side: 'top' }, kind: 'curve' });
+
+    it('extends beyond the plain union of the two endpoint boxes', () => {
+      const unionOfBoxes = { x: 0, y: 100, width: 240, height: 40 };
+      const result = edgeBounds(curveEdge, [a, b], []);
+      expect(result).not.toBeNull();
+      // The curve bows upward (smaller y) past the boxes' own top edge -
+      // the naive box union would have missed this entirely.
+      expect(result!.y).toBeLessThan(unionOfBoxes.y);
+    });
+
+    it('matches the exact control-polygon bounds (both handles plus both bezier control points)', () => {
+      // distance = 200 (handle to handle); magnitude = max(200*0.28, 20) = 56.
+      // Handles at (20,100) and (220,100); both control points offset -56 in
+      // y (the 'top' side): (20,44) and (220,44). toBeCloseTo, not toEqual:
+      // Math.hypot's own floating-point rounding of the 200 distance can
+      // land a fraction of a unit off an exact integer.
+      const result = edgeBounds(curveEdge, [a, b], []);
+      expect(result).not.toBeNull();
+      expect(result!.x).toBeCloseTo(20);
+      expect(result!.y).toBeCloseTo(44);
+      expect(result!.width).toBeCloseTo(200);
+      expect(result!.height).toBeCloseTo(56);
+    });
+
+    it('still returns the plain box union for a non-curve edge between the same two shapes', () => {
+      const stepEdge = edge({ source: { nodeId: 'a', side: 'top' }, target: { nodeId: 'b', side: 'top' }, kind: 'step' });
+      const result = edgeBounds(stepEdge, [a, b], []);
+      expect(result).toEqual({ x: 0, y: 100, width: 240, height: 40 });
+    });
+  });
+});
+
+// Review finding A: "a group is selected" must mean every member of that
+// group is selected and nothing else - not merely "every selected node
+// happens to agree on one groupId," which is trivially true for a single
+// selected node too (an array of one element trivially satisfies
+// `.every(...)`). Shared by diagram-layer.tsx's Ungroup menu item and
+// workbench.tsx's Cmd+Shift+G handler so the two can never independently
+// get this wrong the way they both did before this fix.
+describe('selectedGroupId', () => {
+  it('returns the group id when the selection is exactly one whole group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBe('g1');
+  });
+
+  it('is undefined for a single selected member of a larger group (the "entered" case, and a bare right-click)', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    expect(selectedGroupId(nodes, [{ type: 'node', id: 'a' }])).toBeUndefined();
+  });
+
+  it('is undefined when the selection also includes a node outside the group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+      { type: 'node' as const, id: 'c' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBeUndefined();
+  });
+
+  it('is undefined for an ungrouped selection', () => {
+    expect(selectedGroupId([node({ id: 'a' })], [{ type: 'node', id: 'a' }])).toBeUndefined();
+  });
+
+  it('is undefined for an empty selection', () => {
+    expect(selectedGroupId([node({ id: 'a', groupId: 'g1' })], [])).toBeUndefined();
+  });
+
+  it('still recognizes the whole group when an internal connector is also selected alongside every member', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+      { type: 'edge' as const, id: 'e1' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBe('g1');
   });
 });

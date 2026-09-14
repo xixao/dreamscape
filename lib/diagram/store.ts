@@ -14,7 +14,7 @@
 // where the rest of the codebase already puts it (see e.g. addScreen in
 // components/workbench/workbench.tsx).
 
-import { bounds, type Box, type Side } from './geometry';
+import { bezierControlPoints, bounds, getHandlePosition, sideFromPoint, type Box, type Point, type Side } from './geometry';
 
 export type { Side } from './geometry';
 
@@ -76,10 +76,11 @@ export interface DiagramNode {
   // textSize/textFont/textColor above. Nested groups are not supported: a
   // node belongs to at most one group at a time, and grouping a selection
   // that already contains grouped members simply overwrites their old
-  // groupId with the new one - diagram-layer.tsx's click/marquee selection
-  // always resolves a group to its FULL membership before a `group`
-  // dispatch can ever reach here (see expandToGroups below), so this
-  // reducer never has to "discover" or expand a partial group itself.
+  // groupId with the new one. Review finding B: "a group with a single
+  // remaining member is not a group" - a node's own groupId can also be
+  // cleared out from under it, defensively, by the `delete`/`group` cases
+  // below (dropSingletonGroups) when whatever they do leaves its old
+  // group's membership at exactly one.
   groupId?: string;
 }
 
@@ -320,6 +321,32 @@ function pruneSelection(selection: DiagramSelection, removedIds: ReadonlySet<str
   return pruned.length === selection.length ? selection : pruned;
 }
 
+/**
+ * Clears `groupId` from any node left as the sole remaining member of its
+ * group - review finding B: "a group with a single remaining member is not
+ * a group." Applied, in the SAME history step, by every action that can
+ * shrink a group's membership below two: `delete` (removes a member
+ * outright) and `group` (regrouping a subset of an existing group's
+ * members into a new one can strand the rest of the old group at exactly
+ * one - the "move away" case). Returns `nodes` itself, unchanged, when
+ * nothing needs clearing, so a caller's own `changed`/no-op guard is not
+ * defeated by this running unconditionally afterward.
+ */
+function dropSingletonGroups(nodes: DiagramNode[]): DiagramNode[] {
+  const counts = new Map<string, number>();
+  for (const n of nodes) {
+    if (n.groupId !== undefined) counts.set(n.groupId, (counts.get(n.groupId) ?? 0) + 1);
+  }
+  const singletons = new Set(Array.from(counts.entries()).filter(([, count]) => count === 1).map(([groupId]) => groupId));
+  if (singletons.size === 0) return nodes;
+  return nodes.map((n) => {
+    if (n.groupId === undefined || !singletons.has(n.groupId)) return n;
+    const cleared: DiagramNode = { ...n };
+    delete cleared.groupId;
+    return cleared;
+  });
+}
+
 export function diagramReducer(state: DiagramState, action: DiagramAction): DiagramState {
   switch (action.type) {
     case 'add': {
@@ -465,7 +492,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
 
     case 'delete': {
       const removedIds = new Set(action.ids);
-      const nodes = state.nodes.filter((n) => !removedIds.has(n.id));
+      const survivingNodes = state.nodes.filter((n) => !removedIds.has(n.id));
       // An edge is removed if it was named directly, or if either endpoint
       // was a node that just got removed (spec: "delete removes attached
       // edges") - even when only that node's id, not the edge's own, was in
@@ -476,7 +503,13 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         if (e.target.nodeId && removedIds.has(e.target.nodeId)) return false;
         return true;
       });
-      if (nodes.length === state.nodes.length && edges.length === state.edges.length) return state;
+      if (survivingNodes.length === state.nodes.length && edges.length === state.edges.length) return state;
+      // Review finding B: a real deletion can strand a group at exactly one
+      // remaining member - applied only now that a real change is already
+      // confirmed, so a pre-existing (data-anomaly) singleton elsewhere in
+      // the diagram is never "cleaned up" by an unrelated delete that would
+      // otherwise have been a no-op.
+      const nodes = dropSingletonGroups(survivingNodes);
       const removedEdgeIds = new Set(
         state.edges.filter((e) => !edges.some((kept) => kept.id === e.id)).map((e) => e.id),
       );
@@ -551,12 +584,17 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       const targetCount = state.nodes.filter((n) => idSet.has(n.id)).length;
       if (targetCount < 2) return state;
       let changed = false;
-      const nodes = state.nodes.map((n) => {
+      const regrouped = state.nodes.map((n) => {
         if (!idSet.has(n.id) || n.groupId === action.groupId) return n;
         changed = true;
         return { ...n, groupId: action.groupId };
       });
       if (!changed) return state;
+      // Review finding B, the "move away" case: regrouping a SUBSET of an
+      // existing group's members into this new one can strand the rest of
+      // that old group at exactly one - clear that lone survivor's groupId
+      // too, in this same history step.
+      const nodes = dropSingletonGroups(regrouped);
       return commit(state, { nodes, edges: state.edges });
     }
 
@@ -992,20 +1030,69 @@ export function expandToGroups(
 }
 
 /**
- * The approximate bounding box of one connector's rendered path, resolved
- * from its two endpoints' current boxes (a node from `nodes`, or a frame
- * from `frames`) - used by the marquee's own hit test (spec section 10:
- * "every connector whose path bounding box intersects it"). The straight
- * line between the two endpoint BOXES' own combined bounds always contains
- * a straight or step path exactly, and a curve's own gentle bow outward
- * (geometry.ts's BEZIER_CURVATURE/BEZIER_MIN_OFFSET) only rarely strays
- * past it at typical diagram spacing - an approximation a marquee's own
- * loose, box-based hit-testing is already built around (frames and shapes
- * alike). `null` when either endpoint cannot be resolved (a dangling
- * reference).
+ * The group id the current selection exactly represents, or `undefined` -
+ * review finding A: "a group is selected" means every member of that group
+ * is selected and nothing else, not merely "every selected node happens to
+ * agree on one groupId" (which is trivially true for a single selected
+ * node too - an array of one element trivially satisfies `.every(...)`).
+ * A selected connector between members does not disqualify this - clicking
+ * a group already includes its own internal connectors in the selection
+ * (see expandToGroups above), so requiring their absence would make this
+ * false for the single most ordinary way to select a group at all; it is
+ * specifically an extra NODE outside the group, or a selection missing one
+ * of the group's own members, that disqualifies it. Shared by
+ * diagram-layer.tsx's "Ungroup" menu item and workbench.tsx's
+ * Cmd+Shift+G handler so the two can never independently get this wrong.
+ */
+export function selectedGroupId(nodes: readonly DiagramNode[], selection: DiagramSelection): string | undefined {
+  const selectedNodeIds = selection.filter((item) => item.type === 'node').map((item) => item.id);
+  if (selectedNodeIds.length === 0) return undefined;
+  const groupId = nodes.find((n) => n.id === selectedNodeIds[0])?.groupId;
+  if (groupId === undefined) return undefined;
+  if (!selectedNodeIds.every((id) => nodes.find((n) => n.id === id)?.groupId === groupId)) return undefined;
+  const totalMembers = nodes.filter((n) => n.groupId === groupId).length;
+  return totalMembers === selectedNodeIds.length ? groupId : undefined;
+}
+
+// A real `Side`, narrowed from whatever an EdgeEndpoint's optional field
+// happens to hold - mirrors diagram-layer.tsx's own local `isSide` type
+// guard (a plain `readonly string[]`/`includes` check does not by itself
+// narrow TypeScript's type for a caller, only a real type guard does).
+const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
+function isSide(value: string | undefined): value is Side {
+  return value !== undefined && (SIDES as readonly string[]).includes(value);
+}
+
+/**
+ * The bounding box of one connector's rendered path, resolved from its two
+ * endpoints' current boxes (a node from `nodes`, or a frame from `frames`) -
+ * used by the marquee's own hit test (spec section 10: "every connector
+ * whose path bounding box intersects it"). Exact for `straight` and `step`:
+ * every point either path can ever visit (the endpoints themselves, and -
+ * for `step` - `getStepPoints`'s corners and `buildRoundedPath`'s rounding)
+ * is a convex combination of points already inside the two endpoint boxes,
+ * so their union always contains the whole rendered path.
+ *
+ * For `curve`, the plain box union is not a safe bound: geometry.ts's own
+ * `bezierControlPoints` offsets each control point outward by
+ * `max(distance * BEZIER_CURVATURE, BEZIER_MIN_OFFSET)` - a magnitude that
+ * *grows linearly, unboundedly, with the distance between the two handles*
+ * (the `BEZIER_MIN_OFFSET` floor only matters when they are close
+ * together) - so the bow-out is smallest at short spacing and largest at
+ * long spacing, the opposite of "gentle at short spacing." A `curve` whose
+ * two sides face the same direction (both `top`, both `left`, ...) can bow
+ * arbitrarily far outside the two boxes' union the farther apart they are.
+ * This resolves each side the same way diagram-layer.tsx's own
+ * `resolveEndpoint` does (a stored side, or the side facing the other
+ * endpoint) and returns the bounds of the actual four-point control
+ * polygon - both handles plus both bezier control points - which is exact
+ * for the same "convex combination of points already in this set" reason
+ * `step` is.
+ *
+ * `null` when either endpoint cannot be resolved (a dangling reference).
  */
 export function edgeBounds(
-  edge: Pick<DiagramEdge, 'source' | 'target'>,
+  edge: Pick<DiagramEdge, 'source' | 'target' | 'kind'>,
   nodes: readonly DiagramNode[],
   frames: readonly (Box & { id: string })[],
 ): Box | null {
@@ -1017,5 +1104,16 @@ export function edgeBounds(
   const sourceBox = boxFor(edge.source);
   const targetBox = boxFor(edge.target);
   if (!sourceBox || !targetBox) return null;
-  return bounds([sourceBox, targetBox]);
+  if (edge.kind !== 'curve') return bounds([sourceBox, targetBox]);
+
+  const centerOf = (box: Box): Point => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  const resolveSide = (endpoint: EdgeEndpoint, ownBox: Box, otherBox: Box): Side =>
+    isSide(endpoint.side) ? endpoint.side : sideFromPoint(ownBox, centerOf(otherBox));
+  const sourceSide = resolveSide(edge.source, sourceBox, targetBox);
+  const targetSide = resolveSide(edge.target, targetBox, sourceBox);
+  const sourcePoint = getHandlePosition(sourceBox, sourceSide);
+  const targetPoint = getHandlePosition(targetBox, targetSide);
+  const { c1, c2 } = bezierControlPoints(sourcePoint, sourceSide, targetPoint, targetSide);
+  const pointBox = (p: Point): Box => ({ x: p.x, y: p.y, width: 0, height: 0 });
+  return bounds([pointBox(sourcePoint), pointBox(c1), pointBox(c2), pointBox(targetPoint)]);
 }

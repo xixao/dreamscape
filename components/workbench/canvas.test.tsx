@@ -1671,3 +1671,124 @@ describe('Canvas marquee also selects diagram shapes and connectors', () => {
     expect(screen.queryByTestId('marquee-selection')).toBeNull();
   });
 });
+
+// Review finding C: frames and the diagram are one selection model at a
+// time, even under Shift - the same rule FrameTitle's own Shift+click
+// handler already enforces unconditionally elsewhere in canvas.tsx
+// (`Shift+click a frame title clears the diagram selection first`).
+// Failing scenario from the review: select a diagram shape, then
+// Shift+marquee an area with a frame but NO diagram elements - the
+// diagram selection is unchanged (shift unions with nothing new) so it
+// never transitions to empty, and workbench.tsx's own "one selection
+// model" effect only fires on THAT transition, so both ended up non-empty
+// at once.
+describe('Canvas marquee keeps one selection model (Shift adds within it only)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('Shift+marquee that touches only a frame clears an existing diagram selection', async () => {
+    saveViewport(window.localStorage, 'onemodel1', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const onSetFrameSelection = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 900, y: 900 })], // far from SCREEN_1 and the drag box below
+      edges: [],
+      selection: [{ type: 'node', id: 'n1' }],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, onSetFrameSelection, fileId: 'onemodel1' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // Entirely inside SCREEN_1 (0,0,400,300); nowhere near n1.
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, shiftKey: true });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 350, clientY: 250, shiftKey: true });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 350, clientY: 250, shiftKey: true });
+
+    expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
+    expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [] });
+  });
+
+  it('Shift+marquee that touches only diagram elements clears an existing frame selection', async () => {
+    saveViewport(window.localStorage, 'onemodel2', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const onSetFrameSelection = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 900, y: 900, width: 40, height: 40 })],
+      edges: [],
+      selection: [],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({
+      screens: [SCREEN_1],
+      diagram,
+      onDiagramAction,
+      onSetFrameSelection,
+      selectedFrameIds: new Set([SCREEN_1.id]),
+      fileId: 'onemodel2',
+    });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // Around n1 (900,900,40,40); nowhere near SCREEN_1 (0,0,400,300).
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 850, clientY: 850, shiftKey: true });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 950, clientY: 950, shiftKey: true });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 950, clientY: 950, shiftKey: true });
+
+    expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'n1' }] });
+    expect(onSetFrameSelection).toHaveBeenCalledWith([]);
+  });
+
+  it('Shift+marquee that touches neither model is a true no-op, leaving an existing diagram selection untouched', async () => {
+    saveViewport(window.localStorage, 'onemodel3', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const onSetFrameSelection = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 900, y: 900 })],
+      edges: [],
+      selection: [{ type: 'node', id: 'n1' }],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({ screens: [SCREEN_1], diagram, onDiagramAction, onSetFrameSelection, fileId: 'onemodel3' });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    // Nowhere near SCREEN_1 or n1.
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 1500, clientY: 1500, shiftKey: true });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 1700, clientY: 1700, shiftKey: true });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 1700, clientY: 1700, shiftKey: true });
+
+    expect(onSetFrameSelection).not.toHaveBeenCalled();
+    expect(onDiagramAction).not.toHaveBeenCalled();
+  });
+
+  it('a plain (non-Shift) marquee that touches neither model clears both', async () => {
+    saveViewport(window.localStorage, 'onemodel4', 'page1', { x: 0, y: 0, zoom: 1 });
+    const onDiagramAction = vi.fn();
+    const onSetFrameSelection = vi.fn();
+    const diagram: DiagramState = {
+      nodes: [diagramNode({ id: 'n1', x: 900, y: 900 })],
+      edges: [],
+      selection: [{ type: 'node', id: 'n1' }],
+      history: { past: [], future: [] },
+    };
+    renderCanvas({
+      screens: [SCREEN_1],
+      diagram,
+      onDiagramAction,
+      onSetFrameSelection,
+      selectedFrameIds: new Set([SCREEN_1.id]),
+      fileId: 'onemodel4',
+    });
+    await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+
+    const root = screen.getByTestId('canvas-root');
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 1500, clientY: 1500 });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 1700, clientY: 1700 });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 1700, clientY: 1700 });
+
+    expect(onSetFrameSelection).toHaveBeenCalledWith([]);
+    expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [] });
+  });
+});

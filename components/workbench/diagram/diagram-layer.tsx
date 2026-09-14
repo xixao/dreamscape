@@ -48,6 +48,7 @@ import {
   duplicatePairs,
   expandToGroups,
   MAX_TEXT_LENGTH,
+  selectedGroupId,
   MIN_SIZE,
   NODE_KINDS,
   TEXT_COLORS,
@@ -460,11 +461,21 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // multi-selection - is left exactly as it is, so "Duplicate"/"Bring to
   // front"/"Send to back"/"Delete"/Align/Distribute below can act on that
   // whole selection rather than collapsing it to the one element under the
-  // cursor.
+  // cursor. Review finding A: for a NODE, "select it first" means the same
+  // thing a plain click would - the whole group when it belongs to one not
+  // currently "entered" - not just the single right-clicked shape; a
+  // right-click on an unselected grouped shape used to select only that
+  // one member while still showing "Ungroup" as available, silently
+  // stripping the OTHER, never-selected members' groupId if chosen.
   function ensureSelected(type: 'node' | 'edge', id: string): void {
-    if (!isSelected(diagram.selection, type, id)) {
-      dispatch({ type: 'select', selection: [{ type, id }] });
+    if (isSelected(diagram.selection, type, id)) return;
+    if (type === 'node') {
+      const node = diagram.nodes.find((n) => n.id === id);
+      const insideOwnGroup = enteredGroupId !== null && node?.groupId === enteredGroupId;
+      dispatch({ type: 'select', selection: groupSelectionFor(id, insideOwnGroup) });
+      return;
     }
+    dispatch({ type: 'select', selection: [{ type, id }] });
   }
 
   // A quick-add circle (Build step 4): mints the new node/edge ids here
@@ -504,17 +515,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   const selectedIds = diagram.selection.map((item) => item.id);
 
   // Build step 4: "Ungroup (enabled when the selection is a group)" -
-  // every selected node sharing the same, defined groupId is exactly
-  // equivalent to "the selection IS some group's full membership" given
-  // groupSelectionFor/expandToGroups above never produce a PARTIAL group
-  // selection through the documented UI, so this simple "every id agrees"
-  // check needs no separate membership re-lookup.
-  const selectedGroupIds = selectedNodeIds.map((id) => diagram.nodes.find((n) => n.id === id)?.groupId);
-  const firstSelectedGroupId = selectedGroupIds[0];
-  const currentGroupId: string | undefined =
-    firstSelectedGroupId !== undefined && selectedGroupIds.every((groupId) => groupId === firstSelectedGroupId)
-      ? firstSelectedGroupId
-      : undefined;
+  // review finding A: this must require the selection to be EXACTLY one
+  // group's full membership (store.ts's selectedGroupId), not merely
+  // "every selected node happens to share one groupId" - that was true for
+  // even a single selected member of a larger group (the documented
+  // double-click-to-enter gesture produces exactly that on purpose, and a
+  // bare right-click on an unselected member used to too, via
+  // ensureSelected's OLD behaviour above), which silently let Ungroup
+  // dissolve a group down to sibling nodes never shown as selected.
+  const currentGroupId = selectedGroupId(diagram.nodes, diagram.selection);
 
   function renderNodeMenuContent(node: DiagramNode): ReactNode {
     return (
@@ -1309,12 +1318,20 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // whose EVERY member is currently selected. A group only partly caught
   // by the selection (e.g. one member individually selected while
   // "entered") is not "the group is selected" - that member keeps its own
-  // ordinary per-node outline in renderNode below.
+  // ordinary per-node outline in renderNode below. Review finding B:
+  // requires 2+ members, not just 1+ - the reducer's own dropSingletonGroups
+  // (store.ts) now clears a lone survivor's groupId in the same history
+  // step that strands it, but this is deliberate defense in depth against
+  // any stray single-member groupId anyway (e.g. data saved by a future
+  // bug, or a file from before that reducer fix existed): without it, a
+  // lone node with a leftover groupId was treated as "a fully-selected
+  // group of one" whenever selected by itself, permanently hiding its own
+  // resize handles behind a group-of-one outline.
   const fullySelectedGroupIds = new Set(
     Array.from(new Set(diagram.nodes.filter((n) => n.groupId !== undefined).map((n) => n.groupId as string))).filter(
       (groupId) => {
         const members = diagram.nodes.filter((n) => n.groupId === groupId);
-        return members.length > 0 && members.every((m) => isSelected(diagram.selection, 'node', m.id));
+        return members.length > 1 && members.every((m) => isSelected(diagram.selection, 'node', m.id));
       },
     ),
   );
