@@ -104,6 +104,11 @@ const SHAPE_STROKE_WIDTH = 1.5;
 const TEXT_FILL = '#ffffff';
 const EDGE_STROKE = 'rgba(255,255,255,0.6)';
 const EDGE_STROKE_WIDTH = 1.5;
+// Spec section 14: the on-screen dashed pattern (diagram-layer.tsx) at
+// zoom 1, i.e. with no /zoom scaling - that scaling is a canvas-only
+// runtime concern this standalone export never has.
+const EDGE_DASH_ON = 4;
+const EDGE_DASH_OFF = 3;
 const LABEL_PADDING_X = 8;
 const LABEL_HEIGHT = 20;
 const LABEL_RADIUS = 4;
@@ -436,6 +441,12 @@ function renderEdge(edge: DiagramEdge, resolved: ResolvedEdge): string {
     fill: 'none',
     stroke: EDGE_STROKE,
     'stroke-width': EDGE_STROKE_WIDTH,
+    // Spec section 14: the same dash pattern the canvas uses at zoom 1
+    // (diagram-layer.tsx's `${4 / zoom} ${3 / zoom}`), written in plain,
+    // unscaled canvas units through the same fmt() every other number here
+    // goes through - /zoom is a canvas-only runtime concern, not something
+    // a standalone export file has.
+    'stroke-dasharray': edge.lineStyle === 'dashed' ? `${fmt(EDGE_DASH_ON)} ${fmt(EDGE_DASH_OFF)}` : undefined,
     'marker-end': edge.arrow === 'end' || edge.arrow === 'both' ? marker : undefined,
     'marker-start': edge.arrow === 'both' ? marker : undefined,
   });

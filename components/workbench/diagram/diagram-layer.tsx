@@ -47,6 +47,7 @@ import {
   DIAGRAM_COLORS,
   duplicatePairs,
   expandToGroups,
+  LINE_STYLES,
   MAX_TEXT_LENGTH,
   selectedGroupId,
   MIN_SIZE,
@@ -65,6 +66,7 @@ import {
   type DiagramSelection,
   type DiagramState,
   type EdgeEndpoint,
+  type LineStyle,
   type TextColor,
   type TextFont,
   type TextSize,
@@ -81,6 +83,7 @@ import {
   CONNECTOR_LABELS,
   COLOR_LABELS,
   KIND_LABELS,
+  LINE_STYLE_LABELS,
   TEXT_COLOR_LABELS,
   TEXT_FONT_LABELS,
   TEXT_SIZE_LABELS,
@@ -768,6 +771,27 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
               {ARROW_KINDS.map((arrow) => (
                 <ContextMenuRadioItem key={arrow} value={arrow} className={cn(MENU_ROW, 'pr-7')}>
                   {ARROW_LABELS[arrow]}
+                </ContextMenuRadioItem>
+              ))}
+            </ContextMenuRadioGroup>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+
+        {/* Spec section 14: a second submenu, sibling to "Connector" above -
+            the LINE style (solid/dashed), independent of the connector's
+            shape. lineStyle is optional (absent means solid), so the radio
+            group's value defaults to 'solid' the same way the visible path's
+            own rendering and the Design panel's Line field both do. */}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className={MENU_ROW}>Line</ContextMenuSubTrigger>
+          <ContextMenuSubContent className={MENU_POPOVER}>
+            <ContextMenuRadioGroup
+              value={edgeItem.lineStyle ?? 'solid'}
+              onValueChange={(value) => dispatch({ type: 'setLineStyle', id: edgeItem.id, lineStyle: value as LineStyle })}
+            >
+              {LINE_STYLES.map((style) => (
+                <ContextMenuRadioItem key={style} value={style} className={cn(MENU_ROW, 'pr-7')}>
+                  {LINE_STYLE_LABELS[style]}
                 </ContextMenuRadioItem>
               ))}
             </ContextMenuRadioGroup>
@@ -1657,7 +1681,18 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 : getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
           return (
             <g key={e.id}>
-              <path d={result.path} fill="none" className="stroke-white/60" style={{ strokeWidth: 1.5 / viewport.zoom }} />
+              <path
+                d={result.path}
+                fill="none"
+                className="stroke-white/60"
+                style={{
+                  strokeWidth: 1.5 / viewport.zoom,
+                  // Spec section 14: "the Option-drag ghost edge rendering
+                  // also honours it" - same conditional dasharray as the
+                  // real edge's own visible path in renderEdge above.
+                  strokeDasharray: e.lineStyle === 'dashed' ? `${4 / viewport.zoom} ${3 / viewport.zoom}` : undefined,
+                }}
+              />
               {/* Re-review finding 23: the ghost edge's own label chip, so
                   the preview matches the eventual copy exactly, not just
                   its path. */}
@@ -1879,7 +1914,16 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
               d={resolved.path}
               fill="none"
               className={selected ? 'stroke-(--acc)' : 'stroke-white/60'}
-              style={{ strokeWidth: (selected ? 2 : 1.5) / viewport.zoom, pointerEvents: 'none' }}
+              style={{
+                strokeWidth: (selected ? 2 : 1.5) / viewport.zoom,
+                // Spec section 14: the same dash pattern already used for
+                // every in-progress drag preview in this file, so a dashed
+                // connector and an in-progress preview read consistently.
+                // Only the VISIBLE path gets this - the fat invisible hit
+                // path above stays a plain solid stroke either way.
+                strokeDasharray: edge.lineStyle === 'dashed' ? `${4 / viewport.zoom} ${3 / viewport.zoom}` : undefined,
+                pointerEvents: 'none',
+              }}
               markerEnd={edge.arrow === 'end' || edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
               markerStart={edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
             />

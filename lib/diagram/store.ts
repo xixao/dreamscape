@@ -35,6 +35,18 @@ export type ConnectorKind = (typeof CONNECTOR_KINDS)[number];
 export const ARROW_KINDS = ['end', 'both', 'none'] as const;
 export type ArrowKind = (typeof ARROW_KINDS)[number];
 
+// Connector LINE style (spec section 14, Matt 2026-09-14: "i'd also like a
+// connector style - dashed, solid, 90 degree, curved" - the shape half of
+// that request, 90 degree/curved, is CONNECTOR_KINDS above; this is the
+// new, independent line-style half), optional on DiagramEdge itself so a
+// file saved before this feature (every edge absent) round-trips
+// unchanged - diagram-layer.tsx/diagram-fields.tsx/lib/diagram/export.ts
+// each default an absent value to 'solid' (today's only look) rather than
+// this module ever writing that default into stored data, same convention
+// as TEXT_SIZES et al above.
+export const LINE_STYLES = ['solid', 'dashed'] as const;
+export type LineStyle = (typeof LINE_STYLES)[number];
+
 // Shape text styling (spec section 9, Matt 2026-09-13: "give the diagram
 // shapes a font selection like small, medium, large. as well as a
 // monospaced font, a serif font, and a sans serif font? also let me change
@@ -101,6 +113,7 @@ export interface DiagramEdge {
   target: EdgeEndpoint;
   kind: ConnectorKind;
   arrow: ArrowKind;
+  lineStyle?: LineStyle;
   label?: string;
 }
 
@@ -179,6 +192,12 @@ export type DiagramAction =
   | { type: 'setColor'; ids: string[]; color: DiagramColor }
   | { type: 'setKind'; id: string; kind: DiagramNodeKind | ConnectorKind }
   | { type: 'setArrow'; id: string; arrow: ArrowKind }
+  // Spec section 14: the connector's LINE style (solid/dashed), independent
+  // of its shape (`setKind`'s straight/step/curve). Mirrors setArrow
+  // exactly - one history step, no no-op guard, since this is only ever
+  // dispatched from an explicit user choice (the Design panel's Line
+  // select or the right-click menu's "Line" submenu).
+  | { type: 'setLineStyle'; id: string; lineStyle: LineStyle }
   // Spec section 9: the Design panel's three text-style selects and the
   // right-click menu's "Text" submenu both dispatch this - `ids` rather
   // than a single `id` (unlike setKind/setArrow above) so a
@@ -468,6 +487,15 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       if (index === -1) return state;
       const edges = [...state.edges];
       edges[index] = { ...edges[index], arrow: action.arrow };
+      return commit(state, { nodes: state.nodes, edges });
+    }
+
+    // Spec section 14: mirrors setArrow exactly, immediately above.
+    case 'setLineStyle': {
+      const index = state.edges.findIndex((e) => e.id === action.id);
+      if (index === -1) return state;
+      const edges = [...state.edges];
+      edges[index] = { ...edges[index], lineStyle: action.lineStyle };
       return commit(state, { nodes: state.nodes, edges });
     }
 

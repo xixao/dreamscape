@@ -207,12 +207,22 @@ describe('DiagramFields text styling', () => {
 });
 
 describe('DiagramFields for a connector', () => {
-  it('shows the current connector kind, arrow and label', () => {
-    render(<DiagramFields selected={{ type: 'edge', edge: edge({ label: 'yes' }) }} onAction={vi.fn()} />);
+  it('shows the current connector kind, arrow, line style and label', () => {
+    render(<DiagramFields selected={{ type: 'edge', edge: edge({ label: 'yes', lineStyle: 'dashed' }) }} onAction={vi.fn()} />);
 
     expect(screen.getByRole('radio', { name: 'Step' })).toHaveAttribute('data-state', 'on');
     expect(screen.getByRole('radio', { name: 'End' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('radio', { name: 'Dashed' })).toHaveAttribute('data-state', 'on');
     expect(screen.getByLabelText('Label')).toHaveValue('yes');
+  });
+
+  // Spec section 14: lineStyle is optional on DiagramEdge (absent means
+  // solid), so a connector saved before this feature must still show Solid
+  // pressed, not neither option pressed.
+  it('defaults the line style to Solid when the edge has none set', () => {
+    render(<DiagramFields selected={{ type: 'edge', edge: edge({ lineStyle: undefined }) }} onAction={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: 'Solid' })).toHaveAttribute('data-state', 'on');
   });
 
   it('dispatches setKind for the connector kind toggle', async () => {
@@ -231,6 +241,15 @@ describe('DiagramFields for a connector', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Both' }));
 
     expect(onAction).toHaveBeenCalledWith({ type: 'setArrow', id: 'edge0000001', arrow: 'both' });
+  });
+
+  it('dispatches setLineStyle for the line style toggle', async () => {
+    const onAction = vi.fn();
+    render(<DiagramFields selected={{ type: 'edge', edge: edge() }} onAction={onAction} />);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Dashed' }));
+
+    expect(onAction).toHaveBeenCalledWith({ type: 'setLineStyle', id: 'edge0000001', lineStyle: 'dashed' });
   });
 
   it('dispatches setText for the label field', () => {

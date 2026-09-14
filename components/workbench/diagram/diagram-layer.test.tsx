@@ -219,6 +219,69 @@ describe('DiagramLayer rendering', () => {
     expect(visiblePath().getAttribute('marker-end')).toBeNull();
   });
 
+  // Spec section 14 (Matt 2026-09-14: "i'd also like a connector style -
+  // dashed, solid..."): the visible path gets the same stroke-dasharray
+  // pattern already used for every in-progress drag preview in this file
+  // (`${4 / zoom} ${3 / zoom}`) when dashed, and none when solid or absent
+  // (old files unchanged) - the invisible hit path (fat, transparent,
+  // carries the click target) never gets one either way.
+  it("gives a dashed edge's visible path a stroke-dasharray, but never the invisible hit path", () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { rerender } = render(
+      <DiagramLayer
+        diagram={stateWith({ nodes, edges: [edge({ lineStyle: 'dashed' })] })}
+        dispatch={vi.fn()}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 1 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+    const visiblePath = () => document.querySelectorAll('[data-testid="diagram-edge-edge0000001"] path')[1] as SVGPathElement;
+    expect(visiblePath()).toHaveStyle({ strokeDasharray: '4 3' });
+    expect(screen.getByTestId('diagram-edge-hit-edge0000001')).not.toHaveStyle({ strokeDasharray: '4 3' });
+
+    rerender(
+      <DiagramLayer
+        diagram={stateWith({ nodes, edges: [edge({ lineStyle: 'solid' })] })}
+        dispatch={vi.fn()}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 1 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+    expect(visiblePath().style.strokeDasharray).toBe('');
+
+    rerender(
+      <DiagramLayer
+        diagram={stateWith({ nodes, edges: [edge({ lineStyle: undefined })] })}
+        dispatch={vi.fn()}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 1 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+    expect(visiblePath().style.strokeDasharray).toBe('');
+  });
+
+  it('scales a dashed edge stroke-dasharray by 1/zoom, same as the in-progress preview paths', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    render(
+      <DiagramLayer
+        diagram={stateWith({ nodes, edges: [edge({ lineStyle: 'dashed' })] })}
+        dispatch={vi.fn()}
+        frames={[]}
+        viewport={{ x: 0, y: 0, zoom: 2 }}
+        tool={{ kind: 'pointer' }}
+        onToolConsumed={vi.fn()}
+      />,
+    );
+    const visiblePath = document.querySelectorAll('[data-testid="diagram-edge-edge0000001"] path')[1] as SVGPathElement;
+    expect(visiblePath).toHaveStyle({ strokeDasharray: '2 1.5' });
+  });
+
   it('renders a label chip at the path midpoint only when the edge has a label', () => {
     const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
     const { rerender } = render(
@@ -918,6 +981,28 @@ describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until po
     fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
 
     expect(screen.getByTestId('diagram-option-drag-ghosts').textContent).toContain('yes');
+  });
+
+  // Spec section 14: "the Option-drag ghost edge rendering also honours it."
+  it("draws the ghost edge dashed when the source connector's lineStyle is dashed", () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        edges: [edge({ lineStyle: 'dashed' })],
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 0, clientY: 0, altKey: true });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
+
+    const ghostPath = screen.getByTestId('diagram-option-drag-ghosts').querySelector('path')!;
+    expect(ghostPath).toHaveStyle({ strokeDasharray: '4 3' });
   });
 });
 
@@ -2089,7 +2174,7 @@ describe('DiagramLayer context menu (connector)', () => {
     fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'edge', id: 'edge0000001' }] });
-    for (const label of ['Connector', 'Arrowheads', 'Edit label', 'Delete']) {
+    for (const label of ['Connector', 'Arrowheads', 'Line', 'Edit label', 'Delete']) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
     }
   });
@@ -2126,6 +2211,33 @@ describe('DiagramLayer context menu (connector)', () => {
 
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'Both' }));
     expect(dispatch).toHaveBeenCalledWith({ type: 'setArrow', id: 'edge0000001', arrow: 'both' });
+  });
+
+  // Spec section 14: a second submenu, sibling to "Connector", same
+  // position/chrome as "Arrowheads".
+  it('"Line" checks the current line style and dispatches setLineStyle on another', async () => {
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges: [edge({ lineStyle: 'dashed' })], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Line' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Dashed' })).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Solid' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setLineStyle', id: 'edge0000001', lineStyle: 'solid' });
+  });
+
+  // lineStyle is optional (absent means solid) - an edge saved before this
+  // feature must still show Solid checked, not neither option checked.
+  it('"Line" defaults to Solid checked when the edge has no lineStyle', async () => {
+    renderLayer({
+      diagram: stateWith({ nodes, edges: [edge()], selection: [{ type: 'edge', id: 'edge0000001' }] }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-edge-hit-edge0000001'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Line' }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Solid' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('"Edit label" opens an inline editor with the current label', async () => {

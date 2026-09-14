@@ -601,6 +601,27 @@ describe('renderDiagramSvg', () => {
         expect(path.hasAttribute('marker-start')).toBe(false);
       });
     });
+
+    // Spec section 14 (Matt 2026-09-14): the export honours a connector's
+    // own lineStyle with a real, unscaled stroke-dasharray attribute - no
+    // /zoom scaling, since that is a canvas-only, runtime concern (the
+    // export is always "zoom 1").
+    describe('line style', () => {
+      it('writes stroke-dasharray="4 3" for a dashed connector', () => {
+        const path = only(group(renderDoc({ nodes: [A, B], edges: [edge({ lineStyle: 'dashed' })] }), 'data-edge', 'e1'), 'path');
+        expect(path.getAttribute('stroke-dasharray')).toBe('4 3');
+      });
+
+      it('omits stroke-dasharray for a solid connector', () => {
+        const path = only(group(renderDoc({ nodes: [A, B], edges: [edge({ lineStyle: 'solid' })] }), 'data-edge', 'e1'), 'path');
+        expect(path.hasAttribute('stroke-dasharray')).toBe(false);
+      });
+
+      it('omits stroke-dasharray when lineStyle is absent (old files unchanged)', () => {
+        const path = only(group(renderDoc({ nodes: [A, B], edges: [edge({ lineStyle: undefined })] }), 'data-edge', 'e1'), 'path');
+        expect(path.hasAttribute('stroke-dasharray')).toBe(false);
+      });
+    });
   });
 
   describe('edge labels', () => {

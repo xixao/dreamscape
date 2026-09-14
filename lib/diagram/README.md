@@ -63,9 +63,12 @@ at zoom 1 is what the file shows.
   clipped; the same shape geometry per kind, 1.5 px strokes, the Tailwind
   colours resolved to hex/rgba, the same straight/step/curve paths from
   `geometry.ts` with the on-screen arrowhead marker in the accent colour
-  (`--acc`), and label chips on the CHIP surface (`--chip`, `--bevel-line`,
-  `--foreground`). Text is native `<text>`/`<tspan>`, wrapped to the
-  shape's inner width with the supplied `measureText` (canvas `measureText`
+  (`--acc`), a dashed connector's own `stroke-dasharray="4 3"` (spec
+  section 14, `edge.lineStyle`, unscaled - `/zoom` is a canvas-only runtime
+  concern the export never has), and label chips on the CHIP surface
+  (`--chip`, `--bevel-line`, `--foreground`). Text is native
+  `<text>`/`<tspan>`, wrapped to the shape's inner width with the supplied
+  `measureText` (canvas `measureText`
   in the browser, a fixed-width stub in tests); lines past the inner height
   are dropped, first lines kept; no font files are embedded. A test reads
   those tokens out of `app/globals.css` so the export cannot drift from

@@ -756,6 +756,39 @@ describe('validateDiagram', () => {
     expect(validateDiagram(input({ arrow: 'sparkles' as never })).ok).toBe(false);
   });
 
+  // Spec section 14 (Matt 2026-09-14: "i'd also like a connector style -
+  // dashed, solid..."): lineStyle is optional, checked against its own
+  // enum the same shape as ConnectorKind's own check just above, when
+  // present - same "absent stays absent" shape as textSize/textFont/
+  // textColor/groupId elsewhere in this describe block.
+  it('accepts an edge with a line style, and normalizes it', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ lineStyle: 'dashed' })],
+    };
+    const result = validateDiagram(input);
+    expect(result).toEqual({ ok: true, diagram: input });
+  });
+
+  it('rejects an unknown line style', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge({ lineStyle: 'dotted' as never })],
+    };
+    expect(validateDiagram(input).ok).toBe(false);
+  });
+
+  it('keeps an edge without a line style free of the key entirely - old files round-trip unchanged', () => {
+    const input: DiagramInput = {
+      nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],
+      edges: [diagramEdge()],
+    };
+    const result = validateDiagram(input);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect('lineStyle' in result.diagram.edges[0]).toBe(false);
+  });
+
   it('rejects an unknown side', () => {
     const input: DiagramInput = {
       nodes: [diagramNode({ id: 'node000001' }), diagramNode({ id: 'node000002' })],

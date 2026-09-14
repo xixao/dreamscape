@@ -5,6 +5,7 @@ import {
   ARROW_KINDS,
   CONNECTOR_KINDS,
   DIAGRAM_COLORS,
+  LINE_STYLES,
   NODE_KINDS,
   TEXT_COLORS,
   TEXT_FONTS,
@@ -16,6 +17,7 @@ import {
   type DiagramEdge,
   type DiagramNode,
   type DiagramNodeKind,
+  type LineStyle,
   type TextColor,
   type TextFont,
   type TextSize,
@@ -60,6 +62,10 @@ export const COLOR_LABELS: Record<DiagramColor, string> = {
 };
 export const CONNECTOR_LABELS: Record<ConnectorKind, string> = { straight: 'Straight', step: 'Step', curve: 'Curve' };
 export const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both', none: 'None' };
+// Spec section 14 - the right-click menu's "Line" submenu (diagram-layer.tsx)
+// shows these exact words too, same reason as CONNECTOR_LABELS/ARROW_LABELS
+// above.
+export const LINE_STYLE_LABELS: Record<LineStyle, string> = { solid: 'Solid', dashed: 'Dashed' };
 // Spec section 9 - exported for the same reason as KIND_LABELS/COLOR_LABELS
 // above: the right-click menu's "Text" submenu (diagram-layer.tsx) shows
 // these exact words too.
@@ -108,6 +114,16 @@ const EDGE_ARROW_FIELD: FieldSchema = {
   kind: 'select',
   section: 'Style',
   options: ARROW_KINDS.map((arrow) => ({ value: arrow, label: ARROW_LABELS[arrow] })),
+};
+// Spec section 14: the connector's LINE style (solid/dashed), independent
+// of its shape (EDGE_KIND_FIELD's straight/step/curve) - next to Kind and
+// Arrows, same section, same plain (non-Mixed-aware) FieldSchema shape.
+const EDGE_LINE_STYLE_FIELD: FieldSchema = {
+  prop: 'lineStyle',
+  label: 'Line',
+  kind: 'select',
+  section: 'Style',
+  options: LINE_STYLES.map((style) => ({ value: style, label: LINE_STYLE_LABELS[style] })),
 };
 const EDGE_LABEL_FIELD: FieldSchema = { prop: 'label', label: 'Label', kind: 'text', section: 'Content' };
 
@@ -342,6 +358,12 @@ export function DiagramFields({
           value={edge.arrow}
           breakpoint="mobile"
           onChange={(next) => onAction({ type: 'setArrow', id: edge.id, arrow: next as ArrowKind })}
+        />
+        <Field
+          field={EDGE_LINE_STYLE_FIELD}
+          value={edge.lineStyle ?? 'solid'}
+          breakpoint="mobile"
+          onChange={(next) => onAction({ type: 'setLineStyle', id: edge.id, lineStyle: next as LineStyle })}
         />
         <Field
           field={EDGE_LABEL_FIELD}

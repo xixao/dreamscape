@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getDb } from '@/db/client';
-import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, NODE_KINDS, TEXT_COLORS, TEXT_FONTS, TEXT_SIZES } from '@/lib/diagram/store';
+import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, LINE_STYLES, NODE_KINDS, TEXT_COLORS, TEXT_FONTS, TEXT_SIZES } from '@/lib/diagram/store';
 import { createFilesRepository } from './repository';
 import { OVERLAY_SIDES, PRESENTATION_TYPES, SCREEN_KINDS, TOAST_POSITIONS } from './validate';
 
@@ -56,6 +56,11 @@ const diagramEdgeField = z.object({
   target: diagramEndpointField,
   kind: z.enum(CONNECTOR_KINDS),
   arrow: z.enum(ARROW_KINDS),
+  // Spec section 14: the connector's LINE style, optional - absent on
+  // every edge saved before this feature. Shape only, same split as
+  // everything else here; validateDiagram (lib/files/validate.ts) is the
+  // content rule for callers that reach it without this zod shape at all.
+  lineStyle: z.enum(LINE_STYLES).optional(),
   label: z.string().optional(),
 });
 
