@@ -243,11 +243,13 @@ describe('Inspector', () => {
       expect(within(panel).queryByText('Nothing selected')).not.toBeInTheDocument();
       expect(within(panel).getByRole('combobox', { name: 'Color' })).toBeInTheDocument();
       expect(within(panel).getByRole('combobox', { name: 'Text color' })).toBeInTheDocument();
-      // Text size/Font have only 3 real options each, so with no Mixed
-      // entry (both nodes agree, the diagramNode() default) they render as
-      // a ToggleGroup (radio), same as a single-shape selection - see
+      // Font has only 3 real options, so with no Mixed entry (both nodes
+      // agree, the diagramNode() default) it renders as a ToggleGroup
+      // (radio), same as a single-shape selection. Text size has five
+      // options now, past the Field component's own <= 3 ToggleGroup
+      // threshold, so it is a Select (combobox) regardless of Mixed - see
       // diagram-fields.test.tsx for that widget-choice behaviour directly.
-      expect(within(panel).getByRole('radio', { name: 'Medium' })).toBeInTheDocument();
+      expect(within(panel).getByRole('combobox', { name: 'Text size' })).toBeInTheDocument();
       expect(within(panel).getByRole('radio', { name: 'Sans' })).toBeInTheDocument();
     });
 

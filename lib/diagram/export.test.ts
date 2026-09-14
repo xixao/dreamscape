@@ -325,23 +325,26 @@ describe('renderDiagramSvg', () => {
   });
 
   describe('shape text', () => {
-    // A 160 x 80 box at the origin with no padding: inner width 148 (21
-    // characters at 7 px), inner height 68 (three 20.3 px lines - 14 px at
-    // the body line height of 1.45).
-    const box = { x: 0, y: 0, width: 160, height: 80 };
+    // A 160 x 120 box at the origin with no padding: inner width 148 (21
+    // characters at 7 px), inner height 108 (three 34.8 px lines - 24 px,
+    // the new medium default, at the body line height of 1.45; sized so
+    // three lines still fit comfortably the way they did at the old,
+    // smaller default - only the dedicated overflow test below uses a box
+    // deliberately too short for its own content).
+    const box = { x: 0, y: 0, width: 160, height: 120 };
 
     it('centres a single line in the box with the app font stack', () => {
       const text = only(group(renderDoc({ nodes: [node({ ...box, text: 'Hello' })], padding: 0 }), 'data-node', 'n1'), 'text');
       expect(text.getAttribute('x')).toBe('80');
       expect(text.getAttribute('fill')).toBe('#ffffff');
-      expect(text.getAttribute('font-size')).toBe('14');
+      expect(text.getAttribute('font-size')).toBe('24');
       expect(text.getAttribute('font-family')).toBe(SHAPE_FONT_FAMILY);
       expect(text.getAttribute('text-anchor')).toBe('middle');
       expect(text.getAttribute('dominant-baseline')).toBe('central');
       const spans = text.querySelectorAll('tspan');
       expect(spans).toHaveLength(1);
       expect(spans[0].getAttribute('x')).toBe('80');
-      expect(spans[0].getAttribute('y')).toBe('40');
+      expect(spans[0].getAttribute('y')).toBe('60');
       expect(spans[0].textContent).toBe('Hello');
     });
 
@@ -352,8 +355,9 @@ describe('renderDiagramSvg', () => {
       );
       const spans = Array.from(text.querySelectorAll('tspan'));
       expect(spans.map((span) => span.textContent)).toEqual(['The quick brown fox', 'jumps over the lazy', 'dog']);
-      // Three 20.3 px lines centred on y = 40: 40 - 20.3, 40, 40 + 20.3.
-      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['19.7', '40', '60.3']);
+      // Three 34.8 px lines centred on y = 60 (this box's own height / 2):
+      // 60 - 34.8, 60, 60 + 34.8.
+      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['25.2', '60', '94.8']);
       expect(spans.every((span) => span.getAttribute('x') === '80')).toBe(true);
     });
 
@@ -397,10 +401,10 @@ describe('renderDiagramSvg', () => {
       expect(shape.querySelectorAll('text')).toHaveLength(0);
     });
 
-    it('measures with the 14 px shape font', () => {
+    it('measures with the 24 px shape font', () => {
       const measureText = vi.fn(measure);
       render({ nodes: [node({ text: 'Hello' })], measureText });
-      expect(measureText).toHaveBeenCalledWith('Hello', { size: 14, family: SHAPE_FONT_FAMILY, weight: 400 });
+      expect(measureText).toHaveBeenCalledWith('Hello', { size: 24, family: SHAPE_FONT_FAMILY, weight: 400 });
     });
   });
 
@@ -414,11 +418,11 @@ describe('renderDiagramSvg', () => {
     const box = { x: 0, y: 0, width: 160, height: 80 };
     const SERIF_FAMILY = "Georgia, 'Times New Roman', serif";
 
-    it('uses 10px for small and 20px for large, in place of the 14px default', () => {
+    it('uses 16px for small and 40px for large, in place of the 24px default', () => {
       const small = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'small' })] }), 'data-node', 'n1'), 'text');
-      expect(small.getAttribute('font-size')).toBe('10');
+      expect(small.getAttribute('font-size')).toBe('16');
       const large = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'large' })] }), 'data-node', 'n1'), 'text');
-      expect(large.getAttribute('font-size')).toBe('20');
+      expect(large.getAttribute('font-size')).toBe('40');
     });
 
     it('uses the serif and mono font families, in place of the sans default', () => {
@@ -451,18 +455,19 @@ describe('renderDiagramSvg', () => {
       expect(text.getAttribute('fill')).toBe('#a1a1a1');
     });
 
-    it("passes the node's own size and family to measureText, not the 14px sans default", () => {
+    it("passes the node's own size and family to measureText, not the 24px sans default", () => {
       const measureText = vi.fn(measure);
       render({ nodes: [node({ text: 'Hello', textSize: 'large', textFont: 'mono' })], measureText });
-      expect(measureText).toHaveBeenCalledWith('Hello', { size: 20, family: LABEL_FONT_FAMILY, weight: 400 });
+      expect(measureText).toHaveBeenCalledWith('Hello', { size: 40, family: LABEL_FONT_FAMILY, weight: 400 });
     });
 
-    it('wraps and centres using the chosen size, not the 13px default line height', () => {
-      // 16px lines at 1.45 line height = 23.2px; inner height 68 fits two
-      // full lines (46.4), so drops the third the same way the default
-      // 13px font's own overflow test drops a fourth.
+    it('wraps and centres using the chosen size, not the 24px default line height', () => {
+      // large is 40px; at 1.45 line height that is 58px/line. A box tall
+      // enough for two lines (2 * 58 + 12 padding = 128, so height 140) but
+      // not three (3 * 58 = 174 > 128) still drops the third, the same way
+      // the default-size overflow test above drops a fourth.
       const text = only(
-        group(renderDoc({ nodes: [node({ ...box, textSize: 'large', text: 'one\ntwo\nthree' })] }), 'data-node', 'n1'),
+        group(renderDoc({ nodes: [node({ ...box, height: 140, textSize: 'large', text: 'one\ntwo\nthree' })] }), 'data-node', 'n1'),
         'text',
       );
       expect(Array.from(text.querySelectorAll('tspan')).map((span) => span.textContent)).toEqual(['one', 'two']);
@@ -819,11 +824,17 @@ describe('renderDiagramSvg', () => {
       const match = /body\s*\{[^}]*line-height:\s*([\d.]+)/.exec(css);
       const lineHeight = Number(match?.[1]);
       expect(lineHeight).toBeGreaterThan(1);
-      const text = only(group(renderDoc({ nodes: [node({ x: 0, y: 0, text: 'a\nb\nc' })], padding: 0 }), 'data-node', 'n1'), 'text');
+      // height 120: tall enough for three lines at the medium default's
+      // (24px) line height (3 * 24 * 1.45 = 104.4), same reasoning as the
+      // 'shape text' describe block's own shared box above.
+      const text = only(
+        group(renderDoc({ nodes: [node({ x: 0, y: 0, height: 120, text: 'a\nb\nc' })], padding: 0 }), 'data-node', 'n1'),
+        'text',
+      );
       const ys = Array.from(text.querySelectorAll('tspan')).map((span) => Number(span.getAttribute('y')));
       expect(ys).toHaveLength(3);
-      expect(ys[1] - ys[0]).toBeCloseTo(14 * lineHeight, 6);
-      expect(ys[2] - ys[1]).toBeCloseTo(14 * lineHeight, 6);
+      expect(ys[1] - ys[0]).toBeCloseTo(24 * lineHeight, 6);
+      expect(ys[2] - ys[1]).toBeCloseTo(24 * lineHeight, 6);
     });
   });
 });

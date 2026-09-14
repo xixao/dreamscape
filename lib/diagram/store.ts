@@ -44,7 +44,7 @@ export type ArrowKind = (typeof ARROW_KINDS)[number];
 // diagram-layer.tsx/diagram-fields.tsx/lib/diagram/export.ts each default
 // an absent value to medium/sans/default (today's only look) rather than
 // this module ever writing that default into stored data.
-export const TEXT_SIZES = ['small', 'medium', 'large'] as const;
+export const TEXT_SIZES = ['small', 'medium', 'large', 'xlarge', 'huge'] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
 
 export const TEXT_FONTS = ['sans', 'serif', 'mono'] as const;

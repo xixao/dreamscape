@@ -63,7 +63,13 @@ export const ARROW_LABELS: Record<ArrowKind, string> = { end: 'End', both: 'Both
 // Spec section 9 - exported for the same reason as KIND_LABELS/COLOR_LABELS
 // above: the right-click menu's "Text" submenu (diagram-layer.tsx) shows
 // these exact words too.
-export const TEXT_SIZE_LABELS: Record<TextSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' };
+export const TEXT_SIZE_LABELS: Record<TextSize, string> = {
+  small: 'Small',
+  medium: 'Medium',
+  large: 'Large',
+  xlarge: 'Extra Large',
+  huge: 'Huge',
+};
 export const TEXT_FONT_LABELS: Record<TextFont, string> = { sans: 'Sans', serif: 'Serif', mono: 'Mono' };
 export const TEXT_COLOR_LABELS: Record<TextColor, string> = {
   default: 'Default',

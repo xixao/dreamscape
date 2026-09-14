@@ -71,7 +71,9 @@ at zoom 1 is what the file shows.
   those tokens out of `app/globals.css` so the export cannot drift from
   the theme.
 - Shape text styling (spec section 9): a node's own optional `textSize`
-  (10/14/20 px, `SHAPE_FONT_SIZES`), `textFont` (`SHAPE_FONT_FAMILIES` -
+  (five steps - small 16 px, medium 24 px, large 40 px, xlarge 64 px, huge
+  96 px, labelled Small/Medium/Large/Extra Large/Huge; `SHAPE_FONT_SIZES`),
+  `textFont` (`SHAPE_FONT_FAMILIES` -
   sans is `SHAPE_FONT`'s own Archivo stack, serif a system stack, mono
   `LABEL_FONT`'s own IBM Plex Mono stack) and `textColor`
   (`SHAPE_TEXT_COLORS` - white by default, black, or one of the six

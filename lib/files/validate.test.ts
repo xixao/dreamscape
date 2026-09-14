@@ -682,7 +682,7 @@ describe('validateDiagram', () => {
   });
 
   it('rejects an unknown text size, font or color', () => {
-    expect(validateDiagram({ nodes: [diagramNode({ textSize: 'huge' as never })], edges: [] }).ok).toBe(false);
+    expect(validateDiagram({ nodes: [diagramNode({ textSize: 'gigantic' as never })], edges: [] }).ok).toBe(false);
     expect(validateDiagram({ nodes: [diagramNode({ textFont: 'comic-sans' as never })], edges: [] }).ok).toBe(false);
     expect(validateDiagram({ nodes: [diagramNode({ textColor: 'chartreuse' as never })], edges: [] }).ok).toBe(false);
   });

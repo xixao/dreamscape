@@ -111,7 +111,10 @@ describe('DiagramFields text styling', () => {
   it('defaults text size, font and color to medium/sans/default when absent', () => {
     render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={vi.fn()} />);
 
-    expect(screen.getByRole('radio', { name: 'Medium' })).toHaveAttribute('data-state', 'on');
+    // Text size now has five options (small/medium/large/xlarge/huge), past
+    // the Field component's own <= 3 threshold for a ToggleGroup - like
+    // Text color's eight options above it, it renders as a Select.
+    expect(screen.getByRole('combobox', { name: 'Text size' })).toHaveTextContent('Medium');
     expect(screen.getByRole('radio', { name: 'Sans' })).toHaveAttribute('data-state', 'on');
     expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Default');
   });
@@ -119,12 +122,12 @@ describe('DiagramFields text styling', () => {
   it('shows the shape own text size, font and color when set', () => {
     render(
       <DiagramFields
-        selected={{ type: 'node', node: node({ textSize: 'large', textFont: 'mono', textColor: 'blue' }) }}
+        selected={{ type: 'node', node: node({ textSize: 'huge', textFont: 'mono', textColor: 'blue' }) }}
         onAction={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('radio', { name: 'Large' })).toHaveAttribute('data-state', 'on');
+    expect(screen.getByRole('combobox', { name: 'Text size' })).toHaveTextContent('Huge');
     expect(screen.getByRole('radio', { name: 'Mono' })).toHaveAttribute('data-state', 'on');
     expect(screen.getByRole('combobox', { name: 'Text color' })).toHaveTextContent('Blue');
   });
@@ -133,9 +136,10 @@ describe('DiagramFields text styling', () => {
     const onAction = vi.fn();
     render(<DiagramFields selected={{ type: 'node', node: node() }} onAction={onAction} />);
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Large' }));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Text size' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Extra Large' }));
 
-    expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textSize: 'large' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'setTextStyle', ids: ['node000001'], textSize: 'xlarge' });
   });
 
   it('dispatches setTextStyle when font changes', async () => {
