@@ -77,23 +77,31 @@ export function FilesPage({
         </TooltipProvider>
       </header>
       <div className="pt-[26px] px-1 pb-10">
-        <Breadcrumb className="mb-1.5">
-          <BreadcrumbList className="font-mono text-[10.5px]">
-            {ancestors.map((ancestor) => (
-              <Fragment key={ancestor.id ?? 'root'}>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href={ancestor.id === null ? '/' : `/folders/${ancestor.id}`}>{ancestor.name}</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-              </Fragment>
-            ))}
-            <BreadcrumbItem>
-              <BreadcrumbPage>{title}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+        {/* Only rendered with real ancestors to show (spec: a folder's page
+        gets "Files > <ancestors> > <this folder>"). At the root, ancestors
+        is empty and the current crumb would just repeat the h1's own
+        "Files" text as a redundant eyebrow above it (Matt, 2026-09-14:
+        "get rid of the eyebrow 'Files' text above the Files header") -
+        there is nothing to navigate to from the root page anyway. */}
+        {path.length > 0 && (
+          <Breadcrumb className="mb-1.5">
+            <BreadcrumbList className="font-mono text-[10.5px]">
+              {ancestors.map((ancestor) => (
+                <Fragment key={ancestor.id ?? 'root'}>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link href={ancestor.id === null ? '/' : `/folders/${ancestor.id}`}>{ancestor.name}</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                </Fragment>
+              ))}
+              <BreadcrumbItem>
+                <BreadcrumbPage>{title}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        )}
 
         <div className="flex items-center gap-3.5 mb-[18px]">
           <h1 className="text-2xl font-semibold">{title}</h1>
