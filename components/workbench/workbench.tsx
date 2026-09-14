@@ -1767,8 +1767,6 @@ function WorkbenchShell({
                 commentMode={commentMode}
                 onToggleCommentMode={toggleCommentMode}
                 commentCount={threads.length}
-                diagramPaletteOpen={diagramPaletteOpen}
-                onToggleDiagramPalette={toggleDiagramPalette}
                 onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
                 onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}

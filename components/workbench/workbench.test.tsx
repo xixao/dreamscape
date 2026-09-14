@@ -966,7 +966,7 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
       await selectTwoFrames();
 
-      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
       await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
       const surface = screen.getByTestId('diagram-placement-surface');
       fireEvent.pointerDown(surface, { pointerId: 1, clientX: 500, clientY: 500 });
@@ -1854,7 +1854,7 @@ describe('Workbench', () => {
     // position would pass every other existing test.
     it('the diagram palette floats at the bottom centre of the canvas, not below the top bar', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
       expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toHaveClass(
         'fixed',
         'bottom-4',
@@ -2264,22 +2264,20 @@ describe('Workbench', () => {
     }
 
     async function placeRectangle(at: { x: number; y: number }): Promise<void> {
-      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
       await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
       const surface = screen.getByTestId('diagram-placement-surface');
       fireEvent.pointerDown(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
       fireEvent.pointerUp(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
     }
 
-    it('the top bar Diagram tool button opens the palette, reflected in aria-pressed', async () => {
+    it('Shift+D opens the palette (the top bar no longer has a diagram button)', async () => {
       render(<Workbench file={makeFile()} />);
-      const button = screen.getByRole('button', { name: 'Diagram tool' });
-      expect(button).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('button', { name: 'Diagram tool' })).toBeNull();
       expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
 
-      await userEvent.click(button);
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
 
-      expect(button).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toBeInTheDocument();
     });
 
@@ -2294,7 +2292,7 @@ describe('Workbench', () => {
       // pressed and the Diagram tool itself still reads active.
       const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
       expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('toolbar', { name: 'Diagram palette' })).toBeInTheDocument();
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -2304,13 +2302,13 @@ describe('Workbench', () => {
 
     it('the palette\'s close button hides it and releases the Diagram tool', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('button', { name: 'Diagram tool' }));
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
       const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
 
       await userEvent.click(within(palette).getByRole('button', { name: 'Close diagram palette' }));
 
       expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Diagram tool' })).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
     });
 
     it('Delete removes the selected shape instead of touching the Craft selection', async () => {
