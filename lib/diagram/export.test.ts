@@ -326,7 +326,7 @@ describe('renderDiagramSvg', () => {
 
   describe('shape text', () => {
     // A 160 x 80 box at the origin with no padding: inner width 148 (21
-    // characters at 7 px), inner height 68 (three 18.85 px lines - 13 px at
+    // characters at 7 px), inner height 68 (three 20.3 px lines - 14 px at
     // the body line height of 1.45).
     const box = { x: 0, y: 0, width: 160, height: 80 };
 
@@ -334,7 +334,7 @@ describe('renderDiagramSvg', () => {
       const text = only(group(renderDoc({ nodes: [node({ ...box, text: 'Hello' })], padding: 0 }), 'data-node', 'n1'), 'text');
       expect(text.getAttribute('x')).toBe('80');
       expect(text.getAttribute('fill')).toBe('#ffffff');
-      expect(text.getAttribute('font-size')).toBe('13');
+      expect(text.getAttribute('font-size')).toBe('14');
       expect(text.getAttribute('font-family')).toBe(SHAPE_FONT_FAMILY);
       expect(text.getAttribute('text-anchor')).toBe('middle');
       expect(text.getAttribute('dominant-baseline')).toBe('central');
@@ -352,8 +352,8 @@ describe('renderDiagramSvg', () => {
       );
       const spans = Array.from(text.querySelectorAll('tspan'));
       expect(spans.map((span) => span.textContent)).toEqual(['The quick brown fox', 'jumps over the lazy', 'dog']);
-      // Three 18.85 px lines centred on y = 40: 40 - 18.85, 40, 40 + 18.85.
-      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['21.15', '40', '58.85']);
+      // Three 20.3 px lines centred on y = 40: 40 - 20.3, 40, 40 + 20.3.
+      expect(spans.map((span) => span.getAttribute('y'))).toEqual(['19.7', '40', '60.3']);
       expect(spans.every((span) => span.getAttribute('x') === '80')).toBe(true);
     });
 
@@ -397,10 +397,10 @@ describe('renderDiagramSvg', () => {
       expect(shape.querySelectorAll('text')).toHaveLength(0);
     });
 
-    it('measures with the 13 px shape font', () => {
+    it('measures with the 14 px shape font', () => {
       const measureText = vi.fn(measure);
       render({ nodes: [node({ text: 'Hello' })], measureText });
-      expect(measureText).toHaveBeenCalledWith('Hello', { size: 13, family: SHAPE_FONT_FAMILY, weight: 400 });
+      expect(measureText).toHaveBeenCalledWith('Hello', { size: 14, family: SHAPE_FONT_FAMILY, weight: 400 });
     });
   });
 
@@ -414,11 +414,11 @@ describe('renderDiagramSvg', () => {
     const box = { x: 0, y: 0, width: 160, height: 80 };
     const SERIF_FAMILY = "Georgia, 'Times New Roman', serif";
 
-    it('uses 11px for small and 16px for large, in place of the 13px default', () => {
+    it('uses 10px for small and 20px for large, in place of the 14px default', () => {
       const small = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'small' })] }), 'data-node', 'n1'), 'text');
-      expect(small.getAttribute('font-size')).toBe('11');
+      expect(small.getAttribute('font-size')).toBe('10');
       const large = only(group(renderDoc({ nodes: [node({ ...box, textSize: 'large' })] }), 'data-node', 'n1'), 'text');
-      expect(large.getAttribute('font-size')).toBe('16');
+      expect(large.getAttribute('font-size')).toBe('20');
     });
 
     it('uses the serif and mono font families, in place of the sans default', () => {
@@ -451,10 +451,10 @@ describe('renderDiagramSvg', () => {
       expect(text.getAttribute('fill')).toBe('#a1a1a1');
     });
 
-    it("passes the node's own size and family to measureText, not the 13px sans default", () => {
+    it("passes the node's own size and family to measureText, not the 14px sans default", () => {
       const measureText = vi.fn(measure);
       render({ nodes: [node({ text: 'Hello', textSize: 'large', textFont: 'mono' })], measureText });
-      expect(measureText).toHaveBeenCalledWith('Hello', { size: 16, family: LABEL_FONT_FAMILY, weight: 400 });
+      expect(measureText).toHaveBeenCalledWith('Hello', { size: 20, family: LABEL_FONT_FAMILY, weight: 400 });
     });
 
     it('wraps and centres using the chosen size, not the 13px default line height', () => {
@@ -822,8 +822,8 @@ describe('renderDiagramSvg', () => {
       const text = only(group(renderDoc({ nodes: [node({ x: 0, y: 0, text: 'a\nb\nc' })], padding: 0 }), 'data-node', 'n1'), 'text');
       const ys = Array.from(text.querySelectorAll('tspan')).map((span) => Number(span.getAttribute('y')));
       expect(ys).toHaveLength(3);
-      expect(ys[1] - ys[0]).toBeCloseTo(13 * lineHeight, 6);
-      expect(ys[2] - ys[1]).toBeCloseTo(13 * lineHeight, 6);
+      expect(ys[1] - ys[0]).toBeCloseTo(14 * lineHeight, 6);
+      expect(ys[2] - ys[1]).toBeCloseTo(14 * lineHeight, 6);
     });
   });
 });

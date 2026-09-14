@@ -127,11 +127,11 @@ describe('DiagramLayer rendering', () => {
   });
 
   // Spec section 9: on-screen text honours a shape's own optional text
-  // size/font/color, defaulting to medium/sans/default (today's fixed 13px
+  // size/font/color, defaulting to medium/sans/default (today's fixed 14px
   // white sans) when absent.
   it("defaults a shape's text to medium/sans/white when no text style is set", () => {
     renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Hi' })] }) });
-    expect(screen.getByText('Hi')).toHaveClass('text-[13px]', 'font-sans', 'text-white');
+    expect(screen.getByText('Hi')).toHaveClass('text-[14px]', 'font-sans', 'text-white');
   });
 
   it("renders a shape's own text size, font and color", () => {
@@ -139,8 +139,8 @@ describe('DiagramLayer rendering', () => {
       diagram: stateWith({ nodes: [node({ text: 'Hi', textSize: 'large', textFont: 'mono', textColor: 'blue' })] }),
     });
     const text = screen.getByText('Hi');
-    expect(text).toHaveClass('text-[16px]', 'font-mono', 'text-blue-400');
-    expect(text).not.toHaveClass('text-[13px]', 'font-sans', 'text-white');
+    expect(text).toHaveClass('text-[20px]', 'font-mono', 'text-blue-400');
+    expect(text).not.toHaveClass('text-[14px]', 'font-sans', 'text-white');
   });
 
   it("renders the inline text editor with the shape's own text size, font and color", () => {
@@ -148,7 +148,7 @@ describe('DiagramLayer rendering', () => {
       diagram: stateWith({ nodes: [node({ text: 'Hi', textSize: 'small', textFont: 'serif', textColor: 'black' })] }),
     });
     fireEvent.doubleClick(screen.getByTestId('diagram-node-node000001'));
-    expect(screen.getByTestId('diagram-text-input-node000001')).toHaveClass('text-[11px]', 'font-serif', 'text-black');
+    expect(screen.getByTestId('diagram-text-input-node000001')).toHaveClass('text-[10px]', 'font-serif', 'text-black');
   });
 
   it('renders an edge as a path connecting the two node handles', () => {
@@ -897,7 +897,7 @@ describe('DiagramLayer option-drag duplicate (review finding 1: a ghost until po
     fireEvent.pointerMove(el, { pointerId: 1, clientX: 40, clientY: 0, altKey: true });
 
     const ghostText = screen.getByTestId('diagram-option-drag-ghosts').querySelector('foreignObject div')!;
-    expect(ghostText).toHaveClass('text-[16px]', 'font-mono', 'text-red-400');
+    expect(ghostText).toHaveClass('text-[20px]', 'font-mono', 'text-red-400');
   });
 
   it("draws the ghost edge's label chip too, matching the eventual copy", () => {
