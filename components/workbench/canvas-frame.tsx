@@ -50,6 +50,7 @@ function CanvasFrameImpl({
   height,
   zoom,
   title = 'Frame',
+  minHeight = ARTBOARD_MIN_HEIGHT,
   reportDocument = true,
   onCanvasDocument,
   onContentHeightChange,
@@ -59,6 +60,16 @@ function CanvasFrameImpl({
   height: number | null;
   zoom: number;
   title?: string;
+  // The floor `autoHeight` never measures below, for a `height: null`
+  // (auto) frame - defaults to the whole-screen ARTBOARD_MIN_HEIGHT, every
+  // caller's own floor before this prop existed. stage.tsx passes an
+  // overlay frame's own, smaller OVERLAY_MIN_HEIGHT instead (spec docs/
+  // superpowers/specs/2026-09-13-overlay-frames-design.md section 2: "the
+  // artboard minimum height for an overlay is OVERLAY_MIN_HEIGHT, not the
+  // screen minimum") - read once, at this component's own mount (see the
+  // effect below), same as every other value the resize-observer closure
+  // captures once and for this instance's whole life.
+  minHeight?: number;
   // Whether this instance publishes its document/window into the shared
   // StageContext (useStage().canvasDocument / useCanvasDocument()) - true by
   // default, matching every use of CanvasFrame before the infinite canvas.
@@ -85,7 +96,7 @@ function CanvasFrameImpl({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
-  const [autoHeight, setAutoHeight] = useState(ARTBOARD_MIN_HEIGHT);
+  const [autoHeight, setAutoHeight] = useState(minHeight);
   const setStageCanvasDocument = useStage().setCanvasDocument;
 
   // Craft's live event-handler instance (see lib/craft-positioner.ts for
@@ -191,7 +202,7 @@ function CanvasFrameImpl({
       stopStyleSync = () => styleObserver.disconnect();
 
       resizeObserver = new ResizeObserver(() => {
-        setAutoHeight(Math.max(ARTBOARD_MIN_HEIGHT, iframeDoc.body.scrollHeight));
+        setAutoHeight(Math.max(minHeight, iframeDoc.body.scrollHeight));
       });
       resizeObserver.observe(iframeDoc.body);
 
@@ -239,7 +250,11 @@ function CanvasFrameImpl({
     };
     // Mount-once: the iframe element itself never changes identity across
     // this component's life (width/height/zoom are applied as plain style
-    // below, not by recreating the element).
+    // below, not by recreating the element). minHeight, read by the resize
+    // observer above, is likewise fixed for this instance's whole life - a
+    // screen never turns into (or out of) an overlay without the
+    // Stage/FramePreview host (and so this CanvasFrame) remounting first.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const appliedHeight = height ?? autoHeight;

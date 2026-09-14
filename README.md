@@ -94,6 +94,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Canvas | ⇧G | Toggle the layout grid |
 | Canvas | ⌘' | Toggle the pixel grid |
 | Screens | ⇧N | New screen |
+| Screens | ⇧O | New overlay (dialog) |
 | Screens | ⌘⇧] | Next page |
 | Screens | ⌘⇧[ | Previous page |
 | Edit | ⌘Z | Undo |

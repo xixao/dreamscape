@@ -35,7 +35,8 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Page, Screen } from '@/lib/files/repository';
+import type { OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
+import { isOverlay } from '@/lib/files/screens';
 import { zoomTo } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
 import { formatKeys, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
@@ -48,6 +49,49 @@ import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_
 import { FramesChip } from './frames-chip';
 import { PagesMenu } from './pages-menu';
 import { useStage } from './stage-context';
+
+/**
+ * Present's target URL (spec docs/superpowers/specs/2026-09-13-overlay-
+ * frames-design.md section 4 + section 5's Present entry point): this top
+ * bar's own Play icon link and workbench.tsx's Cmd+R handler both build
+ * this exact URL, so the two can never drift apart. Play never stands ON
+ * an overlay frame (only ever opens on top of a screen), so when the
+ * focused frame is an overlay this omits `screen` entirely and passes
+ * `overlay` instead - app/f/[id]/play/page.tsx forwards both straight to
+ * the Player, whose resolveInitialScreenId only ever considers plain
+ * screens (phase 1) and so lands on the page's own first real screen,
+ * with the focused overlay seeded onto the stack on top of it via
+ * initialOverlayId. `URLSearchParams` (not a template literal) so both
+ * branches build through the same code path and can never format the
+ * shared `page` param two different ways.
+ *
+ * Phase 2 review finding 1: an overlay's own page can end up with no plain
+ * screen left on it (every screen on it either never existed or got moved/
+ * deleted around the overlay - `wouldStrandPage` stops that through this
+ * app's own UI, but does not guarantee it can never happen to older or
+ * hand-edited data). Left alone, `page` with no `screen` would fall to
+ * resolveInitialScreenId's own page-then-first-page-with-a-screen cascade,
+ * which can silently land Play on some OTHER page's first screen - not
+ * necessarily one the user meant. So this checks for that case itself and,
+ * when the file has a plain screen anywhere else, names it explicitly as
+ * `screen` instead (an explicit, valid `screen` always wins outright over
+ * `page` in that cascade - see resolveInitialScreenId - so `page` is
+ * dropped rather than left in place to imply an agreement with `screen`
+ * that is not really there). A file with no plain screen anywhere at all
+ * has no better fallback to offer; `page` stays as the least-wrong choice.
+ */
+export function presentHrefFor(fileId: string, pageId: string, screens: Screen[], focusedScreenId: string): string {
+  const focused = screens.find((screen) => screen.id === focusedScreenId);
+  if (focused && isOverlay(focused)) {
+    const ownPageHasPlainScreen = screens.some((screen) => screen.pageId === pageId && !isOverlay(screen));
+    const fallbackScreen = ownPageHasPlainScreen ? undefined : screens.find((screen) => !isOverlay(screen));
+    const params = new URLSearchParams(fallbackScreen ? { screen: fallbackScreen.id } : { page: pageId });
+    params.set('overlay', focusedScreenId);
+    return `/f/${fileId}/play?${params.toString()}`;
+  }
+  const params = new URLSearchParams({ page: pageId, screen: focusedScreenId });
+  return `/f/${fileId}/play?${params.toString()}`;
+}
 
 const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
   mobile: { label: 'Mobile', icon: Smartphone },
@@ -360,6 +404,7 @@ export function Topbar({
   notice,
   onNew,
   onAddScreen,
+  onAddOverlay,
   fileId,
   folderId,
   pages,
@@ -397,6 +442,7 @@ export function Topbar({
   notice?: string;
   onNew: () => void;
   onAddScreen: () => void;
+  onAddOverlay: (type: OverlayPresentationType) => void;
   fileId: string;
   folderId: string | null;
   pages: Page[];
@@ -438,7 +484,15 @@ export function Topbar({
     canRedo: query.history.canRedo(),
   }));
   const filesHref = folderId ? `/folders/${folderId}` : '/';
-  const presentHref = `/f/${fileId}/play?page=${currentPageId}&screen=${currentScreenId}`;
+  const presentHref = presentHrefFor(fileId, currentPageId, screens, currentScreenId);
+  // Device presets do not apply to overlays (spec section 2) - the chip
+  // itself would still work (setDevice just writes stageWidth/stageHeight/
+  // deviceName the same as it does for a screen), but showing it invites
+  // exactly the customization the spec rules out, so it is hidden outright
+  // while an overlay frame is focused; width editing (the Mobile/Tablet/
+  // Desktop segments and the resize handles) stays.
+  const focusedScreen = screens.find((screen) => screen.id === currentScreenId);
+  const focusedIsOverlay = focusedScreen ? isOverlay(focusedScreen) : false;
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -498,6 +552,7 @@ export function Topbar({
           pages={pages}
           onSwitch={onSwitchScreen}
           onAdd={onAddScreen}
+          onAddOverlay={onAddOverlay}
           onRename={onRenameScreen}
           onDuplicate={onDuplicateScreen}
           onDelete={onDeleteScreen}
@@ -529,7 +584,7 @@ export function Topbar({
             );
           })}
         </ToggleGroup>
-        <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />
+        {!focusedIsOverlay && <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />}
         <ZoomMenu
           readoutText={readoutFor({ width, height, deviceName, zoom })}
           onZoomIn={onZoomIn}

@@ -5,7 +5,9 @@ import userEvent from '@testing-library/user-event';
 import { Frame, ROOT_NODE } from '@craftjs/core';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 import type { Viewport } from '@/lib/canvas/viewport';
+import type { Screen } from '@/lib/files/repository';
 import type { SaveState } from '@/lib/persistence';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import { CanvasViewportProvider } from './canvas';
 import { Topbar } from './topbar';
@@ -46,6 +48,7 @@ function renderTopbar(
   const onRename = overrides.onRename ?? vi.fn();
   const onNew = overrides.onNew ?? vi.fn();
   const onAddScreen = overrides.onAddScreen ?? vi.fn();
+  const onAddOverlay = overrides.onAddOverlay ?? vi.fn();
   const onToggleChat = overrides.onToggleChat ?? vi.fn();
   const onZoomIn = overrides.onZoomIn ?? vi.fn();
   const onZoomOut = overrides.onZoomOut ?? vi.fn();
@@ -76,6 +79,7 @@ function renderTopbar(
     onRename,
     onNew,
     onAddScreen,
+    onAddOverlay,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -103,6 +107,7 @@ function renderTopbar(
     onRename,
     onNew,
     onAddScreen,
+    onAddOverlay,
     onToggleChat,
     onZoomIn,
     onZoomOut,
@@ -154,6 +159,7 @@ describe('Topbar', () => {
             saveState="saved"
             onNew={() => {}}
             onAddScreen={() => {}}
+            onAddOverlay={() => {}}
             fileId="file123abc"
             folderId={null}
             pages={[{ id: 'page000001', name: 'Page 1' }]}
@@ -220,6 +226,53 @@ describe('Topbar', () => {
       expect(present).toHaveAttribute('href', '/f/file123abc/play?page=page000001&screen=screen0002');
       expect(present).toHaveAttribute('target', '_blank');
       expect(present).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    });
+
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-
+    // frames-design.md section 4 + 5's Present entry point): Play never
+    // stands ON an overlay frame - `screen` is omitted so the Player's own
+    // initialPageId resolution lands on the page's first real screen, with
+    // `overlay` opening the focused overlay on top of it. This file has no
+    // plain screen anywhere (only the overlay), so this doubles as the
+    // phase 2 review finding 1 case where there is no file-wide fallback
+    // screen to name either - `page` is the best this can do.
+    it('carries ?overlay= instead of ?screen= when the focused frame is an overlay', () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: 'page000001', x: 0, y: 0 });
+      renderTopbar({ fileId: 'file123abc', screens: [overlay], currentScreenId: overlay.id });
+      const present = screen.getByRole('link', { name: 'Present' });
+      expect(present).toHaveAttribute('href', '/f/file123abc/play?page=page000001&overlay=overlay01');
+    });
+
+    // Phase 2 review finding 1: when the overlay's own page has no plain
+    // screen of its own, but the FILE does have one on some OTHER page,
+    // naming that screen explicitly beats leaving it to the Player's own
+    // page-then-first-page-with-a-screen cascade (resolveInitialScreenId in
+    // components/play/player.tsx), which would otherwise silently land on
+    // whichever page happens to come first in `pages` order - not
+    // necessarily one the user meant. `page` is omitted: an explicit
+    // `screen` always wins there regardless of `page`, so naming both would
+    // only invite the two to look like they disagree.
+    it('falls back to the file\'s first plain screen, omitting page, when the overlay\'s own page has none', () => {
+      const plainOnOtherPage: Screen = {
+        id: 'screen0009',
+        name: 'Home',
+        layout: emptyLayoutJson(),
+        stageWidth: 1440,
+        pageId: 'page000002',
+      };
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: 'page000001', x: 0, y: 0 });
+      renderTopbar({
+        fileId: 'file123abc',
+        pages: [
+          { id: 'page000001', name: 'Page 1' },
+          { id: 'page000002', name: 'Page 2' },
+        ],
+        screens: [plainOnOtherPage, overlay],
+        currentPageId: 'page000001',
+        currentScreenId: overlay.id,
+      });
+      const present = screen.getByRole('link', { name: 'Present' });
+      expect(present).toHaveAttribute('href', '/f/file123abc/play?screen=screen0009&overlay=overlay01');
     });
   });
 
@@ -543,6 +596,39 @@ describe('Topbar', () => {
       const item = screen.getByRole('menuitem', { name: 'Download source' });
       expect(item).toHaveAttribute('href', '/dreamscape-source.zip');
       expect(item).toHaveAttribute('download');
+    });
+  });
+
+  describe('overlay frames', () => {
+    const overlay = createOverlayScreen({
+      type: 'dialog',
+      id: 'overlay01',
+      name: 'Dialog 1',
+      pageId: 'page000001',
+      x: 0,
+      y: 0,
+    });
+    const plainScreen = { id: 'screen0001', name: 'Login', layout: emptyLayoutJson(), stageWidth: 1440, pageId: 'page000001' };
+
+    it('hides the device preset chip while the focused frame is an overlay', () => {
+      renderTopbar({ screens: [overlay], currentScreenId: overlay.id });
+      expect(screen.queryByRole('button', { name: 'Frame size presets' })).toBeNull();
+    });
+
+    it('shows the device preset chip while the focused frame is a plain screen', () => {
+      renderTopbar({ screens: [plainScreen], currentScreenId: plainScreen.id });
+      expect(screen.getByRole('button', { name: 'Frame size presets' })).toBeInTheDocument();
+    });
+
+    it('forwards the Frames chip\'s New overlay menu to onAddOverlay', async () => {
+      const onAddOverlay = vi.fn();
+      renderTopbar({ onAddOverlay, screens: [plainScreen], currentScreenId: plainScreen.id });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Frames' }));
+      fireEvent.keyDown(await screen.findByRole('menuitem', { name: 'New overlay' }), { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Dialog' }));
+
+      expect(onAddOverlay).toHaveBeenCalledWith('dialog');
     });
   });
 });

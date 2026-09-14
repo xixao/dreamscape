@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { loadViewport } from '@/lib/canvas/viewport-store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Workbench } from './workbench';
 import loginExampleLayout from '@/lib/examples/login-screen.json';
@@ -631,6 +632,37 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
 
+    // Overlay frames phase 2 review, finding 3: addScreen must never
+    // template a brand new plain screen off a focused OVERLAY - it should
+    // fall back to the page's own most recently added plain screen, or (no
+    // plain screen on the page at all) a plain desktop default.
+    it('New screen while an overlay is focused falls back to the page\'s most recent plain screen, not the overlay\'s own size', async () => {
+      const customPlain: Screen = { id: 'plain0001', name: 'Custom', layout: '{}', stageWidth: 900, pageId: PAGE_ID, x: 0, y: 0 };
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 1200, y: 0 });
+      render(<Workbench file={makeFile({ screens: [customPlain, overlay] })} />);
+
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('512'));
+
+      await addNewFrame();
+
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('900'));
+      // Drains this screen's own save traffic - see the comment on "New
+      // screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('New screen while an overlay is focused, on a page with no plain screen at all, uses the desktop default width', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay02', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(<Workbench file={makeFile({ screens: [overlay] })} />);
+
+      await addNewFrame();
+
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440'));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
     it('switching screens restores each one\'s own device (or lack of one) in the readout', async () => {
       const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
       render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
@@ -1059,6 +1091,81 @@ describe('Workbench', () => {
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+
+      openSpy.mockRestore();
+    });
+
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-
+    // frames-design.md section 4 + 5's Present entry point): Play never
+    // stands ON an overlay - both entry points carry `?overlay=` instead of
+    // `?screen=` while one is focused, so the Player starts on the page's
+    // own first real screen with the overlay open on top.
+    it('carries ?overlay= instead of ?screen= for both entry points once an overlay frame is focused', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, overlay] })} />);
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      // Not the shared selectFrame() helper: an overlay row's own mono
+      // badge ("Dialog") joins its name in the row's accessible name (spec
+      // section 5's badge is deliberately not aria-hidden - a screen reader
+      // user browsing this menu should hear it too), so an exact-name match
+      // for just "Dialog 1" no longer finds it; a substring match still does.
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
+      );
+
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+
+      openSpy.mockRestore();
+    });
+
+    // Phase 2 review finding 1: PAGE_ID here holds only the overlay - no
+    // plain screen of its own - while SCREEN_4 lives on the file's OTHER
+    // page (PAGE_2_ID). Both entry points must fall back to naming SCREEN_4
+    // explicitly (and drop `page`) rather than leaving Play's own page
+    // cascade (components/play/player.tsx's resolveInitialScreenId) to
+    // land wherever it likes.
+    it('falls back to the file\'s first plain screen for both entry points when the overlay\'s own page has none', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(
+        <Workbench
+          file={makeFile({
+            pages: [
+              { id: PAGE_ID, name: 'Page 1' },
+              { id: PAGE_2_ID, name: 'v2' },
+            ],
+            screens: [SCREEN_4, overlay],
+          })}
+        />,
+      );
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      // Not the shared selectFrame() helper - see the comment on the
+      // preceding test for why an exact name match no longer finds an
+      // overlay row.
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
+      );
+
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
         '_blank',
         'noopener,noreferrer',
       );
@@ -1853,6 +1960,59 @@ describe('Workbench', () => {
       // The original page keeps its own flow chart untouched.
       const original = body.pages.find((p: { id: string }) => p.id === page1.id);
       expect(original.diagram.edges[0].target.screenId).toBe(SCREEN_1.id);
+    });
+
+    // Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-
+    // frames-design.md section 5: "a connector from a screen to an overlay
+    // persists and survives a page duplicate") - the same re-pointing above
+    // pins for a plain screen target, generalized to an overlay one: the
+    // duplicate machinery (workbench.tsx's duplicatePage, lib/diagram/
+    // store.ts's cloneDiagram) builds its screenIdMap from every copied
+    // screen on the page uniformly, never checking kind, so an overlay
+    // frame's own id is remapped exactly like any other screen's.
+    it('also re-points a connector to an OVERLAY frame at its own copy, on Duplicate page', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 400, y: 0 });
+      const file = makeFile({
+        pages: [
+          { id: PAGE_ID, name: 'Page 1' },
+          { id: PAGE_2_ID, name: 'v2' },
+        ],
+        screens: [SCREEN_1, overlay, SCREEN_4],
+      });
+      const page1 = file.pages?.[0];
+      if (!page1) throw new Error('fixture needs pages');
+      page1.diagram = {
+        nodes: [{ id: 'n1', kind: 'decision', x: 200, y: 900, width: 160, height: 100, text: 'Go?', color: 'neutral' }],
+        edges: [
+          {
+            id: 'e1',
+            kind: 'step',
+            arrow: 'end',
+            source: { nodeId: 'n1', side: 'top' },
+            target: { screenId: overlay.id, side: 'bottom' },
+          },
+        ],
+      };
+      render(<Workbench file={file} />);
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate page' }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+
+      const lastCall = fetchMock.mock.calls.at(-1) as [string, { body: string }] | undefined;
+      if (!lastCall) throw new Error('expected a PATCH after Duplicate page');
+      const body = JSON.parse(lastCall[1].body);
+      const copiedPage = body.pages.find((p: { name: string }) => p.name === 'Page 1 copy');
+      const copiedOverlay = body.screens.find(
+        (s: { pageId: string; kind?: string }) => s.pageId === copiedPage.id && s.kind === 'overlay',
+      );
+      expect(copiedOverlay).toBeDefined();
+      expect(copiedOverlay.id).not.toBe(overlay.id);
+      expect(copiedPage.diagram.edges).toHaveLength(1);
+      expect(copiedPage.diagram.edges[0].target.screenId).toBe(copiedOverlay.id);
+      // The original page's own connector still points at the original overlay.
+      const original = body.pages.find((p: { id: string }) => p.id === page1.id);
+      expect(original.diagram.edges[0].target.screenId).toBe(overlay.id);
     });
 
     it('Delete page confirms naming the screen count, removes the page and switches away from it', async () => {

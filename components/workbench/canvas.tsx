@@ -385,6 +385,7 @@ export function Canvas({
   onSetFrameSelection = noopIds,
   onClearFrameSelection = noop,
   pixelGridVisible = true,
+  diagramPaletteOpen = false,
   measuredHeights = DEFAULT_MEASURED_HEIGHTS,
   onMeasuredHeight = noopMeasuredHeight,
 }: {
@@ -430,6 +431,20 @@ export function Canvas({
   // canvas.tsx itself, the same split every other per-browser UI flag here
   // already has (chatOpen, panelMode, ...).
   pixelGridVisible?: boolean;
+  // Whether the Diagram palette is open (spec docs/superpowers/specs/2026-
+  // 09-13-overlay-frames-design.md section 5: "with the Diagram tool
+  // active, clicking any frame's body ... selects that frame, Shift+click
+  // adds it"): while true, a frame's own body (Stage's artboard or a
+  // FramePreview) is a click target for the canvas-level frame selection
+  // (selectedFrameIds) instead of its usual job - editing Craft content, or
+  // focusing the frame - the same "this tool repurposes a plain press"
+  // precedent comments.commentMode already set for the comment-cover
+  // below. Never conflicts with placing a shape or drawing a connector:
+  // both of those are already handled by elements literally layered above
+  // a frame (the diagram SVG's own placement surface, and each frame's own
+  // hover handles), which intercept the press before it ever reaches a
+  // frame's body.
+  diagramPaletteOpen?: boolean;
   // Review fix wave item 8: an auto-height frame's real, current height -
   // owned by WorkbenchShell (Inspector needs the same map for alignment/
   // distribute), fed here purely to resolve frameRect/snapBoxFor's own
@@ -1048,6 +1063,22 @@ export function Canvas({
           const otherFrames = screens
             .filter((candidate) => candidate.id !== screen.id && !(selected && selectedFrameIds.has(candidate.id)))
             .map((candidate) => snapBoxFor(candidate, measuredHeights));
+          // Diagram-mode click-to-select (see diagramPaletteOpen's own doc
+          // comment above): a plain click replaces the frame selection, a
+          // Shift+click adds to it - mirroring FrameTitle's onShiftSelect
+          // pattern just below, including dropping any diagram selection
+          // first, since a frame selection and a diagram selection are
+          // never both active at once.
+          const diagramFrameSelect = diagramPaletteOpen
+            ? {
+                active: true,
+                onSelect: (shiftKey: boolean) => {
+                  onDeselectDiagram();
+                  if (shiftKey) onToggleFrameSelection(screen.id);
+                  else onSetFrameSelection([screen.id]);
+                },
+              }
+            : undefined;
           return (
             <div
               key={screen.id}
@@ -1082,10 +1113,17 @@ export function Canvas({
                 }}
               />
               {focused ? (
-                <Stage screen={screen} viewport={viewport} comments={comments} onMeasuredHeight={stableOnMeasuredHeight} />
+                <Stage
+                  screen={screen}
+                  viewport={viewport}
+                  comments={comments}
+                  onMeasuredHeight={stableOnMeasuredHeight}
+                  diagramFrameSelect={diagramFrameSelect}
+                />
               ) : (
                 <FramePreview
                   screen={screen}
+                  diagramFrameSelect={diagramFrameSelect}
                   // onFocusScreen is the prop this component itself
                   // received, passed straight through: already stable
                   // across a pure viewport re-render (it comes from

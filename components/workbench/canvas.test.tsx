@@ -42,6 +42,7 @@ function Harness({
   onSetFrameSelection,
   onClearFrameSelection,
   pixelGridVisible,
+  diagramPaletteOpen,
   measuredHeights,
   onMeasuredHeight,
 }: {
@@ -60,6 +61,7 @@ function Harness({
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
   pixelGridVisible?: boolean;
+  diagramPaletteOpen?: boolean;
   measuredHeights?: ReadonlyMap<string, number>;
   onMeasuredHeight?: (id: string, height: number) => void;
 }) {
@@ -85,6 +87,7 @@ function Harness({
         onSetFrameSelection={onSetFrameSelection}
         onClearFrameSelection={onClearFrameSelection}
         pixelGridVisible={pixelGridVisible}
+        diagramPaletteOpen={diagramPaletteOpen}
         measuredHeights={measuredHeights}
         onMeasuredHeight={onMeasuredHeight}
       />
@@ -109,6 +112,7 @@ function renderCanvas({
   onSetFrameSelection,
   onClearFrameSelection,
   pixelGridVisible,
+  diagramPaletteOpen,
   measuredHeights,
   onMeasuredHeight,
 }: {
@@ -127,6 +131,7 @@ function renderCanvas({
   onSetFrameSelection?: (ids: string[]) => void;
   onClearFrameSelection?: () => void;
   pixelGridVisible?: boolean;
+  diagramPaletteOpen?: boolean;
   measuredHeights?: ReadonlyMap<string, number>;
   onMeasuredHeight?: (id: string, height: number) => void;
 } = {}) {
@@ -147,6 +152,7 @@ function renderCanvas({
       onSetFrameSelection={onSetFrameSelection}
       onClearFrameSelection={onClearFrameSelection}
       pixelGridVisible={pixelGridVisible}
+      diagramPaletteOpen={diagramPaletteOpen}
       measuredHeights={measuredHeights}
       onMeasuredHeight={onMeasuredHeight}
     />,
@@ -390,6 +396,73 @@ describe('Canvas', () => {
       expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveAttribute('data-selected', 'true');
       expect(screen.getByTestId(`frame-${SCREEN_1.id}`)).toHaveClass('outline-acc');
       expect(screen.getByTestId(`frame-${SCREEN_2.id}`)).not.toHaveAttribute('data-selected');
+    });
+
+    // Diagram-mode click-to-select (spec docs/superpowers/specs/2026-09-13-
+    // overlay-frames-design.md section 5): while the Diagram palette is
+    // open, a press on a frame's own body selects it into selectedFrameIds
+    // instead of its usual job.
+    describe('while the Diagram palette is open', () => {
+      it('a plain press on the focused frame\'s body sets the frame selection to just that frame', async () => {
+        const onSetFrameSelection = vi.fn();
+        const onDeselectDiagram = vi.fn();
+        renderCanvas({
+          screens: [SCREEN_1, SCREEN_2],
+          focusedScreenId: SCREEN_1.id,
+          onSetFrameSelection,
+          onDeselectDiagram,
+          diagramPaletteOpen: true,
+        });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        fireEvent.pointerDown(screen.getByTestId('diagram-frame-cover'), { shiftKey: false });
+
+        expect(onDeselectDiagram).toHaveBeenCalledTimes(1);
+        expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
+      });
+
+      it('a Shift+press on the focused frame\'s body toggles it into the selection', async () => {
+        const onToggleFrameSelection = vi.fn();
+        renderCanvas({
+          screens: [SCREEN_1, SCREEN_2],
+          focusedScreenId: SCREEN_1.id,
+          onToggleFrameSelection,
+          diagramPaletteOpen: true,
+        });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        fireEvent.pointerDown(screen.getByTestId('diagram-frame-cover'), { shiftKey: true });
+
+        expect(onToggleFrameSelection).toHaveBeenCalledWith(SCREEN_1.id);
+      });
+
+      it('a press on a non-focused frame\'s body selects it instead of focusing it', async () => {
+        const onSetFrameSelection = vi.fn();
+        const onFocusScreen = vi.fn();
+        renderCanvas({
+          screens: [SCREEN_1, SCREEN_2],
+          focusedScreenId: SCREEN_1.id,
+          onFocusScreen,
+          onSetFrameSelection,
+          diagramPaletteOpen: true,
+        });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
+
+        expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_2.id]);
+        expect(onFocusScreen).not.toHaveBeenCalled();
+      });
+
+      it('renders no cover, and a press focuses normally, while the palette is closed', async () => {
+        const onFocusScreen = vi.fn();
+        renderCanvas({ screens: [SCREEN_1, SCREEN_2], focusedScreenId: SCREEN_1.id, onFocusScreen });
+        await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
+
+        expect(screen.queryByTestId('diagram-frame-cover')).toBeNull();
+        fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
+        expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_2.id);
+      });
     });
 
     it('a marquee drag on empty canvas selects every frame it intersects', async () => {

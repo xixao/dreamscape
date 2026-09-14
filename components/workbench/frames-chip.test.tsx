@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Screen } from '@/lib/files/repository';
+import { createOverlayScreen } from '@/lib/files/screens';
 import { FramesChip } from './frames-chip';
 
 function makeFrame(id: string, overrides: Partial<Screen> = {}): Screen {
@@ -16,6 +17,7 @@ function renderChip(overrides: Partial<ComponentProps<typeof FramesChip>> = {}) 
     currentFrameId: frames[0].id,
     onSwitch: vi.fn(),
     onAdd: vi.fn(),
+    onAddOverlay: vi.fn(),
     onRename: vi.fn(),
     onDuplicate: vi.fn(),
     onDelete: vi.fn(),
@@ -33,7 +35,7 @@ function renderChip(overrides: Partial<ComponentProps<typeof FramesChip>> = {}) 
 // synchronously (unlike hover's own 100ms-delayed open), so callers don't
 // need a waitFor just to reach it. Does not click the row itself, which
 // would instead focus and zoom to it.
-async function openFrameRowMenu(frameName: string): Promise<void> {
+async function openFrameRowMenu(frameName: string | RegExp): Promise<void> {
   const trigger = screen.getByRole('button', { name: 'Frames' });
   await userEvent.click(trigger);
   const row = await screen.findByRole('menuitem', { name: frameName });
@@ -233,6 +235,102 @@ describe('FramesChip', () => {
       expect(props.onSwitch).not.toHaveBeenCalled();
       expect(props.onZoomToFrame).not.toHaveBeenCalled();
     });
+
+    // Overlay frames phase 2 review, finding 1: a page must always keep at
+    // least one plain screen once it has an overlay on it (Present has
+    // nowhere sensible to land otherwise).
+    describe('keeping at least one plain screen once an overlay exists', () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+
+      it('is disabled, with a tooltip, for the LAST plain screen once an overlay also exists on the page', async () => {
+        const props = renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay] });
+        await openFrameRowMenu('Login');
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
+        expect(deleteItem).toHaveAttribute('title', 'A page needs at least one screen');
+
+        await userEvent.click(deleteItem);
+        expect(screen.queryByText('Delete Login?')).toBeNull();
+        expect(props.onDelete).not.toHaveBeenCalled();
+      });
+
+      it('stays enabled for a plain screen when another plain screen remains, even with an overlay present', async () => {
+        const props = renderChip({
+          frames: [makeFrame('a', { name: 'Login' }), makeFrame('b', { name: 'Settings' }), overlay],
+        });
+        await openFrameRowMenu('Login');
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).not.toHaveAttribute('aria-disabled', 'true');
+
+        await userEvent.click(deleteItem);
+        await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+        expect(props.onDelete).toHaveBeenCalledWith('a');
+      });
+
+      it('stays enabled for the overlay itself, even as the page\'s only overlay, as long as a plain screen remains', async () => {
+        renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay] });
+        await openFrameRowMenu(/Dialog 1/);
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).not.toHaveAttribute('aria-disabled', 'true');
+      });
+    });
+  });
+
+  describe('overlay frames', () => {
+    function makeOverlayFrame(id: string, type: 'dialog' | 'sheet' | 'toast', overrides: Partial<Screen> = {}): Screen {
+      return { ...createOverlayScreen({ type, id, name: `${type} ${id}`, pageId: 'p1', x: 0, y: 0 }), ...overrides };
+    }
+
+    it('shows a mono badge naming the presentation after an overlay row\'s name', async () => {
+      const frames = [
+        makeFrame('a', { name: 'Login' }),
+        makeOverlayFrame('b', 'sheet', { name: 'Filters' }),
+        makeOverlayFrame('c', 'toast', { name: 'Saved' }),
+      ];
+      renderChip({ frames, currentFrameId: 'a' });
+      const trigger = screen.getByRole('button', { name: 'Frames' });
+      await userEvent.click(trigger);
+
+      const items = screen.getAllByRole('menuitem');
+      expect(within(items[0]).queryByText(/Sheet|Toast|Dialog/)).toBeNull();
+      expect(within(items[1]).getByText('Sheet · Right')).toBeInTheDocument();
+      expect(within(items[2]).getByText('Toast')).toBeInTheDocument();
+    });
+
+    it('offers a "New overlay" submenu with Dialog, Sheet and Toast, after New frame', async () => {
+      const props = renderChip();
+      const trigger = screen.getByRole('button', { name: 'Frames' });
+      await userEvent.click(trigger);
+
+      const menuitems = screen.getAllByRole('menuitem');
+      const newFrameIndex = menuitems.findIndex((item) => item.textContent === 'New frame');
+      const newOverlayTrigger = await screen.findByRole('menuitem', { name: 'New overlay' });
+      expect(menuitems.indexOf(newOverlayTrigger)).toBeGreaterThan(newFrameIndex);
+
+      fireEvent.keyDown(newOverlayTrigger, { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Dialog' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('dialog');
+      await waitFor(() => expect(screen.queryAllByRole('menuitem')).toHaveLength(0));
+    });
+
+    it('New overlay > Sheet calls onAddOverlay with "sheet"', async () => {
+      const props = renderChip();
+      await userEvent.click(screen.getByRole('button', { name: 'Frames' }));
+      fireEvent.keyDown(await screen.findByRole('menuitem', { name: 'New overlay' }), { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Sheet' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('sheet');
+    });
+
+    it('New overlay > Toast calls onAddOverlay with "toast"', async () => {
+      const props = renderChip();
+      await userEvent.click(screen.getByRole('button', { name: 'Frames' }));
+      fireEvent.keyDown(await screen.findByRole('menuitem', { name: 'New overlay' }), { key: 'ArrowRight' });
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Toast' }));
+      expect(props.onAddOverlay).toHaveBeenCalledWith('toast');
+    });
   });
 
   describe('move to page', () => {
@@ -260,6 +358,29 @@ describe('FramesChip', () => {
       renderChip({ pages: [pages[0]] });
       await openFrameRowMenu('Login');
       expect(screen.queryByRole('menuitem', { name: 'Move to page' })).toBeNull();
+    });
+
+    // Overlay frames phase 2 review, finding 1 - the same "a page needs at
+    // least one plain screen once it has an overlay" invariant Delete
+    // enforces above, since moving a screen away strands its origin page
+    // exactly the way deleting it would.
+    it('is disabled, with a tooltip, for the LAST plain screen of the origin page once an overlay also exists there', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay], pages });
+      await openFrameRowMenu('Login');
+
+      const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
+      expect(moveToPageTrigger).toHaveAttribute('aria-disabled', 'true');
+      expect(moveToPageTrigger).toHaveAttribute('title', 'A page needs at least one screen');
+    });
+
+    it('stays enabled when another plain screen would remain on the origin page', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderChip({ frames: [makeFrame('a', { name: 'Login' }), makeFrame('c', { name: 'Other' }), overlay], pages });
+      await openFrameRowMenu('Login');
+
+      const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
+      expect(moveToPageTrigger).not.toHaveAttribute('aria-disabled', 'true');
     });
   });
 });

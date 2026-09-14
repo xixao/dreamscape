@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { trayItems, type TrayGroup } from '@/components/blocks/registry';
+import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
 import { renderInEditor } from '@/test/craft-harness';
 import { ComponentTray, filterTrayItems } from './component-tray';
 
@@ -56,10 +56,18 @@ describe('ComponentTray', () => {
     expect(screen.queryByText('Dropdown trigger')).not.toBeInTheDocument();
   });
 
-  it('filterTrayItems matches an item\'s search keywords, so "modal" finds the Dialog element', () => {
-    const labels = (query: string) => filterTrayItems(trayItems, query).map((item) => item.label);
-    expect(labels('modal')).toEqual(['Dialog']);
-    expect(labels('Popup')).toEqual(['Dialog']);
+  // Dialog itself no longer carries the 'modal'/'popup' keywords (removed
+  // from the tray entirely - see the "Elements tray" describe block below),
+  // so this exercises the keyword-matching mechanism itself against a
+  // synthetic item rather than a real, current tray entry.
+  it('filterTrayItems matches an item\'s extra keywords, case-insensitively', () => {
+    const withKeywords: TrayItem[] = [
+      { ...trayItems[0], type: 'Button', label: 'Button', keywords: undefined },
+      { ...trayItems[0], type: 'Card', label: 'Card', keywords: ['modal', 'popup'] },
+    ];
+    const labels = (query: string) => filterTrayItems(withKeywords, query).map((item) => item.label);
+    expect(labels('modal')).toEqual(['Card']);
+    expect(labels('Popup')).toEqual(['Card']);
   });
 
   it('filterTrayItems keeps every item for a blank or whitespace query', () => {
@@ -93,10 +101,10 @@ describe('ComponentTray', () => {
     const { container } = renderInEditor(<ComponentTray />);
     const input = screen.getByLabelText('Search elements');
 
-    await userEvent.type(input, 'dia');
+    await userEvent.type(input, 'avatar');
     const matched = container.querySelectorAll('[data-tray-item]');
     expect(matched).toHaveLength(1);
-    expect(matched[0]).toHaveAttribute('data-tray-item', 'Dialog');
+    expect(matched[0]).toHaveAttribute('data-tray-item', 'Avatar');
 
     await userEvent.clear(input);
     await userEvent.type(input, 'zzz');
@@ -106,6 +114,61 @@ describe('ComponentTray', () => {
 
     await userEvent.clear(input);
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(trayItems.length);
+    expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
+  });
+});
+
+// Overlay frames (spec docs/superpowers/specs/2026-09-13-overlay-frames-
+// design.md section 5, phase 2): Dialog is removed from the tray (it stays
+// in the resolver, so an existing layout that already has one keeps
+// rendering - registry.test.tsx/docs.test.ts cover that side). Searching
+// for what used to find it now finds nothing and points at the Frames chip
+// instead.
+describe('ComponentTray: modals are overlay frames now', () => {
+  it('no longer lists Dialog in the tray at all', () => {
+    renderInEditor(<ComponentTray />);
+    expect(screen.queryByText('Dialog')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-tray-item="Dialog"]')).toBeNull();
+  });
+
+  it.each(['modal', 'popup', 'overlay', 'dialog', 'Modal', 'DIALOG'])(
+    'shows a hint pointing at the Frames chip when searching "%s" finds nothing',
+    async (query) => {
+      renderInEditor(<ComponentTray />);
+      await userEvent.type(screen.getByLabelText('Search elements'), query);
+
+      expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Modals are overlay frames: Frames chip → New overlay → Dialog'),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('matches a partial word too, since the search already filters live as you type', async () => {
+    renderInEditor(<ComponentTray />);
+    await userEvent.type(screen.getByLabelText('Search elements'), 'dial');
+
+    expect(screen.getByText('Modals are overlay frames: Frames chip → New overlay → Dialog')).toBeInTheDocument();
+  });
+
+  it('shows the plain "No elements match." for an unrelated query with no results', async () => {
+    renderInEditor(<ComponentTray />);
+    await userEvent.type(screen.getByLabelText('Search elements'), 'zzz');
+
+    expect(screen.getByText('No elements match.')).toBeInTheDocument();
+    expect(screen.queryByText(/Frames chip/)).not.toBeInTheDocument();
+  });
+
+  it('shows neither message once a real element matches again', async () => {
+    renderInEditor(<ComponentTray />);
+    const input = screen.getByLabelText('Search elements');
+    await userEvent.type(input, 'dialog');
+    expect(screen.getByText(/Frames chip/)).toBeInTheDocument();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'button');
+
+    expect(screen.queryByText(/Frames chip/)).not.toBeInTheDocument();
     expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
   });
 });

@@ -35,7 +35,13 @@ const BLOCK_TYPES: BlockType[] = [
   'Table',
 ];
 
-const TRAY_ORDER: BlockType[] = BLOCK_TYPES;
+// Dialog stays a real, schema'd block type (BLOCK_TYPES above, for the
+// resolver/schema tests below) but leaves the tray itself (spec docs/
+// superpowers/specs/2026-09-13-overlay-frames-design.md section 5, phase
+// 2: a modal is an overlay frame now) - registry.tsx keeps it in
+// resolver/schemas so an existing layout that already has one keeps
+// rendering, just no longer offered from the Elements tray.
+const TRAY_ORDER: BlockType[] = BLOCK_TYPES.filter((type) => type !== 'Dialog');
 
 const GROUPS: readonly TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
 
@@ -99,7 +105,7 @@ describe('registry', () => {
       'Switch',
       'Slider',
     ]);
-    expect(byGroup('Feedback')).toEqual(['Alert', 'Progress', 'Dialog']);
+    expect(byGroup('Feedback')).toEqual(['Alert', 'Progress']);
     expect(byGroup('Data')).toEqual(['Table']);
 
     // Every item belongs to exactly one of the five groups above.
@@ -190,7 +196,10 @@ describe('registry', () => {
       Dialog: { width: 120, height: 36 },
       Table: { width: 480, height: 160 },
     };
-    for (const type of BLOCK_TYPES) {
+    // TRAY_ORDER, not BLOCK_TYPES: Dialog is a real block type (kept above,
+    // satisfying the Record<BlockType, ...> annotation) but not a tray item
+    // any more, so trayItems.find would never find it.
+    for (const type of TRAY_ORDER) {
       const item = trayItems.find((candidate) => candidate.type === type);
       expect(item?.previewSize).toEqual(expected[type]);
     }
