@@ -317,6 +317,134 @@ describe('diagramReducer: connect', () => {
   });
 });
 
+describe('diagramReducer: reconnect', () => {
+  const base = stateWith({
+    nodes: [node({ id: 'n1' }), node({ id: 'n2' }), node({ id: 'n3' })],
+    edges: [edge({ label: 'ships to', kind: 'curve', arrow: 'both' })], // n1/right -> n2/left
+  });
+
+  it('moves the target end to a different node/side, as one history step', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n3', side: 'top' },
+    });
+    expect(next.edges).toEqual([{ ...edge({ label: 'ships to', kind: 'curve', arrow: 'both' }), target: { nodeId: 'n3', side: 'top' } }]);
+    expect(next.history.past).toHaveLength(base.history.past.length + 1);
+  });
+
+  it('moves the source end to a different node/side', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'source',
+      endpoint: { nodeId: 'n3', side: 'bottom' },
+    });
+    expect(next.edges[0].source).toEqual({ nodeId: 'n3', side: 'bottom' });
+    expect(next.edges[0].target).toEqual({ nodeId: 'n2', side: 'left' });
+  });
+
+  it('reconnects onto a frame (screenId endpoint), same as connect', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { screenId: 'screen1', side: 'left' },
+    });
+    expect(next.edges[0].target).toEqual({ screenId: 'screen1', side: 'left' });
+  });
+
+  it('carries label, kind and arrow over untouched', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n3', side: 'top' },
+    });
+    expect(next.edges[0].label).toBe('ships to');
+    expect(next.edges[0].kind).toBe('curve');
+    expect(next.edges[0].arrow).toBe('both');
+  });
+
+  it('is a no-op, with no history entry, when the endpoint is unchanged', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n2', side: 'left' },
+    });
+    expect(next).toBe(base);
+  });
+
+  it('a different side on the SAME node is a real change, not a no-op', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n2', side: 'top' },
+    });
+    expect(next).not.toBe(base);
+    expect(next.edges[0].target).toEqual({ nodeId: 'n2', side: 'top' });
+  });
+
+  it('refuses a reconnect that would create a self-loop', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n1', side: 'bottom' },
+    });
+    expect(next).toBe(base);
+  });
+
+  it('refuses a reconnect that would duplicate an existing connector', () => {
+    const withSecond = diagramReducer(base, {
+      type: 'connect',
+      edge: edge({ id: 'e2', source: { nodeId: 'n1', side: 'bottom' }, target: { nodeId: 'n3', side: 'top' } }),
+    });
+    // Moving e1's target onto n3/top would exactly duplicate e2 (same
+    // source n1/bottom... no - e1's source stays n1/right, so this only
+    // duplicates if BOTH endpoints match; use a same-endpoints reconnect
+    // instead: move e1 fully onto e2's own pair by changing its source too.
+    const movedSource = diagramReducer(withSecond, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'source',
+      endpoint: { nodeId: 'n1', side: 'bottom' },
+    });
+    const next = diagramReducer(movedSource, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n3', side: 'top' },
+    });
+    expect(next).toBe(movedSource);
+    expect(next.edges).toHaveLength(2);
+  });
+
+  it('ignores an unknown edge id without touching history', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'missing',
+      end: 'target',
+      endpoint: { nodeId: 'n3', side: 'top' },
+    });
+    expect(next).toBe(base);
+  });
+
+  it('undo restores the old end', () => {
+    const next = diagramReducer(base, {
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'n3', side: 'top' },
+    });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.edges).toEqual(base.edges);
+  });
+});
+
 describe('validateConnection', () => {
   it('rejects an edge missing an endpoint', () => {
     const result = validateConnection({ edges: [] }, edge({ source: {}, target: { nodeId: 'n2' } }));

@@ -1536,6 +1536,172 @@ describe('DiagramLayer connecting', () => {
   });
 });
 
+describe("DiagramLayer reconnecting a connector's end (spec section 12, Matt 2026-09-14)", () => {
+  function twoNodeEdgeState(selection: DiagramState['selection'] = [{ type: 'edge', id: 'e1' }]): DiagramState {
+    const nodes = [
+      node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }),
+      node({ id: 'b', x: 300, y: 0, width: 100, height: 50 }),
+      node({ id: 'c', x: 300, y: 300, width: 100, height: 50 }),
+    ];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })];
+    return stateWith({ nodes, edges, selection });
+  }
+
+  it('shows a handle at each end when the connector is the sole selection', () => {
+    renderLayer({ diagram: twoNodeEdgeState() });
+    expect(screen.getByTestId('diagram-edge-end-e1-source')).toBeInTheDocument();
+    expect(screen.getByTestId('diagram-edge-end-e1-target')).toBeInTheDocument();
+  });
+
+  it('renders no handles when nothing is selected', () => {
+    renderLayer({ diagram: twoNodeEdgeState([]) });
+    expect(screen.queryByTestId('diagram-edge-end-e1-source')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-edge-end-e1-target')).not.toBeInTheDocument();
+  });
+
+  it('renders no handles when a node is selected alongside the connector', () => {
+    renderLayer({
+      diagram: twoNodeEdgeState([
+        { type: 'edge', id: 'e1' },
+        { type: 'node', id: 'a' },
+      ]),
+    });
+    expect(screen.queryByTestId('diagram-edge-end-e1-source')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-edge-end-e1-target')).not.toBeInTheDocument();
+  });
+
+  it('shows a dashed preview path from the fixed end while dragging, gone once released', () => {
+    renderLayer({ diagram: twoNodeEdgeState() });
+    expect(screen.queryByTestId('diagram-endpoint-drag-preview')).not.toBeInTheDocument();
+
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    expect(screen.getByTestId('diagram-endpoint-drag-preview')).toBeInTheDocument();
+
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 25 });
+    expect(screen.queryByTestId('diagram-endpoint-drag-preview')).not.toBeInTheDocument();
+  });
+
+  it('dragging the source handle onto another shape dispatches reconnect with that node id and the nearest side', () => {
+    const { dispatch } = renderLayer({ diagram: twoNodeEdgeState() });
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 350, clientY: 305 }); // near the top of node c
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 350, clientY: 305 });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'reconnect',
+      id: 'e1',
+      end: 'source',
+      endpoint: { nodeId: 'c', side: 'top' },
+    });
+  });
+
+  it('dropping on a different side of the SAME shape moves the end there (not a no-op)', () => {
+    const { dispatch } = renderLayer({ diagram: twoNodeEdgeState() });
+    const handle = screen.getByTestId('diagram-edge-end-e1-target'); // currently node b / left
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 300, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 350, clientY: 5 }); // top of node b
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 350, clientY: 5 });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'reconnect',
+      id: 'e1',
+      end: 'target',
+      endpoint: { nodeId: 'b', side: 'top' },
+    });
+  });
+
+  it('dropping on empty canvas dispatches nothing', () => {
+    const { dispatch } = renderLayer({ diagram: twoNodeEdgeState() });
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 900, clientY: 900 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 900, clientY: 900 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reconnect' }));
+  });
+
+  it('Escape resets the gesture, writing nothing; the following pointerup is a no-op', () => {
+    const { dispatch } = renderLayer({ diagram: twoNodeEdgeState() });
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 350, clientY: 305 });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 350, clientY: 305 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reconnect' }));
+    expect(screen.queryByTestId('diagram-endpoint-drag-preview')).not.toBeInTheDocument();
+  });
+
+  it('pointercancel resets the gesture without dispatching', () => {
+    const { dispatch } = renderLayer({ diagram: twoNodeEdgeState() });
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 350, clientY: 305 });
+    fireEvent.pointerCancel(handle, { pointerId: 1 });
+
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'reconnect' }));
+    expect(screen.queryByTestId('diagram-endpoint-drag-preview')).not.toBeInTheDocument();
+  });
+
+  it('dragging onto a frame dispatches reconnect with a screenId endpoint', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })];
+    const frames: DiagramFrameBox[] = [{ id: 'screen1', x: 300, y: 300, width: 400, height: 800 }];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes, edges, selection: [{ type: 'edge', id: 'e1' }] }),
+      frames,
+    });
+    const handle = screen.getByTestId('diagram-edge-end-e1-source');
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320, clientY: 320 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320, clientY: 320 });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'reconnect',
+      id: 'e1',
+      end: 'source',
+      endpoint: { screenId: 'screen1', side: 'top' },
+    });
+  });
+
+  // The layer must not pre-filter a self-loop drop the way endConnect
+  // excludes its own drag source - it has to actually dispatch `reconnect`
+  // and let the real reducer's validateConnection refuse it (spec: "same
+  // rule as connect"), so this drives the gesture against RealReducerHarness
+  // and confirms the edge itself never changes.
+  it('a self-loop reconnect is refused end-to-end by the real reducer', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 100, height: 50 }), node({ id: 'b', x: 300, y: 0, width: 100, height: 50 })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })];
+    render(<RealReducerHarness initial={stateWith({ nodes, edges, selection: [{ type: 'edge', id: 'e1' }] })} />);
+
+    const before = screen.getByTestId('diagram-edge-hit-e1').getAttribute('d');
+
+    // Drags the TARGET end back onto node a, the SOURCE end's own shape -
+    // source and target would both resolve to node a, a self-loop.
+    const handle = screen.getByTestId('diagram-edge-end-e1-target');
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 25 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 50, clientY: 25 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 50, clientY: 25 });
+
+    expect(screen.getByTestId('diagram-edge-hit-e1').getAttribute('d')).toBe(before);
+    // The connector is still selected and still has both its end handles -
+    // a refused reconnect must leave the selection/gesture state usable,
+    // not just the document.
+    expect(screen.getByTestId('diagram-edge-end-e1-source')).toBeInTheDocument();
+    expect(screen.getByTestId('diagram-edge-end-e1-target')).toBeInTheDocument();
+  });
+});
+
 describe('DiagramLayer context menu (shape)', () => {
   it('selects an unselected shape when right-clicked', () => {
     const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
