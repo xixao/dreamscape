@@ -78,6 +78,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Panels | D | Design tab |
 | Panels | P | Prototype tab |
 | Panels | E | Elements tab |
+| Panels | G | Diagrams tab |
 | Panels | C or ⌘J | Open or close the chat panel |
 | Panels | ⌘. | Minimize or expand the right panel |
 | Panels | ⌘\ | Show or hide all panels |

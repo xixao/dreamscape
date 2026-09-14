@@ -33,6 +33,13 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'panel-design', area: 'Panels', keys: ['D'], label: 'Design tab' },
   { id: 'panel-prototype', area: 'Panels', keys: ['P'], label: 'Prototype tab' },
   { id: 'panel-elements', area: 'Panels', keys: ['E'], label: 'Elements tab' },
+  // G (spec docs/superpowers/specs/2026-09-14-panel-tabs-icons-design.md
+  // section 2, mnemonic "diaGram"): free single letters are scarce (T is
+  // diagram-text, V is pointer, C is comment), and G was not otherwise
+  // bound as a bare key - gated exactly like D/P/E above (never while
+  // typing), distinct from Shift+G (layout-grid-toggle) and Cmd+G/Cmd+
+  // Shift+G (diagram-group/diagram-ungroup).
+  { id: 'diagram-tab', area: 'Panels', keys: ['G'], label: 'Diagrams tab' },
   { id: 'chat-toggle', area: 'Panels', keys: ['C'], label: 'Open or close the chat panel' },
   {
     id: 'chat-toggle-mod',
@@ -306,6 +313,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (key === 'd') return 'panel-design';
   if (key === 'p') return 'panel-prototype';
   if (key === 'e') return 'panel-elements';
+  if (key === 'g') return 'diagram-tab';
   if (key === 'c') return 'chat-toggle';
   if (key === 'v') return 'tool-pointer';
   if (key === 't') return 'diagram-text-tool';

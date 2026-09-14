@@ -22,9 +22,9 @@ describe('loadPanelMode / savePanelMode', () => {
     expect(loadPanelMode(fakeStorage())).toBe('design');
   });
 
-  it('round trips design, prototype and components', () => {
+  it('round trips design, prototype, components and diagrams', () => {
     const storage = fakeStorage();
-    for (const mode of ['design', 'prototype', 'components'] as const) {
+    for (const mode of ['design', 'prototype', 'components', 'diagrams'] as const) {
       savePanelMode(storage, mode);
       expect(loadPanelMode(storage)).toBe(mode);
     }
@@ -33,6 +33,14 @@ describe('loadPanelMode / savePanelMode', () => {
   it('falls back to design for a corrupt or unrecognized stored value', () => {
     expect(loadPanelMode(fakeStorage({ 'assembly-workbench:panel-mode': 'not-a-mode' }))).toBe('design');
     expect(loadPanelMode(fakeStorage({ 'assembly-workbench:panel-mode': '' }))).toBe('design');
+  });
+
+  // The Diagrams tab (spec docs/superpowers/specs/2026-09-14-panel-tabs-
+  // icons-design.md) is a new, fourth PANEL_MODES entry - a value that only
+  // ever looked plausible (never actually stored by any released build) must
+  // still be ignored the same way any other unrecognized string is.
+  it('ignores an old/removed panel mode value, falling back to design', () => {
+    expect(loadPanelMode(fakeStorage({ 'assembly-workbench:panel-mode': 'elements' }))).toBe('design');
   });
 
   it('tolerates a storage whose getItem throws', () => {

@@ -126,10 +126,12 @@ export function useWorkbenchKeyboard(
     onZoomReset?: () => void;
     onZoomToFit?: () => void;
     onZoomToSelection?: () => void;
-    // D/P/E (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
-    // design.md section 2): switches the right panel to that tab, expanding
-    // it first if minimized - both are WorkbenchShell's job, same division
-    // as every other callback here. Guarded like every other bare letter.
+    // D/P/E/G (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
+    // design.md section 2, G added by docs/superpowers/specs/2026-09-14-
+    // panel-tabs-icons-design.md): switches the right panel to that tab,
+    // expanding it first if minimized - both are WorkbenchShell's job, same
+    // division as every other callback here. Guarded like every other bare
+    // letter.
     onSelectPanelTab?: (mode: PanelMode) => void;
     // V: leaves the comment tool (and, once it exists, the diagram tool) -
     // the pointer is the default state, not a tool of its own to enter.
@@ -366,6 +368,10 @@ export function useWorkbenchKeyboard(
 
         case 'panel-elements':
           onSelectPanelTab?.('components');
+          return;
+
+        case 'diagram-tab':
+          onSelectPanelTab?.('diagrams');
           return;
 
         case 'tool-pointer':

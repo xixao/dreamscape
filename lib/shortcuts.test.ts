@@ -57,7 +57,7 @@ describe('SHORTCUTS registry', () => {
     for (const id of alwaysIds) {
       expect(SHORTCUTS_BY_ID[id]?.always).toBe(true);
     }
-    const guardedIds = ['panel-design', 'panel-prototype', 'panel-elements', 'chat-toggle', 'tool-pointer', 'tool-comment', 'screen-new'];
+    const guardedIds = ['panel-design', 'panel-prototype', 'panel-elements', 'diagram-tab', 'chat-toggle', 'tool-pointer', 'tool-comment', 'screen-new'];
     for (const id of guardedIds) {
       expect(SHORTCUTS_BY_ID[id]?.always).toBeFalsy();
     }
@@ -166,6 +166,8 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'D' }))).toBe('panel-design');
     expect(matchShortcut(key({ key: 'p' }))).toBe('panel-prototype');
     expect(matchShortcut(key({ key: 'e' }))).toBe('panel-elements');
+    expect(matchShortcut(key({ key: 'g' }))).toBe('diagram-tab');
+    expect(matchShortcut(key({ key: 'G' }))).toBe('diagram-tab');
     expect(matchShortcut(key({ key: 'p', shiftKey: true }))).toBeNull();
   });
 
@@ -175,12 +177,13 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'd', metaKey: true, shiftKey: true }))).toBeNull();
   });
 
-  it('matches Cmd+G for group and Cmd+Shift+G for ungroup, distinct from bare Shift+G (layout grid)', () => {
+  it('matches Cmd+G for group and Cmd+Shift+G for ungroup, distinct from bare Shift+G (layout grid) and bare G (Diagrams tab)', () => {
     expect(matchShortcut(key({ key: 'g', metaKey: true }))).toBe('diagram-group');
     expect(matchShortcut(key({ key: 'g', ctrlKey: true }))).toBe('diagram-group');
     expect(matchShortcut(key({ key: 'g', metaKey: true, shiftKey: true }))).toBe('diagram-ungroup');
     expect(matchShortcut(key({ key: 'g', ctrlKey: true, shiftKey: true }))).toBe('diagram-ungroup');
     expect(matchShortcut(key({ key: 'g', shiftKey: true }))).toBe('layout-grid-toggle');
+    expect(matchShortcut(key({ key: 'g' }))).toBe('diagram-tab');
   });
 
   it('matches the four arrow keys for the nudge, as distinct ids with and without Shift', () => {
@@ -225,9 +228,9 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'n' }))).toBeNull();
   });
 
-  it('matches Shift+G for the layout grid toggle, distinct from bare G', () => {
+  it('matches Shift+G for the layout grid toggle, distinct from bare G (the Diagrams tab)', () => {
     expect(matchShortcut(key({ key: 'g', shiftKey: true }))).toBe('layout-grid-toggle');
-    expect(matchShortcut(key({ key: 'g' }))).toBeNull();
+    expect(matchShortcut(key({ key: 'g' }))).toBe('diagram-tab');
   });
 
   it('matches Cmd+\' and Ctrl+\' for the pixel grid toggle', () => {

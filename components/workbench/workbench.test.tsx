@@ -1407,13 +1407,14 @@ describe('Workbench', () => {
       fireEvent.mouseDown(root);
     }
 
-    it('renders a third Elements tab alongside Design and Prototype', () => {
+    it('renders an Elements tab alongside Design, Prototype and Diagrams', () => {
       render(<Workbench file={makeFile()} />);
       const panel = screen.getByRole('complementary', { name: 'Design' });
       const seg = within(panel).getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toBeInTheDocument();
       expect(within(seg).getByRole('radio', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(seg).getByRole('radio', { name: 'Diagrams' })).toBeInTheDocument();
     });
 
     it('shows the search field and grouped list with drag sources on the Elements tab', async () => {
@@ -1423,25 +1424,6 @@ describe('Workbench', () => {
       expect(screen.getByLabelText('Search elements')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-group]')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
-    });
-
-    // Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 13:
-    // the Elements tab's own Diagram group arms a tool exactly like the
-    // floating palette's buttons do, and opens the palette (closed by
-    // default) so the armed tool is visible there too.
-    it("clicking Rectangle in the Elements tab arms placement (the palette's Rectangle shows active)", async () => {
-      render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
-      const panel = screen.getByRole('complementary', { name: 'Elements' });
-      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
-
-      await userEvent.click(within(panel).getByRole('button', { name: 'Rectangle' }));
-
-      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
-      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
-      // The tray row itself reflects the armed tool too, now that the
-      // palette it just opened renders its own same-labelled button.
-      expect(within(panel).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('there is no left column (Elements lives in the right panel); the chat panel still floats in when opened', async () => {
@@ -1486,6 +1468,42 @@ describe('Workbench', () => {
       localStorage.setItem('assembly-workbench:panel-mode', 'not-a-mode');
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+    });
+  });
+
+  // Spec docs/superpowers/specs/2026-09-14-panel-tabs-icons-design.md: the
+  // seven diagram tools that used to sit in the Elements tab's own Diagram
+  // group (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+  // section 13) now have their own Diagrams tab instead - same tools, same
+  // shared armed-tool state, just relocated. This replaces this file's own
+  // former "clicking Rectangle in the Elements tab arms placement" test.
+  describe('Diagrams tab', () => {
+    it('shows the seven diagram tools, none of them in Elements', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Diagrams' }));
+      const panel = screen.getByRole('complementary', { name: 'Diagrams' });
+
+      for (const label of ['Rectangle', 'Rounded', 'Decision', 'Terminal', 'Text', 'Note', 'Connector']) {
+        expect(within(panel).getByRole('button', { name: label })).toBeInTheDocument();
+      }
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
+    });
+
+    it("clicking Rectangle in the Diagrams tab arms placement (the floating palette's Rectangle shows active)", async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('radio', { name: 'Diagrams' }));
+      const panel = screen.getByRole('complementary', { name: 'Diagrams' });
+      expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Rectangle' }));
+
+      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
+      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
+      // The tab's own row reflects the armed tool too, now that the
+      // palette it just opened renders its own same-labelled button.
+      expect(within(panel).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
     });
   });
 
@@ -1626,6 +1644,7 @@ describe('Workbench', () => {
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Diagrams' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
@@ -1665,8 +1684,8 @@ describe('Workbench', () => {
     });
   });
 
-  describe('D/P/E panel tab shortcuts', () => {
-    it('D, P and E switch the right panel to that tab', async () => {
+  describe('D/P/E/G panel tab shortcuts', () => {
+    it('D, P, E and G switch the right panel to that tab', async () => {
       render(<Workbench file={makeFile()} />);
 
       fireEvent.keyDown(window, { key: 'p' });
@@ -1674,6 +1693,9 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'e' });
       expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+
+      fireEvent.keyDown(window, { key: 'g' });
+      expect(screen.getByRole('radio', { name: 'Diagrams' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'd' });
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
@@ -1693,6 +1715,7 @@ describe('Workbench', () => {
     it('are ignored while typing, such as renaming the file', () => {
       render(<Workbench file={makeFile()} />);
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'e' });
+      fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'g' });
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
     });
   });

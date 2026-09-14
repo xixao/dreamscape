@@ -11,6 +11,7 @@ import { createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
 import type { DiagramFieldsSelection } from '../diagram/diagram-fields';
+import { POINTER_TOOL, type DiagramTool } from '../diagram/diagram-layer';
 import { useStage } from '../stage-context';
 import type { DiagramAlignmentContext } from './alignment-fields';
 import { Inspector, type PanelMode } from './inspector';
@@ -43,6 +44,8 @@ function mount(
     onUpdateLayoutGrid,
     onUpdatePresentation,
     measuredHeights,
+    diagramTool,
+    onSelectDiagramTool,
   }: {
     panelMode?: PanelMode;
     onPanelModeChange?: (mode: PanelMode) => void;
@@ -58,6 +61,11 @@ function mount(
     onUpdateLayoutGrid?: (id: string, patch: Partial<Screen['layoutGrid']>) => void;
     onUpdatePresentation?: ComponentProps<typeof Inspector>['onUpdatePresentation'];
     measuredHeights?: ReadonlyMap<string, number>;
+    // The Diagrams tab's own armed tool (spec docs/superpowers/specs/2026-
+    // 09-14-panel-tabs-icons-design.md) - threaded through the same way
+    // every other optional prop above is, for the tests below that need it.
+    diagramTool?: DiagramTool;
+    onSelectDiagramTool?: (tool: DiagramTool) => void;
   } = {},
 ) {
   return renderInEditor(
@@ -84,6 +92,8 @@ function mount(
         onUpdateLayoutGrid={onUpdateLayoutGrid}
         onUpdatePresentation={onUpdatePresentation}
         measuredHeights={measuredHeights}
+        diagramTool={diagramTool}
+        onSelectDiagramTool={onSelectDiagramTool}
       />
       <WidthProbe />
     </>,
@@ -747,13 +757,22 @@ describe('Inspector', () => {
     expect(within(panel).getByText('Nothing selected')).toBeInTheDocument();
   });
 
-  describe('Design / Prototype / Elements panel mode', () => {
-    it('shows a Design | Prototype | Elements segmented control, Design active by default', () => {
+  describe('Design / Prototype / Elements / Diagrams panel mode', () => {
+    it('shows a Design | Prototype | Elements | Diagrams segmented control, Design active by default', () => {
       mount();
       const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'off');
       expect(within(seg).getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'off');
+      expect(within(seg).getByRole('radio', { name: 'Diagrams' })).toHaveAttribute('data-state', 'off');
+    });
+
+    it('renders every tab icon-only: no visible tab text, just each item\'s own accessible name', () => {
+      mount();
+      const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
+      for (const label of ['Design', 'Prototype', 'Elements', 'Diagrams']) {
+        expect(within(seg).getByRole('radio', { name: label })).not.toHaveTextContent(label);
+      }
     });
 
     it('calls onPanelModeChange when Prototype is clicked', async () => {
@@ -768,6 +787,13 @@ describe('Inspector', () => {
       mount(1440, { onPanelModeChange });
       await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
+    });
+
+    it('calls onPanelModeChange when Diagrams is clicked', async () => {
+      const onPanelModeChange = vi.fn();
+      mount(1440, { onPanelModeChange });
+      await userEvent.click(screen.getByRole('radio', { name: 'Diagrams' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('diagrams');
     });
 
     it('shows the Prototype tab content instead of the Design fields when panelMode is prototype', async () => {
@@ -795,11 +821,48 @@ describe('Inspector', () => {
       expect(within(panel).queryByText('Select a layer to add an interaction.')).toBeNull();
     });
 
-    it('keeps the tab list keyboard operable with three items (roving focus)', async () => {
+    // The Diagrams tab (spec docs/superpowers/specs/2026-09-14-panel-tabs-
+    // icons-design.md): the same seven tools the floating palette (Shift+D)
+    // offers, moved here from the Elements tab's now-removed Diagram group.
+    describe('the Diagrams tab', () => {
+      it('shows the seven diagram tools when panelMode is diagrams', async () => {
+        mount(1440, { panelMode: 'diagrams' });
+        await screen.findByText('Billing');
+        const panel = screen.getByRole('complementary', { name: 'Diagrams' });
+
+        for (const label of ['Rectangle', 'Rounded', 'Decision', 'Terminal', 'Text', 'Note', 'Connector']) {
+          expect(within(panel).getByRole('button', { name: label })).toBeInTheDocument();
+        }
+        expect(within(panel).getByLabelText('Search tools')).toBeInTheDocument();
+        expect(within(panel).queryByText('Nothing selected')).toBeNull();
+        expect(within(panel).queryByText('Select a layer to add an interaction.')).toBeNull();
+      });
+
+      it('arming a tool from the tab calls onSelectDiagramTool, same as the floating palette would', async () => {
+        const onSelectDiagramTool = vi.fn();
+        mount(1440, { panelMode: 'diagrams', diagramTool: POINTER_TOOL, onSelectDiagramTool });
+        const panel = await screen.findByRole('complementary', { name: 'Diagrams' });
+
+        await userEvent.click(within(panel).getByRole('button', { name: 'Decision' }));
+
+        expect(onSelectDiagramTool).toHaveBeenCalledWith({ kind: 'shape', shape: 'decision' });
+      });
+
+      it("reflects the currently-armed diagramTool as the pressed row", async () => {
+        mount(1440, { panelMode: 'diagrams', diagramTool: { kind: 'shape', shape: 'note' } });
+        const panel = await screen.findByRole('complementary', { name: 'Diagrams' });
+
+        expect(within(panel).getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'true');
+        expect(within(panel).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
+      });
+    });
+
+    it('keeps the tab list keyboard operable with four items (roving focus)', async () => {
       mount();
       const design = screen.getByRole('radio', { name: 'Design' });
       const prototype = screen.getByRole('radio', { name: 'Prototype' });
       const elements = screen.getByRole('radio', { name: 'Elements' });
+      const diagrams = screen.getByRole('radio', { name: 'Diagrams' });
 
       design.focus();
       expect(design).toHaveFocus();
@@ -810,8 +873,11 @@ describe('Inspector', () => {
       await userEvent.keyboard('{ArrowRight}');
       expect(elements).toHaveFocus();
 
+      await userEvent.keyboard('{ArrowRight}');
+      expect(diagrams).toHaveFocus();
+
       await userEvent.keyboard('{ArrowLeft}');
-      expect(prototype).toHaveFocus();
+      expect(elements).toHaveFocus();
     });
   });
 
@@ -826,7 +892,7 @@ describe('Inspector', () => {
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
 
-    it('collapses to a rail with an Expand panel button and the three tab icons, hiding the tab list and fields', () => {
+    it('collapses to a rail with an Expand panel button and the four tab icons, hiding the tab list and fields', () => {
       mount(1440, { collapsed: true });
       const panel = screen.getByRole('complementary', { name: 'Design' });
 
@@ -835,6 +901,7 @@ describe('Inspector', () => {
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Diagrams' })).toBeInTheDocument();
       expect(within(panel).queryByRole('radiogroup', { name: 'Panel mode' })).toBeNull();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
     });
@@ -858,6 +925,17 @@ describe('Inspector', () => {
 
       await userEvent.click(within(panel).getByRole('button', { name: 'Elements' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
+      expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking the Diagrams rail icon selects Diagrams and expands', async () => {
+      const onPanelModeChange = vi.fn();
+      const onToggleCollapsed = vi.fn();
+      mount(1440, { collapsed: true, onPanelModeChange, onToggleCollapsed });
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByRole('button', { name: 'Diagrams' }));
+      expect(onPanelModeChange).toHaveBeenCalledWith('diagrams');
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
   });
