@@ -103,3 +103,13 @@ Request: "select a connector line and reconnect either end to a different point 
 - The Elements tab gets a "Diagram" group (after the existing element groups) listing every diagram tool the floating palette offers: Rectangle, Rounded, Decision, Terminal, Text, Note and Connector, with the same icons and labels. Clicking one arms that tool exactly as the palette button does (the next canvas click places it; the palette opens if it was closed so the arming is visible; Escape returns to the pointer); the armed item shows the pressed state. The search filters them like any other element; the "i" documentation button applies to them with short docs entries.
 - The minimized rail's Diagram icon keeps toggling the palette; the palette itself is unchanged.
 - Tests: the group renders all seven, clicking arms the tool and shows pressed, search matches, docs entries exist.
+
+## 14. Connector line style: solid or dashed (Matt, 2026-09-14)
+
+Request: "i'd also like a connector style - dashed, solid, 90 degree, curved." The shape of the connector (90 degree = Step, curved = Curve, plus Straight) already exists as `ConnectorKind` and is already settable in the Design panel and the right-click "Connector" submenu. The one new piece is the LINE style, independent of shape.
+
+- `DiagramEdge` gains an optional `lineStyle: 'solid' | 'dashed'` (`LINE_STYLES` tuple, `LineStyle` type, `LINE_STYLE_LABELS`), absent meaning solid so old files are unchanged; a `setLineStyle({ id, lineStyle })` reducer action, one history step, mirroring `setArrow` exactly (single edge id, no no-op guard needed since it is only ever dispatched from an explicit user choice).
+- Design panel: a "Line" select next to Kind and Arrows in the connector's field group (Solid/Dashed).
+- Right-click menu: the existing "Connector" submenu (which already lists Straight/Step/Curve as radio items) gains a second, sibling submenu "Line" with Solid/Dashed as radio items, same position/chrome as "Arrowheads".
+- Rendering: the visible edge path (not the invisible hit-path) gets `strokeDasharray` `${4 / zoom} ${3 / zoom}` when dashed, matching the dash pattern already used for every in-progress drag preview in the layer, so a dashed connector and an in-progress connector preview read consistently; the Option-drag ghost edge and the export renderer (`lib/diagram/export.ts`) both honour it too.
+- Validation: `validateDiagram` accepts the two listed values, rejects anything else, same shape as `ConnectorKind`'s own check.
