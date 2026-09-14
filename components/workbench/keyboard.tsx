@@ -134,6 +134,11 @@ export function useWorkbenchKeyboard(
     // V: leaves the comment tool (and, once it exists, the diagram tool) -
     // the pointer is the default state, not a tool of its own to enter.
     onPointerTool?: () => void;
+    // T (spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 11):
+    // opens the diagram palette if closed and arms the Text shape, so the next
+    // click places a text block and opens its editor. Escape returns to the
+    // pointer. Guarded like every other bare single-letter tool shortcut.
+    onTextTool?: () => void;
     // Cmd+R (spec section 2, "always, preventDefault"): presents the
     // focused screen the same way the top bar's Present link does. Always,
     // like the zoom chords above, since it deliberately takes over the
@@ -196,6 +201,7 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onTextTool,
     onPresent,
     onAddScreen,
     onAddOverlay,
@@ -366,6 +372,10 @@ export function useWorkbenchKeyboard(
           onPointerTool?.();
           return;
 
+        case 'diagram-text-tool':
+          onTextTool?.();
+          return;
+
         case 'screen-new':
           onAddScreen?.();
           return;
@@ -491,6 +501,7 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onTextTool,
     onPresent,
     onAddScreen,
     onAddOverlay,

@@ -213,6 +213,13 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'v', metaKey: true }))).toBeNull();
   });
 
+  it('matches bare T for the diagram text tool', () => {
+    expect(matchShortcut(key({ key: 't' }))).toBe('diagram-text-tool');
+    expect(matchShortcut(key({ key: 'T' }))).toBe('diagram-text-tool');
+    expect(matchShortcut(key({ key: 't', metaKey: true }))).toBeNull();
+    expect(matchShortcut(key({ key: 't', shiftKey: true }))).toBeNull();
+  });
+
   it('matches Shift+N for a new screen', () => {
     expect(matchShortcut(key({ key: 'n', shiftKey: true }))).toBe('screen-new');
     expect(matchShortcut(key({ key: 'n' }))).toBeNull();
