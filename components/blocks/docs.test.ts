@@ -1,24 +1,34 @@
 import { describe, expect, it } from 'vitest';
+import { DIAGRAM_TOOL_ITEMS, diagramToolDocKey } from '@/components/workbench/diagram/diagram-palette';
 import { ELEMENT_DOCS, getElementDoc, type ElementDoc } from './docs';
 import { trayItems } from './registry';
 
 const FALLBACK = getElementDoc('NoSuchElement');
 
+// The two lists the Elements tab renders (spec docs/superpowers/specs/2026-
+// 09-13-diagrams-design.md section 13): Craft tray items (registry.tsx) and
+// the diagram palette's seven tools (diagram-palette.tsx), each reduced to
+// the {key, label} pair the completeness checks below need - `key` is
+// whatever ELEMENT_DOCS is actually keyed by for that row (a BlockType for a
+// tray item, diagramToolDocKey's id for a diagram tool).
+const TRAY_DOC_ITEMS = trayItems.map((item) => ({ key: item.type as string, label: item.label }));
+const DIAGRAM_DOC_ITEMS = DIAGRAM_TOOL_ITEMS.map((item) => ({ key: diagramToolDocKey(item.tool), label: item.label }));
+
 describe('ELEMENT_DOCS', () => {
-  it('has an entry, with a non-empty summary and usage, for every tray item', () => {
-    for (const item of trayItems) {
-      const doc: ElementDoc | undefined = ELEMENT_DOCS[item.type];
-      expect(doc, `missing docs for tray item "${item.type}"`).toBeDefined();
-      expect(doc!.summary.trim().length, `${item.type} summary`).toBeGreaterThan(0);
-      expect(doc!.usage.trim().length, `${item.type} usage`).toBeGreaterThan(0);
+  it('has an entry, with a non-empty summary and usage, for every tray item and every diagram tool', () => {
+    for (const { key, label } of [...TRAY_DOC_ITEMS, ...DIAGRAM_DOC_ITEMS]) {
+      const doc: ElementDoc | undefined = ELEMENT_DOCS[key];
+      expect(doc, `missing docs for "${label}" (key "${key}")`).toBeDefined();
+      expect(doc!.summary.trim().length, `${key} summary`).toBeGreaterThan(0);
+      expect(doc!.usage.trim().length, `${key} usage`).toBeGreaterThan(0);
       expect(doc!.summary).not.toEqual(doc!.usage);
     }
   });
 
-  it('has no entry for a type that is not in the tray (a stale key)', () => {
-    const trayTypes = new Set<string>(trayItems.map((item) => item.type));
+  it('has no entry for a key that is not a tray item or a diagram tool (a stale key)', () => {
+    const validKeys = new Set<string>([...TRAY_DOC_ITEMS, ...DIAGRAM_DOC_ITEMS].map((item) => item.key));
     for (const key of Object.keys(ELEMENT_DOCS)) {
-      expect(trayTypes.has(key), `docs key "${key}" is not a tray item type`).toBe(true);
+      expect(validKeys.has(key), `docs key "${key}" is not a tray item type or a diagram tool id`).toBe(true);
     }
   });
 

@@ -47,6 +47,7 @@ import {
 } from '../chrome';
 import { ComponentTray } from '../component-tray';
 import { DiagramFields, type DiagramFieldsSelection } from '../diagram/diagram-fields';
+import type { DiagramTool } from '../diagram/diagram-layer';
 import type { PanelMode } from '../prototype-context';
 import { PrototypePanel } from '../prototype-panel';
 import { useSelectedNode } from '../selection';
@@ -373,6 +374,8 @@ export function Inspector({
   onUpdateLayoutGrid,
   onUpdatePresentation,
   measuredHeights,
+  diagramTool,
+  onSelectDiagramTool,
 }: {
   screens: Screen[];
   currentScreenId: string;
@@ -434,6 +437,14 @@ export function Inspector({
   // ARTBOARD_MIN_HEIGHT. Optional so every existing caller/test keeps
   // rendering exactly as before.
   measuredHeights?: ReadonlyMap<string, number>;
+  // The Elements tab's Diagram group (spec docs/superpowers/specs/2026-09-
+  // 13-diagrams-design.md section 13): passed straight through to
+  // ComponentTray, the same optional/no-op-by-default precedent as every
+  // other diagram-related prop above - workbench.tsx is the only real
+  // caller that supplies these; every existing test keeps rendering exactly
+  // as before.
+  diagramTool?: DiagramTool;
+  onSelectDiagramTool?: (tool: DiagramTool) => void;
 }) {
   const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
@@ -600,7 +611,7 @@ export function Inspector({
           <MinimizeButton collapsed={false} onClick={onToggleCollapsed} />
         </div>
         {panelMode === 'components' ? (
-          <ComponentTray />
+          <ComponentTray diagramTool={diagramTool} onSelectDiagramTool={onSelectDiagramTool} />
         ) : (
           <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
             {panelMode === 'prototype' ? (

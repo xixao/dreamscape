@@ -1362,6 +1362,17 @@ function WorkbenchShell({
     setDiagramTool(POINTER_TOOL);
   }
 
+  // The Elements tab's Diagram group (component-tray.tsx, spec docs/
+  // superpowers/specs/2026-09-13-diagrams-design.md section 13): arms a
+  // diagram tool exactly like clicking it in the floating palette, and
+  // opens the palette if it was closed so the armed tool is visible there
+  // too - the same shape as onTextTool just above, generalised to any of
+  // the seven tools instead of always the Text shape.
+  function selectDiagramToolFromTray(tool: DiagramTool): void {
+    setDiagramPaletteOpen(true);
+    setDiagramTool(tool);
+  }
+
   // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
   // diagram bounds") - folds the current page's diagram nodes' bounding box
   // in alongside every frame's own, when the diagram has any.
@@ -1854,6 +1865,8 @@ function WorkbenchShell({
                 onUpdateLayoutGrid={onUpdateLayoutGrid}
                 onUpdatePresentation={onUpdatePresentation}
                 measuredHeights={measuredHeights}
+                diagramTool={diagramTool}
+                onSelectDiagramTool={selectDiagramToolFromTray}
               />
             )}
             {!uiHidden && chatOpen && (

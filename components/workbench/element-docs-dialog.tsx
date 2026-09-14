@@ -16,6 +16,7 @@ import {
   OVERLAY_TITLE,
   WIDE_DIALOG_CONTENT,
 } from './chrome';
+import { DIAGRAM_TOOL_ITEMS, diagramToolDocKey } from './diagram/diagram-palette';
 
 // Table structure only (type comes from the chrome constants above).
 const CELL = 'border-t border-line-soft py-2.5 pr-4 align-top';
@@ -116,6 +117,15 @@ export function ElementDocsDialog({
   openerRef?: RefObject<HTMLElement | null>;
 }) {
   const item = trayItems.find((entry) => entry.type === type);
+  // A diagram tool (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+  // section 13) is not a tray item - no BlockType, no schema - so its own
+  // label and group caption come from DIAGRAM_TOOL_ITEMS instead, keyed the
+  // same way component-tray.tsx opened this dialog for it (diagramToolDocKey).
+  // Only looked up once `item` above found nothing, so a real tray item's
+  // own label/group always wins.
+  const diagramItem = !item ? DIAGRAM_TOOL_ITEMS.find((entry) => diagramToolDocKey(entry.tool) === type) : undefined;
+  const label = item?.label ?? diagramItem?.label ?? type;
+  const group = item?.group ?? (diagramItem ? 'Diagram' : undefined);
   const doc = getElementDoc(type);
   const rows = propertyRows(type);
 
@@ -140,8 +150,8 @@ export function ElementDocsDialog({
           <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <div className="flex flex-col gap-6">
               <DialogHeader className="gap-1.5">
-                <DialogTitle className={OVERLAY_TITLE}>{item?.label ?? type}</DialogTitle>
-                {item && <p className={OVERLAY_CAPTION}>{item.group}</p>}
+                <DialogTitle className={OVERLAY_TITLE}>{label}</DialogTitle>
+                {group && <p className={OVERLAY_CAPTION}>{group}</p>}
               </DialogHeader>
               <section>
                 <h3 className={OVERLAY_GROUP_TITLE}>Summary</h3>
