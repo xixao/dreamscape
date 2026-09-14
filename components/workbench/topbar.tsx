@@ -64,15 +64,32 @@ import { useStage } from './stage-context';
  * initialOverlayId. `URLSearchParams` (not a template literal) so both
  * branches build through the same code path and can never format the
  * shared `page` param two different ways.
+ *
+ * Phase 2 review finding 1: an overlay's own page can end up with no plain
+ * screen left on it (every screen on it either never existed or got moved/
+ * deleted around the overlay - `wouldStrandPage` stops that through this
+ * app's own UI, but does not guarantee it can never happen to older or
+ * hand-edited data). Left alone, `page` with no `screen` would fall to
+ * resolveInitialScreenId's own page-then-first-page-with-a-screen cascade,
+ * which can silently land Play on some OTHER page's first screen - not
+ * necessarily one the user meant. So this checks for that case itself and,
+ * when the file has a plain screen anywhere else, names it explicitly as
+ * `screen` instead (an explicit, valid `screen` always wins outright over
+ * `page` in that cascade - see resolveInitialScreenId - so `page` is
+ * dropped rather than left in place to imply an agreement with `screen`
+ * that is not really there). A file with no plain screen anywhere at all
+ * has no better fallback to offer; `page` stays as the least-wrong choice.
  */
 export function presentHrefFor(fileId: string, pageId: string, screens: Screen[], focusedScreenId: string): string {
   const focused = screens.find((screen) => screen.id === focusedScreenId);
-  const params = new URLSearchParams({ page: pageId });
   if (focused && isOverlay(focused)) {
+    const ownPageHasPlainScreen = screens.some((screen) => screen.pageId === pageId && !isOverlay(screen));
+    const fallbackScreen = ownPageHasPlainScreen ? undefined : screens.find((screen) => !isOverlay(screen));
+    const params = new URLSearchParams(fallbackScreen ? { screen: fallbackScreen.id } : { page: pageId });
     params.set('overlay', focusedScreenId);
-  } else {
-    params.set('screen', focusedScreenId);
+    return `/f/${fileId}/play?${params.toString()}`;
   }
+  const params = new URLSearchParams({ page: pageId, screen: focusedScreenId });
   return `/f/${fileId}/play?${params.toString()}`;
 }
 

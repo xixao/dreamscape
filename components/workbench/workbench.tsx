@@ -21,10 +21,11 @@ import {
 import { layoutMissingPositions } from '@/lib/files/layout';
 import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, LayoutGrid, OverlayPresentation, OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
-import { OVERLAY_DEFAULT_NAMES, createOverlayScreen, isOverlay } from '@/lib/files/screens';
+import { createOverlayScreen, isOverlay, nextOverlayDefaultName, wouldStrandPage } from '@/lib/files/screens';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
+import { STAGE_PRESETS } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import {
   loadPanelCollapsed,
@@ -607,11 +608,22 @@ export function Workbench({
 
   function addScreen(): void {
     const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
-    // Falls back across the whole file (any page) only when the current
-    // page has nothing of its own to size a new frame after - an empty
-    // page's "New screen" still needs some starting width, and every file
-    // has at least one screen somewhere (validateScreens' own invariant).
-    const current = pageScreens.find((screen) => screen.id === currentScreenId) ?? pageScreens[0] ?? screens[0];
+    // Never templates off a focused OVERLAY (phase 2 review finding 3): an
+    // overlay is an ordinary entry in pageScreens, so the focused-screen
+    // lookup below excludes one explicitly, falling back to the page's own
+    // most recently added plain screen (last in array order among this
+    // page's own screens - new/duplicated screens are always appended, so
+    // this is also "most recently added") - or, when the page has no plain
+    // screen at all (every entry on it is an overlay, or it is empty), a
+    // plain desktop default rather than reaching into some unrelated page's
+    // own screens[0] (that fallback predates overlays and could just as
+    // easily have picked an overlay from a different page entirely).
+    const focused = pageScreens.find((screen) => screen.id === currentScreenId);
+    const mostRecentPlainOnPage = [...pageScreens].reverse().find((screen) => !isOverlay(screen));
+    const current: Pick<Screen, 'stageWidth' | 'stageHeight' | 'deviceName'> =
+      (focused && !isOverlay(focused) ? focused : undefined) ??
+      mostRecentPlainOnPage ??
+      { stageWidth: STAGE_PRESETS.desktop, stageHeight: null, deviceName: null };
     const newScreen: Screen = {
       id: nanoid(10),
       name: `Frame ${pageScreens.length + 1}`,
@@ -658,13 +670,19 @@ export function Workbench({
   // new screen's 'Frame N'") - counted across every page, unlike addScreen's
   // own per-PAGE "Frame N", since an overlay's name identifies which kind
   // of overlay it is file-wide, not its place on one page's strip.
+  // nextOverlayDefaultName (not a plain count of screens whose CURRENT
+  // presentation.type matches - phase 2 review finding 2) scans existing
+  // overlay NAMES instead, so a name is never reused: an overlay renamed
+  // away from its default no longer reserves its number, and one whose
+  // type was switched WITHOUT a rename (updateScreenPresentation, below)
+  // still occupies its old name, so a brand new overlay of that same old
+  // type does not collide with it.
   function addOverlay(type: OverlayPresentationType): void {
-    const countOfType = screens.filter((screen) => isOverlay(screen) && screen.presentation.type === type).length;
     const newOverlay: Screen = {
       ...createOverlayScreen({
         type,
         id: nanoid(10),
-        name: `${OVERLAY_DEFAULT_NAMES[type]} ${countOfType + 1}`,
+        name: nextOverlayDefaultName(screens, type),
         pageId: currentPageId,
         // x/y placeholders: createOverlayScreen requires numbers, but
         // layoutMissingPositions (below) only resolves a screen missing
@@ -752,8 +770,18 @@ export function Workbench({
   // key to the old one, or the next autosave is a 400"). The panel itself
   // builds the replacement (Presentation/Side/Position/Dismissible each
   // rebuild the whole object); this only ever writes what it is given.
-  function updateScreenPresentation(id: string, presentation: OverlayPresentation): void {
-    const next = screens.map((screen) => (screen.id === id ? { ...screen, presentation } : screen));
+  //
+  // `name` (phase 2 review finding 2/3) is optional and, unlike
+  // `presentation`, a PATCH rather than a replacement: inspector.tsx's
+  // handlePresentationTypeChange passes it only when the screen's old name
+  // was still that old type's own auto-generated default, and omits the
+  // argument entirely otherwise (never an explicit `undefined`) - so a
+  // custom name is left untouched here exactly by this function never
+  // being told to change it.
+  function updateScreenPresentation(id: string, presentation: OverlayPresentation, name?: string): void {
+    const next = screens.map((screen) =>
+      screen.id === id ? { ...screen, presentation, ...(name !== undefined ? { name } : null) } : screen,
+    );
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -788,12 +816,19 @@ export function Workbench({
   // before pages existed - now scoped to the screen's OWN page rather than
   // the whole file, since a page emptying out entirely is a real, supported
   // state (reached instead through "Move to page", or a page that started
-  // empty), just not one Delete itself produces.
+  // empty), just not one Delete itself produces. Also refuses the last
+  // PLAIN screen of a page that has an overlay (phase 2 review finding 1:
+  // Present has nowhere sensible to land otherwise) - wouldStrandPage
+  // (lib/files/screens.ts) is the same check the Frames chip's own
+  // disabled-with-tooltip UI already uses, so the two can never disagree;
+  // this is the data-layer backstop for any caller that reaches here some
+  // other way.
   function deleteScreen(id: string): void {
     const target = screens.find((screen) => screen.id === id);
     if (!target) return;
-    const pageScreenCount = screens.filter((screen) => screen.pageId === target.pageId).length;
-    if (pageScreenCount <= 1) return;
+    const pageScreens = screens.filter((screen) => screen.pageId === target.pageId);
+    if (pageScreens.length <= 1) return;
+    if (wouldStrandPage(target, pageScreens)) return;
     const next = screens.filter((screen) => screen.id !== id);
     delete lastSavedLayoutsRef.current[id];
     screensRef.current = next;
@@ -822,10 +857,17 @@ export function Workbench({
   // convention for "this screen is no longer part of the current page's
   // view": pick another screen still on the ORIGIN page, or show that page
   // empty - moving never jumps the editor's view to the destination page.
+  // Also refuses to move away the last PLAIN screen of an origin page that
+  // has an overlay (phase 2 review finding 1, same wouldStrandPage check
+  // deleteScreen and the Frames chip's own UI use) - moving away the last
+  // screen of a page that has NO overlay still empties it, exactly as
+  // before; only the overlays-but-no-plain-screen state is new and refused.
   function moveScreenToPage(id: string, targetPageId: string): void {
     const target = screens.find((screen) => screen.id === id);
     if (!target || target.pageId === targetPageId) return;
     const originPageId = target.pageId;
+    const originPageScreens = screens.filter((screen) => screen.pageId === originPageId);
+    if (wouldStrandPage(target, originPageScreens)) return;
     // Re-splice rather than map in place: the moved screen joins the target
     // page AFTER that page's existing screens in strip order, instead of
     // keeping its old file-wide index (which could put it ahead of them).
@@ -1068,7 +1110,7 @@ function WorkbenchShell({
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
   onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
-  onUpdatePresentation: (id: string, presentation: OverlayPresentation) => void;
+  onUpdatePresentation: (id: string, presentation: OverlayPresentation, name?: string) => void;
   onDuplicateScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage: (id: string, pageId: string) => void;

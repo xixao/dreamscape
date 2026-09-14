@@ -31,7 +31,7 @@ import type {
   Screen,
   ToastPosition,
 } from '@/lib/files/repository';
-import { isOverlay } from '@/lib/files/screens';
+import { isDefaultOverlayName, isOverlay, nextOverlayDefaultName } from '@/lib/files/screens';
 import { isResponsive, resolve, type Breakpoint } from '@/lib/responsive';
 import { cn } from '@/lib/utils';
 import {
@@ -426,7 +426,7 @@ export function Inspector({
   // phase 1 contract: "the editor must always write a presentation that
   // matches its type exactly ... never adding a key to the old one, or the
   // next autosave is a 400").
-  onUpdatePresentation?: (id: string, presentation: OverlayPresentation) => void;
+  onUpdatePresentation?: (id: string, presentation: OverlayPresentation, name?: string) => void;
   // Review fix wave item 8: an auto-height frame's real, current height
   // (owned by WorkbenchShell, fed by Stage/FramePreview through Canvas) -
   // used the same way canvas.tsx uses it, so the frame alignment row below
@@ -513,10 +513,24 @@ export function Inspector({
   // carry a presentation of the matching type.
   function handlePresentationTypeChange(nextType: OverlayPresentationType): void {
     if (!currentScreen || !isOverlay(currentScreen) || nextType === currentScreen.presentation.type) return;
-    if (nextType === 'dialog') onUpdatePresentation?.(currentScreenId, { type: 'dialog', dismissible: true });
-    else if (nextType === 'sheet') {
-      onUpdatePresentation?.(currentScreenId, { type: 'sheet', side: 'right', dismissible: true });
-    } else onUpdatePresentation?.(currentScreenId, { type: 'toast', position: 'bottom-right' });
+    let next: OverlayPresentation;
+    if (nextType === 'dialog') next = { type: 'dialog', dismissible: true };
+    else if (nextType === 'sheet') next = { type: 'sheet', side: 'right', dismissible: true };
+    else next = { type: 'toast', position: 'bottom-right' };
+    // Phase 2 review finding 2/3: keep the user's own name, but when it is
+    // still the auto-generated default for the type being switched AWAY
+    // FROM ("Dialog 2"), rename it to the next free default for the type
+    // being switched TO instead - isDefaultOverlayName/nextOverlayDefaultName
+    // (lib/files/screens.ts) are the same helpers addOverlay itself uses,
+    // so a renamed-on-switch overlay can never collide with a same-typed
+    // one created (or itself later switched) after it. Passed as
+    // onUpdatePresentation's own optional third argument only when a
+    // rename is actually happening - never an explicit `undefined` - so a
+    // custom name's call keeps its original two-argument shape.
+    const oldType = currentScreen.presentation.type;
+    const name = isDefaultOverlayName(currentScreen.name, oldType) ? nextOverlayDefaultName(screens, nextType) : undefined;
+    if (name !== undefined) onUpdatePresentation?.(currentScreenId, next, name);
+    else onUpdatePresentation?.(currentScreenId, next);
   }
   function handleSideChange(side: OverlaySide): void {
     if (!currentScreen || !isOverlay(currentScreen) || currentScreen.presentation.type !== 'sheet') return;

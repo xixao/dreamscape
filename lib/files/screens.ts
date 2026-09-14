@@ -79,6 +79,72 @@ export function overlayBadgeLabel(presentation: OverlayPresentation): string {
   }
 }
 
+/**
+ * True when `name` is exactly "<the type's default prefix> <a number>" -
+ * "Dialog 2", not "Dialog" or "My Dialog 2" or a different type's prefix.
+ * Used to decide whether switching an overlay's presentation type (the
+ * Design panel's Overlay section) should also rename it: only when the
+ * name still looks untouched from whenever it was created or last
+ * switched, never when the user has given it a real name of their own
+ * (phase 2 review finding 2/3's "keep the user's name" requirement).
+ */
+export function isDefaultOverlayName(name: string, type: OverlayPresentationType): boolean {
+  return new RegExp(`^${OVERLAY_DEFAULT_NAMES[type]} \\d+$`).test(name);
+}
+
+/**
+ * The next unused "<Type> N" default name for `type`, scanning existing
+ * OVERLAY names only (never a plain screen's, even one that happens to
+ * look like a default) for the highest N already in use and returning one
+ * past it - "Dialog 1" when there is no dialog yet. Counts by NAME, not by
+ * how many overlays currently have `presentation.type === type` (phase 2
+ * review finding 2): an overlay renamed away from its default no longer
+ * reserves its number, and switching an EXISTING overlay's type without
+ * renaming it (see isDefaultOverlayName above) does not, on its own, free
+ * up or claim any number either - only the name on screen ever matters
+ * here, exactly like `addScreen`'s own "Frame N" would need to work if
+ * screens could be renamed away and back. Shared by addOverlay (a brand
+ * new overlay) and the Design panel's presentation-type switch (an
+ * existing one, renamed only when its old name was still a default).
+ */
+export function nextOverlayDefaultName(screens: readonly Pick<Screen, 'name' | 'kind' | 'presentation'>[], type: OverlayPresentationType): string {
+  const prefix = OVERLAY_DEFAULT_NAMES[type];
+  const pattern = new RegExp(`^${prefix} (\\d+)$`);
+  let highest = 0;
+  for (const screen of screens) {
+    if (!isOverlay(screen)) continue;
+    const match = pattern.exec(screen.name);
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  return `${prefix} ${highest + 1}`;
+}
+
+/**
+ * True when removing `screen` from `pageScreens` (that same screen's own
+ * page - Delete or Move to page, both in components/workbench/frames-
+ * chip.tsx, and the matching guards in components/workbench/workbench.tsx's
+ * deleteScreen/moveScreenToPage) would leave the page with an overlay but
+ * no plain screen left (phase 2 review finding 1: Present has nowhere
+ * sensible to land on a page like that). Always false for an overlay
+ * itself - only removing a PLAIN screen can strand a page this way - and
+ * always false when the page has no overlay at all, so a page with
+ * nothing but plain screens keeps its pre-existing behavior unchanged
+ * (deleting the last screen of any kind, or emptying a page entirely via
+ * Move to page, both stay governed by whatever rule already covered them).
+ * The one shared source both the Frames chip's disabled-with-tooltip UI
+ * and the data-layer guards call, so the two can never disagree about
+ * which row is blocked.
+ */
+export function wouldStrandPage(
+  screen: Pick<Screen, 'id' | 'kind' | 'presentation'>,
+  pageScreens: readonly Pick<Screen, 'id' | 'kind' | 'presentation'>[],
+): boolean {
+  if (isOverlay(screen)) return false;
+  const remainingPlain = pageScreens.filter((candidate) => candidate.id !== screen.id && !isOverlay(candidate));
+  const hasOverlay = pageScreens.some((candidate) => isOverlay(candidate));
+  return remainingPlain.length === 0 && hasOverlay;
+}
+
 const OVERLAY_GAP_PX = 16;
 const OVERLAY_PADDING_PX: Record<OverlayPresentationType, LayoutBoxProps['paddingPx']> = {
   dialog: 24,

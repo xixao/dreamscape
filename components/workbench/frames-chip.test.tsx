@@ -35,7 +35,7 @@ function renderChip(overrides: Partial<ComponentProps<typeof FramesChip>> = {}) 
 // synchronously (unlike hover's own 100ms-delayed open), so callers don't
 // need a waitFor just to reach it. Does not click the row itself, which
 // would instead focus and zoom to it.
-async function openFrameRowMenu(frameName: string): Promise<void> {
+async function openFrameRowMenu(frameName: string | RegExp): Promise<void> {
   const trigger = screen.getByRole('button', { name: 'Frames' });
   await userEvent.click(trigger);
   const row = await screen.findByRole('menuitem', { name: frameName });
@@ -235,6 +235,48 @@ describe('FramesChip', () => {
       expect(props.onSwitch).not.toHaveBeenCalled();
       expect(props.onZoomToFrame).not.toHaveBeenCalled();
     });
+
+    // Overlay frames phase 2 review, finding 1: a page must always keep at
+    // least one plain screen once it has an overlay on it (Present has
+    // nowhere sensible to land otherwise).
+    describe('keeping at least one plain screen once an overlay exists', () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+
+      it('is disabled, with a tooltip, for the LAST plain screen once an overlay also exists on the page', async () => {
+        const props = renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay] });
+        await openFrameRowMenu('Login');
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
+        expect(deleteItem).toHaveAttribute('title', 'A page needs at least one screen');
+
+        await userEvent.click(deleteItem);
+        expect(screen.queryByText('Delete Login?')).toBeNull();
+        expect(props.onDelete).not.toHaveBeenCalled();
+      });
+
+      it('stays enabled for a plain screen when another plain screen remains, even with an overlay present', async () => {
+        const props = renderChip({
+          frames: [makeFrame('a', { name: 'Login' }), makeFrame('b', { name: 'Settings' }), overlay],
+        });
+        await openFrameRowMenu('Login');
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).not.toHaveAttribute('aria-disabled', 'true');
+
+        await userEvent.click(deleteItem);
+        await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+        expect(props.onDelete).toHaveBeenCalledWith('a');
+      });
+
+      it('stays enabled for the overlay itself, even as the page\'s only overlay, as long as a plain screen remains', async () => {
+        renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay] });
+        await openFrameRowMenu(/Dialog 1/);
+
+        const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
+        expect(deleteItem).not.toHaveAttribute('aria-disabled', 'true');
+      });
+    });
   });
 
   describe('overlay frames', () => {
@@ -316,6 +358,29 @@ describe('FramesChip', () => {
       renderChip({ pages: [pages[0]] });
       await openFrameRowMenu('Login');
       expect(screen.queryByRole('menuitem', { name: 'Move to page' })).toBeNull();
+    });
+
+    // Overlay frames phase 2 review, finding 1 - the same "a page needs at
+    // least one plain screen once it has an overlay" invariant Delete
+    // enforces above, since moving a screen away strands its origin page
+    // exactly the way deleting it would.
+    it('is disabled, with a tooltip, for the LAST plain screen of the origin page once an overlay also exists there', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderChip({ frames: [makeFrame('a', { name: 'Login' }), overlay], pages });
+      await openFrameRowMenu('Login');
+
+      const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
+      expect(moveToPageTrigger).toHaveAttribute('aria-disabled', 'true');
+      expect(moveToPageTrigger).toHaveAttribute('title', 'A page needs at least one screen');
+    });
+
+    it('stays enabled when another plain screen would remain on the origin page', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'o1', name: 'Dialog 1', pageId: 'p1', x: 0, y: 0 });
+      renderChip({ frames: [makeFrame('a', { name: 'Login' }), makeFrame('c', { name: 'Other' }), overlay], pages });
+      await openFrameRowMenu('Login');
+
+      const moveToPageTrigger = await screen.findByRole('menuitem', { name: 'Move to page' });
+      expect(moveToPageTrigger).not.toHaveAttribute('aria-disabled', 'true');
     });
   });
 });

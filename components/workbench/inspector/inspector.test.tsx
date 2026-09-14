@@ -543,7 +543,11 @@ describe('Inspector', () => {
       expect(within(overlaySection).queryByLabelText('Dismissible')).toBeNull();
     });
 
-    it('switching Presentation to Sheet rebuilds the whole object with the sheet defaults', async () => {
+    // Phase 2 review finding 2/3: overlayScreens('dialog') names the screen
+    // "Dialog 1" - the dialog type's own default - so switching away from
+    // it must also rename it to the new type's next free default (there is
+    // no other sheet yet, so "Sheet 1").
+    it('switching Presentation to Sheet rebuilds the whole object with the sheet defaults, and renames a still-default name', async () => {
       const onUpdatePresentation = vi.fn();
       const { editor } = mount(1440, { screens: overlayScreens('dialog'), onUpdatePresentation });
       await screen.findByText('Billing');
@@ -552,10 +556,10 @@ describe('Inspector', () => {
 
       await userEvent.click(within(panel).getByText('Sheet'));
 
-      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: true });
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: true }, 'Sheet 1');
     });
 
-    it('switching Presentation to Toast rebuilds the whole object with the toast defaults', async () => {
+    it('switching Presentation to Toast rebuilds the whole object with the toast defaults, and renames a still-default name', async () => {
       const onUpdatePresentation = vi.fn();
       const { editor } = mount(1440, { screens: overlayScreens('dialog'), onUpdatePresentation });
       await screen.findByText('Billing');
@@ -564,7 +568,61 @@ describe('Inspector', () => {
 
       await userEvent.click(within(panel).getByText('Toast'));
 
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'toast', position: 'bottom-right' }, 'Toast 1');
+    });
+
+    it('switching Presentation keeps a custom name unchanged, calling onUpdatePresentation with no third argument', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, {
+        screens: overlayScreens('dialog', { name: 'Checkout confirmation' }),
+        onUpdatePresentation,
+      });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Sheet'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'sheet', side: 'right', dismissible: true });
+      expect(onUpdatePresentation).toHaveBeenCalledTimes(1);
+      expect(onUpdatePresentation.mock.calls[0]).toHaveLength(2);
+    });
+
+    // A name that merely LOOKS like a default - but for some type other
+    // than the one this overlay is switching away FROM - is left alone too
+    // (isDefaultOverlayName checks against the OLD type specifically): this
+    // can only happen from data older than this feature, or hand-edited,
+    // but must not be swept up and renamed regardless.
+    it('switching Presentation keeps a default-looking name for a DIFFERENT type unchanged', async () => {
+      const onUpdatePresentation = vi.fn();
+      const { editor } = mount(1440, {
+        screens: overlayScreens('dialog', { name: 'Sheet 3' }),
+        onUpdatePresentation,
+      });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Toast'));
+
       expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'toast', position: 'bottom-right' });
+      expect(onUpdatePresentation.mock.calls[0]).toHaveLength(2);
+    });
+
+    // Numbering only ever counts existing OVERLAY names (nextOverlayDefaultName's
+    // own doc comment) - a second dialog already named "Dialog 2" means the
+    // freed-up "Dialog 1" is not reused; the next free slot is "Dialog 3".
+    it('renaming on switch skips a default name already used by another overlay', async () => {
+      const onUpdatePresentation = vi.fn();
+      const other: Screen = { ...createOverlayScreen({ type: 'dialog', id: 's2', name: 'Dialog 2', pageId: 'p1', x: 400, y: 0 }) };
+      const { editor } = mount(1440, { screens: [...overlayScreens('sheet', { name: 'Sheet 1' }), other], onUpdatePresentation });
+      await screen.findByText('Billing');
+      await select(editor, 'root');
+      const panel = screen.getByRole('complementary', { name: 'Design' });
+
+      await userEvent.click(within(panel).getByText('Dialog'));
+
+      expect(onUpdatePresentation).toHaveBeenCalledWith('s1', { type: 'dialog', dismissible: true }, 'Dialog 3');
     });
 
     it('changing Side keeps dismissible and only replaces the side', async () => {

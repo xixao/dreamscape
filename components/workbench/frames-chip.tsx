@@ -23,10 +23,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
-import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
+import { isOverlay, overlayBadgeLabel, wouldStrandPage } from '@/lib/files/screens';
 import { cn } from '@/lib/utils';
 import { CHIP, DANGER_GHOST, MENU_HINT } from './chrome';
 import { NAME_MAX, RenameInput } from './rename-input';
+
+// Overlay frames phase 2 review, finding 1: a page must always keep at
+// least one plain screen once it has an overlay on it - Present has
+// nowhere sensible to land otherwise (spec docs/superpowers/specs/2026-09-
+// 13-overlay-frames-design.md). Shared by Delete and Move to page below,
+// since moving a screen away strands its origin page exactly the way
+// deleting it would; wouldStrandPage itself (lib/files/screens.ts) is the
+// one shared check this UI and workbench.tsx's own deleteScreen/
+// moveScreenToPage data-layer guards both call, so they can never disagree.
+const NEEDS_SCREEN_TOOLTIP = 'A page needs at least one screen';
 
 /**
  * The top bar's frame chip and frames menu (spec docs/superpowers/specs/
@@ -170,7 +180,12 @@ export function FramesChip({
                   <DropdownMenuItem onSelect={() => onDuplicate(frame.id)}>Duplicate</DropdownMenuItem>
                   {pages && pages.length > 1 && (
                     <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger>
+                      <DropdownMenuSubTrigger
+                        disabled={wouldStrandPage(frame, frames)}
+                        title={wouldStrandPage(frame, frames) ? NEEDS_SCREEN_TOOLTIP : undefined}
+                      >
+                        Move to page
+                      </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
                         {pages
                           .filter((page) => page.id !== frame.pageId)
@@ -184,7 +199,8 @@ export function FramesChip({
                   )}
                   <DropdownMenuItem
                     variant="destructive"
-                    disabled={frames.length <= 1}
+                    disabled={frames.length <= 1 || wouldStrandPage(frame, frames)}
+                    title={frames.length <= 1 || wouldStrandPage(frame, frames) ? NEEDS_SCREEN_TOOLTIP : undefined}
                     onSelect={() => setDeleteTarget(frame)}
                   >
                     Delete

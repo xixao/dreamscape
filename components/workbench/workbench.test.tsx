@@ -632,6 +632,37 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     });
 
+    // Overlay frames phase 2 review, finding 3: addScreen must never
+    // template a brand new plain screen off a focused OVERLAY - it should
+    // fall back to the page's own most recently added plain screen, or (no
+    // plain screen on the page at all) a plain desktop default.
+    it('New screen while an overlay is focused falls back to the page\'s most recent plain screen, not the overlay\'s own size', async () => {
+      const customPlain: Screen = { id: 'plain0001', name: 'Custom', layout: '{}', stageWidth: 900, pageId: PAGE_ID, x: 0, y: 0 };
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 1200, y: 0 });
+      render(<Workbench file={makeFile({ screens: [customPlain, overlay] })} />);
+
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('512'));
+
+      await addNewFrame();
+
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('900'));
+      // Drains this screen's own save traffic - see the comment on "New
+      // screen adds a screen..." above.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
+    it('New screen while an overlay is focused, on a page with no plain screen at all, uses the desktop default width', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay02', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(<Workbench file={makeFile({ screens: [overlay] })} />);
+
+      await addNewFrame();
+
+      await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440'));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+
     it('switching screens restores each one\'s own device (or lack of one) in the readout', async () => {
       const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
       render(<Workbench file={makeFile({ screens: [deviceScreen, SCREEN_2] })} />);
@@ -1093,6 +1124,48 @@ describe('Workbench', () => {
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
       expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
+        '_blank',
+        'noopener,noreferrer',
+      );
+
+      openSpy.mockRestore();
+    });
+
+    // Phase 2 review finding 1: PAGE_ID here holds only the overlay - no
+    // plain screen of its own - while SCREEN_4 lives on the file's OTHER
+    // page (PAGE_2_ID). Both entry points must fall back to naming SCREEN_4
+    // explicitly (and drop `page`) rather than leaving Play's own page
+    // cascade (components/play/player.tsx's resolveInitialScreenId) to
+    // land wherever it likes.
+    it('falls back to the file\'s first plain screen for both entry points when the overlay\'s own page has none', async () => {
+      const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: PAGE_ID, x: 0, y: 0 });
+      render(
+        <Workbench
+          file={makeFile({
+            pages: [
+              { id: PAGE_ID, name: 'Page 1' },
+              { id: PAGE_2_ID, name: 'v2' },
+            ],
+            screens: [SCREEN_4, overlay],
+          })}
+        />,
+      );
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+
+      // Not the shared selectFrame() helper - see the comment on the
+      // preceding test for why an exact name match no longer finds an
+      // overlay row.
+      await user.click(screen.getByRole('button', { name: 'Frames' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
+
+      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
+        'href',
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
+      );
+
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(openSpy).toHaveBeenCalledWith(
+        `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
         '_blank',
         'noopener,noreferrer',
       );
