@@ -1,25 +1,20 @@
-import { ArrowRight, ClipboardCheck, MessageSquare, Flag } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Workspace, Revision, UploadState } from "@/lib/model";
 import { sessionFacts } from "@/lib/results";
-import StateSelector from "@/components/state-selector";
-import { uploadStateShortOptions } from "@/lib/demo/upload";
+import { isDecisionRecord } from "@/lib/review";
 const briefs = {
   ready: {
-    title: "Before the upload",
-    goal: "Provide the right document with confidence.",
-    decision: "Are the document requirements and next action clear?",
+    title: "Ready to upload",
+    question: "Can someone identify the right document and start the upload?",
   },
   failed: {
-    title: "When the upload fails",
-    goal: "Recover without losing the selected document.",
-    decision:
-      "Does the error explain what happened and offer a usable next step?",
+    title: "Upload interrupted",
+    question: "Can someone understand the error and recover without starting over?",
   },
   complete: {
-    title: "After the upload",
-    goal: "Know the document was received and continue.",
-    decision: "Is success clear, and can the person finish the task?",
+    title: "Document received",
+    question: "Can someone tell the upload succeeded and continue?",
   },
 };
 export default function ReviewBrief({
@@ -27,7 +22,6 @@ export default function ReviewBrief({
   revision,
   state,
   dirty,
-  onState,
   onFeedback,
   onResults,
   onChecks,
@@ -37,7 +31,6 @@ export default function ReviewBrief({
   revision: Revision;
   state: UploadState;
   dirty: boolean;
-  onState: (state: UploadState) => void;
   onFeedback: () => void;
   onResults: () => void;
   onChecks: () => void;
@@ -47,34 +40,17 @@ export default function ReviewBrief({
   const sessions = data.sessions.filter((s) => s.revisionId === revision.id);
   const flagged = sessions.filter((s) => sessionFacts(s).attention).length;
   const open = data.comments.filter(
-    (c) => c.revisionId === revision.id && !c.parentId && !c.resolved,
+    (c) => c.revisionId === revision.id && !c.parentId && !c.resolved && !isDecisionRecord(c),
   ).length;
   return (
     <div className="review-brief">
-      <header>
-        <ClipboardCheck size={18} />
-        <strong>Review brief</strong>
-        <span className="badge">v{revision.number}</span>
-      </header>
-      <section>
-        <p className="eyebrow">CURRENT STATE</p>
+      <section className="brief-question">
         <h2>{brief.title}</h2>
-        <p>{brief.goal}</p>
-        <h3>Decision to make</h3>
-        <p>{brief.decision}</p>
-        <StateSelector
-          className="brief-state-options"
-          label="Review state"
-          numbered
-          value={state}
-          options={uploadStateShortOptions}
-          onChange={onState}
-        />
+        <p>{brief.question}</p>
       </section>
       <section>
-        <h3>Evidence on this version</h3>
-        <button className="brief-evidence-link" onClick={onResults}>
-          <Flag size={18} />
+        <h2>Evidence</h2>
+        <Button variant="bare" size="auto" className="brief-evidence-link" onClick={onResults}>
           <span>
             <strong>
               {sessions.length} participant{" "}
@@ -85,17 +61,16 @@ export default function ReviewBrief({
             </small>
           </span>
           <ArrowRight size={16} />
-        </button>
-        <button className="brief-evidence-link" onClick={onFeedback}>
-          <MessageSquare size={18} />
+        </Button>
+        <Button variant="bare" size="auto" className="brief-evidence-link" onClick={onFeedback}>
           <span>
             <strong>
               {open} open review {open === 1 ? "comment" : "comments"}
             </strong>
-            <small>Designer and reviewer feedback</small>
+            <small>Designer and reviewer discussion</small>
           </span>
           <ArrowRight size={16} />
-        </button>
+        </Button>
         {!sessions.length && (
           <p className="muted">
             No participant evidence yet. Review comments are not test results.
@@ -103,24 +78,21 @@ export default function ReviewBrief({
         )}
       </section>
       <section>
-        <h3>Next decision</h3>
+        <h2>Next action</h2>
         <p>
           {dirty
-            ? "This canvas contains an unsaved draft. Recorded evidence belongs to the saved version."
-            : "Review the evidence before accepting a change. Configuration checks do not certify accessibility."}
+            ? "Unsaved canvas changes are not reflected in this version's evidence."
+            : "Review the evidence, then decide whether to revise this design."}
         </p>
         <div className="brief-actions">
           <Button variant="outline" onClick={onChecks}>
-            Inspect checks
+            Review checks
           </Button>
           <Button onClick={onSuggest}>
             Suggest a change
             <ArrowRight size={15} />
           </Button>
         </div>
-        <p className="muted">
-          You approve changes; a new test is needed to evaluate them.
-        </p>
       </section>
     </div>
   );

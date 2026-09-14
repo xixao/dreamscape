@@ -1,7 +1,8 @@
 "use client";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, MessageSquare, Send } from "lucide-react";
 import CommentReactions from "./comment-reactions";
+import CommentAvatar from "@/components/comment-avatar";
 import { Button } from "@/components/ui/button";
 import { Empty } from "@/components/ui/empty";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Comment, Revision, UploadState } from "@/lib/model";
+import { isDecisionRecord } from "@/lib/review";
 
 export default function ReviewComments({
   comments,
@@ -24,6 +26,8 @@ export default function ReviewComments({
   onJump,
   busy,
   canModerate = true,
+  focusComposerRequest = 0,
+  onComposerFocusHandled,
 }: {
   comments: Comment[];
   revision: Revision;
@@ -32,6 +36,8 @@ export default function ReviewComments({
   anchor: string;
   busy: boolean;
   canModerate?: boolean;
+  focusComposerRequest?: number;
+  onComposerFocusHandled?: () => void;
   onAction: (data: Record<string, unknown>) => Promise<boolean>;
   onJump?: (comment: Comment) => void;
 }) {
@@ -39,8 +45,15 @@ export default function ReviewComments({
   const [reply, setReply] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const composerId = useId();
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const sending = useRef(false);
-  const current = comments.filter((c) => c.revisionId === revision.id),
+  useEffect(() => {
+    if (focusComposerRequest > 0) {
+      composerRef.current?.focus();
+      onComposerFocusHandled?.();
+    }
+  }, [focusComposerRequest, onComposerFocusHandled]);
+  const current = comments.filter((c) => c.revisionId === revision.id && !isDecisionRecord(c)),
     roots = current.filter((c) => !c.parentId);
   async function send(parent?: Comment) {
     if (sending.current || busy) return;
@@ -67,11 +80,9 @@ export default function ReviewComments({
   }
   return (
     <div className="feedback-content">
-      <div className="section-heading">
-        <h3>Feedback</h3>
-        <span className="badge">
-          {roots.filter((c) => !c.resolved).length} open
-        </span>
+      <div className="comments-summary">
+        <strong>{roots.filter((c) => !c.resolved).length} open comments</strong>
+        <span>Version {revision.number}</span>
       </div>
       <form
         className="comment-compose"
@@ -87,15 +98,16 @@ export default function ReviewComments({
           </span>
         </label>
         <Textarea
+          ref={composerRef}
           id={composerId}
           disabled={busy}
           value={text}
           maxLength={1500}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Add feedback..."
+          placeholder="Write a comment..."
           required
         />
-        <div className="flex justify-end">
+        <div className="comment-compose-actions">
           <Button type="submit" size="sm" disabled={!text.trim() || busy}>
             <Send size={13} />
             Post
@@ -106,7 +118,7 @@ export default function ReviewComments({
         <Empty className="empty-state">
           <strong className="icon-title">
             <MessageSquare size={23} aria-hidden="true" />
-            <span>No feedback on v{revision.number}</span>
+            <span>No comments on v{revision.number}</span>
           </strong>
           <p>
             {state === "failed"
@@ -120,79 +132,88 @@ export default function ReviewComments({
           className={`comment ${c.resolved ? "resolved" : ""}`}
           key={c.id}
         >
-          <div className="comment-author">
-            <span className="avatar">{c.author.charAt(0).toUpperCase()}</span>
-            <strong>{c.author}</strong>
-            {c.resolved && (
-              <span className="badge green">
-                <Check size={10} />
-                Resolved
-              </span>
-            )}
-          </div>
-          <button className="comment-context" onClick={() => onJump?.(c)}>
-            {c.anchor === "upload-error" ? "Error message" : "Uploader"} ·{" "}
-            {c.state} · {c.viewport}
-          </button>
-          <p>{c.text}</p>
-          <div className="comment-actions">
-            <CommentReactions comment={c} busy={busy} onAction={onAction} />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setReply(reply === c.id ? null : c.id);
-                setReplyText("");
-              }}
-            >
-              Reply
-            </Button>
-            {canModerate && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() =>
-                  void onAction({
-                    action: "resolve",
-                    id: c.id,
-                    resolved: !c.resolved,
-                  })
-                }
-              >
-                {c.resolved ? "Reopen" : "Resolve"}
-              </Button>
-            )}
-          </div>
-          {canModerate && (
-            <Select
-              value={c.assignee}
-              onValueChange={(assignee) =>
-                void onAction({ action: "assign", id: c.id, assignee })
-              }
-              disabled={busy}
-            >
-              <SelectTrigger aria-label="Assign comment" className="assignment">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["Unassigned", "Designer", "Product owner", "Engineer"].map(
-                  (a) => (
-                    <SelectItem value={a} key={a}>
-                      {a}
-                    </SelectItem>
-                  ),
+          <div className="comment-entry">
+            <CommentAvatar name={c.author} variant="comment" />
+            <div className="comment-entry-main">
+              <div className="comment-author">
+                <strong>{c.author}</strong>
+                {c.resolved && (
+                  <span className="badge green">
+                    <Check size={10} />
+                    Resolved
+                  </span>
                 )}
-              </SelectContent>
-            </Select>
-          )}
+                {canModerate && (
+                  <Select
+                    value={c.assignee}
+                    onValueChange={(assignee) =>
+                      void onAction({ action: "assign", id: c.id, assignee })
+                    }
+                    disabled={busy}
+                  >
+                    <SelectTrigger aria-label={`Assign comment by ${c.author}`} size="sm" className="assignment">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["Unassigned", "Designer", "Product owner", "Engineer"].map(
+                        (a) => (
+                          <SelectItem value={a} key={a}>
+                            {a}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <p className="comment-entry-text">{c.text}</p>
+              <Button variant="bare" size="auto" className="comment-context" onClick={() => onJump?.(c)}>
+                {c.anchor === "upload-error" ? "Error message" : "Uploader"} ·{" "}
+                {c.state} · {c.viewport}
+              </Button>
+              <div className="comment-actions comment-feedback">
+                <CommentReactions comment={c} busy={busy} onAction={onAction} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setReply(reply === c.id ? null : c.id);
+                    setReplyText("");
+                  }}
+                >
+                  Reply
+                </Button>
+                {canModerate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void onAction({
+                        action: "resolve",
+                        id: c.id,
+                        resolved: !c.resolved,
+                      })
+                    }
+                  >
+                    {c.resolved ? "Reopen" : "Resolve"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
           {current
             .filter((r) => r.parentId === c.id)
             .map((r) => (
               <div className="reply" key={r.id}>
-                <strong>{r.author}</strong>
-                <p>{r.text}</p>
-                <CommentReactions comment={r} busy={busy} onAction={onAction} />
+                <div className="comment-entry">
+                  <CommentAvatar name={r.author} variant="comment" />
+                  <div className="comment-entry-main">
+                    <strong>{r.author}</strong>
+                    <p className="comment-entry-text">{r.text}</p>
+                    <div className="comment-feedback"><CommentReactions comment={r} busy={busy} onAction={onAction} /></div>
+                  </div>
+                </div>
               </div>
             ))}
           {reply === c.id && (
@@ -213,14 +234,26 @@ export default function ReviewComments({
                 autoFocus
                 required
               />
-              <Button
-                disabled={busy || !replyText.trim()}
-                size="sm"
-                type="submit"
-              >
-                <Send size={13} />
-                Reply
-              </Button>
+              <div className="reply-compose-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setReply(null);
+                    setReplyText("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={busy || !replyText.trim()}
+                  size="sm"
+                  type="submit"
+                >
+                  <Send size={13} />
+                  Post reply
+                </Button>
+              </div>
             </form>
           )}
         </article>

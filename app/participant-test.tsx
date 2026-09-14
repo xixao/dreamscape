@@ -11,6 +11,16 @@ import DocumentUploader from "@/app/demo/document-uploader";
 import { defaultTestSetup } from "@/lib/demo/test-setup";
 import { type TestSetup } from "@/lib/test-setup";
 
+function storedSession(key: string) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function rememberSession(key: string, id: string) {
+  try { window.localStorage.setItem(key, id); } catch { /* Session still works until this page closes. */ }
+}
+function forgetSession(key: string) {
+  try { window.localStorage.removeItem(key); } catch { /* Storage may be disabled. */ }
+}
+
 export default function ParticipantTest({
   token,
   revision,
@@ -24,6 +34,7 @@ export default function ParticipantTest({
 }) {
   const [consent, setConsent] = useState(false),
     [sessionId, setSessionId] = useState("");
+  const [restoring, setRestoring] = useState(true);
   const [state, setState] = useState<UploadState>("ready"),
     [outcome, setOutcome] = useState("started");
   const [busy, setBusy] = useState(false),
@@ -31,15 +42,52 @@ export default function ParticipantTest({
   const [comment, setComment] = useState(""),
     [rating, setRating] = useState<number | null>(null),
     [fuego, setFuego] = useState(false),
-    [saved, setSaved] = useState(false);
+    [saved, setSaved] = useState(false),
+    [closed, setClosed] = useState(false);
   const started = useRef(0),
     pending = useRef(false),
     chain = useRef<Promise<unknown>>(Promise.resolve());
   const path = `/api/share/${token}`;
+  const sessionKey = `flow-review:participant:${token}`;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus();
-  }, [sessionId, outcome]);
+  }, [sessionId, outcome, restoring]);
+  useEffect(() => {
+    let active = true;
+    const id = storedSession(sessionKey);
+    if (!id) {
+      queueMicrotask(() => { if (active) setRestoring(false); });
+      return () => { active = false; };
+    }
+    void request<{
+      id: string;
+      outcome: string;
+      events: { type: string }[];
+      createdAt: string;
+      feedback: string;
+      rating: number | null;
+      fuego: boolean;
+    }>(path, { action: "resume", sessionId: id }).then((session) => {
+      if (!active) return;
+      const last = session.events.at(-1)?.type;
+      setSessionId(session.id);
+      setOutcome(session.outcome);
+      setState(last === "upload_attempt" ? "failed" : last === "upload_success" || last === "retry_success" || last === "continue" ? "complete" : "ready");
+      started.current = new Date(session.createdAt).getTime();
+      setComment(session.feedback);
+      setRating(session.rating);
+      setFuego(session.fuego);
+      setSaved(!!(session.feedback || session.rating || session.fuego));
+    }).catch(() => {
+      if (!active) return;
+      forgetSession(sessionKey);
+      setError("Your previous test could not be resumed. You may start a new one.");
+    }).finally(() => {
+      if (active) setRestoring(false);
+    });
+    return () => { active = false; };
+  }, [path, sessionKey]);
   const settings = setup ?? {
     ...defaultTestSetup,
     scenario: revision.config.retryEnabled ? "recovery" : "success",
@@ -61,7 +109,8 @@ export default function ParticipantTest({
         consent,
       });
       setSessionId(r.id);
-      started.current = performance.now();
+      rememberSession(sessionKey, r.id);
+      started.current = Date.now();
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -83,7 +132,7 @@ export default function ParticipantTest({
         !!target &&
         target.getAttribute("aria-disabled") !== "true" &&
         !pending.current,
-      at: Math.round(performance.now() - started.current),
+      at: Math.min(86400000, Math.max(0, Math.round(Date.now() - started.current))),
     };
     void enqueue({ action: "interaction", sessionId, interaction }).catch(() =>
       setError(
@@ -125,19 +174,17 @@ export default function ParticipantTest({
       });
       setSaved(true);
       setFuego(nextFuego);
-      if (nextFuego && !fuego)
-        toast("Fuego", {
-          className: "fuego-toast",
-          icon: <span className="magic-fire">🔥</span>,
-          position: "bottom-center",
-          duration: 1800,
-        });
+      forgetSession(sessionKey);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       pending.current = false;
       setBusy(false);
     }
+  }
+  function finishWithoutFeedback() {
+    forgetSession(sessionKey);
+    setClosed(true);
   }
   return (
     <div
@@ -148,7 +195,9 @@ export default function ParticipantTest({
           {error}
         </div>
       )}
-      {!sessionId ? (
+      {restoring ? (
+        <main className="consent-screen"><h1>Opening your test…</h1></main>
+      ) : !sessionId ? (
         <main className="consent-screen">
           <span className="badge">
             {settings.audience} TEST · v{revision.number}
@@ -208,11 +257,8 @@ export default function ParticipantTest({
               </details>
             </div>
             <div className="tester-task-actions">
-              {state === "complete" && (
-                <Button
-                  disabled={busy}
-                  onClick={() => void act(state, "continue")}
-                >
+              {settings.focus === "component" && state === "complete" && (
+                <Button disabled={busy} onClick={() => void act(state, "continue")}>
                   Complete Test
                 </Button>
               )}
@@ -257,7 +303,8 @@ export default function ParticipantTest({
                 : "Test abandoned. Thank you for trying."}
             </span>
           </h1>
-          <p>Your progress has been recorded. How was the experience?</p>
+          <p>{closed ? "Your progress has been recorded." : "Your progress has been recorded. How was the experience?"}</p>
+          {!closed && <>
           <div
             className="tester-stars"
             role="group"
@@ -291,7 +338,17 @@ export default function ParticipantTest({
               aria-label="Fuego"
               disabled={busy}
               aria-pressed={fuego}
-              onClick={() => void feedback(!fuego)}
+              onClick={() => {
+                const next = !fuego;
+                setFuego(next);
+                setSaved(false);
+                if (next) toast("Fuego", {
+                  className: "fuego-toast",
+                  icon: <span className="magic-fire">🔥</span>,
+                  position: "bottom-center",
+                  duration: 1800,
+                });
+              }}
             >
               <span aria-hidden="true">🔥</span>
             </Button>
@@ -320,6 +377,8 @@ export default function ParticipantTest({
           {saved && (
             <p role="status">Thank you. Your feedback is with the designer.</p>
           )}
+          {!saved && <Button variant="ghost" disabled={busy} onClick={finishWithoutFeedback}>Finish without feedback</Button>}
+          </>}
           {onReturn ? (
             <Button variant="ghost" onClick={onReturn}>
               View results as designer

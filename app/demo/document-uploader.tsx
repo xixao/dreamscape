@@ -5,13 +5,16 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Code2,
   FileText,
   House,
   RotateCcw,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Config, UploadState } from "@/lib/model";
+import NumberMarker from "@/components/number-marker";
+import CommentPin from "@/components/comment-pin";
+import type { Comment, Config, UploadState } from "@/lib/model";
 import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 
 export default function DocumentUploader({
@@ -21,6 +24,11 @@ export default function DocumentUploader({
   playing = true,
   annotate = false,
   onAnchor,
+  anchorComments = [],
+  onOpenComment,
+  onCommentAction,
+  onViewCode,
+  commentBusy = false,
   compact = false,
   focus = "page",
   observeDisabled = false,
@@ -32,6 +40,11 @@ export default function DocumentUploader({
   playing?: boolean;
   annotate?: boolean;
   onAnchor?: (anchor: string) => void;
+  anchorComments?: Comment[];
+  onOpenComment?: (comment: Comment) => void;
+  onCommentAction?: (data: Record<string, unknown>) => Promise<boolean>;
+  onViewCode?: () => void;
+  commentBusy?: boolean;
   compact?: boolean;
   focus?: "page" | "component" | "error";
   observeDisabled?: boolean;
@@ -49,19 +62,20 @@ export default function DocumentUploader({
         <span className="product-person">AJ</span>
       </header>
       <div className="product-main">
-        <div className="product-progress">
-          <span className="done">
-            <Check size={12} /> Profile
-          </span>
-          <i />
-          <span className="current">
-            2 <span>Documents</span>
-          </span>
-          <i />
-          <span>
-            3 <span>Review</span>
-          </span>
-        </div>
+        <ol className="product-progress" aria-label="Application progress">
+          <li className="done">
+            <Check size={12} aria-hidden="true" />
+            <span>Profile complete</span>
+          </li>
+          <li className="current" aria-current="step">
+            <NumberMarker value={2} variant="progress" selected decorative />
+            <span>Documents</span>
+          </li>
+          <li>
+            <NumberMarker value={3} variant="progress" decorative />
+            <span>Review</span>
+          </li>
+        </ol>
         <p className="eyebrow">YOUR APPLICATION</p>
         <h2>One step closer.</h2>
         <p className="product-subtitle">Let&apos;s get your documents ready.</p>
@@ -69,16 +83,19 @@ export default function DocumentUploader({
           className="upload-card"
           data-component-id={UPLOAD_ANCHORS.component}
         >
-          <div className="relative">
+          <div className={`relative ${onViewCode ? "upload-heading-with-code" : ""}`}>
             <h3>{config.title}</h3>
+            {onViewCode && <Button variant="ghost" size="icon" aria-label="View DocumentUploader code" title="View DocumentUploader code" onClick={onViewCode}><Code2 size={17} /></Button>}
             {annotate && (
-              <button
-                className="anchor-pin"
-                aria-label="Comment on uploader"
-                onClick={() => onAnchor?.("document-uploader")}
-              >
-                1
-              </button>
+              <CommentPin
+                number={1}
+                label="Uploader"
+                comments={anchorComments.filter((comment) => comment.anchor === UPLOAD_ANCHORS.component)}
+                onAddComment={() => onAnchor?.(UPLOAD_ANCHORS.component)}
+                onOpenComment={onOpenComment}
+                onAction={onCommentAction}
+                busy={commentBusy}
+              />
             )}
           </div>
           <p className="helper">{config.helper}</p>
@@ -144,13 +161,16 @@ export default function DocumentUploader({
                     </Button>
                   )}
                   {annotate && (
-                    <button
-                      className="anchor-pin error-pin"
-                      aria-label="Comment on error"
-                      onClick={() => onAnchor?.("upload-error")}
-                    >
-                      2
-                    </button>
+                    <CommentPin
+                      number={2}
+                      label="Upload error"
+                      className="error-pin"
+                      comments={anchorComments.filter((comment) => comment.anchor === UPLOAD_ANCHORS.error)}
+                      onAddComment={() => onAnchor?.(UPLOAD_ANCHORS.error)}
+                      onOpenComment={onOpenComment}
+                      onAction={onCommentAction}
+                      busy={commentBusy}
+                    />
                   )}
                 </div>
               ) : (

@@ -7,12 +7,17 @@ import { baseline, checks, improvement, uploadStates } from "@/lib/demo/upload";
 import { DEMO_IDS, UPLOAD_ANCHORS } from "@/lib/demo/registry";
 import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
 import GuidedPrompt from "@/components/guided-prompt";
+import PromptVoiceControls from "@/components/prompt-voice-controls";
+import PhoneModelSelect from "@/components/phone-model-select";
+import { previewPhoneLabel, previewPhoneWidth, type PhoneModel } from "@/lib/preview-devices";
 import { reviewPrompts } from "@/lib/demo/prompts";
+import { summarizeResults } from "@/lib/results";
 import {
   createHandoff,
   placedComments,
   previousRevision,
   sameConfig,
+  verificationChecks,
 } from "@/lib/review";
 
 import {
@@ -27,31 +32,25 @@ import { flushSync } from "react-dom";
 import { useTheme } from "next-themes";
 import {
   AlertCircle,
-  ArrowRight,
   Bell,
-  BellOff,
   Check,
-  CheckCircle2,
-  ClipboardCheck,
+  ChevronDown,
   Clipboard,
   Download,
   ExternalLink,
   FileClock,
   Flag,
   GitCompareArrows,
-  Layers3,
   LoaderCircle,
   MessageSquare,
-  Monitor,
   MousePointer2,
   Pause,
+  PanelRight,
   Play,
   RotateCcw,
   Send,
   Settings2,
   Share2,
-  ShieldCheck,
-  Smartphone,
   Sparkles,
   X,
   Moon,
@@ -72,7 +71,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import EvidenceTrail, { type EvidenceContext } from "./evidence-trail";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import RightPanel from "@/components/right-panel";
+import CheckRow from "@/components/check-row";
+import NumberMarker from "@/components/number-marker";
 import {
   Dialog,
   DialogContent,
@@ -94,6 +97,7 @@ import { toast } from "sonner";
 import {
   type Audience,
   type Config,
+  type Comment,
   type Revision,
   type UploadState,
   type Workspace,
@@ -107,11 +111,13 @@ import ParticipantTest from "./participant-test";
 import ReviewResults from "./review-results";
 import ReviewBrief from "./review-brief";
 import POReview from "./po-review";
+import WorkspaceHeader from "@/components/workspace-header";
 import JourneyView from "./journey-view";
 import UploadCaseStudy, { buildCaseStudy } from "./demo/upload-case-study";
 import UploadProperties from "./demo/upload-properties";
 import TestSetupEditor from "./test-setup-editor";
 import DesignWorkspace from "./design-workspace";
+import DesignSpecificationDialog, { PocSpecificationDialog } from "./design-specification-dialog";
 import { defaultTestSetup, scriptedTestSetup } from "@/lib/demo/test-setup";
 import { type TestSetup } from "@/lib/test-setup";
 
@@ -135,6 +141,7 @@ const initial: Data = {
   name: "Designer",
   revisions: [preview],
   comments: [],
+  decisions: [],
   sessions: [],
   preferences: { comments: true, revisions: true, tests: true },
   links: [],
@@ -147,6 +154,24 @@ const audienceNames: Record<Audience, string> = {
 };
 const scenarioStates = uploadStates;
 const subscribeHydration = () => () => {};
+
+function ReviewPanelToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const label = open ? "Hide review panel" : "Show review panel";
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-controls="review-inspector"
+      aria-expanded={open}
+      aria-label={label}
+      title={label}
+      onClick={onToggle}
+    >
+      <PanelRight size={15} />
+      <span className="stage-action-label">{open ? "Hide panel" : "Review panel"}</span>
+    </Button>
+  );
+}
 
 export default function FlowReview() {
   const [workspaceMode, setWorkspaceMode] = useState<"design" | "review">(
@@ -169,13 +194,10 @@ export default function FlowReview() {
     renderedScale.current = scale;
   }, []);
   const [canvasReset, setCanvasReset] = useState(0);
-  const [phoneModel, setPhoneModel] = useState("iphone");
+  const [phoneModel, setPhoneModel] = useState<PhoneModel>("iphone");
   const [phoneUnfolded, setPhoneUnfolded] = useState(false);
-  const phoneWidth = phoneModel === "duo" && phoneUnfolded ? 740 : 390;
-  const phoneLabel =
-    phoneModel === "duo"
-      ? `iPhone Duo · ${phoneUnfolded ? "Unfolded" : "Folded"}`
-      : "iPhone";
+  const phoneWidth = previewPhoneWidth(phoneModel, phoneUnfolded);
+  const phoneLabel = previewPhoneLabel(phoneModel, phoneUnfolded);
   const [showFeedback, setShowFeedback] = useState(false);
   const [data, setData] = useState<Data>(initial);
   const [revision, setRevision] = useState<Revision>(preview);
@@ -190,8 +212,10 @@ export default function FlowReview() {
   const [view, setView] = useState("review");
   const [journeyDirty, setJourneyDirty] = useState(false);
   const [panel, setPanel] = useState("brief");
+  const [panelOpen, setPanelOpen] = useState(false);
   const [anchor, setAnchor] = useState("document-uploader");
   const [commentViewport, setCommentViewport] = useState("desktop");
+  const [commentFocusRequest, setCommentFocusRequest] = useState(0);
   const [annotations, setAnnotations] = useState(true);
   const [compare, setCompare] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -204,8 +228,11 @@ export default function FlowReview() {
   const [prompt, setPrompt] = useState("");
   const [reply, setReply] = useState("");
   const [dialog, setDialog] = useState<"share" | "notifications" | null>(null);
+  const [designSpecOpen, setDesignSpecOpen] = useState(false);
+  const [pocSpecOpen, setPocSpecOpen] = useState(false);
   const [shareRole, setShareRole] = useState("participant");
   const [shareUrl, setShareUrl] = useState("");
+  const testSetupScrollRef = useRef<HTMLDivElement>(null);
   const [linkError, setLinkError] = useState("");
   const [testSetup, setTestSetup] = useState<TestSetup>(defaultTestSetup);
   const [readyTest, setReadyTest] = useState<{
@@ -218,16 +245,55 @@ export default function FlowReview() {
   >();
   const [saveNote, setSaveNote] = useState("Manual design update");
   const initialized = useRef(false);
+  const workspaceTabsRef = useRef<HTMLElement>(null);
   const mutationPending = useRef(false);
   const refreshSequence = useRef(0);
   const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = !sameConfig(draft, revision.config);
   const currentChecks = checks(draft);
   const passed = currentChecks.filter((c) => c.pass).length;
+  const currentSessionCount = data.sessions.filter((session) => session.revisionId === revision.id).length;
   const isDesigner = audience === "designer";
   const participant = audience === "participant";
   const feedbackVisible =
     showFeedback && data.preferences.comments && !participant;
+  const navigationItems = [
+    { value: "review", label: "Review", icon: <MousePointer2 aria-hidden="true" />, primary: true },
+    { value: "journey", label: "Journey", icon: <GitCompareArrows aria-hidden="true" />, designerOnly: true, primary: true },
+    { value: "results", label: "Test results", icon: <Flag aria-hidden="true" />, primary: true },
+    { value: "build", label: "Edit component", icon: <Settings2 aria-hidden="true" />, designerOnly: true },
+    { value: "case", label: "Case study", icon: <FileClock aria-hidden="true" /> },
+    { value: "code", label: "Code", icon: <Clipboard aria-hidden="true" /> },
+  ];
+  const moreNavigationItems = navigationItems.filter(
+    (item) => !item.primary && (!item.designerOnly || isDesigner),
+  );
+  const currentMoreView = moreNavigationItems.find((item) => item.value === view);
+  function navigateView(next: string) {
+    if (next !== view && view === "journey" && journeyDirty) {
+      toast.error("Save or discard your journey changes before leaving.");
+      return false;
+    }
+    setView(next);
+    return true;
+  }
+  function openCommentComposer(targetAnchor = anchor, targetViewport = commentViewport) {
+    setAnchor(targetAnchor);
+    setCommentViewport(targetViewport);
+    setPanel("feedback");
+    setPanelOpen(true);
+    setView("review");
+    setAnnotations(true);
+    setCommentFocusRequest((request) => request + 1);
+    if (presentation) exitPresentation();
+  }
+  function openCommentThread(comment: Comment) {
+    setAnchor(comment.anchor);
+    setPanel("feedback");
+    setPanelOpen(true);
+    setView("review");
+    if (presentation) exitPresentation();
+  }
   const dark = mounted && resolvedTheme === "dark";
   const previous = previousRevision(data.revisions, revision);
   const refresh = useCallback(async () => {
@@ -379,6 +445,7 @@ export default function FlowReview() {
   function inspect() {
     if (aiTimer.current) clearTimeout(aiTimer.current);
     setPanel("assistant");
+    setPanelOpen(true);
     setState("failed");
     setPlaying(true);
     setAssistant("thinking");
@@ -387,6 +454,52 @@ export default function FlowReview() {
       setAssistant("proposed");
       setReply(recoveryAgent.review(passed));
     }, recoveryAgent.delayMs);
+  }
+  async function submitAssistantPrompt(input: string) {
+    if (!input.trim() || busy || assistant === "thinking") return "";
+    const intent = demoPromptIntent(input);
+    setPrompt("");
+    if (intent === "designs") {
+      setDesignSpecOpen(true);
+      setReply(recoveryAgent.designs);
+      return recoveryAgent.designs;
+    }
+    if (intent === "poc") {
+      setPocSpecOpen(true);
+      setReply(recoveryAgent.poc);
+      return recoveryAgent.poc;
+    }
+    if (intent === "results") {
+      navigateView("results");
+      setReply(recoveryAgent.results);
+      return recoveryAgent.results;
+    }
+    if (intent === "completed-tests") {
+      const message = await completedTestsReply();
+      setReply(message);
+      return message;
+    }
+    if (intent === "test") {
+      setTestSetup(scriptedTestSetup(input, revision.config.retryEnabled));
+      setShareRole("participant");
+      setShareUrl("");
+      setDialog("share");
+      setReply(recoveryAgent.prepared);
+      return recoveryAgent.prepared;
+    }
+    if (intent === "review") {
+      inspect();
+      await new Promise((resolve) => setTimeout(resolve, recoveryAgent.delayMs));
+      return recoveryAgent.review(passed);
+    }
+    setReply(recoveryAgent.unsupported);
+    return recoveryAgent.unsupported;
+  }
+  async function completedTestsReply() {
+    const latest = await refresh();
+    if (!latest) return recoveryAgent.resultsUnavailable;
+    const summary = summarizeResults(latest.sessions.filter((session) => session.revisionId === revision.id));
+    return recoveryAgent.completedTests(summary.complete, summary.total, revision.number);
   }
   async function applyFix() {
     const saved = await save(
@@ -432,6 +545,7 @@ export default function FlowReview() {
           ? { token: r.token, revision, setup: testSetup }
           : null,
       );
+      requestAnimationFrame(() => testSetupScrollRef.current?.scrollTo({ top: 0 }));
       if (shareRole === "participant") toast.success("Your test is ready.");
       await refresh();
     } catch (e) {
@@ -452,6 +566,16 @@ export default function FlowReview() {
   const caseStudy = () => buildCaseStudy(data);
 
   const stateRef = useRef({ state, revision });
+  useLayoutEffect(() => {
+    if (workspaceMode !== "review") return;
+    const nav = workspaceTabsRef.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"], [data-current="true"]');
+    if (!nav || !current) return;
+    const boundary = nav.getBoundingClientRect();
+    const item = current.getBoundingClientRect();
+    if (item.right > boundary.right) nav.scrollLeft += item.right - boundary.right + 12;
+    if (item.left < boundary.left) nav.scrollLeft -= boundary.left - item.left + 12;
+  }, [view, workspaceMode]);
   useLayoutEffect(() => {
     stateRef.current = { state, revision };
   }, [state, revision]);
@@ -562,7 +686,15 @@ export default function FlowReview() {
           setAudience("designer");
           setView("review");
           setPanel(feedback ? "feedback" : "brief");
+          setPanelOpen(!!feedback);
         }}
+        onResults={() => {
+          setWorkspaceMode("review");
+          setAudience("designer");
+          setView("results");
+          setPanelOpen(false);
+        }}
+        onCompletedTests={completedTestsReply}
       />
     );
   if (audience === "po")
@@ -573,321 +705,269 @@ export default function FlowReview() {
         previous={previous}
         sessions={data.sessions}
         comments={data.comments}
+        decisions={data.decisions}
         busy={busy || !loaded}
         error={error}
         onAction={action}
+        onCreateShare={async () => {
+          const result = await request<{ path: string }>("/api/workspace", {
+            action: "share",
+            revisionId: revision.id,
+            audience: "po",
+          });
+          await refresh();
+          return new URL(result.path, window.location.origin).href;
+        }}
         onBack={() => {
           setAudience("designer");
           setView("review");
           setPanel("brief");
+          setPanelOpen(false);
         }}
         dark={dark}
         onTheme={() => setTheme(dark ? "light" : "dark")}
       />
     );
+  const viewContext = {
+    review: audience === "engineer" ? "Engineering review" : "Design review",
+    code: "Developer handoff",
+    results: "Test results",
+    journey: "User journey",
+    build: "Edit component",
+    case: "Case study",
+  }[view];
+  const workspaceStatus = !loaded
+    ? error
+      ? view === "journey" ? "Unavailable" : "Preview only"
+      : "Loading"
+    : dirty ? "Unsaved draft" : `Saved v${revision.number}`;
+  function backToDesign() {
+    if (journeyDirty) {
+      setView("journey");
+      toast.error("Save or discard your journey changes before leaving.");
+      return;
+    }
+    setWorkspaceMode("design");
+  }
+  async function changeAudience(v: string) {
+    if (v !== "designer" && journeyDirty) {
+      setView("journey");
+      toast.error("Save or discard your journey changes before switching audience.");
+      return;
+    }
+    if (v === "participant") {
+      if (dirty || journeyDirty || mutationPending.current) {
+        toast.error("Save or discard component and journey changes before starting a test.");
+        return;
+      }
+      mutationPending.current = true;
+      const setup: TestSetup = {
+        ...defaultTestSetup,
+        scenario: revision.config.retryEnabled ? "recovery" : "success",
+      };
+      setActiveTestSetup(setup);
+      setBusy(true);
+      try {
+        const link = await request<{ token: string }>("/api/workspace", {
+          action: "share",
+          revisionId: revision.id,
+          audience: "participant",
+          testSetup: setup,
+        });
+        setParticipantRevision(revision);
+        setParticipantToken(link.token);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        mutationPending.current = false;
+        setBusy(false);
+      }
+      return;
+    }
+    setAudience(v as Audience);
+    if (v !== "designer") setView("review");
+    if (v === "po") setPanel("feedback");
+    if (v === "engineer") setPanel("checks");
+    if (v === "designer") setPanel("brief");
+    setPanelOpen(v === "engineer");
+  }
   return (
     <TooltipProvider delayDuration={250}>
       <div className={`studio ${presentation ? "is-presenting" : ""}`}>
-        <header className="studio-header">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (journeyDirty) {
-                setView("journey");
-                toast.error(
-                  "Save or discard your journey changes before leaving.",
-                );
-                return;
-              }
-              setWorkspaceMode("design");
-            }}
-          >
-            <ArrowRight size={16} className="rotate-180" />
-            Back to design
-          </Button>
-          <span className="studio-brand">
-            <Layers3 />
-            Flow Review
-          </span>
-          <span className="breadcrumb">
-            Homepath <span className="dot">/</span> Document upload
-          </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Workspace options"
-                title="Workspace options"
-              >
-                <MoreHorizontal size={19} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <div className="workspace-environment">Prototype environment</div>
-              <DropdownMenuItem
-                onSelect={() => setTheme(dark ? "light" : "dark")}
-              >
-                {dark ? <Sun /> : <Moon />}
-                {dark ? "Use light mode" : "Use dark mode"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={startPresentation}>
-                <Presentation />
-                Present component
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setDialog("notifications")}>
-                <Bell />
-                Notifications
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!previous}
-                onSelect={() => {
-                  setCompare(!compare);
-                  setViewport("desktop");
-                  setView("review");
-                }}
-              >
-                <GitCompareArrows />
-                {compare ? "Stop comparing" : "Compare versions"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  download(
+        <div className="workspace-chrome">
+          <WorkspaceHeader
+            className="studio-header"
+            title="Document upload"
+            context={`${viewContext} · ${workspaceStatus}`}
+            back={{ label: "Back to design", onClick: backToDesign }}
+            actions={<>
+              <span className="audience-label">View as</span>
+              <Select value={audience} onValueChange={(value) => void changeAudience(value)}>
+                <SelectTrigger aria-label="View as" disabled={!loaded || busy}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(audienceNames).map(([key, name]) => (
+                    <SelectItem key={key} value={key}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {view !== "review" && view !== "build" && (
+                <Button size="sm" onClick={() => {
+                  if (navigateView("review")) {
+                    setState("ready");
+                    setPlaying(true);
+                  }
+                }}>
+                  <Play size={15} /> Open preview
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Workspace options" title="Workspace options">
+                    <MoreHorizontal size={19} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setTheme(dark ? "light" : "dark")}>
+                    {dark ? <Sun /> : <Moon />}
+                    {dark ? "Use light mode" : "Use dark mode"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={startPresentation}>
+                    <Presentation /> Present component
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setDialog("notifications")}>
+                    <Bell /> Notifications
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!previous} onSelect={() => {
+                    setCompare(!compare);
+                    setViewport("desktop");
+                    setView("review");
+                  }}>
+                    <GitCompareArrows /> {compare ? "Stop comparing" : "Compare versions"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => download(
                     "flow-review-handoff.json",
-                    JSON.stringify(
-                      createHandoff(
-                        revision,
-                        draft,
-                        data.comments,
-                        currentChecks,
-                        DEMO_IDS.upload,
-                        scenarioStates,
-                      ),
-                      null,
-                      2,
-                    ),
-                  )
-                }
-              >
-                <Download />
-                Export handoff
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShareUrl("");
-              setDialog("share");
-            }}
-            disabled={!loaded}
-          >
-            <Share2 size={15} />
-            Share
-          </Button>
-        </header>
-        {presentation && (
-          <header className="presentation-bar">
-            <span className="presentation-name">
-              <Presentation size={18} />
-              <strong>Document upload</strong>
-              <span className="badge">
-                v{revision.number}
-                {dirty ? " · Draft" : ""}
+                    JSON.stringify(createHandoff(revision, draft, data.comments, currentChecks, DEMO_IDS.upload, scenarioStates), null, 2),
+                  )}>
+                    <Download /> Export handoff
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>}
+          />
+          {presentation && (
+            <header className="presentation-bar">
+              <span className="presentation-name">
+                <Presentation size={18} />
+                <strong>Document upload</strong>
+                <span className="badge">
+                  v{revision.number}
+                  {dirty ? " · Draft" : ""}
+                </span>
               </span>
-            </span>
-            <div className="presentation-actions">
-              <IconButton
-                label={dark ? "Use light mode" : "Use dark mode"}
-                onClick={() => setTheme(dark ? "light" : "dark")}
-              >
-                {dark ? <Sun size={17} /> : <Moon size={17} />}
-              </IconButton>
-              <IconButton
-                label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                onClick={() => void toggleFullscreen()}
-              >
-                {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
-              </IconButton>
-              <IconButton label="Exit presentation" onClick={exitPresentation}>
-                <X size={18} />
-              </IconButton>
+              <div className="presentation-actions">
+                <IconButton
+                  label={dark ? "Use light mode" : "Use dark mode"}
+                  onClick={() => setTheme(dark ? "light" : "dark")}
+                >
+                  {dark ? <Sun size={17} /> : <Moon size={17} />}
+                </IconButton>
+                <IconButton
+                  label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                  onClick={() => void toggleFullscreen()}
+                >
+                  {fullscreen ? <Minimize size={17} /> : <Maximize size={17} />}
+                </IconButton>
+                <IconButton label="Exit presentation" onClick={exitPresentation}>
+                  <X size={18} />
+                </IconButton>
+              </div>
+            </header>
+          )}
+          {error && !(view === "journey" && !loaded) && (
+            <div className="error-banner" role="alert">
+              <AlertCircle size={16} />
+              <span>{error}</span>
+              {needsSignIn ? (
+                <a href="/signin-with-chatgpt?return_to=/" target="_top">
+                  Sign in
+                </a>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => void refresh()}>
+                  Retry
+                </Button>
+              )}
             </div>
-          </header>
-        )}
-        <div className="workspace-heading">
-          <div>
-            <p className="eyebrow">
-              {
-                {
-                  review: "Design review",
-                  code: "Developer handoff",
-                  results: "Test results",
-                  journey: "User journey",
-                  build: "Edit component",
-                  case: "Case study",
-                }[view]
-              }{" "}
-              · {audienceNames[audience]}
-            </p>
-            <h1>Document upload</h1>
-            <p>
-              Recovery flow <span className="dot">·</span> v{revision.number}
-              {dirty ? " · Unsaved draft" : " · Saved version"}
-              {" · "}
-              {
-                data.sessions.filter(
-                  (s) =>
-                    s.revisionId === revision.id && s.outcome !== "started",
-                ).length
-              }{" "}
-              finished tests · Human review required
-            </p>
-          </div>
-          <div className="heading-actions">
-            <Select
-              value={audience}
-              onValueChange={async (v) => {
-                if (v !== "designer" && journeyDirty) {
-                  setView("journey");
-                  toast.error(
-                    "Save or discard your journey changes before switching audience.",
-                  );
-                  return;
-                }
-                if (v === "participant") {
-                  if (dirty || journeyDirty || mutationPending.current) {
-                    toast.error(
-                      "Save or discard component and journey changes before starting a test.",
-                    );
-                    return;
-                  }
-                  mutationPending.current = true;
-                  const setup: TestSetup = {
-                    ...defaultTestSetup,
-                    scenario: revision.config.retryEnabled
-                      ? "recovery"
-                      : "success",
-                  };
-                  setActiveTestSetup(setup);
-                  setBusy(true);
-                  try {
-                    const link = await request<{ token: string }>(
-                      "/api/workspace",
-                      {
-                        action: "share",
-                        revisionId: revision.id,
-                        audience: "participant",
-                        testSetup: setup,
-                      },
-                    );
-                    setParticipantRevision(revision);
-                    setParticipantToken(link.token);
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    mutationPending.current = false;
-                    setBusy(false);
-                  }
-                  return;
-                }
-                setAudience(v as Audience);
-                if (v !== "designer") setView("review");
-                if (v === "po") setPanel("feedback");
-                if (v === "engineer") setPanel("checks");
-              }}
-            >
-              <SelectTrigger
-                aria-label="Audience view"
-                disabled={!loaded || busy}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(audienceNames).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>
-                    {v}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={() => {
-                setState("ready");
-                setPlaying(true);
-                setView("review");
-              }}
-            >
-              <Play size={15} />
-              Play scenario
-            </Button>
-          </div>
+          )}
+          {!participant && (
+            <nav ref={workspaceTabsRef} className="workspace-tabs" aria-label="Flow Review views">
+              <div className="workspace-nav-list">
+                {navigationItems
+                  .filter((item) => item.primary && (!item.designerOnly || isDesigner))
+                  .map((item) => (
+                    <Button
+                      key={item.value}
+                      variant="bare"
+                      size="auto"
+                      className="workspace-nav-item"
+                      aria-current={view === item.value ? "page" : undefined}
+                      aria-label={item.value === "results" ? `Test results: ${currentSessionCount} sessions on version ${revision.number}` : undefined}
+                      onClick={() => navigateView(item.value)}
+                    >
+                      {item.icon}
+                      {item.label}
+                      {item.value === "results" && (
+                        <span className="tab-count">{currentSessionCount}</span>
+                      )}
+                    </Button>
+                  ))}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="bare"
+                      size="auto"
+                      className="workspace-nav-item workspace-nav-more"
+                      data-current={currentMoreView ? "true" : undefined}
+                      aria-label={currentMoreView ? `More views, current ${currentMoreView.label}` : "More views"}
+                    >
+                      {currentMoreView?.label ?? "More views"}
+                      <ChevronDown size={15} aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {moreNavigationItems.map((item) => (
+                      <DropdownMenuItem
+                        key={item.value}
+                        aria-current={view === item.value ? "page" : undefined}
+                        onSelect={() => navigateView(item.value)}
+                      >
+                        {item.icon}
+                        {item.label}
+                        {view === item.value && <Check size={14} aria-hidden="true" />}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              {isDesigner && (
+                <Button
+                  variant="ghost"
+                  className="setup-nav-action"
+                  disabled={!loaded}
+                  onClick={() => {
+                    setShareRole("participant");
+                    setShareUrl("");
+                    setDialog("share");
+                  }}
+                >
+                  <Settings2 size={15} />
+                  Set up test
+                </Button>
+              )}
+            </nav>
+          )}
         </div>
-        {error && (
-          <div className="error-banner" role="alert">
-            <AlertCircle size={16} />
-            <span>{error}</span>
-            {needsSignIn ? (
-              <a href="/signin-with-chatgpt?return_to=/" target="_top">
-                Sign in
-              </a>
-            ) : (
-              <Button variant="ghost" size="sm" onClick={() => void refresh()}>
-                Retry
-              </Button>
-            )}
-          </div>
-        )}
-        {!participant && (
-          <Tabs value={view} onValueChange={setView} className="workspace-tabs">
-            <TabsList variant="line">
-              <TabsTrigger value="review">
-                <MousePointer2 />
-                Review
-              </TabsTrigger>
-              {isDesigner && (
-                <TabsTrigger value="journey">
-                  <GitCompareArrows />
-                  Journey
-                </TabsTrigger>
-              )}
-              {isDesigner && (
-                <TabsTrigger value="build">
-                  <Settings2 />
-                  Edit component
-                </TabsTrigger>
-              )}
-              <TabsTrigger value="results">
-                <Flag />
-                Test results{" "}
-                <span className="tab-count">{data.sessions.length}</span>
-              </TabsTrigger>
-              <TabsTrigger value="case">
-                <FileClock />
-                Case study
-              </TabsTrigger>
-              <TabsTrigger value="code">
-                <Clipboard />
-                Code
-              </TabsTrigger>
-            </TabsList>
-            {isDesigner && (
-              <Button
-                variant="ghost"
-                className="setup-nav-action"
-                disabled={!loaded}
-                onClick={() => {
-                  setShareRole("participant");
-                  setShareUrl("");
-                  setDialog("share");
-                }}
-              >
-                <Settings2 size={15} />
-                Set up test
-              </Button>
-            )}
-          </Tabs>
-        )}
         {participant && (
           <div className="audience-notice">
             <span>Participant preview</span>
@@ -896,12 +976,12 @@ export default function FlowReview() {
         )}
         {(view === "review" || view === "build") && (
           <main
-            className={`preview-grid ${participant ? "participant-grid" : ""}`}
+            className={`preview-grid ${participant ? "participant-grid" : ""} ${view === "review" && !participant && !panelOpen ? "panel-collapsed" : ""} ${view === "review" && audience === "engineer" && panelOpen && panel === "code" ? "engineer-code-open" : ""}`}
           >
             <div className="stage-column">
               <div className="stage">
-                <div className="stage-toolbar">
-                  <div className="flex items-center gap-1">
+                <div className="stage-toolbar" role="group" aria-label="Prototype controls">
+                  <div className="stage-playback" role="group" aria-label="Playback">
                     <IconButton
                       label={playing ? "Pause prototype" : "Resume prototype"}
                       onClick={() => setPlaying(!playing)}
@@ -915,229 +995,180 @@ export default function FlowReview() {
                       <RotateCcw size={15} />
                     </IconButton>
                     <span className={`status-dot ${playing ? "live" : ""}`} />
-                    <span>{playing ? "Preview" : "Paused"}</span>
+                    <span>{playing ? "Playing" : "Paused"}</span>
                   </div>
-                  <div className="stage-primary-actions">
+                  <div className="stage-primary-actions" role="group" aria-label="Preview actions">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
-                        setPanel("feedback");
-                        setView("review");
-                        setAnnotations(true);
-                        if (presentation) exitPresentation();
-                      }}
+                      aria-label="Add comment"
+                      title="Add comment"
+                      onClick={() => openCommentComposer()}
                     >
                       <MessageSquare size={15} />
-                      Comment
+                      <span className="stage-action-label">Add comment</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-expanded={viewOptions}
-                      aria-controls="preview-options"
-                      onClick={() => setViewOptions(!viewOptions)}
-                    >
-                      <Settings2 size={15} />
-                      View options
-                    </Button>
-                  </div>
-                </div>
-                <div
-                  id="preview-options"
-                  className="preview-options"
-                  hidden={!viewOptions}
-                >
-                  <div className="flex items-center gap-1">
-                    <IconButton
-                      label="Desktop"
-                      active={viewport === "desktop"}
-                      onClick={() => setViewport("desktop")}
-                    >
-                      <Monitor size={17} />
-                    </IconButton>
-                    <IconButton
-                      label="Mobile"
-                      active={viewport === "mobile"}
-                      onClick={() => {
-                        setViewport("mobile");
-                        setCompare(false);
-                      }}
-                    >
-                      <Smartphone size={17} />
-                    </IconButton>
-                    <IconButton
-                      label="Desktop and mobile"
-                      active={viewport === "both"}
-                      onClick={() => {
-                        setViewport("both");
-                        setCompare(false);
-                      }}
-                    >
-                      <GitCompareArrows size={17} />
-                    </IconButton>
-                    {!participant && !presentation && (
-                      <IconButton
-                        label="Comment pins"
-                        active={annotations}
-                        onClick={() => setAnnotations(!annotations)}
+                    <Popover open={viewOptions} onOpenChange={setViewOptions}>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="sm" aria-label="Display options" title="Display options">
+                          <Settings2 size={15} />
+                      <span className="stage-action-label">Display options</span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        sideOffset={8}
+                        className="preview-display-popover"
+                        aria-labelledby="preview-display-title"
                       >
-                        <MessageSquare size={16} />
-                      </IconButton>
-                    )}
-                  </div>
-                  <div className="inspection-toolbar">
-                    {viewport !== "desktop" && (
-                      <>
-                        <Select
-                          value={phoneModel}
-                          onValueChange={(value) => {
-                            setPhoneModel(value);
-                            setZoom("fit");
-                          }}
-                        >
-                          <SelectTrigger aria-label="Phone model">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="iphone">iPhone</SelectItem>
-                            <SelectItem value="duo">iPhone Duo</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {phoneModel === "duo" && (
-                          <div
-                            className="fold-controls"
-                            role="group"
-                            aria-label="Phone posture"
+                        <h2 id="preview-display-title">Display options</h2>
+                        <div className="display-field">
+                          <span>Viewport</span>
+                          <Select
+                            value={viewport}
+                            onValueChange={(value) => {
+                              setViewport(value);
+                              if (value !== "desktop") setCompare(false);
+                            }}
                           >
-                            <Button
-                              size="sm"
-                              variant={phoneUnfolded ? "ghost" : "secondary"}
-                              aria-pressed={!phoneUnfolded}
-                              onClick={() => {
-                                setPhoneUnfolded(false);
-                                setZoom("fit");
-                              }}
-                            >
-                              Folded
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={phoneUnfolded ? "secondary" : "ghost"}
-                              aria-pressed={phoneUnfolded}
-                              onClick={() => {
-                                setPhoneUnfolded(true);
-                                setZoom("fit");
-                              }}
-                            >
-                              Unfolded
-                            </Button>
+                            <SelectTrigger aria-label="Viewport" className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="desktop">Desktop</SelectItem>
+                              <SelectItem value="mobile">Mobile</SelectItem>
+                              <SelectItem value="both">Desktop and mobile</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {viewport !== "desktop" && (
+                          <div className="display-field">
+                            <span>Phone</span>
+                            <PhoneModelSelect value={phoneModel} className="w-full" onChange={(value) => { setPhoneModel(value); setZoom("fit"); }} />
+                            {phoneModel === "duo" && (
+                              <div className="fold-controls" role="group" aria-label="Phone posture">
+                                <Button
+                                  size="sm"
+                                  variant={phoneUnfolded ? "ghost" : "secondary"}
+                                  aria-pressed={!phoneUnfolded}
+                                  onClick={() => {
+                                    setPhoneUnfolded(false);
+                                    setZoom("fit");
+                                  }}
+                                >
+                                  Folded
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={phoneUnfolded ? "secondary" : "ghost"}
+                                  aria-pressed={phoneUnfolded}
+                                  onClick={() => {
+                                    setPhoneUnfolded(true);
+                                    setZoom("fit");
+                                  }}
+                                >
+                                  Unfolded
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
-                      </>
-                    )}
-                    <Select
-                      value={focus}
-                      onValueChange={(value) => {
-                        setFocus(value as PreviewFocus);
-                        setZoom("fit");
-                        if (value === "error") setState("failed");
-                      }}
-                    >
-                      <SelectTrigger aria-label="Preview focus">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="page">Full page</SelectItem>
-                        <SelectItem value="component">
-                          Component only
-                        </SelectItem>
-                        <SelectItem value="error">Error message</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <div className="zoom-controls">
-                      <IconButton
-                        label="Zoom out"
-                        disabled={zoom !== "fit" && zoom <= 0.15}
-                        onClick={() =>
-                          setZoom(
-                            Math.max(
-                              0.15,
-                              (zoom === "fit" ? renderedScale.current : zoom) -
-                                0.25,
-                            ),
-                          )
-                        }
-                      >
-                        <ZoomOut size={17} />
-                      </IconButton>
-                      <Select
-                        value={String(zoom)}
-                        onValueChange={(value) => {
-                          setZoom(value === "fit" ? "fit" : Number(value));
-                          if (value === "fit") setCanvasReset((n) => n + 1);
-                        }}
-                      >
-                        <SelectTrigger aria-label="Preview zoom">
-                          <SelectValue>
-                            {zoom === "fit"
-                              ? "Fit"
-                              : `${Math.round(zoom * 100)}%`}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="fit">Fit</SelectItem>
-                          {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3].map(
-                            (z) => (
-                              <SelectItem value={String(z)} key={z}>
-                                {Math.round(z * 100)}%
-                              </SelectItem>
-                            ),
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <IconButton
-                        label="Zoom in"
-                        disabled={zoom !== "fit" && zoom >= 3}
-                        onClick={() =>
-                          setZoom(
-                            Math.min(
-                              3,
-                              (zoom === "fit" ? renderedScale.current : zoom) +
-                                0.25,
-                            ),
-                          )
-                        }
-                      >
-                        <ZoomIn size={17} />
-                      </IconButton>
-                      <IconButton
-                        label="Fit preview"
-                        onClick={() => {
-                          setZoom("fit");
-                          setCanvasReset((n) => n + 1);
-                        }}
-                      >
-                        <Scan size={17} />
-                      </IconButton>
-                    </div>
-                    {!participant && (
-                      <IconButton
-                        label={
-                          feedbackVisible
-                            ? "Hide feedback notifications"
-                            : "Show feedback notifications"
-                        }
-                        active={feedbackVisible}
-                        disabled={!data.preferences.comments}
-                        onClick={() => setShowFeedback(!showFeedback)}
-                      >
-                        {feedbackVisible ? (
-                          <Bell size={17} />
-                        ) : (
-                          <BellOff size={17} />
+                        <div className="display-field">
+                          <span>Focus</span>
+                          <Select
+                            value={focus}
+                            onValueChange={(value) => {
+                              setFocus(value as PreviewFocus);
+                              setZoom("fit");
+                              if (value === "error") setState("failed");
+                            }}
+                          >
+                            <SelectTrigger aria-label="Preview focus" className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="page">Full page</SelectItem>
+                              <SelectItem value="component">Component only</SelectItem>
+                              <SelectItem value="error">Error message</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="display-field">
+                          <span>Zoom</span>
+                          <div className="display-zoom-controls">
+                            <IconButton
+                              label="Zoom out"
+                              disabled={zoom !== "fit" && zoom <= 0.15}
+                              onClick={() =>
+                                setZoom(Math.max(0.15, (zoom === "fit" ? renderedScale.current : zoom) - 0.25))
+                              }
+                            >
+                              <ZoomOut size={17} />
+                            </IconButton>
+                            <Select
+                              value={String(zoom)}
+                              onValueChange={(value) => {
+                                setZoom(value === "fit" ? "fit" : Number(value));
+                                if (value === "fit") setCanvasReset((n) => n + 1);
+                              }}
+                            >
+                              <SelectTrigger aria-label="Preview zoom">
+                                <SelectValue>
+                                  {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="fit">Fit</SelectItem>
+                                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3].map((z) => (
+                                  <SelectItem value={String(z)} key={z}>{Math.round(z * 100)}%</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <IconButton
+                              label="Zoom in"
+                              disabled={zoom !== "fit" && zoom >= 3}
+                              onClick={() =>
+                                setZoom(Math.min(3, (zoom === "fit" ? renderedScale.current : zoom) + 0.25))
+                              }
+                            >
+                              <ZoomIn size={17} />
+                            </IconButton>
+                            <IconButton
+                              label="Fit preview"
+                              onClick={() => {
+                                setZoom("fit");
+                                setCanvasReset((n) => n + 1);
+                              }}
+                            >
+                              <Scan size={17} />
+                            </IconButton>
+                          </div>
+                        </div>
+                        {!participant && (
+                          <details className="display-annotations">
+                            <summary>Comment overlays</summary>
+                            <div className="display-toggles">
+                              {!presentation && (
+                                <label>
+                                  <span>Comment targets</span>
+                                  <Switch checked={annotations} onCheckedChange={setAnnotations} />
+                                </label>
+                              )}
+                              <label>
+                                <span>Placed comments</span>
+                                <Switch
+                                  checked={feedbackVisible}
+                                  disabled={!data.preferences.comments}
+                                  onCheckedChange={setShowFeedback}
+                                />
+                              </label>
+                            </div>
+                          </details>
                         )}
-                      </IconButton>
+                      </PopoverContent>
+                    </Popover>
+                    {!participant && view === "review" && !panelOpen && (
+                      <ReviewPanelToggle open={false} onToggle={() => setPanelOpen(true)} />
                     )}
                   </div>
                 </div>
@@ -1192,6 +1223,7 @@ export default function FlowReview() {
                       <DocumentUploader
                         focus={focus}
                         config={draft}
+                        onViewCode={audience === "engineer" ? () => { setPanel("code"); setPanelOpen(true); setFocus("component"); setZoom("fit"); } : undefined}
                         state={state}
                         playing={playing}
                         onState={changeState}
@@ -1200,13 +1232,15 @@ export default function FlowReview() {
                           !(phoneModel === "duo" && phoneUnfolded)
                         }
                         annotate={!participant && annotations && !presentation}
+                        anchorComments={placedComments(data.comments, revision.id, state, viewport === "mobile" ? "mobile" : "desktop")}
+                        onOpenComment={openCommentThread}
+                        onCommentAction={action}
+                        commentBusy={busy}
                         onAnchor={(a) => {
-                          setAnchor(a);
-                          setCommentViewport(
+                          openCommentComposer(
+                            a,
                             viewport === "mobile" ? "mobile" : "desktop",
                           );
-                          setPanel("feedback");
-                          setView("review");
                         }}
                       />
                       {feedbackVisible && (
@@ -1219,12 +1253,7 @@ export default function FlowReview() {
                           )}
                           busy={busy}
                           onAction={action}
-                          onOpen={(c) => {
-                            setAnchor(c.anchor);
-                            setPanel("feedback");
-                            setView("review");
-                            if (presentation) exitPresentation();
-                          }}
+                          onOpen={openCommentThread}
                         />
                       )}
                     </div>
@@ -1242,6 +1271,7 @@ export default function FlowReview() {
                         <DocumentUploader
                           focus={focus}
                           config={draft}
+                          onViewCode={audience === "engineer" ? () => { setPanel("code"); setPanelOpen(true); setFocus("component"); setZoom("fit"); } : undefined}
                           state={state}
                           playing={playing}
                           onState={changeState}
@@ -1249,10 +1279,12 @@ export default function FlowReview() {
                           annotate={
                             !participant && annotations && !presentation
                           }
+                          anchorComments={placedComments(data.comments, revision.id, state, "mobile")}
+                          onOpenComment={openCommentThread}
+                          onCommentAction={action}
+                          commentBusy={busy}
                           onAnchor={(a) => {
-                            setAnchor(a);
-                            setCommentViewport("mobile");
-                            setPanel("feedback");
+                            openCommentComposer(a, "mobile");
                           }}
                         />
                         {feedbackVisible && (
@@ -1265,12 +1297,7 @@ export default function FlowReview() {
                             )}
                             busy={busy}
                             onAction={action}
-                            onOpen={(c) => {
-                              setAnchor(c.anchor);
-                              setPanel("feedback");
-                              setView("review");
-                              if (presentation) exitPresentation();
-                            }}
+                            onOpen={openCommentThread}
                           />
                         )}
                       </div>
@@ -1290,15 +1317,6 @@ export default function FlowReview() {
                   />
                 )}
               </div>
-              {!participant && (
-                <div className="scenario-caption">
-                  <div>
-                    <span className="badge">SCENARIO 01</span>
-                    <strong>Can someone recover from a failed upload?</strong>
-                  </div>
-                  <span>No real files or application data</span>
-                </div>
-              )}
             </div>
             {!participant &&
               (view === "build" ? (
@@ -1314,9 +1332,16 @@ export default function FlowReview() {
                   save={save}
                 />
               ) : (
-                <aside
+                <RightPanel
+                  variant="review"
+                  id="review-inspector"
+                  hidden={!panelOpen}
                   className={`review-panel ${panel === "assistant" && isDesigner ? "assistant-open" : ""}`}
                 >
+                  <div className="review-panel-topbar">
+                    <strong>Review panel</strong>
+                    <ReviewPanelToggle open onToggle={() => setPanelOpen(false)} />
+                  </div>
                   {evidence && (
                     <EvidenceTrail
                       key={evidence.session.id}
@@ -1331,15 +1356,13 @@ export default function FlowReview() {
                       }}
                     />
                   )}
-                  <Tabs value={panel} onValueChange={setPanel}>
+                  <Tabs value={panel} onValueChange={(next) => { setPanel(next); if (next === "code" && audience === "engineer") { setFocus("component"); setZoom("fit"); } }}>
                     <TabsList className="inspector-tabs" variant="line">
                       {isDesigner && (
                         <TabsTrigger
                           value="brief"
-                          aria-label="Review brief"
-                          title="Review brief"
                         >
-                          <ClipboardCheck />
+                          Brief
                         </TabsTrigger>
                       )}
                       {isDesigner && (
@@ -1347,9 +1370,10 @@ export default function FlowReview() {
                           <Sparkles />
                         </TabsTrigger>
                       )}
-                      <TabsTrigger value="feedback">Feedback</TabsTrigger>
+                      <TabsTrigger value="feedback">Comments</TabsTrigger>
                       <TabsTrigger value="checks">Checks</TabsTrigger>
                       <TabsTrigger value="history">History</TabsTrigger>
+                      {audience === "engineer" && <TabsTrigger value="code">Code</TabsTrigger>}
                     </TabsList>
                     {isDesigner && (
                       <TabsContent value="brief">
@@ -1358,9 +1382,8 @@ export default function FlowReview() {
                           revision={revision}
                           state={state}
                           dirty={dirty}
-                          onState={setState}
                           onFeedback={() => setPanel("feedback")}
-                          onResults={() => setView("results")}
+                          onResults={() => navigateView("results")}
                           onChecks={() => setPanel("checks")}
                           onSuggest={inspect}
                         />
@@ -1372,7 +1395,7 @@ export default function FlowReview() {
                         className="assistant-tab"
                         data-demo-id={DEMO_IDS.recoveryAgent}
                       >
-                        <div className="panel-title">
+                        <div className="panel-title right-panel-heading">
                           <Sparkles size={16} />
                           <strong>Flow assistant</strong>
                         </div>
@@ -1458,31 +1481,7 @@ export default function FlowReview() {
                             className="assistant-prompt guided-composer"
                             onSubmit={(e) => {
                               e.preventDefault();
-                              if (
-                                !prompt.trim() ||
-                                busy ||
-                                assistant === "thinking"
-                              )
-                                return;
-                              if (demoPromptIntent(prompt) === "test") {
-                                setTestSetup(
-                                  scriptedTestSetup(
-                                    prompt,
-                                    revision.config.retryEnabled,
-                                  ),
-                                );
-                                setShareRole("participant");
-                                setShareUrl("");
-                                setDialog("share");
-                                setReply(recoveryAgent.prepared);
-                              } else if (
-                                demoPromptIntent(prompt) === "review"
-                              ) {
-                                inspect();
-                              } else {
-                                setReply(recoveryAgent.unsupported);
-                              }
-                              setPrompt("");
+                              void submitAssistantPrompt(prompt);
                             }}
                           >
                             <GuidedPrompt
@@ -1493,10 +1492,11 @@ export default function FlowReview() {
                               prompts={reviewPrompts}
                               disabled={busy || assistant === "thinking"}
                             />
-                            <Button
+                            <div className="prompt-actions">
+                              <PromptVoiceControls value={prompt} onTranscript={setPrompt} onVoiceSubmit={submitAssistantPrompt} disabled={busy || assistant === "thinking"} />
+                              <Button
                               type="submit"
                               size="icon"
-                              variant="ghost"
                               disabled={
                                 !prompt.trim() ||
                                 busy ||
@@ -1506,6 +1506,7 @@ export default function FlowReview() {
                             >
                               <Send size={16} />
                             </Button>
+                            </div>
                           </form>
                           <p className="footnote">
                             Scripted responses · Changes require approval
@@ -1523,6 +1524,8 @@ export default function FlowReview() {
                         }
                         anchor={anchor}
                         busy={busy || !loaded}
+                        focusComposerRequest={commentFocusRequest}
+                        onComposerFocusHandled={() => setCommentFocusRequest(0)}
                         onAction={action}
                         onJump={(c) => {
                           setState(c.state);
@@ -1539,48 +1542,25 @@ export default function FlowReview() {
                       <div className="panel-section">
                         <div className="section-heading">
                           <h3>Readiness checks</h3>
-                          <span className="badge">{passed}/3 configured</span>
                         </div>
+                        <div className="readiness-summary" role="status">
+                          <strong>{passed === currentChecks.length ? "Local rules pass; verification is open" : "Design updates and verification are open"}</strong>
+                          <p>{passed} of {currentChecks.length} local rules pass. {currentChecks.length - passed + verificationChecks.length} items remain before production review.</p>
+                        </div>
+                        <h4 className="check-group-heading">Local design rules</h4>
                         {currentChecks.map((c) => (
-                          <div className="check-row" key={c.id}>
-                            {c.pass ? (
-                              <CheckCircle2
-                                size={18}
-                                className="text-primary"
-                              />
-                            ) : (
-                              <AlertCircle
-                                size={18}
-                                className="text-destructive"
-                              />
-                            )}
-                            <div>
-                              <strong>{c.title}</strong>
-                              <span>{c.kind}</span>
-                              <p>{c.detail}</p>
-                            </div>
-                          </div>
+                          <CheckRow
+                            key={c.id}
+                            status={c.pass ? "passed" : "needs-work"}
+                            title={c.title}
+                            kind={c.kind}
+                            detail={c.detail}
+                          />
                         ))}
-                        <div className="manual-check">
-                          <strong className="icon-title">
-                            <ShieldCheck size={18} aria-hidden="true" />
-                            <span>Human verification still required</span>
-                          </strong>
-                          <p>
-                            Keyboard order, screen-reader behavior, zoom,
-                            contrast, and error recovery with people.
-                          </p>
-                        </div>
-                        <div className="integration-note">
-                          <span className="badge">
-                            Design System MCP · Not connected
-                          </span>
-                          <p>
-                            Local component rules only. Production upload
-                            security, file validation, and backend recovery are
-                            out of scope.
-                          </p>
-                        </div>
+                        <h4 className="check-group-heading">Still open</h4>
+                        {verificationChecks.map((check) => (
+                          <CheckRow key={check.title} {...check} />
+                        ))}
                       </div>
                     </TabsContent>
                     <TabsContent value="history">
@@ -1589,13 +1569,13 @@ export default function FlowReview() {
                           <h3>Version history</h3>
                         </div>
                         {data.revisions.map((r) => (
-                          <button
+                          <Button variant="bare" size="auto"
                             key={r.id}
                             className={`version-row ${r.id === revision.id ? "active" : ""}`}
                             disabled={dirty || busy}
                             onClick={() => chooseRevision(r)}
                           >
-                            <span className="version-dot">{r.number}</span>
+                            <NumberMarker value={r.number} variant="version" selected={r.id === revision.id} decorative />
                             <div>
                               <strong>Version {r.number}</strong>
                               <p>{r.note}</p>
@@ -1606,7 +1586,7 @@ export default function FlowReview() {
                               </span>
                             </div>
                             {r.id === revision.id && <Check size={14} />}
-                          </button>
+                          </Button>
                         ))}
                         {dirty && (
                           <p className="footnote">
@@ -1629,9 +1609,27 @@ export default function FlowReview() {
                         </Button>
                       </div>
                     </TabsContent>
+                    {audience === "engineer" && <TabsContent value="code"><DeveloperCode revision={revision} dirty={dirty} embedded /></TabsContent>}
                   </Tabs>
-                </aside>
+                </RightPanel>
               ))}
+          </main>
+        )}
+        {view === "journey" && !loaded && !participant && (
+          <main className="journey-unavailable" role="status">
+            <h2>{error ? "Journey unavailable" : "Loading journey..."}</h2>
+            {error && (
+              <>
+                <p>{needsSignIn ? "Sign in to view and edit the saved journey." : error}</p>
+                {needsSignIn ? (
+                  <Button asChild>
+                    <a href="/signin-with-chatgpt?return_to=/" target="_top">Sign in</a>
+                  </Button>
+                ) : (
+                  <Button variant="outline" onClick={() => void refresh()}>Retry</Button>
+                )}
+              </>
+            )}
           </main>
         )}
         {loaded && !participant && (
@@ -1645,6 +1643,10 @@ export default function FlowReview() {
               editable={isDesigner}
               onDirty={setJourneyDirty}
               onReview={(state) => {
+                if (journeyDirty) {
+                  toast.error("Save or discard your journey changes before leaving.");
+                  return;
+                }
                 if (dirty || busy) {
                   toast.error(
                     "Save or discard the component draft before reviewing the linked version.",
@@ -1678,7 +1680,7 @@ export default function FlowReview() {
                 setReadyTest(null);
                 setDialog("share");
               }}
-              onResults={() => setView("results")}
+              onResults={() => navigateView("results")}
             />
           </div>
         )}
@@ -1690,6 +1692,7 @@ export default function FlowReview() {
             revisionId={revision.id}
             data={data}
             loaded={loaded}
+            loadError={!loaded && error ? (needsSignIn ? "Sign in to view test results." : error) : undefined}
             refresh={refresh}
             onReviewEvidence={(session) => {
               if (dirty || busy) {
@@ -1711,12 +1714,8 @@ export default function FlowReview() {
               );
               setView("review");
               setPanel("assistant");
+              setPanelOpen(true);
               setAudience("designer");
-            }}
-            onCreateTest={() => {
-              setShareRole("participant");
-              setShareUrl("");
-              setDialog("share");
             }}
           />
         )}
@@ -1730,16 +1729,10 @@ export default function FlowReview() {
               chooseRevision(r);
               setView("review");
               setPanel("history");
+              setPanelOpen(true);
             }}
           />
         )}
-        <footer className="studio-footer">
-          <span>
-            <span className="status-dot live" />
-            Flow Review
-          </span>
-          <span>Feedback & version history</span>
-        </footer>
 
         <Dialog
           open={dialog === "share"}
@@ -1761,6 +1754,7 @@ export default function FlowReview() {
               onValueChange={(v) => {
                 setShareRole(v);
                 setShareUrl("");
+                setReadyTest(null);
               }}
             >
               <SelectTrigger aria-label="Link audience" className="w-full">
@@ -1774,130 +1768,131 @@ export default function FlowReview() {
             <p className="dialog-copy">
               {shareRole === "participant"
                 ? "Product, task, consent, and feedback. No internal comments, assistant, or change notes."
-                : "Saved product, anchored feedback, replies, and reactions. No editing or participant results."}
+                : "Saved product, test findings, anchored feedback, and decisions. No design editing."}
             </p>
-            {shareRole === "participant" && (
-              <TestSetupEditor
-                value={testSetup}
-                canRetry={revision.config.retryEnabled}
-                disabled={busy}
-                onChange={(value) => {
-                  setTestSetup(value);
-                  setShareUrl("");
-                  setReadyTest(null);
-                }}
-              />
-            )}
-            {dirty && (
-              <p className="text-destructive text-sm">
-                Save the draft before creating a link.
-              </p>
-            )}
-            {linkError && (
-              <p role="alert" className="text-destructive text-sm">
-                {linkError}
-              </p>
-            )}
-            <Button
-              disabled={busy || !loaded || dirty}
-              onClick={() => void createLink()}
-            >
-              <Share2 size={15} />
-              Create {shareRole === "participant" ? "test" : "review"} link
-            </Button>
-            {shareUrl && (
-              <>
+            <div className="test-setup-scroll" ref={testSetupScrollRef}>
+              {shareUrl && (
+              <div className="test-setup-ready">
                 {shareRole === "participant" && readyTest && (
                   <div className="test-ready" role="status">
-                    <strong>Your test is ready</strong>
-                    <span>
-                      {readyTest.setup.audience} · {readyTest.setup.viewport} ·{" "}
-                      {readyTest.setup.focus === "page"
-                        ? "Full page"
-                        : "Component"}
-                    </span>
-                    <Button
-                      onClick={() => {
-                        if (journeyDirty) {
-                          setDialog(null);
-                          setView("journey");
-                          toast.error(
-                            "Save or discard your journey changes before starting the test.",
-                          );
-                          return;
-                        }
-                        setActiveTestSetup(readyTest.setup);
-                        setParticipantRevision(readyTest.revision);
-                        setParticipantToken(readyTest.token);
-                        setDialog(null);
-                      }}
-                    >
-                      <Play size={15} />
-                      Try test
-                    </Button>
+                      <strong>Your test is ready</strong>
+                      <span>
+                        {readyTest.setup.audience} · {readyTest.setup.viewport} ·{" "}
+                        {readyTest.setup.focus === "page" ? "Full page" : "Component"}
+                      </span>
                   </div>
                 )}
-                <div className="share-result">
-                  <Input aria-label="Share link" readOnly value={shareUrl} />
-                  <IconButton
-                    label="Copy link"
-                    onClick={() => void copy(shareUrl)}
-                  >
-                    <Clipboard size={16} />
-                  </IconButton>
-                  <a
-                    href={shareUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Open shared view"
-                  >
-                    <ExternalLink size={17} />
-                  </a>
-                </div>
-              </>
-            )}
-            <div className="existing-links">
-              <h3>Active links</h3>
-              {data.links.filter((l) => !l.revoked).length === 0 && (
-                <p>No active links.</p>
-              )}
-              {data.links
-                .filter((l) => !l.revoked)
-                .slice(0, 6)
-                .map((l) => (
-                  <div key={l.token}>
-                    <span>
-                      {l.testSetup
-                        ? `${l.testSetup.title} · ${l.testSetup.audience}`
-                        : l.audience === "participant"
-                          ? "Participant"
-                          : "Review"}{" "}
-                      · v
-                      {
-                        data.revisions.find((r) => r.id === l.revisionId)
-                          ?.number
-                      }
-                    </span>
-                    <IconButton
-                      label="Copy existing link"
-                      onClick={() =>
-                        void copy(`${window.location.origin}/s/${l.token}`)
-                      }
-                    >
-                      <Clipboard size={14} />
+                {shareRole === "po" && <p role="status">Review link ready</p>}
+                  <div className="share-result">
+                    <Input aria-label="Share link" readOnly value={shareUrl} />
+                    <IconButton label="Copy link" onClick={() => void copy(shareUrl)}>
+                      <Clipboard size={16} />
                     </IconButton>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        void action({ action: "revoke", token: l.token })
-                      }
-                    >
-                      Revoke
-                    </Button>
+                    <a href={shareUrl} target="_blank" rel="noreferrer" aria-label="Open shared view">
+                      <ExternalLink size={17} />
+                    </a>
                   </div>
-                ))}
+                </div>
+              )}
+              {shareRole === "participant" && (
+                <TestSetupEditor
+                  value={testSetup}
+                  canRetry={revision.config.retryEnabled}
+                  disabled={busy}
+                  onChange={(value) => {
+                    setTestSetup(value);
+                    setShareUrl("");
+                    setReadyTest(null);
+                  }}
+                />
+              )}
+              {dirty && (
+                <p className="text-destructive text-sm">
+                  Save the draft before creating a link.
+                </p>
+              )}
+              {linkError && (
+                <p role="alert" className="text-destructive text-sm">
+                  {linkError}
+                </p>
+              )}
+              <div className="existing-links">
+                <h3>Active links</h3>
+                {data.links.filter((l) => !l.revoked).length === 0 && (
+                  <p>No active links.</p>
+                )}
+                {data.links
+                  .filter((l) => !l.revoked)
+                  .slice(0, 6)
+                  .map((l) => (
+                    <div key={l.token}>
+                      <span>
+                        {l.testSetup
+                          ? `${l.testSetup.title} · ${l.testSetup.audience}`
+                          : l.audience === "participant"
+                            ? "Participant"
+                            : "Review"}{" "}
+                        · v
+                        {
+                          data.revisions.find((r) => r.id === l.revisionId)
+                            ?.number
+                        }
+                      </span>
+                      <IconButton
+                        label="Copy existing link"
+                        onClick={() =>
+                          void copy(`${window.location.origin}/s/${l.token}`)
+                        }
+                      >
+                        <Clipboard size={14} />
+                      </IconButton>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          void action({ action: "revoke", token: l.token })
+                        }
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+            <div className="test-setup-action">
+              {shareRole === "participant" && readyTest && shareUrl ? (
+                <Button
+                  onClick={() => {
+                    if (journeyDirty) {
+                      setDialog(null);
+                      setView("journey");
+                      toast.error("Save or discard your journey changes before starting the test.");
+                      return;
+                    }
+                    setActiveTestSetup(readyTest.setup);
+                    setParticipantRevision(readyTest.revision);
+                    setParticipantToken(readyTest.token);
+                    setDialog(null);
+                  }}
+                >
+                  <Play size={15} />
+                  Try test
+                </Button>
+              ) : shareUrl ? (
+                <Button onClick={() => void copy(shareUrl)}>
+                  <Clipboard size={15} />
+                  Copy review link
+                </Button>
+              ) : (
+                <Button
+                  disabled={busy || !loaded || dirty}
+                  onClick={() => void createLink()}
+                >
+                  <Share2 size={15} />
+                  Create {shareRole === "participant" ? "test" : "review"} link
+                </Button>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -1916,7 +1911,7 @@ export default function FlowReview() {
               </DialogDescription>
             </DialogHeader>
             <label className="switch-line">
-              Show feedback on screen
+              Show placed comments on canvas
               <Switch
                 checked={feedbackVisible}
                 disabled={!data.preferences.comments || participant}
@@ -1925,7 +1920,7 @@ export default function FlowReview() {
             </label>
             {(
               [
-                ["comments", "Feedback & replies"],
+                ["comments", "Comment activity"],
                 ["revisions", "New versions"],
                 ["tests", "Participant sessions"],
               ] as const
@@ -1978,10 +1973,12 @@ export default function FlowReview() {
             <p className="footnote">
               In-app only. Email and push notifications are not connected.
               {feedbackVisible &&
-                " Feedback refreshes every 10 seconds while this tab is visible."}
+                " Placed comments refresh every 10 seconds while this tab is visible."}
             </p>
           </DialogContent>
         </Dialog>
+        <DesignSpecificationDialog open={designSpecOpen} onOpenChange={setDesignSpecOpen} config={draft} version={revision.number} dirty={dirty} />
+        <PocSpecificationDialog open={pocSpecOpen} onOpenChange={setPocSpecOpen} />
       </div>
     </TooltipProvider>
   );

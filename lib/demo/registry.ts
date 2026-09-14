@@ -1,6 +1,8 @@
 /** Stable demo markers, not database keys. Keep legacy anchors for saved feedback. */
 export const DEMO_IDS = {
   designWorkspace: "flow-demo:design-workspace:v1",
+  designSpecification: "flow-demo:design-specification:v1",
+  pocSpecification: "flow-demo:poc-experience-guide:v1",
   codeExport: "flow-demo:document-uploader-code:v1",
   upload: "flow-demo:document-upload:v1",
   recoveryAgent: "flow-demo:recovery-agent:v1",

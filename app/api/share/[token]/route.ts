@@ -2,16 +2,19 @@ import { z } from "zod";
 import { uploadEvents, uploadEventError } from "@/lib/demo/upload";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
+  addDecision,
   addComment,
   body,
   db,
   fail,
   getComments,
+  getDecisions,
   getRevision,
   getShare,
   now,
   react,
   safe,
+  sessionRecord,
   uuid,
 } from "@/lib/server";
 type Context = { params: Promise<{ token: string }> };
@@ -22,6 +25,11 @@ export async function GET(request: Request, context: Context) {
     const revision = await getRevision(link.owner, link.revision_id);
     const actor = new URL(request.url).searchParams.get("actor") ?? "";
     const reviewer = link.audience === "po" ? await getChatGPTUser() : null;
+    const sessions = link.audience === "po"
+      ? await db().prepare(
+          "SELECT sessions.*,shares.test_config FROM sessions LEFT JOIN shares ON sessions.token=shares.token WHERE sessions.owner=? AND sessions.revision_id=? ORDER BY sessions.created_at DESC LIMIT 100",
+        ).bind(link.owner, link.revision_id).all()
+      : null;
     return {
       audience: link.audience,
       ...(link.audience === "participant" && link.test_config
@@ -42,6 +50,8 @@ export async function GET(request: Request, context: Context) {
               reviewer?.userId ?? `reviewer:${actor.slice(0, 80)}`,
               link.revision_id,
             ),
+            decisions: await getDecisions(link.owner, link.revision_id),
+            sessions: sessions?.results.map(sessionRecord) ?? [],
           }
         : {}),
     };
@@ -54,6 +64,16 @@ export async function POST(request: Request, context: Context) {
     const data = await body(request);
     if (link.audience === "po") {
       const reviewer = await getChatGPTUser();
+      if (data.action === "decision") {
+        if (!reviewer) fail("Sign in to record a decision", 401);
+        return addDecision(link.owner, reviewer.userId, reviewer.displayName, {
+          revisionId: data.revisionId,
+          choice: data.choice,
+          rationale: data.rationale,
+          followUpOwner: data.followUpOwner,
+          nextStep: data.nextStep,
+        }, link.revision_id);
+      }
       if (data.action === "comment")
         return addComment(
           link.owner,
@@ -89,6 +109,17 @@ export async function POST(request: Request, context: Context) {
       .bind(id, token)
       .first();
     if (!session) fail("Session not found", 404);
+    if (data.action === "resume") {
+      return {
+        id: session.id,
+        outcome: session.outcome,
+        events: JSON.parse(session.events as string),
+        createdAt: session.created_at,
+        feedback: session.feedback,
+        rating: session.rating,
+        fuego: !!session.fuego,
+      };
+    }
     if (data.action === "feedback") {
       const feedback = z.string().trim().max(1500).parse(data.feedback);
       const rating = z

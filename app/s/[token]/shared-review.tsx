@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Layers3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Comment, Revision } from "@/lib/model";
+import type { Comment, ReviewDecision, Revision, Session } from "@/lib/model";
 import { request } from "@/lib/client";
 import POReview from "@/app/po-review";
 import ParticipantTest from "@/app/participant-test";
@@ -12,6 +12,8 @@ type SharedData =
       audience: "po";
       revision: Revision;
       comments: Comment[];
+      decisions: ReviewDecision[];
+      sessions: Session[];
     }
   | {
       audience: "participant";
@@ -95,6 +97,8 @@ function SharedReviewContent({ token }: { token: string }) {
     <POReview
       revision={data.revision}
       comments={data.comments ?? []}
+      decisions={data.decisions ?? []}
+      sessions={data.sessions ?? []}
       busy={busy}
       error={error}
       onAction={reviewAction}

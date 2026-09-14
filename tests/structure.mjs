@@ -63,6 +63,26 @@ for (const file of productSources) {
   }
 }
 assert.equal(cssImports, 1, "One application stylesheet entry point");
+for (const file of ["app/design-workspace.tsx", "app/flow-review.tsx", "app/po-review.tsx"]) {
+  assert.match(fs.readFileSync(file, "utf8"), /<WorkspaceHeader\b/, `${file}: use shared workspace header`);
+  assert.match(fs.readFileSync(file, "utf8"), /className="workspace-chrome"/, `${file}: keep workspace header and navigation together`);
+}
+const poReview = fs.readFileSync("app/po-review.tsx", "utf8");
+assert.match(poReview, /className="po-overview-details"/, "PO Overview keeps context in the left column");
+assert.match(poReview, /className="po-overview-prototype"/, "PO Overview reuses the interactive preview on the right");
+assert.match(poReview, /className="po-muted po-overview-guidance"/, "PO guidance stays with left-column details");
+assert.match(poReview, /const width = Math\.max\(280, frame\.clientWidth - 32\)/, "Expanded PO preview can use its available width");
+for (const file of ["app/design-workspace.tsx", "app/flow-review.tsx"]) {
+  const source = fs.readFileSync(file, "utf8");
+  assert.match(source, /<PhoneModelSelect\b/, `${file}: use the shared phone models`);
+  assert.match(source, /<PromptVoiceControls\b/, `${file}: use the shared voice controls`);
+  assert.match(source, /<DesignSpecificationDialog\b/, `${file}: use the shared design guide`);
+  assert.match(source, /<PocSpecificationDialog\b/, `${file}: use the shared POC guide`);
+  assert.match(source, /<GuidedPrompt\b/, `${file}: use the shared predictive prompt`);
+}
+for (const file of ["app/journey-view.tsx", "app/review-results.tsx", "app/demo/upload-case-study.tsx", "app/developer-code.tsx"]) {
+  assert.match(fs.readFileSync(file, "utf8"), /<WorkspacePageHeading\b/, `${file}: use shared page heading`);
+}
 const css = postcss.parse(fs.readFileSync("app/globals.css", "utf8"));
 const themes = { light: {}, dark: {} };
 css.walkRules((rule) => {
@@ -220,7 +240,18 @@ const { completePrompt: completeDemoPrompt } = await moduleAt(
   "lib/prompt-completion.ts",
 );
 const { reviewPrompts, testPrompts } = await moduleAt("lib/demo/prompts.ts");
-const { demoPromptIntent } = await moduleAt("lib/demo/recovery-agent.ts");
+const { demoPromptIntent, recoveryAgent } = await moduleAt("lib/demo/recovery-agent.ts");
+assert.equal(demoPromptIntent("show me the designs"), "designs");
+assert.equal(demoPromptIntent("Show me the designs."), "designs");
+assert.equal(demoPromptIntent("component guide"), "designs");
+assert.equal(demoPromptIntent("show me the POC"), "poc");
+assert.equal(demoPromptIntent("Show me the POC we're presenting."), "poc");
+assert.equal(demoPromptIntent("Show me the test results."), "results");
+assert.equal(demoPromptIntent("test results"), "results");
+assert.equal(demoPromptIntent("How many tests are complete?"), "completed-tests");
+assert.equal(demoPromptIntent("How many test sessions have been completed?"), "completed-tests");
+assert.equal(recoveryAgent.completedTests(1, 3, 2), "1 of 3 test sessions on saved v2 is complete.");
+assert.equal(recoveryAgent.completedTests(0, 0, 2), "No test sessions have been recorded for saved v2 yet.");
 assert.equal(completeDemoPrompt("", reviewPrompts), "");
 assert.equal(completeDemoPrompt("   ", reviewPrompts), "");
 assert.equal(
@@ -238,6 +269,8 @@ assert.equal(
 assert.equal(completeDemoPrompt(reviewPrompts[0].text, reviewPrompts), "");
 assert.equal(completeDemoPrompt("Something unrelated", reviewPrompts), "");
 assert.equal(completeDemoPrompt("Review\n", reviewPrompts), "");
+assert.equal(completeDemoPrompt("Show me the test res", reviewPrompts), "Show me the test results.");
+assert.equal(completeDemoPrompt("How many tests are com", reviewPrompts), "How many tests are complete?");
 for (const prompt of reviewPrompts)
   assert.notEqual(demoPromptIntent(prompt.text), "unsupported");
 for (const prompt of testPrompts)
@@ -283,8 +316,9 @@ for (const [event, prior, retry, scenario, valid] of [
   ["upload_attempt", "upload_attempt", true, "recovery", false],
 ])
   assert.equal(uploadEventError(event, prior, retry, scenario) === null, valid);
-const { sameConfig, previousRevision, placedComments, createHandoff } =
+const { sameConfig, previousRevision, placedComments, createHandoff, isDecisionRecord, verificationChecks } =
   await moduleAt("lib/review.ts");
+assert.deepEqual(verificationChecks.map((check) => check.status), ["manual", "unavailable"]);
 assert.ok(
   sameConfig(baseline, Object.fromEntries(Object.entries(baseline).reverse())),
 );
@@ -304,7 +338,11 @@ const comments = ["mobile", "desktop", "both"].map((viewport) => ({
   state: "failed",
   revisionId: "1",
   parentId: null,
+  text: "Review comment",
 }));
+comments.push({ ...comments[0], id: "decision", text: "PO decision: Request updates" });
+assert.ok(isDecisionRecord(comments[3]));
+assert.ok(!isDecisionRecord(comments[0]));
 assert.deepEqual(
   placedComments(comments, "1", "failed", "mobile").map((c) => c.id),
   ["mobile", "both"],
@@ -323,6 +361,7 @@ assert.equal(handoff.inspectedDesign.status, "unsaved-draft");
 assert.equal(handoff.savedRevision.config.retryEnabled, false);
 assert.equal(handoff.inspectedDesign.config.retryEnabled, true);
 assert.equal(handoff.commentsApplyTo, "savedRevision");
+assert.equal(handoff.comments.length, 3);
 const { createDocumentUploaderCode } = await moduleAt(
   "lib/demo/document-uploader-code.ts",
 );
@@ -352,6 +391,33 @@ for (const config of [
   assert.ok(source.includes('design.announceError ? "alert"'));
   assert.ok(source.includes("onContinue?.()"));
 }
+const {
+  journeySchema,
+  autoJourneyPositions,
+  journeyConnection,
+  moveJourneyStep,
+} = await import("../lib/journey.ts");
+const journeySteps = Array.from({ length: 5 }, (_, index) => ({
+  id: `step-${index + 1}`,
+  title: `Step ${index + 1}`,
+  goal: "",
+  action: "",
+  notes: "",
+  link: "none",
+}));
+assert.equal(journeySchema.safeParse({ title: "Legacy journey", steps: journeySteps }).success, true);
+assert.equal(journeySchema.safeParse({
+  title: "Manual journey",
+  layout: "manual",
+  steps: journeySteps.map((step, index) => ({ ...step, position: { x: index * 100, y: 20 } })),
+}).success, true);
+const journeyPositions = autoJourneyPositions(journeySteps, 900);
+assert.deepEqual(journeyPositions["step-1"], { x: 24, y: 24 });
+assert.deepEqual(journeyPositions["step-3"], { x: 600, y: 24 });
+assert.deepEqual(journeyPositions["step-4"], { x: 600, y: 276 });
+assert.equal(journeyConnection(journeyPositions["step-1"], journeyPositions["step-2"]).sourcePort, "right");
+assert.equal(journeyConnection(journeyPositions["step-3"], journeyPositions["step-4"]).sourcePort, "bottom");
+assert.deepEqual(moveJourneyStep(journeySteps, 0, 1).slice(0, 2).map((step) => step.id), ["step-2", "step-1"]);
 console.log(
-  "Structure, stylesheet, demo markers, scenario rules, version selection, comment placement, and handoff checks passed.",
+  "Structure, stylesheet, journey graph, demo markers, scenario rules, version selection, comment placement, and handoff checks passed.",
 );

@@ -9,13 +9,16 @@ import { createDocumentUploaderCode } from "@/lib/demo/document-uploader-code";
 import { download } from "@/lib/client";
 import type { Revision } from "@/lib/model";
 import { DEMO_IDS } from "@/lib/demo/registry";
+import WorkspacePageHeading from "@/components/workspace-page-heading";
 
 export default function DeveloperCode({
   revision,
   dirty,
+  embedded = false,
 }: {
   revision: Revision;
   dirty: boolean;
+  embedded?: boolean;
 }) {
   const files = createDocumentUploaderCode(revision.config);
   type FileName = keyof typeof files;
@@ -29,15 +32,8 @@ export default function DeveloperCode({
     }
   }
   return (
-    <main className="developer-code" data-demo-id={DEMO_IDS.codeExport}>
-      <header>
-        <div>
-          <p className="eyebrow">SAVED VERSION {revision.number}</p>
-          <h2>DocumentUploader</h2>
-          <p>React component and scoped styles</p>
-        </div>
-        <code>document-uploader</code>
-      </header>
+    <section className={`developer-code ${embedded ? "developer-code-embedded" : ""}`} data-demo-id={DEMO_IDS.codeExport} aria-label="DocumentUploader code">
+      {!embedded && <WorkspacePageHeading title="DocumentUploader" detail="React component and scoped styles" />}
       {dirty && (
         <p role="status">
           Unsaved design changes are not included. Save a version to update this
@@ -81,11 +77,11 @@ export default function DeveloperCode({
           </TabsContent>
         ))}
       </Tabs>
-      <footer>
+      {!embedded && <footer>
         POC handoff · Uses the saved design text and recovery settings with
         simplified styling. Requires React and both files in the same folder.
         Upload behavior is local; connect a file service before production.
-      </footer>
-    </main>
+      </footer>}
+    </section>
   );
 }

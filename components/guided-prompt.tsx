@@ -1,6 +1,6 @@
 "use client";
-import { useId, useRef, useState } from "react";
-import { ArrowRightToLine, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ArrowRightToLine, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { completePrompt, type PromptSuggestion } from "@/lib/prompt-completion";
@@ -13,6 +13,8 @@ export default function GuidedPrompt({
   id,
   label,
   maxLength = 600,
+  showPresets = true,
+  placeholder = "Start typing a prompt...",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -21,13 +23,35 @@ export default function GuidedPrompt({
   id?: string;
   label: string;
   maxLength?: number;
+  showPresets?: boolean;
+  placeholder?: string;
 }) {
   const descriptionId = useId();
+  const presetsId = useId();
   const field = useRef<HTMLTextAreaElement>(null);
   const ghost = useRef<HTMLDivElement>(null);
+  const presetTrack = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const [atEnd, setAtEnd] = useState(true);
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [scrollEdges, setScrollEdges] = useState({ back: false, forward: false });
+  const updateScrollEdges = useCallback(() => {
+    const track = presetTrack.current;
+    if (!track) return;
+    const next = {
+      back: track.scrollLeft > 1,
+      forward: track.scrollLeft + track.clientWidth < track.scrollWidth - 1,
+    };
+    setScrollEdges((current) => current.back === next.back && current.forward === next.forward ? current : next);
+  }, []);
+  useEffect(() => {
+    if (!showPresets || !presetTrack.current) return;
+    const track = presetTrack.current;
+    const observer = new ResizeObserver(updateScrollEdges);
+    observer.observe(track);
+    for (const child of track.children) observer.observe(child);
+    return () => observer.disconnect();
+  }, [showPresets, prompts, updateScrollEdges]);
   const completion =
     focused && atEnd && !disabled && dismissed !== value
       ? completePrompt(value, prompts)
@@ -42,28 +66,45 @@ export default function GuidedPrompt({
       setAtEnd(true);
     });
   }
+  function scrollPresets(direction: -1 | 1) {
+    const track = presetTrack.current;
+    if (!track) return;
+    track.scrollBy({
+      left: direction * Math.max(160, track.clientWidth * 0.75),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }
   return (
     <div className="guided-prompt">
-      <div
-        className="prompt-presets"
-        role="group"
-        aria-label="Suggested prompts"
-      >
-        {prompts.map((prompt) => (
-          <Button
-            key={prompt.text}
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled || prompt.text.length > maxLength}
-            title={prompt.text}
-            onClick={() => accept(prompt.text)}
-          >
-            <Sparkles size={13} aria-hidden="true" />
-            {prompt.label}
-          </Button>
-        ))}
-      </div>
+      {showPresets && (
+        <div
+          className="prompt-presets"
+          role="group"
+          aria-label="Suggested prompts"
+        >
+          <span className="prompt-presets-label">Try asking</span>
+          <div className="prompt-presets-carousel">
+            <Button type="button" variant="ghost" size="icon" aria-label="Previous suggested prompts" aria-controls={presetsId} title="Previous suggested prompts" disabled={disabled || !scrollEdges.back} onClick={() => scrollPresets(-1)}><ChevronLeft size={16} /></Button>
+            <div id={presetsId} ref={presetTrack} className="prompt-presets-track" onScroll={updateScrollEdges}>
+              {prompts.map((prompt) => (
+                <Button
+                  key={prompt.text}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled || prompt.text.length > maxLength}
+                  title={prompt.text}
+                  onClick={() => accept(prompt.text)}
+                >
+                  <Sparkles size={13} aria-hidden="true" />
+                  {prompt.label}
+                </Button>
+              ))}
+            </div>
+            <Button type="button" variant="ghost" size="icon" aria-label="Next suggested prompts" aria-controls={presetsId} title="Next suggested prompts" disabled={disabled || !scrollEdges.forward} onClick={() => scrollPresets(1)}><ChevronRight size={16} /></Button>
+          </div>
+        </div>
+      )}
       <div className="guided-input">
         <div ref={ghost} className="prompt-ghost" aria-hidden="true">
           <span>{value}</span>
@@ -78,7 +119,7 @@ export default function GuidedPrompt({
           aria-describedby={descriptionId}
           disabled={disabled}
           maxLength={maxLength}
-          placeholder="Start typing a prompt..."
+          placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
           onFocus={() => setFocused(true)}
@@ -145,8 +186,8 @@ export default function GuidedPrompt({
       )}
       <span id={descriptionId} className="sr-only" role="status">
         {suggestion
-          ? `Suggested prompt: ${suggestion}. Press Tab to accept or Escape to dismiss.`
-          : "Choose a preset or type your own prompt."}
+          ? `Suggested prompt: ${suggestion} Press Tab to accept or Escape to dismiss.`
+          : showPresets ? "Choose a preset or type your own prompt." : "Type a prompt. Press Tab to accept a suggestion."}
       </span>
     </div>
   );

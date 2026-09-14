@@ -2,8 +2,11 @@
 import { useRef, useState } from "react";
 import ResultsSummary from "./results-summary";
 import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import LabeledField from "@/components/labeled-field";
+import WorkspacePageHeading from "@/components/workspace-page-heading";
 import type { Workspace, Session } from "@/lib/model";
-import { Flag, RotateCcw, ArrowRight, Download } from "lucide-react";
+import { RotateCcw, ArrowRight, Download } from "lucide-react";
 import SessionSignals from "./session-signals";
 import { download } from "@/lib/client";
 import {
@@ -16,16 +19,16 @@ import { testAudiences } from "@/lib/test-setup";
 export default function ReviewResults({
   data,
   loaded,
+  loadError,
   revisionId,
   refresh,
-  onCreateTest,
   onReviewEvidence,
 }: {
   data: Workspace;
   loaded: boolean;
+  loadError?: string;
   revisionId: string;
   refresh: () => Promise<unknown>;
-  onCreateTest: () => void;
   onReviewEvidence: (session: Session) => void;
 }) {
   const [version, setVersion] = useState(revisionId),
@@ -68,13 +71,7 @@ export default function ReviewResults({
     `Session ${data.sessions.length - data.sessions.findIndex((item) => item.id === s.id)}`;
   return (
     <main className="results-workspace">
-      <header className="results-heading">
-        <div>
-          <p className="eyebrow">PARTICIPANT EVIDENCE</p>
-          <h2>Test results</h2>
-          <p>Document upload</p>
-        </div>
-        <div className="results-actions">
+      <WorkspacePageHeading title="Participant outcomes" actions={<>
           <Button
             variant="outline"
             disabled={!loaded || !scoped.length}
@@ -127,17 +124,18 @@ export default function ReviewResults({
             <RotateCcw size={16} />
             {refreshing ? "Refreshing..." : "Refresh"}
           </Button>
-          <Button disabled={!loaded} onClick={onCreateTest}>
-            <Flag size={16} />
-            Set up test
-          </Button>
-        </div>
-      </header>
+      </>} />
       {error && <p role="alert">{error}</p>}
+      {!loaded && loadError ? (
+        <section className="results-no-match" role="status">
+          <h3>Results unavailable</h3>
+          <p>{loadError}</p>
+        </section>
+      ) : (
+        <>
       <div className="results-filters">
-        <label>
-          Design version
-          <select
+        <LabeledField label="Design version">
+          <NativeSelect
             value={version}
             onChange={(e) => {
               setVersion(e.target.value);
@@ -146,17 +144,16 @@ export default function ReviewResults({
               setSelected("");
             }}
           >
-            <option value="all">All versions</option>
+            <NativeSelectOption value="all">All versions</NativeSelectOption>
             {data.revisions.map((r) => (
-              <option key={r.id} value={r.id}>
+              <NativeSelectOption key={r.id} value={r.id}>
                 Version {r.number}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
-        </label>
-        <label>
-          Participant group
-          <select
+          </NativeSelect>
+        </LabeledField>
+        <LabeledField label="Participant group">
+          <NativeSelect
             value={cohort}
             onChange={(e) => {
               setCohort(e.target.value);
@@ -165,12 +162,12 @@ export default function ReviewResults({
               setSelected("");
             }}
           >
-            <option value="all">All groups</option>
+            <NativeSelectOption value="all">All groups</NativeSelectOption>
             {testAudiences.map((c) => (
-              <option key={c}>{c}</option>
+              <NativeSelectOption key={c}>{c}</NativeSelectOption>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </LabeledField>
         <span role="status" aria-live="polite">
           {scoped.length} sessions · Latest 100 available
         </span>
@@ -200,19 +197,21 @@ export default function ReviewResults({
             {visible.length} of {scoped.length} sessions shown
             {evidenceIds ? " · Selected finding" : ""}
           </p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setEvidenceIds(null);
-              setFilter("all");
-              setSelected("");
-            }}
-          >
-            Show all sessions in this scope
-          </Button>
+          {evidenceIds && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEvidenceIds(null);
+                setFilter("all");
+                setSelected("");
+              }}
+            >
+              Clear finding selection
+            </Button>
+          )}
         </div>
         <div
-          className="result-scope-tabs"
+          className="result-outcome-filter"
           role="group"
           aria-label="Session outcome filter"
         >
@@ -264,7 +263,7 @@ export default function ReviewResults({
               aria-label="Participant sessions"
             >
               {visible.map((s) => (
-                <button
+                <Button variant="bare" size="auto"
                   key={s.id}
                   className={`session-select ${session?.id === s.id ? "selected" : ""}`}
                   aria-pressed={session?.id === s.id}
@@ -290,7 +289,7 @@ export default function ReviewResults({
                       ? `“${s.feedback.slice(0, 110)}${s.feedback.length > 110 ? "…" : ""}”`
                       : "No written feedback"}
                   </small>
-                </button>
+                </Button>
               ))}
             </section>
             {session && facts && (
@@ -405,6 +404,8 @@ export default function ReviewResults({
         Sessions are not unique participants. Includes designer-run tests after
         consent; no participant identities are collected.
       </p>
+        </>
+      )}
     </main>
   );
 }

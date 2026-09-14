@@ -1,0 +1,143 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const audit = JSON.parse(read("docs/atomic-source-audit.json"));
+function files(dir) {
+  return fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`],
+  ).sort();
+}
+function hasJsx(node) {
+  let found = false;
+  function visit(n) {
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  }
+  visit(node);
+  return found;
+}
+const entries = [
+  ...files("app").filter((f) => f.endsWith(".tsx")),
+  ...files("components").filter((f) => f.endsWith(".tsx") && !f.startsWith("components/ui/")),
+];
+const entryFiles = new Set(["app/layout.tsx", "app/page.tsx", "app/s/[token]/page.tsx", "app/providers.tsx"]);
+const owned = [], infrastructure = [];
+for (const file of entries) {
+  const sf = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const definitions = [];
+  for (const n of sf.statements) {
+    if (ts.isFunctionDeclaration(n) && n.name && /^[A-Z]/.test(n.name.text) && n.body && hasJsx(n.body)) {
+      definitions.push({ name: n.name.text, line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1 });
+    } else if (ts.isVariableStatement(n)) {
+      for (const d of n.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && /^[A-Z]/.test(d.name.text) && d.initializer && hasJsx(d.initializer))
+          definitions.push({ name: d.name.text, line: sf.getLineAndCharacterOfPosition(d.getStart(sf)).line + 1 });
+      }
+    }
+  }
+  for (const component of definitions) {
+    const native = audit.native.filter((n) => n.file === file);
+    const used = audit.usages.filter((u) => u.file === file);
+    const item = {
+      ...component,
+      file,
+      kind: file.startsWith("components/") ? "shared product control" : file.startsWith("app/demo/") ? "demo adapter" : "workflow",
+      directButtons: native.filter((n) => n.tag === "button").length,
+      directFields: native.filter((n) => ["input", "textarea", "select"].includes(n.tag)).length,
+      sharedControls: [...new Set(used.filter((u) => u.target?.startsWith("components/")).map((u) => u.target))].sort(),
+      consumers: component.name === "SharedReviewContent"
+        ? ["app/s/[token]/shared-review.tsx (internal)"]
+        : [...new Set(audit.usages.filter((u) => u.target === file).map((u) => u.file))].sort(),
+    };
+    (entryFiles.has(file) ? infrastructure : owned).push(item);
+  }
+}
+const uiUses = audit.usages.filter((u) => u.target?.startsWith("components/ui/") && !u.file.startsWith("components/ui/"));
+const ui = [...new Map(uiUses.map((u) => [`${u.target}:${u.symbol}`, { file: u.target, name: u.symbol }])).values()]
+  .sort((a, b) => `${a.file}:${a.name}`.localeCompare(`${b.file}:${b.name}`));
+const domainReuseFiles = new Set([
+  "app/anchored-comments.tsx",
+  "app/comment-reactions.tsx",
+  "app/demo/document-uploader-fields.tsx",
+  "app/demo/document-uploader.tsx",
+  "app/preview-canvas.tsx",
+  "app/review-comments.tsx",
+]);
+const domainReusable = owned.filter((item) => domainReuseFiles.has(item.file));
+const domainFamilies = [
+  { name: "Document uploader", members: ["DocumentUploader", "DocumentUploaderFields"] },
+  { name: "Comments", members: ["ReviewComments", "AnchoredComments", "CommentReactions"] },
+  { name: "Preview canvas", members: ["PreviewCanvas"] },
+];
+const report = {
+  scope: "Statically declared JSX components. Route/provider infrastructure excluded from product-owned count. UI-library symbols counted only when used by non-library product JSX. Internal UI-library subparts invoked by other UI-library components are not counted separately.",
+  productOwned: owned,
+  entryInfrastructure: infrastructure,
+  usedUiParts: ui,
+  usedUiModules: [...new Set(ui.map((u) => u.file))],
+  domainFamilies,
+  counts: {
+    productOwned: owned.length,
+    workflowAndDemo: owned.filter((x) => x.file.startsWith("app/")).length,
+    sharedProduct: owned.filter((x) => x.file.startsWith("components/")).length,
+    entryInfrastructure: infrastructure.length,
+    usedUiParts: ui.length,
+    usedUiModules: new Set(ui.map((u) => u.file)).size,
+    sharedFoundationSources: new Set(ui.map((u) => u.file)).size + owned.filter((x) => x.file.startsWith("components/")).length,
+    domainFamilies: domainFamilies.length,
+    domainImplementations: domainReusable.length,
+    featureCompositions: owned.filter((x) => x.file.startsWith("app/") && !domainReuseFiles.has(x.file)).length,
+    totalUsedTypes: owned.length + ui.length,
+  },
+};
+const lines = [
+  "# Component Inventory",
+  "",
+  "Generated by `node scripts/audit-component-health.mjs` from current source and the atomic source audit. Run `--check` to detect drift.",
+  "",
+  report.scope,
+  "",
+  `**${report.counts.sharedFoundationSources} shared foundation sources + ${report.counts.domainFamilies} reusable domain families.** The domain families contain ${report.counts.domainImplementations} collaborating implementations. The other ${report.counts.featureCompositions} product declarations are feature/screen compositions, not entries in a reusable component library. ${report.counts.entryInfrastructure} route/provider entries are infrastructure.`,
+  "",
+  `The previous headline of ${report.counts.totalUsedTypes} counted ${report.counts.usedUiParts} UI-library JSX parts (for example, DialogTrigger and DialogContent) as separate components and mixed them with screens. That is an implementation-symbol count, not a useful design-system count. One UI module is one source family with variants and subparts.`,
+  "",
+  "## Reusable Sources",
+  "",
+  `- **${report.counts.usedUiModules} UI foundation modules:** ${report.usedUiModules.map((file) => path.basename(file, ".tsx")).join(", ")}. Their exported subparts are not counted separately.`,
+  `- **${report.counts.sharedProduct} product controls:** ${owned.filter((item) => item.file.startsWith("components/")).map((item) => item.name).join(", ")}.`,
+  `- **${report.counts.domainFamilies} domain families:** ${domainFamilies.map((family) => `${family.name} (${family.members.join(", ")})`).join("; ")}. Parts within each family collaborate rather than competing as duplicate top-level components.`,
+  "",
+  "A source family is not a visual variant. Button size, color and icon usage are variants of Button; Tabs/List/Trigger are parts of one Tabs family. Screens remain separately implemented when they have distinct workflow, permission or telemetry responsibilities.",
+  "",
+  "## Product Declarations and Consumers",
+  "",
+  "| Name | Ownership | Direct native buttons / fields | Shared control sources | Consumers |",
+  "| --- | --- | ---: | ---: | --- |",
+];
+for (const c of owned) lines.push(`| [${c.name}](../${c.file}#L${c.line}) | ${c.kind} | ${c.directButtons} / ${c.directFields} | ${c.sharedControls.length} | ${c.consumers.length ? c.consumers.join(", ") : "internal or route-owned"} |`);
+lines.push("", "## UI-Library Parts Used by Product Code", "", "| Module | Used JSX symbols |", "| --- | --- |");
+for (const file of report.usedUiModules) lines.push(`| [${file}](../${file}) | ${ui.filter((u) => u.file === file).map((u) => u.name).join(", ")} |`);
+lines.push("", "## Infrastructure Excluded from Product Count", "", ...infrastructure.map((c) => `- [${c.name}](../${c.file}#L${c.line})`), "", "## Interpretation", "", "- A native button can be a valid specialized layer, drag handle, navigation item or test-instrumented action. Inspect its semantics before replacing it.", "- A shared import does not prove correct styling or accessibility; a page override can still defeat the common atom.", "- Product-owned components include demo adapters. Their IDs and saved state are replaceable only through an explicit migration.", "- UI-library modules can export multiple component parts. The count includes only parts used directly outside the UI library, not every exported part or installed file.", "- Structural health findings and remediation priorities are in [Component Health Review](component-health.md).", "");
+const outputs = {
+  "docs/component-inventory.json": JSON.stringify(report, null, 2) + "\n",
+  "docs/component-inventory.md": lines.join("\n"),
+};
+let stale = false;
+for (const [file, value] of Object.entries(outputs)) {
+  const full = path.join(root, file);
+  if (process.argv.includes("--check")) {
+    if (!fs.existsSync(full) || fs.readFileSync(full, "utf8") !== value) {
+      console.error(`Stale: ${file}`);
+      stale = true;
+    }
+  } else fs.writeFileSync(full, value);
+}
+if (stale) process.exitCode = 1;
+else console.log(`Component inventory ${process.argv.includes("--check") ? "current" : "generated"}: ${report.counts.sharedFoundationSources} foundation sources + ${report.counts.domainFamilies} domain families; ${report.counts.featureCompositions} feature compositions.`);

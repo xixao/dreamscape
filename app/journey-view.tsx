@@ -1,21 +1,26 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
-  GripVertical,
   Plus,
   Route,
   Save,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import LabeledField from "@/components/labeled-field";
+import WorkspacePageHeading from "@/components/workspace-page-heading";
+import JourneyCanvas from "./journey-canvas";
 import { request } from "@/lib/client";
 import {
   journeySchema,
   moveJourneyStep,
   type Journey,
   type JourneyStep,
+  type JourneyPosition,
   type SavedJourney,
 } from "@/lib/journey";
 import type { Workspace, Revision, UploadState } from "@/lib/model";
@@ -52,8 +57,6 @@ export default function JourneyView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [dragged, setDragged] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
   const pending = useRef(false);
   const dirty =
     !!saved && JSON.stringify(saved.journey) !== JSON.stringify(draft);
@@ -148,21 +151,16 @@ export default function JourneyView({
   }
   return (
     <section className="journey-view" aria-label="User journey">
-      <header className="journey-heading">
-        <div>
-          <p className="eyebrow">USER JOURNEY</p>
-          <h2>{draft.title || "Untitled journey"}</h2>
-          <p>
-            {dirty
-              ? "Unsaved changes"
-              : saved
-                ? saved.version
-                  ? "Saved journey"
-                  : "Sample journey · Not saved yet"
-                : "Loading journey..."}
-          </p>
-        </div>
-        <div className="journey-actions">
+      <WorkspacePageHeading
+        title={draft.title || "Untitled journey"}
+        detail={dirty
+          ? "Unsaved changes"
+          : saved
+            ? saved.version
+              ? "Saved journey"
+              : "Sample journey · Not saved yet"
+            : "Loading journey..."}
+        actions={<>
           <Button
             variant="outline"
             disabled={disabled || draft.steps.length >= 12}
@@ -209,8 +207,8 @@ export default function JourneyView({
               Discard changes
             </Button>
           )}
-        </div>
-      </header>
+        </>}
+      />
       {error && (
         <div role="alert" className="journey-error">
           {error}{" "}
@@ -240,97 +238,55 @@ export default function JourneyView({
       </div>
       {mode === "planned" ? (
         <>
-          <ol className="journey-track" aria-label="Journey steps">
-            {draft.steps.map((s, i) => (
-              <li
-                key={s.id}
-                className={`journey-step ${s.id === step.id ? "selected" : ""} ${over === s.id ? "drop-target" : ""}`}
-                data-journey-step={s.id}
-              >
-                <div className="journey-step-tools">
-                  <span className="journey-number">{i + 1}</span>
-                  <button
-                    className="journey-grip"
-                    disabled={disabled}
-                    aria-label={`Drag ${s.title}`}
-                    title="Drag to reorder; arrow buttons also move this step"
-                    onPointerDown={(event) => {
-                      if (event.button !== 0) return;
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                      setDragged(s.id);
-                    }}
-                    onPointerMove={(event) => {
-                      if (
-                        !event.currentTarget.hasPointerCapture(event.pointerId)
-                      )
-                        return;
-                      const target = document
-                        .elementFromPoint(event.clientX, event.clientY)
-                        ?.closest("[data-journey-step]")
-                        ?.getAttribute("data-journey-step");
-                      setOver(target ?? null);
-                    }}
-                    onPointerUp={(event) => {
-                      if (
-                        !event.currentTarget.hasPointerCapture(event.pointerId)
-                      )
-                        return;
-                      event.currentTarget.releasePointerCapture(
-                        event.pointerId,
-                      );
-                      const target = document
-                        .elementFromPoint(event.clientX, event.clientY)
-                        ?.closest("[data-journey-step]")
-                        ?.getAttribute("data-journey-step");
-                      if (target && dragged)
-                        move(
-                          draft.steps.findIndex((item) => item.id === dragged),
-                          draft.steps.findIndex((item) => item.id === target),
-                        );
-                      setDragged(null);
-                      setOver(null);
-                    }}
-                    onPointerCancel={() => {
-                      setDragged(null);
-                      setOver(null);
-                    }}
-                  >
-                    <GripVertical size={18} />
-                  </button>
-                </div>
-                <button
-                  className="journey-step-select"
-                  onClick={() => setSelected(s.id)}
-                  aria-pressed={s.id === step.id}
-                >
-                  <strong>{s.title || "Untitled step"}</strong>
-                  <span>{s.goal || "Goal not defined"}</span>
-                  <small>{linkLabels[s.link]}</small>
-                </button>
-                <div className="journey-step-tools">
-                  <button
-                    disabled={disabled || i === 0}
-                    aria-label={`Move ${s.title} earlier`}
-                    title="Move earlier"
-                    onClick={() => move(i, i - 1)}
-                  >
-                    <ArrowLeft size={16} />
-                  </button>
-                  <button
-                    disabled={disabled || i === draft.steps.length - 1}
-                    aria-label={`Move ${s.title} later`}
-                    title="Move later"
-                    onClick={() => move(i, i + 1)}
-                  >
-                    <ArrowRight size={16} />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <div className="journey-workspace">
+            <div className="journey-map-column">
+          <div className="journey-layout-controls" role="group" aria-label="Journey layout">
+            <span>Layout</span>
+            <Button variant={draft.layout === "manual" ? "secondary" : "ghost"} size="sm" aria-pressed={draft.layout === "manual"} onClick={() => setDraft((journey) => ({ ...journey, layout: "manual" }))}>Manual</Button>
+            <Button
+              variant={draft.layout !== "manual" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={draft.layout !== "manual"}
+              onClick={() => {
+                setDraft((journey) => {
+                  const next = { ...journey };
+                  delete next.layout;
+                  next.steps = journey.steps.map((item) => {
+                    const step = { ...item };
+                    delete step.position;
+                    return step;
+                  });
+                  return next;
+                });
+                setNotice("Journey auto synced");
+              }}
+            >
+              Auto sync
+            </Button>
+          </div>
+          <JourneyCanvas
+            steps={draft.steps}
+            selected={step.id}
+            layout={draft.layout === "manual" ? "manual" : "auto"}
+            disabled={disabled}
+            onSelect={setSelected}
+            onReorder={move}
+            onPositionChange={(id, position: JourneyPosition, autoPositions) => {
+              setDraft((journey) => ({
+                ...journey,
+                layout: "manual",
+                steps: journey.steps.map((item) => ({
+                  ...item,
+                  position: item.id === id ? position : item.position ?? autoPositions[item.id],
+                })),
+              }));
+              setNotice("");
+            }}
+            onMoveEnd={() => setNotice("Step position updated")}
+          />
+            </div>
           <div className="journey-detail">
-            <section className="journey-editor" aria-label="Edit selected step">
-              <div className="journey-section-title">
+            <div className="journey-section-title">
                 <h3>Step {index + 1}</h3>
                 <Button
                   size="icon"
@@ -351,10 +307,10 @@ export default function JourneyView({
                 >
                   <Trash2 size={16} />
                 </Button>
-              </div>
-              <label>
-                Journey name
-                <input
+            </div>
+            <section className="journey-editor" aria-label="Edit selected step">
+              <LabeledField label="Journey name">
+                <Input
                   maxLength={100}
                   value={draft.title}
                   disabled={disabled}
@@ -362,37 +318,33 @@ export default function JourneyView({
                     setDraft((j) => ({ ...j, title: e.target.value }))
                   }
                 />
-              </label>
-              <label>
-                Step name
-                <input
+              </LabeledField>
+              <LabeledField label="Step name">
+                <Input
                   maxLength={80}
                   value={step.title}
                   disabled={disabled}
                   onChange={(e) => edit({ title: e.target.value })}
                 />
-              </label>
-              <label>
-                User goal
-                <textarea
+              </LabeledField>
+              <LabeledField label="User goal">
+                <Textarea
                   maxLength={250}
                   value={step.goal}
                   disabled={disabled}
                   onChange={(e) => edit({ goal: e.target.value })}
                 />
-              </label>
-              <label>
-                Expected action
-                <textarea
+              </LabeledField>
+              <LabeledField label="Expected action">
+                <Textarea
                   maxLength={250}
                   value={step.action}
                   disabled={disabled}
                   onChange={(e) => edit({ action: e.target.value })}
                 />
-              </label>
-              <label>
-                Linked component state
-                <select
+              </LabeledField>
+              <LabeledField label="Linked component state">
+                <NativeSelect
                   value={step.link}
                   disabled={disabled}
                   onChange={(e) =>
@@ -400,21 +352,20 @@ export default function JourneyView({
                   }
                 >
                   {Object.entries(linkLabels).map(([value, label]) => (
-                    <option value={value} key={value}>
+                    <NativeSelectOption value={value} key={value}>
                       {label}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </label>
-              <label>
-                Open questions / missing states
-                <textarea
+                </NativeSelect>
+              </LabeledField>
+              <LabeledField label="Open questions / missing states">
+                <Textarea
                   maxLength={300}
                   value={step.notes}
                   disabled={disabled}
                   onChange={(e) => edit({ notes: e.target.value })}
                 />
-              </label>
+              </LabeledField>
             </section>
             <section
               className="journey-context"
@@ -433,7 +384,7 @@ export default function JourneyView({
                     {" · "}
                     {comments.length} review comments in this state
                   </p>
-                  <div className="journey-actions">
+                  <div className="journey-actions action-group">
                     <Button onClick={() => onReview(step.link as UploadState)}>
                       Review step
                       <ArrowRight size={16} />
@@ -477,6 +428,7 @@ export default function JourneyView({
               </p>
             </section>
           </div>
+          </div>
         </>
       ) : (
         <section className="journey-observed">
@@ -486,20 +438,19 @@ export default function JourneyView({
           </p>
           {session ? (
             <>
-              <label>
-                Test session
-                <select
+              <LabeledField label="Test session">
+                <NativeSelect
                   value={session.id}
                   onChange={(e) => setSessionId(e.target.value)}
                 >
                   {data.sessions.map((s, i) => (
-                    <option key={s.id} value={s.id}>
+                    <NativeSelectOption key={s.id} value={s.id}>
                       Session {data.sessions.length - i} ·{" "}
                       {s.testSetup?.title || "Upload test"} · {s.outcome}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
-              </label>
+                </NativeSelect>
+              </LabeledField>
               <p>
                 Version{" "}
                 {data.revisions.find((r) => r.id === session.revisionId)

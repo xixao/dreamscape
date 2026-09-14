@@ -37,6 +37,22 @@ export const comments = sqliteTable(
   },
   (t) => [index("comments_owner_revision").on(t.owner, t.revisionId)],
 );
+export const reviewDecisions = sqliteTable(
+  "review_decisions",
+  {
+    id: text("id").primaryKey(),
+    owner: text("owner").notNull(),
+    revisionId: text("revision_id").notNull(),
+    choice: text("choice").notNull(),
+    rationale: text("rationale").notNull(),
+    followUpOwner: text("follow_up_owner").notNull(),
+    nextStep: text("next_step").notNull(),
+    author: text("author").notNull(),
+    actorId: text("actor_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("review_decisions_owner_revision").on(t.owner, t.revisionId)],
+);
 export const reactions = sqliteTable(
   "reactions",
   {

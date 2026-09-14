@@ -4,6 +4,8 @@ import type { Workspace, Revision } from "@/lib/model";
 import { ArrowRight, Download } from "lucide-react";
 import { download } from "@/lib/client";
 import { DEMO_IDS } from "@/lib/demo/registry";
+import WorkspacePageHeading from "@/components/workspace-page-heading";
+import { discussionThreads, isDecisionRecord } from "@/lib/review";
 export default function UploadCaseStudy({
   data,
   dirty,
@@ -19,12 +21,7 @@ export default function UploadCaseStudy({
 }) {
   return (
     <main className="wide-view case-study" data-demo-id={DEMO_IDS.caseStudy}>
-      <div className="view-title">
-        <div>
-          <p className="eyebrow">WORKING CASE STUDY</p>
-          <h2>From a dead end to a way forward.</h2>
-          <p>Homepath / Document upload</p>
-        </div>
+      <WorkspacePageHeading title="From a dead end to a way forward" actions={
         <Button
           variant="outline"
           onClick={() =>
@@ -38,7 +35,7 @@ export default function UploadCaseStudy({
           <Download size={14} />
           Export
         </Button>
-      </div>
+      } />
       <div className="case-grid">
         <section>
           <span className="section-number">01</span>
@@ -60,7 +57,9 @@ export default function UploadCaseStudy({
           <span className="section-number">03</span>
           <h3>The iterations</h3>
           {[...data.revisions].reverse().map((r) => (
-            <button
+            <Button
+              variant="bare"
+              size="auto"
               className="case-version"
               key={r.id}
               disabled={dirty || busy}
@@ -69,7 +68,7 @@ export default function UploadCaseStudy({
               <strong>v{r.number}</strong>
               <span>{r.note}</span>
               <ArrowRight size={14} />
-            </button>
+            </Button>
           ))}
         </section>
         <section>
@@ -77,8 +76,8 @@ export default function UploadCaseStudy({
           <h3>The evidence</h3>
           <p>
             {data.sessions.length} sessions recorded.{" "}
-            {data.comments.filter((c) => !c.parentId).length} feedback threads.{" "}
-            {data.comments.filter((c) => c.resolved).length} resolved.
+            {discussionThreads(data.comments).length} feedback threads.{" "}
+            {data.comments.filter((c) => c.resolved && !isDecisionRecord(c)).length} resolved.
           </p>
           <p>
             These are prototype observations, not a validated usability claim.
@@ -99,8 +98,7 @@ export const buildCaseStudy = (data: Workspace) =>
     .join(
       "\n",
     )}\n\n## Evidence\n${data.sessions.length} sessions recorded; ${data.sessions.filter((s) => s.outcome === "complete").length} completed. Convenience sample, not proof of usability.\n\n## Feedback\n${
-    data.comments
-      .filter((c) => !c.parentId)
+    discussionThreads(data.comments)
       .map((c) => `- ${c.text} (${c.resolved ? "resolved" : "open"})`)
       .join("\n") || "No feedback yet."
   }\n\n## Limitations\nFictional upload and scripted assistant. No live Design System MCP, real file upload, or production certification. Manual accessibility testing remains.\n`;

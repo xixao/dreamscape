@@ -1,0 +1,919 @@
+{
+  "scope": "Statically declared JSX components. Route/provider infrastructure excluded from product-owned count. UI-library symbols counted only when used by non-library product JSX. Internal UI-library subparts invoked by other UI-library components are not counted separately.",
+  "productOwned": [
+    {
+      "name": "AnchoredComments",
+      "line": 8,
+      "file": "app/anchored-comments.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/comment-avatar.tsx",
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "CommentReactions",
+      "line": 7,
+      "file": "app/comment-reactions.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/anchored-comments.tsx",
+        "app/review-comments.tsx",
+        "components/comment-pin.tsx"
+      ]
+    },
+    {
+      "name": "DocumentUploaderFields",
+      "line": 10,
+      "file": "app/demo/document-uploader-fields.tsx",
+      "kind": "demo adapter",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/checkbox.tsx",
+        "components/ui/switch.tsx"
+      ],
+      "consumers": [
+        "app/demo/upload-properties.tsx",
+        "app/design-workspace.tsx"
+      ]
+    },
+    {
+      "name": "DocumentUploader",
+      "line": 20,
+      "file": "app/demo/document-uploader.tsx",
+      "kind": "demo adapter",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/comment-pin.tsx",
+        "components/number-marker.tsx",
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/design-specification-dialog.tsx",
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx",
+        "app/participant-test.tsx",
+        "app/po-review.tsx"
+      ]
+    },
+    {
+      "name": "UploadCaseStudy",
+      "line": 9,
+      "file": "app/demo/upload-case-study.tsx",
+      "kind": "demo adapter",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx",
+        "components/workspace-page-heading.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "UploadProperties",
+      "line": 11,
+      "file": "app/demo/upload-properties.tsx",
+      "kind": "demo adapter",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/labeled-field.tsx",
+        "components/right-panel.tsx",
+        "components/ui/button.tsx",
+        "components/ui/input.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "SpecificationDialogShell",
+      "line": 13,
+      "file": "app/design-specification-dialog.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "PocSpecificationDialog",
+      "line": 45,
+      "file": "app/design-specification-dialog.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "DesignSpecificationDialog",
+      "line": 97,
+      "file": "app/design-specification-dialog.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "DesignWorkspace",
+      "line": 49,
+      "file": "app/design-workspace.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/guided-prompt.tsx",
+        "components/icon-button.tsx",
+        "components/phone-model-select.tsx",
+        "components/prompt-voice-controls.tsx",
+        "components/right-panel.tsx",
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/workspace-header.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "DeveloperCode",
+      "line": 14,
+      "file": "app/developer-code.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx",
+        "components/ui/tabs.tsx",
+        "components/workspace-page-heading.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "EvidenceTrail",
+      "line": 12,
+      "file": "app/evidence-trail.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "ReviewPanelToggle",
+      "line": 158,
+      "file": "app/flow-review.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/check-row.tsx",
+        "components/guided-prompt.tsx",
+        "components/icon-button.tsx",
+        "components/number-marker.tsx",
+        "components/phone-model-select.tsx",
+        "components/prompt-voice-controls.tsx",
+        "components/right-panel.tsx",
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx",
+        "components/ui/dropdown-menu.tsx",
+        "components/ui/input.tsx",
+        "components/ui/popover.tsx",
+        "components/ui/select.tsx",
+        "components/ui/switch.tsx",
+        "components/ui/tabs.tsx",
+        "components/ui/tooltip.tsx",
+        "components/workspace-header.tsx"
+      ],
+      "consumers": [
+        "app/page.tsx"
+      ]
+    },
+    {
+      "name": "FlowReview",
+      "line": 176,
+      "file": "app/flow-review.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/check-row.tsx",
+        "components/guided-prompt.tsx",
+        "components/icon-button.tsx",
+        "components/number-marker.tsx",
+        "components/phone-model-select.tsx",
+        "components/prompt-voice-controls.tsx",
+        "components/right-panel.tsx",
+        "components/state-selector.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx",
+        "components/ui/dropdown-menu.tsx",
+        "components/ui/input.tsx",
+        "components/ui/popover.tsx",
+        "components/ui/select.tsx",
+        "components/ui/switch.tsx",
+        "components/ui/tabs.tsx",
+        "components/ui/tooltip.tsx",
+        "components/workspace-header.tsx"
+      ],
+      "consumers": [
+        "app/page.tsx"
+      ]
+    },
+    {
+      "name": "JourneyCanvas",
+      "line": 24,
+      "file": "app/journey-canvas.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/number-marker.tsx",
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/journey-view.tsx"
+      ]
+    },
+    {
+      "name": "JourneyView",
+      "line": 35,
+      "file": "app/journey-view.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/labeled-field.tsx",
+        "components/ui/button.tsx",
+        "components/ui/input.tsx",
+        "components/ui/native-select.tsx",
+        "components/ui/textarea.tsx",
+        "components/workspace-page-heading.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "ParticipantTest",
+      "line": 24,
+      "file": "app/participant-test.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx",
+        "components/ui/checkbox.tsx",
+        "components/ui/textarea.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx",
+        "app/s/[token]/shared-review.tsx"
+      ]
+    },
+    {
+      "name": "POReview",
+      "line": 60,
+      "file": "app/po-review.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/labeled-field.tsx",
+        "components/right-panel.tsx",
+        "components/ui/button.tsx",
+        "components/ui/dialog.tsx",
+        "components/ui/input.tsx",
+        "components/ui/textarea.tsx",
+        "components/workspace-header.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx",
+        "app/s/[token]/shared-review.tsx"
+      ]
+    },
+    {
+      "name": "PreviewCanvas",
+      "line": 12,
+      "file": "app/preview-canvas.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "ResultsSummary",
+      "line": 12,
+      "file": "app/results-summary.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/review-results.tsx"
+      ]
+    },
+    {
+      "name": "ReviewBrief",
+      "line": 20,
+      "file": "app/review-brief.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "ReviewComments",
+      "line": 19,
+      "file": "app/review-comments.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/comment-avatar.tsx",
+        "components/ui/button.tsx",
+        "components/ui/empty.tsx",
+        "components/ui/select.tsx",
+        "components/ui/textarea.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx",
+        "app/po-review.tsx"
+      ]
+    },
+    {
+      "name": "ReviewResults",
+      "line": 19,
+      "file": "app/review-results.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/labeled-field.tsx",
+        "components/ui/button.tsx",
+        "components/ui/native-select.tsx",
+        "components/workspace-page-heading.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "SharedReview",
+      "line": 23,
+      "file": "app/s/[token]/shared-review.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/s/[token]/page.tsx"
+      ]
+    },
+    {
+      "name": "SharedReviewContent",
+      "line": 26,
+      "file": "app/s/[token]/shared-review.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/s/[token]/shared-review.tsx (internal)"
+      ]
+    },
+    {
+      "name": "SessionSignals",
+      "line": 3,
+      "file": "app/session-signals.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/review-results.tsx"
+      ]
+    },
+    {
+      "name": "TestSetupEditor",
+      "line": 19,
+      "file": "app/test-setup-editor.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/guided-prompt.tsx",
+        "components/ui/button.tsx",
+        "components/ui/input.tsx",
+        "components/ui/select.tsx",
+        "components/ui/textarea.tsx"
+      ],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "CheckRow",
+      "line": 10,
+      "file": "components/check-row.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "CommentAvatar",
+      "line": 3,
+      "file": "components/comment-avatar.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/anchored-comments.tsx",
+        "app/review-comments.tsx",
+        "components/comment-pin.tsx"
+      ]
+    },
+    {
+      "name": "CommentPin",
+      "line": 12,
+      "file": "components/comment-pin.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/comment-avatar.tsx",
+        "components/number-marker.tsx",
+        "components/ui/button.tsx",
+        "components/ui/popover.tsx"
+      ],
+      "consumers": [
+        "app/demo/document-uploader.tsx"
+      ]
+    },
+    {
+      "name": "GuidedPrompt",
+      "line": 8,
+      "file": "components/guided-prompt.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx",
+        "components/ui/textarea.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx",
+        "app/test-setup-editor.tsx"
+      ]
+    },
+    {
+      "name": "IconButton",
+      "line": 19,
+      "file": "components/icon-button.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx",
+        "components/ui/tooltip.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "LabeledField",
+      "line": 3,
+      "file": "components/labeled-field.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/demo/upload-properties.tsx",
+        "app/journey-view.tsx",
+        "app/po-review.tsx",
+        "app/review-results.tsx"
+      ]
+    },
+    {
+      "name": "NumberMarker",
+      "line": 3,
+      "file": "components/number-marker.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/demo/document-uploader.tsx",
+        "app/flow-review.tsx",
+        "app/journey-canvas.tsx",
+        "components/comment-pin.tsx",
+        "components/state-selector.tsx"
+      ]
+    },
+    {
+      "name": "PhoneModelSelect",
+      "line": 6,
+      "file": "components/phone-model-select.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/select.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "PromptVoiceControls",
+      "line": 36,
+      "file": "components/prompt-voice-controls.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "RightPanel",
+      "line": 5,
+      "file": "components/right-panel.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/demo/upload-properties.tsx",
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx",
+        "app/po-review.tsx"
+      ]
+    },
+    {
+      "name": "StateSelector",
+      "line": 5,
+      "file": "components/state-selector.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/number-marker.tsx",
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/design-specification-dialog.tsx",
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx"
+      ]
+    },
+    {
+      "name": "WorkspaceHeader",
+      "line": 6,
+      "file": "components/workspace-header.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/button.tsx"
+      ],
+      "consumers": [
+        "app/design-workspace.tsx",
+        "app/flow-review.tsx",
+        "app/po-review.tsx"
+      ]
+    },
+    {
+      "name": "WorkspacePageHeading",
+      "line": 4,
+      "file": "components/workspace-page-heading.tsx",
+      "kind": "shared product control",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": [
+        "app/demo/upload-case-study.tsx",
+        "app/developer-code.tsx",
+        "app/journey-view.tsx",
+        "app/review-results.tsx"
+      ]
+    }
+  ],
+  "entryInfrastructure": [
+    {
+      "name": "RootLayout",
+      "line": 10,
+      "file": "app/layout.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": []
+    },
+    {
+      "name": "Home",
+      "line": 3,
+      "file": "app/page.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": []
+    },
+    {
+      "name": "Providers",
+      "line": 6,
+      "file": "app/providers.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [
+        "components/ui/sonner.tsx"
+      ],
+      "consumers": [
+        "app/layout.tsx"
+      ]
+    },
+    {
+      "name": "Page",
+      "line": 2,
+      "file": "app/s/[token]/page.tsx",
+      "kind": "workflow",
+      "directButtons": 0,
+      "directFields": 0,
+      "sharedControls": [],
+      "consumers": []
+    }
+  ],
+  "usedUiParts": [
+    {
+      "file": "components/ui/button.tsx",
+      "name": "Button"
+    },
+    {
+      "file": "components/ui/checkbox.tsx",
+      "name": "Checkbox"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "Dialog"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "DialogClose"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "DialogContent"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "DialogDescription"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "DialogHeader"
+    },
+    {
+      "file": "components/ui/dialog.tsx",
+      "name": "DialogTitle"
+    },
+    {
+      "file": "components/ui/dropdown-menu.tsx",
+      "name": "DropdownMenu"
+    },
+    {
+      "file": "components/ui/dropdown-menu.tsx",
+      "name": "DropdownMenuContent"
+    },
+    {
+      "file": "components/ui/dropdown-menu.tsx",
+      "name": "DropdownMenuItem"
+    },
+    {
+      "file": "components/ui/dropdown-menu.tsx",
+      "name": "DropdownMenuTrigger"
+    },
+    {
+      "file": "components/ui/empty.tsx",
+      "name": "Empty"
+    },
+    {
+      "file": "components/ui/input.tsx",
+      "name": "Input"
+    },
+    {
+      "file": "components/ui/native-select.tsx",
+      "name": "NativeSelect"
+    },
+    {
+      "file": "components/ui/native-select.tsx",
+      "name": "NativeSelectOption"
+    },
+    {
+      "file": "components/ui/popover.tsx",
+      "name": "Popover"
+    },
+    {
+      "file": "components/ui/popover.tsx",
+      "name": "PopoverAnchor"
+    },
+    {
+      "file": "components/ui/popover.tsx",
+      "name": "PopoverContent"
+    },
+    {
+      "file": "components/ui/popover.tsx",
+      "name": "PopoverTrigger"
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "name": "Select"
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "name": "SelectContent"
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "name": "SelectItem"
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "name": "SelectTrigger"
+    },
+    {
+      "file": "components/ui/select.tsx",
+      "name": "SelectValue"
+    },
+    {
+      "file": "components/ui/sonner.tsx",
+      "name": "Toaster"
+    },
+    {
+      "file": "components/ui/switch.tsx",
+      "name": "Switch"
+    },
+    {
+      "file": "components/ui/tabs.tsx",
+      "name": "Tabs"
+    },
+    {
+      "file": "components/ui/tabs.tsx",
+      "name": "TabsContent"
+    },
+    {
+      "file": "components/ui/tabs.tsx",
+      "name": "TabsList"
+    },
+    {
+      "file": "components/ui/tabs.tsx",
+      "name": "TabsTrigger"
+    },
+    {
+      "file": "components/ui/textarea.tsx",
+      "name": "Textarea"
+    },
+    {
+      "file": "components/ui/tooltip.tsx",
+      "name": "Tooltip"
+    },
+    {
+      "file": "components/ui/tooltip.tsx",
+      "name": "TooltipContent"
+    },
+    {
+      "file": "components/ui/tooltip.tsx",
+      "name": "TooltipProvider"
+    },
+    {
+      "file": "components/ui/tooltip.tsx",
+      "name": "TooltipTrigger"
+    }
+  ],
+  "usedUiModules": [
+    "components/ui/button.tsx",
+    "components/ui/checkbox.tsx",
+    "components/ui/dialog.tsx",
+    "components/ui/dropdown-menu.tsx",
+    "components/ui/empty.tsx",
+    "components/ui/input.tsx",
+    "components/ui/native-select.tsx",
+    "components/ui/popover.tsx",
+    "components/ui/select.tsx",
+    "components/ui/sonner.tsx",
+    "components/ui/switch.tsx",
+    "components/ui/tabs.tsx",
+    "components/ui/textarea.tsx",
+    "components/ui/tooltip.tsx"
+  ],
+  "domainFamilies": [
+    {
+      "name": "Document uploader",
+      "members": [
+        "DocumentUploader",
+        "DocumentUploaderFields"
+      ]
+    },
+    {
+      "name": "Comments",
+      "members": [
+        "ReviewComments",
+        "AnchoredComments",
+        "CommentReactions"
+      ]
+    },
+    {
+      "name": "Preview canvas",
+      "members": [
+        "PreviewCanvas"
+      ]
+    }
+  ],
+  "counts": {
+    "productOwned": 40,
+    "workflowAndDemo": 27,
+    "sharedProduct": 13,
+    "entryInfrastructure": 4,
+    "usedUiParts": 36,
+    "usedUiModules": 14,
+    "sharedFoundationSources": 27,
+    "domainFamilies": 3,
+    "domainImplementations": 6,
+    "featureCompositions": 21,
+    "totalUsedTypes": 76
+  }
+}

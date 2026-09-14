@@ -201,6 +201,13 @@ const session = await api(
   { action: "start", consent: true },
   {},
 );
+const resumed = await api(
+  `/api/share/${token}`,
+  { action: "resume", sessionId: session.id },
+  {},
+);
+assert.equal(resumed.id, session.id);
+assert.equal(resumed.outcome, "started");
 const tap = {
   id: crypto.randomUUID(),
   target: "continue",
@@ -249,6 +256,13 @@ for (const event of ["upload_attempt", "retry_success", "continue"])
     { action: "event", sessionId: session.id, event },
     {},
   );
+const finishedResume = await api(
+  `/api/share/${token}`,
+  { action: "resume", sessionId: session.id },
+  {},
+);
+assert.equal(finishedResume.outcome, "complete");
+assert.deepEqual(finishedResume.events.map((item) => item.type), ["upload_attempt", "retry_success", "continue"]);
 await api(
   `/api/share/${token}`,
   { action: "event", sessionId: session.id, event: "continue" },
@@ -433,7 +447,9 @@ const review = await api("/api/workspace", {
 });
 const reviewed = await api(`/api/share/${review.token}`, null, {});
 assert.equal(reviewed.comments.length, 2);
-assert.equal(reviewed.sessions, undefined);
+assert.equal(reviewed.sessions.length, 2);
+assert.ok(reviewed.sessions.every((item) => item.revisionId === first.id));
+assert.deepEqual(reviewed.decisions, []);
 const namedReviewer = {
   "oai-authenticated-user-id": "named-local-reviewer",
   "oai-authenticated-user-email": "reviewer@example.test",
@@ -452,6 +468,62 @@ const namedComment = await api(
   },
   namedReviewer,
 );
+await api(
+  `/api/share/${review.token}`,
+  {
+    action: "decision",
+    revisionId: first.id,
+    choice: "Request updates",
+    rationale: "Recovery needs another pass.",
+    followUpOwner: "Designer",
+    nextStep: "Revise the error state.",
+  },
+  {},
+  401,
+);
+await api(
+  `/api/share/${review.token}`,
+  {
+    action: "decision",
+    revisionId: fixed.revision.id,
+    choice: "Request updates",
+    rationale: "Wrong version",
+    followUpOwner: "Designer",
+    nextStep: "Revise",
+  },
+  namedReviewer,
+  403,
+);
+await api(
+  `/api/share/${review.token}`,
+  {
+    action: "comment",
+    revisionId: first.id,
+    text: "PO decision: Approve for next test",
+    state: "ready",
+    viewport: "desktop",
+    anchor: "document-uploader",
+  },
+  namedReviewer,
+  400,
+);
+const recorded = await api(
+  `/api/share/${review.token}`,
+  {
+    action: "decision",
+    revisionId: first.id,
+    choice: "Request updates",
+    rationale: "Recovery needs another pass.",
+    followUpOwner: "Designer",
+    nextStep: "Revise the error state.",
+  },
+  namedReviewer,
+);
+assert.ok(recorded.id);
+const reviewWithDecision = await api(`/api/share/${review.token}`, null, namedReviewer);
+assert.equal(reviewWithDecision.decisions[0].author, "Alex Reviewer");
+assert.equal(reviewWithDecision.comments.length, 3);
+assert.equal((await api("/api/workspace")).decisions.length, 1);
 await api(
   `/api/share/${review.token}`,
   { action: "reaction", id: namedComment.id, liked: true },

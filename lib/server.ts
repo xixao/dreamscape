@@ -13,6 +13,13 @@ export const commentSchema = z.object({
 export const prefSchema = z
   .object({ comments: z.boolean(), revisions: z.boolean(), tests: z.boolean() })
   .strict();
+export const decisionSchema = z.object({
+  revisionId: z.string().uuid(),
+  choice: z.enum(["Approve for next test", "Request updates", "Do not approve"]),
+  rationale: z.string().trim().min(1).max(700),
+  followUpOwner: z.string().trim().min(1).max(100),
+  nextStep: z.string().trim().min(1).max(400),
+}).strict();
 export function db() {
   if (!env.DB) throw new Error("Storage is unavailable");
   return env.DB;
@@ -83,6 +90,21 @@ export function revision(row: Record<string, unknown>) {
     createdAt: row.created_at,
   };
 }
+export function sessionRecord(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    revisionId: row.revision_id,
+    outcome: row.outcome,
+    duration: row.duration,
+    feedback: row.feedback,
+    events: JSON.parse(row.events as string),
+    interactions: JSON.parse(row.interactions as string),
+    rating: row.rating,
+    fuego: !!row.fuego,
+    testSetup: row.test_config ? JSON.parse(row.test_config as string) : null,
+    createdAt: row.created_at,
+  };
+}
 export async function getRevision(owner: string, id: string) {
   const row = await db()
     .prepare("SELECT * FROM revisions WHERE owner=? AND id=?")
@@ -125,6 +147,34 @@ export async function getComments(
     createdAt: r.created_at,
   }));
 }
+export async function getDecisions(owner: string, revisionId?: string) {
+  const rows = await db()
+    .prepare(`SELECT * FROM review_decisions WHERE owner=? ${revisionId ? "AND revision_id=?" : ""} ORDER BY created_at DESC`)
+    .bind(...(revisionId ? [owner, revisionId] : [owner]))
+    .all();
+  return rows.results.map((row) => ({
+    id: row.id as string,
+    revisionId: row.revision_id as string,
+    choice: row.choice as "Approve for next test" | "Request updates" | "Do not approve",
+    rationale: row.rationale as string,
+    followUpOwner: row.follow_up_owner as string,
+    nextStep: row.next_step as string,
+    author: row.author as string,
+    actorId: row.actor_id as string,
+    createdAt: row.created_at as string,
+  }));
+}
+export async function addDecision(owner: string, actorId: string, author: string, input: unknown, allowedRevision?: string) {
+  const decision = decisionSchema.parse(input);
+  if (allowedRevision && decision.revisionId !== allowedRevision)
+    fail("This link is pinned to another version", 403);
+  await getRevision(owner, decision.revisionId);
+  const id = uuid();
+  await db().prepare(
+    "INSERT INTO review_decisions (id,owner,revision_id,choice,rationale,follow_up_owner,next_step,author,actor_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+  ).bind(id, owner, decision.revisionId, decision.choice, decision.rationale, decision.followUpOwner, decision.nextStep, author, actorId, now()).run();
+  return { id };
+}
 export async function addComment(
   owner: string,
   author: string,
@@ -132,6 +182,8 @@ export async function addComment(
   allowedRevision?: string,
 ) {
   const c = commentSchema.parse(input);
+  if (c.text.startsWith("PO decision:"))
+    fail("Use the decision form to record a product decision");
   if (allowedRevision && c.revisionId !== allowedRevision)
     fail("This link is pinned to another version", 403);
   await getRevision(owner, c.revisionId);

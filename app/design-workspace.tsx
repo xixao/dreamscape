@@ -1,7 +1,7 @@
 "use client";
 import { improvement } from "@/lib/demo/upload";
 import { DEMO_IDS } from "@/lib/demo/registry";
-import { sameConfig } from "@/lib/review";
+import { discussionThreads, sameConfig } from "@/lib/review";
 import IconButton from "@/components/icon-button";
 import StateSelector from "@/components/state-selector";
 import { uploadStateShortOptions } from "@/lib/demo/upload";
@@ -27,7 +27,13 @@ import {
   Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import RightPanel from "@/components/right-panel";
+import PromptVoiceControls from "@/components/prompt-voice-controls";
+import GuidedPrompt from "@/components/guided-prompt";
+import { reviewPrompts } from "@/lib/demo/prompts";
+import PhoneModelSelect from "@/components/phone-model-select";
+import { previewPhoneLabel, previewPhoneWidth, type PhoneModel } from "@/lib/preview-devices";
+import WorkspaceHeader from "@/components/workspace-header";
 import DocumentUploaderFields from "./demo/document-uploader-fields";
 import {
   type Config,
@@ -37,6 +43,8 @@ import {
 } from "@/lib/model";
 import PreviewCanvas from "./preview-canvas";
 import DocumentUploader from "@/app/demo/document-uploader";
+import DesignSpecificationDialog, { PocSpecificationDialog } from "./design-specification-dialog";
+import { demoPromptIntent, recoveryAgent } from "@/lib/demo/recovery-agent";
 
 export default function DesignWorkspace({
   draft,
@@ -47,6 +55,8 @@ export default function DesignWorkspace({
   anchor,
   onAnchor,
   onReview,
+  onResults,
+  onCompletedTests,
   onSave,
   busy,
   loaded,
@@ -63,6 +73,8 @@ export default function DesignWorkspace({
   anchor: string;
   onAnchor: (s: string) => void;
   onReview: (feedback?: boolean) => void;
+  onResults: () => void;
+  onCompletedTests: () => Promise<string>;
   onSave: () => void;
   busy: boolean;
   loaded: boolean;
@@ -79,10 +91,13 @@ export default function DesignWorkspace({
     [reset, setReset] = useState(0),
     [viewport, setViewport] = useState("desktop"),
     [focus, setFocus] = useState<"page" | "component">("page");
+  const [phoneModel, setPhoneModel] = useState<PhoneModel>("iphone");
+  const [designSpecOpen, setDesignSpecOpen] = useState(false);
+  const [pocSpecOpen, setPocSpecOpen] = useState(false);
+  const [phoneUnfolded, setPhoneUnfolded] = useState(false);
+  const phoneWidth = previewPhoneWidth(phoneModel, phoneUnfolded);
   const dirty = !sameConfig(draft, revision.config);
-  const feedback = comments.filter(
-    (c) => !c.parentId && c.revisionId === revision.id,
-  );
+  const feedback = discussionThreads(comments).filter((c) => c.revisionId === revision.id);
   function tool(
     label: string,
     icon: React.ReactNode,
@@ -95,123 +110,146 @@ export default function DesignWorkspace({
       </IconButton>
     );
   }
-  function ask() {
-    if (!prompt.trim()) return;
+  async function ask(input = prompt) {
+    if (!input.trim()) return "";
+    if (demoPromptIntent(input) === "designs") {
+      setDesignSpecOpen(true);
+      setReply(recoveryAgent.designs);
+      setPrompt("");
+      return recoveryAgent.designs;
+    }
+    if (demoPromptIntent(input) === "poc") {
+      setPocSpecOpen(true);
+      setReply(recoveryAgent.poc);
+      setPrompt("");
+      return recoveryAgent.poc;
+    }
+    if (demoPromptIntent(input) === "results") {
+      setPrompt("");
+      onResults();
+      return recoveryAgent.results;
+    }
+    if (demoPromptIntent(input) === "completed-tests") {
+      setPrompt("");
+      const message = await onCompletedTests();
+      setReply(message);
+      return message;
+    }
+    const message = "I prepared the recovery changes: clearer error text, a Retry button, and an error announcement. Review before applying.";
     setProposal(true);
-    setReply(
-      "I prepared the recovery changes: clearer error text, a Retry button, and an error announcement. Review before applying.",
-    );
+    setReply(message);
     setPrompt("");
     onState("failed");
+    return message;
   }
   return (
     <div
       className="studio design-workspace"
       data-demo-id={DEMO_IDS.designWorkspace}
     >
-      <header className="design-header">
-        <span className="studio-brand">
-          <Layers3 />
-          Flow Studio
-        </span>
-        <span className="design-breadcrumb">Homepath / Document upload</span>
-        <span className="design-save-status">
-          {!loaded
-            ? "Loading…"
-            : dirty
-              ? "Unsaved draft"
-              : `Saved · v${revision.number}`}
-        </span>
-        {tool(
-          dark ? "Use light mode" : "Use dark mode",
-          dark ? <Sun size={17} /> : <Moon size={17} />,
-          onTheme,
-        )}
-        <Button
-          variant="outline"
-          disabled={busy || !loaded || !dirty}
-          onClick={onSave}
-        >
-          <Save size={15} />
-          {busy ? "Saving…" : "Save version"}
-        </Button>
-        <Button onClick={() => onReview()}>
-          <span>Review & Test</span>
-          <ArrowRight size={16} />
-        </Button>
-      </header>
-      {error && (
-        <div className="error-banner" role="alert">
-          {error}
-          {/sign in/i.test(error) && (
-            <a href="/signin-with-chatgpt?return_to=/">Sign in</a>
+      <div className="workspace-chrome">
+        <WorkspaceHeader
+          className="design-header"
+          title="Document upload"
+          context={`Design workspace · ${!loaded ? error ? "Preview only" : "Loading" : dirty ? "Unsaved draft" : `Saved v${revision.number}`}`}
+          actions={<>
+          {tool(
+            dark ? "Use light mode" : "Use dark mode",
+            dark ? <Sun size={17} /> : <Moon size={17} />,
+            onTheme,
           )}
-        </div>
-      )}
-      <div className="design-tools">
-        {tool(
-          "Select component",
-          <MousePointer2 size={18} />,
-          () => {
-            onAnchor("document-uploader");
+          <Button
+            variant="outline"
+            disabled={busy || !loaded || !dirty}
+            onClick={onSave}
+          >
+            <Save size={15} />
+            {busy ? "Saving…" : "Save version"}
+          </Button>
+          <Button onClick={() => onReview()}>
+            <span>Review & Test</span>
+            <ArrowRight size={16} />
+          </Button>
+          </>}
+        />
+        {error && (
+          <div className="error-banner" role="alert">
+            {error}
+            {/sign in/i.test(error) && (
+              <a href="/signin-with-chatgpt?return_to=/">Sign in</a>
+            )}
+          </div>
+        )}
+        <div className="design-tools">
+          {tool(
+            "Select component",
+            <MousePointer2 size={18} />,
+            () => {
+              onAnchor("document-uploader");
+              setTab("design");
+            },
+            tab === "design",
+          )}
+          {tool(
+            "Focus component",
+            <Frame size={18} />,
+            () => {
+              setFocus(focus === "page" ? "component" : "page");
+              setZoom("fit");
+            },
+            focus === "component",
+          )}
+          {tool("Edit text", <Type size={18} />, () => {
             setTab("design");
-          },
-          tab === "design",
-        )}
-        {tool(
-          "Focus component",
-          <Frame size={18} />,
-          () => {
-            setFocus(focus === "page" ? "component" : "page");
+            requestAnimationFrame(() =>
+              document.getElementById("design-title")?.focus(),
+            );
+          })}
+          {tool("Review comments", <MessageSquare size={18} />, () =>
+            onReview(true),
+          )}
+          {tool("Recenter canvas", <Hand size={18} />, () => {
+            setReset((n) => n + 1);
             setZoom("fit");
-          },
-          focus === "component",
-        )}
-        {tool("Edit text", <Type size={18} />, () => {
-          setTab("design");
-          requestAnimationFrame(() =>
-            document.getElementById("design-title")?.focus(),
-          );
-        })}
-        {tool("Review comments", <MessageSquare size={18} />, () =>
-          onReview(true),
-        )}
-        {tool("Recenter canvas", <Hand size={18} />, () => {
-          setReset((n) => n + 1);
-          setZoom("fit");
-        })}
-        <div className="design-tool-spacer" />
-        {tool(
-          "Desktop",
-          <Monitor size={18} />,
-          () => setViewport("desktop"),
-          viewport === "desktop",
-        )}
-        {tool(
-          "Mobile",
-          <Smartphone size={18} />,
-          () => setViewport("mobile"),
-          viewport === "mobile",
-        )}
-        {tool("Zoom out", <ZoomOut size={18} />, () =>
-          setZoom(Math.max(0.15, (zoom === "fit" ? 1 : zoom) - 0.25)),
-        )}
-        <span className="design-zoom">
-          {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}
-        </span>
-        {tool("Zoom in", <ZoomIn size={18} />, () =>
-          setZoom(Math.min(3, (zoom === "fit" ? 1 : zoom) + 0.25)),
-        )}
-        {tool("Fit canvas", <Scan size={18} />, () => {
-          setReset((n) => n + 1);
-          setZoom("fit");
-        })}
+          })}
+          <div className="design-tool-spacer" />
+          {tool(
+            "Desktop",
+            <Monitor size={18} />,
+            () => setViewport("desktop"),
+            viewport === "desktop",
+          )}
+          {tool(
+            "Mobile",
+            <Smartphone size={18} />,
+            () => setViewport("mobile"),
+            viewport === "mobile",
+          )}
+          {viewport === "mobile" && <PhoneModelSelect value={phoneModel} onChange={(next) => { setPhoneModel(next); setZoom("fit"); }} />}
+          {viewport === "mobile" && phoneModel === "duo" && <div className="fold-controls" role="group" aria-label="Phone posture">
+            <Button type="button" size="sm" variant={phoneUnfolded ? "ghost" : "secondary"} aria-pressed={!phoneUnfolded} onClick={() => { setPhoneUnfolded(false); setZoom("fit"); }}>Folded</Button>
+            <Button type="button" size="sm" variant={phoneUnfolded ? "secondary" : "ghost"} aria-pressed={phoneUnfolded} onClick={() => { setPhoneUnfolded(true); setZoom("fit"); }}>Unfolded</Button>
+          </div>}
+          {tool("Zoom out", <ZoomOut size={18} />, () =>
+            setZoom(Math.max(0.15, (zoom === "fit" ? 1 : zoom) - 0.25)),
+          )}
+          <span className="design-zoom">
+            {zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}
+          </span>
+          {tool("Zoom in", <ZoomIn size={18} />, () =>
+            setZoom(Math.min(3, (zoom === "fit" ? 1 : zoom) + 0.25)),
+          )}
+          {tool("Fit canvas", <Scan size={18} />, () => {
+            setReset((n) => n + 1);
+            setZoom("fit");
+          })}
+        </div>
       </div>
       <main className="design-body">
         <aside className="design-layers" aria-label="Layers">
           <h2>Layers</h2>
           <p className="design-page-name">Application</p>
-          <button
+          <Button variant="bare" size="auto"
             className={anchor === "document-uploader" ? "selected" : ""}
             onClick={() => {
               onAnchor("document-uploader");
@@ -220,8 +258,8 @@ export default function DesignWorkspace({
           >
             <Layers3 size={15} />
             Document uploader
-          </button>
-          <button
+          </Button>
+          <Button variant="bare" size="auto"
             className="child-layer"
             onClick={() => {
               onAnchor("document-uploader");
@@ -233,8 +271,8 @@ export default function DesignWorkspace({
           >
             <Type size={14} />
             Heading
-          </button>
-          <button
+          </Button>
+          <Button variant="bare" size="auto"
             className="child-layer"
             onClick={() => {
               setTab("design");
@@ -245,8 +283,8 @@ export default function DesignWorkspace({
           >
             <Type size={14} />
             Helper text
-          </button>
-          <button
+          </Button>
+          <Button variant="bare" size="auto"
             className={`child-layer ${anchor === "upload-error" ? "selected" : ""}`}
             onClick={() => {
               onAnchor("upload-error");
@@ -256,8 +294,8 @@ export default function DesignWorkspace({
           >
             <Frame size={14} />
             Error message
-          </button>
-          <button
+          </Button>
+          <Button variant="bare" size="auto"
             className="child-layer"
             onClick={() => {
               onAnchor("upload-error");
@@ -270,7 +308,7 @@ export default function DesignWorkspace({
           >
             <ArrowRight size={14} />
             Retry button
-          </button>
+          </Button>
           <div className="design-system-label">
             <div className="design-library-heading">
               <Layers3 size={17} />
@@ -286,23 +324,25 @@ export default function DesignWorkspace({
             onZoom={setZoom}
             resetKey={reset}
             viewport={viewport}
+            phoneWidth={phoneWidth}
             paired={false}
             focus={focus}
             feedback={false}
           >
             <div
-              className={`device-wrap ${viewport === "mobile" ? "mobile-wrap" : ""} design-selected`}
+              className={`device-wrap ${viewport === "mobile" ? "mobile-wrap phone-simulation" : ""} design-selected`}
               data-selected-anchor={anchor}
+              style={viewport === "mobile" ? { flex: `0 0 ${phoneWidth}px`, maxWidth: phoneWidth } : undefined}
             >
               <div className="device-label">
-                Document upload · {viewport}
+                Document upload · {viewport === "mobile" ? previewPhoneLabel(phoneModel, phoneUnfolded) : "desktop"}
                 <span>{dirty ? "Draft" : `v${revision.number}`}</span>
               </div>
               <DocumentUploader
                 config={draft}
                 state={state}
                 onState={onState}
-                compact={viewport === "mobile"}
+                compact={viewport === "mobile" && !(phoneModel === "duo" && phoneUnfolded)}
                 focus={focus}
                 annotate
                 onAnchor={(a) => {
@@ -320,7 +360,7 @@ export default function DesignWorkspace({
             onChange={onState}
           />
         </section>
-        <aside className="design-inspector">
+        <RightPanel variant="design" className="design-inspector" aria-label="Design inspector">
           <div
             className="design-inspector-tabs"
             role="group"
@@ -411,7 +451,7 @@ export default function DesignWorkspace({
                     {feedback.length === 1 ? "comment" : "comments"}
                   </h3>
                   {feedback.slice(0, 3).map((c) => (
-                    <button
+                    <Button variant="bare" size="auto"
                       key={c.id}
                       onClick={() => {
                         onAnchor(c.anchor);
@@ -421,7 +461,7 @@ export default function DesignWorkspace({
                     >
                       <strong>{c.author}</strong>
                       <p>{c.text}</p>
-                    </button>
+                    </Button>
                   ))}
                   {!feedback.length && <p>No comments on this version.</p>}
                 </div>
@@ -433,29 +473,35 @@ export default function DesignWorkspace({
                   ask();
                 }}
               >
-                <Textarea
-                  aria-label="Message design agent"
-                  placeholder="Ask the agent to edit this component…"
+                <GuidedPrompt
+                  label="Message design agent"
                   value={prompt}
                   maxLength={600}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={setPrompt}
+                  prompts={reviewPrompts}
+                  disabled={busy}
+                  showPresets={false}
+                  placeholder="Ask the agent to edit this component…"
                 />
-                <div>
-                  <span>Scripted responses · Review before applying</span>
-                  <Button
+                <div className="design-agent-actions">
+                  <span className="design-agent-note">Scripted responses · Approve edits</span>
+                  <div className="prompt-actions">
+                    <PromptVoiceControls value={prompt} onTranscript={setPrompt} onVoiceSubmit={ask} disabled={busy} />
+                    <Button
                     type="submit"
                     size="icon"
-                    disabled={!prompt.trim()}
+                    disabled={busy || !prompt.trim()}
                     title="Send prompt"
                     aria-label="Send prompt"
                   >
                     <Send size={16} />
                   </Button>
+                  </div>
                 </div>
               </form>
             </>
           )}
-        </aside>
+        </RightPanel>
       </main>
       <footer className="design-footer">
         <span>
@@ -466,6 +512,8 @@ export default function DesignWorkspace({
         </span>
         <span>{dirty ? "Unsaved draft" : `Version ${revision.number}`}</span>
       </footer>
+      <DesignSpecificationDialog open={designSpecOpen} onOpenChange={setDesignSpecOpen} config={draft} version={revision.number} dirty={dirty} />
+      <PocSpecificationDialog open={pocSpecOpen} onOpenChange={setPocSpecOpen} />
     </div>
   );
 }

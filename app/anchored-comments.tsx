@@ -3,6 +3,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import type { Comment } from "@/lib/model";
 import CommentReactions from "./comment-reactions";
+import CommentAvatar from "@/components/comment-avatar";
+import { Button } from "@/components/ui/button";
 export default function AnchoredComments({
   comments,
   busy,
@@ -77,21 +79,25 @@ export default function AnchoredComments({
               />
               <circle cx="2" cy="2" r="2" fill="currentColor" />
             </svg>
-            <header>
-              <span className="avatar">{c.author.charAt(0).toUpperCase()}</span>
-              <strong>{c.author}</strong>
-            </header>
-            <p>{c.text}</p>
-            <footer>
-              <CommentReactions comment={c} busy={busy} onAction={onAction} />
-              <button
-                title="Open comment thread"
-                aria-label={`Reply to ${c.author}`}
-                onClick={() => onOpen(c)}
-              >
-                <MessageSquare size={15} />
-              </button>
-            </footer>
+            <div className="comment-entry">
+              <CommentAvatar name={c.author} variant="comment" />
+              <div className="comment-entry-main">
+                <header><strong>{c.author}</strong></header>
+                <p className="comment-entry-text">{c.text}</p>
+                <footer className="comment-feedback">
+                  <CommentReactions comment={c} busy={busy} onAction={onAction} />
+                  <Button
+                    variant="bare"
+                    size="auto"
+                    title="Open comment thread"
+                    aria-label={`Reply to ${c.author}`}
+                    onClick={() => onOpen(c)}
+                  >
+                    <MessageSquare size={15} />
+                  </Button>
+                </footer>
+              </div>
+            </div>
           </article>
         );
       })}

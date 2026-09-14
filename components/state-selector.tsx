@@ -1,5 +1,6 @@
 "use client";
 import { Button } from "@/components/ui/button";
+import NumberMarker from "@/components/number-marker";
 
 export default function StateSelector<T extends string>({
   value,
@@ -25,16 +26,24 @@ export default function StateSelector<T extends string>({
       {heading && <span>{heading}</span>}
       {options.map((option, index) =>
         appearance === "strip" ? (
-          <button
+          <Button
+            variant="bare"
+            size="auto"
             type="button"
             key={option.value}
             className={value === option.value ? "selected" : ""}
             aria-pressed={value === option.value}
             onClick={() => onChange(option.value)}
           >
-            {numbered && <span>{index + 1}</span>}
+            {numbered && (
+              <NumberMarker
+                value={index + 1}
+                variant="state"
+                selected={value === option.value}
+              />
+            )}
             {option.label}
-          </button>
+          </Button>
         ) : (
           <Button
             type="button"
@@ -43,7 +52,13 @@ export default function StateSelector<T extends string>({
             aria-pressed={value === option.value}
             onClick={() => onChange(option.value)}
           >
-            {numbered ? `${index + 1} ` : ""}
+            {numbered && (
+              <NumberMarker
+                value={index + 1}
+                variant="state"
+                selected={value === option.value}
+              />
+            )}
             {option.label}
           </Button>
         ),

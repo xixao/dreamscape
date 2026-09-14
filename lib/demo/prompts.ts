@@ -12,6 +12,22 @@ export const reviewPrompts: PromptSuggestion[] = [
     label: "Research test",
     text: "Set up a Research mobile component test for the document upload.",
   },
+  {
+    label: "Show designs",
+    text: "Show me the designs.",
+  },
+  {
+    label: "Show POC",
+    text: "Show me the POC we're presenting.",
+  },
+  {
+    label: "Show results",
+    text: "Show me the test results.",
+  },
+  {
+    label: "Completed tests",
+    text: "How many tests are complete?",
+  },
 ];
 export const testPrompts: PromptSuggestion[] = [
   reviewPrompts[2],

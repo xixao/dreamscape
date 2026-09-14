@@ -3,18 +3,21 @@ import { configSchema } from "@/lib/demo/upload-schema";
 import { testSetupSchema } from "@/lib/test-setup";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
 import {
+  addDecision,
   addComment,
   body,
   db,
   ensure,
   fail,
   getComments,
+  getDecisions,
   getRevision,
   now,
   prefSchema,
   react,
   revision,
   safe,
+  sessionRecord,
   uuid,
 } from "@/lib/server";
 
@@ -51,24 +54,11 @@ export async function GET() {
       name: u.displayName,
       revisions: r.results.map(revision),
       comments: await getComments(u.userId, u.userId),
+      decisions: await getDecisions(u.userId),
       preferences: p
         ? JSON.parse(p.value as string)
         : { comments: true, revisions: true, tests: true },
-      sessions: s.results.map((row) => ({
-        id: row.id,
-        revisionId: row.revision_id,
-        outcome: row.outcome,
-        duration: row.duration,
-        feedback: row.feedback,
-        events: JSON.parse(row.events as string),
-        interactions: JSON.parse(row.interactions as string),
-        rating: row.rating,
-        fuego: !!row.fuego,
-        testSetup: row.test_config
-          ? JSON.parse(row.test_config as string)
-          : null,
-        createdAt: row.created_at,
-      })),
+      sessions: s.results.map(sessionRecord),
       links: links.results.map(({ test_config, ...link }) => ({
         ...link,
         testSetup: test_config ? JSON.parse(test_config as string) : null,
@@ -98,6 +88,14 @@ export async function POST(request: Request) {
       }
       case "comment":
         return addComment(owner, u.displayName, data);
+      case "decision":
+        return addDecision(owner, u.userId, u.displayName, {
+          revisionId: data.revisionId,
+          choice: data.choice,
+          rationale: data.rationale,
+          followUpOwner: data.followUpOwner,
+          nextStep: data.nextStep,
+        });
       case "reaction":
         return react(
           owner,

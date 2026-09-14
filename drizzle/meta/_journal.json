@@ -36,6 +36,13 @@
       "when": 1789275342379,
       "tag": "0004_tiny_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789321904217,
+      "tag": "0005_familiar_hercules",
+      "breakpoints": true
     }
   ]
 }

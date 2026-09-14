@@ -28,6 +28,17 @@ export type Comment = {
   reaction: "like" | "dislike" | "fuego" | null;
   createdAt: string;
 };
+export type ReviewDecision = {
+  id: string;
+  revisionId: string;
+  choice: "Approve for next test" | "Request updates" | "Do not approve";
+  rationale: string;
+  followUpOwner: string;
+  nextStep: string;
+  author: string;
+  actorId: string;
+  createdAt: string;
+};
 export type Session = {
   testSetup?: import("./test-setup").TestSetup | null;
   id: string;
@@ -50,6 +61,7 @@ export type Session = {
 export type Workspace = {
   revisions: Revision[];
   comments: Comment[];
+  decisions: ReviewDecision[];
   sessions: Session[];
   preferences: { comments: boolean; revisions: boolean; tests: boolean };
   name: string;

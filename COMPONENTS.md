@@ -1,5 +1,14 @@
 # Component Boundaries
 
+For the current atom-only review, start with [the Style Guide](docs/style-guide/README.md).
+For atom/molecule/organism contracts and the 14-screen handoff map, start with
+[the Design Bible](docs/design-bible.md). The [source audit](docs/atomic-source-audit.md)
+records actual adoption and exceptions; the [pre-build practice](docs/pre-build-design-practice.md)
+is the working agreement before new prototype work. This file remains the concise
+implementation-ownership reference.
+The [component inventory](docs/component-inventory.md) counts used JSX types, while
+the [health review](docs/component-health.md) records verified reuse and remaining work.
+
 ## Naming and Ownership
 
 - React components use PascalCase names and matching kebab-case filenames. Route entrypoints (`page.tsx`, `layout.tsx`) follow framework conventions.
@@ -14,6 +23,7 @@
 | Component | Contract / Consumers |
 | --- | --- |
 | IconButton | Label, icon children, optional active state, native button props. Review and mock design tool share tooltips and accessible names. Defaults to a non-submitting button. |
+| CommentAvatar | One deterministic comment initial/fallback; shared by threaded and anchored comments. Decorative when the full author name is adjacent. |
 | StateSelector | Typed value/options and change callback. Review canvas, brief, and design workspace share selection semantics. No upload-specific imports. |
 | GuidedPrompt | Controlled text, supplied suggestions, character limit, disabled state. Review assistant and test setup share completion behavior; demo prompts are supplied by their parents. |
 
