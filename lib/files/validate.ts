@@ -3,6 +3,7 @@ import {
   ARROW_KINDS,
   CONNECTOR_KINDS,
   DIAGRAM_COLORS,
+  LINE_STYLES,
   MAX_TEXT_LENGTH as DIAGRAM_TEXT_MAX,
   NODE_KINDS,
   TEXT_COLORS,
@@ -14,6 +15,7 @@ import {
   type DiagramData,
   type DiagramNodeKind,
   type EdgeEndpoint,
+  type LineStyle,
   type Side,
   type TextColor,
   type TextFont,
@@ -591,6 +593,10 @@ export type DiagramEdgeInput = {
   target: DiagramEdgeEndpointInput;
   kind: string;
   arrow: string;
+  // Spec section 14: the connector's LINE style (solid/dashed), optional -
+  // absent on every edge saved before this feature - checked against its
+  // own enum in validateDiagram below, same shape as kind/arrow above.
+  lineStyle?: string;
   label?: string;
 };
 export type DiagramInput = { nodes: DiagramNodeInput[]; edges: DiagramEdgeInput[] };
@@ -629,7 +635,9 @@ function toEndpoint(endpoint: DiagramEdgeEndpointInput): EdgeEndpoint {
  * 500 characters (spec: "text up to 500 chars"), every edge's endpoint
  * exactly one of a nodeId or a screenId with a real side when given, an
  * edge whose nodeId endpoint(s) reference a node that actually exists in
- * THIS diagram, and every edge's own kind/arrow from their own enum. A
+ * THIS diagram, and every edge's own kind/arrow from their own enum. An
+ * edge's lineStyle (spec section 14) is optional and, when present,
+ * checked against its own enum the same shape as kind/arrow. A
  * node's textSize/textFont/textColor (spec section 9) are all optional
  * and, when present, checked against their own enum the same way; absent,
  * they stay absent on the validated node rather than defaulting here, so
@@ -699,6 +707,12 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     if (!(ARROW_KINDS as readonly string[]).includes(edge.arrow)) {
       return { ok: false, reason: `diagram edge "${edge.id}" has an unknown arrow "${edge.arrow}"` };
     }
+    // Spec section 14: lineStyle is optional (absent on every edge saved
+    // before this feature), so only checked against its own enum when
+    // actually present - same shape as kind/arrow's own checks just above.
+    if (edge.lineStyle !== undefined && !(LINE_STYLES as readonly string[]).includes(edge.lineStyle)) {
+      return { ok: false, reason: `diagram edge "${edge.id}" has an unknown line style "${edge.lineStyle}"` };
+    }
     if (edge.label !== undefined && edge.label.length > DIAGRAM_TEXT_MAX) {
       return { ok: false, reason: `diagram edge "${edge.id}" label is longer than ${DIAGRAM_TEXT_MAX} characters` };
     }
@@ -726,12 +740,21 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
         ...(textColor !== undefined ? { textColor: textColor as TextColor } : {}),
         ...(groupId !== undefined ? { groupId } : {}),
       })),
-      edges: input.edges.map((edge) => ({
-        ...edge,
-        source: toEndpoint(edge.source),
-        target: toEndpoint(edge.target),
-        kind: edge.kind as ConnectorKind,
-        arrow: edge.arrow as ArrowKind,
+      // lineStyle destructured out of the `...rest` spread (rather than
+      // spread-then-overridden, the way kind/arrow/source/target are below)
+      // for the same reason textSize/textFont/textColor are above: a later
+      // conditional spread narrows a property's TYPE only when nothing
+      // earlier in the same literal already contributed one, so this keeps
+      // it exactly `LineStyle | undefined` and - the actual point - absent
+      // stays absent (not a key set to `undefined`), so a file saved
+      // before this feature round-trips byte-identical.
+      edges: input.edges.map(({ lineStyle, ...rest }) => ({
+        ...rest,
+        source: toEndpoint(rest.source),
+        target: toEndpoint(rest.target),
+        kind: rest.kind as ConnectorKind,
+        arrow: rest.arrow as ArrowKind,
+        ...(lineStyle !== undefined ? { lineStyle: lineStyle as LineStyle } : {}),
       })),
     },
   };

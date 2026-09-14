@@ -229,6 +229,30 @@ describe('diagramReducer: setColor / setKind / setArrow', () => {
   });
 });
 
+// Spec section 14 (Matt 2026-09-14: "i'd also like a connector style -
+// dashed, solid..."): mirrors setArrow exactly - single edge id, one
+// history step, no no-op guard (only ever dispatched from an explicit user
+// choice).
+describe('diagramReducer: setLineStyle', () => {
+  it('sets a connector line style', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' }), node({ id: 'n2' })], edges: [edge()] });
+    const next = diagramReducer(state, { type: 'setLineStyle', id: 'e1', lineStyle: 'dashed' });
+    expect(next.edges[0].lineStyle).toBe('dashed');
+  });
+
+  it('pushes one history entry, even re-setting the value it already has (no no-op guard, matching setArrow)', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' }), node({ id: 'n2' })], edges: [edge({ lineStyle: 'dashed' })] });
+    const next = diagramReducer(state, { type: 'setLineStyle', id: 'e1', lineStyle: 'dashed' });
+    expect(next.history.past).toHaveLength(state.history.past.length + 1);
+  });
+
+  it('ignores an unknown edge id', () => {
+    const state = stateWith({ nodes: [node({ id: 'n1' })], edges: [] });
+    const next = diagramReducer(state, { type: 'setLineStyle', id: 'missing', lineStyle: 'dashed' });
+    expect(next).toBe(state);
+  });
+});
+
 describe('diagramReducer: setTextStyle', () => {
   it('sets textSize on a single id', () => {
     const state = stateWith({ nodes: [node({ id: 'n1' })] });
@@ -632,6 +656,26 @@ describe('diagramReducer: duplicate', () => {
     });
     expect(next.edges).toHaveLength(1);
   });
+
+  // Spec section 14 - a copy of a connector carries its own lineStyle,
+  // already true today since duplicate copies an edge with a plain object
+  // spread (the same guarantee section 9's text-styling test above pins for
+  // a node), pinned down here so a future refactor cannot silently drop it.
+  it("carries the source connector's own lineStyle to the copy", () => {
+    const state = stateWith({
+      nodes: [node({ id: 'n1' }), node({ id: 'n2' })],
+      edges: [edge({ id: 'e1', lineStyle: 'dashed' })],
+    });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [
+        { sourceId: 'n1', newId: 'copy1' },
+        { sourceId: 'n2', newId: 'copy2' },
+      ],
+      edgePairs: [{ sourceId: 'e1', newId: 'edgeCopy1' }],
+    });
+    expect(next.edges.find((e) => e.id === 'edgeCopy1')).toMatchObject({ lineStyle: 'dashed' });
+  });
 });
 
 describe('diagramReducer: reorder', () => {
@@ -799,6 +843,18 @@ describe('diagramReducer: quickAdd', () => {
     expect(created?.textSize).toBeUndefined();
     expect(created?.textFont).toBeUndefined();
     expect(created?.textColor).toBeUndefined();
+  });
+
+  // Spec section 14: quickAdd builds its brand new connector field by field
+  // (kind: 'step', arrow: 'end' above) rather than inheriting from anywhere
+  // - so its lineStyle is left absent too, solid by default, same as an
+  // edge saved before this feature.
+  it('leaves the new connector without a lineStyle (solid by default)', () => {
+    const state = stateWith({ nodes: [source] });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'src', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    const created = next.edges.find((e) => e.id === 'edge1');
+    expect(created).toBeDefined();
+    expect('lineStyle' in created!).toBe(false);
   });
 });
 
@@ -1342,6 +1398,32 @@ describe('cloneDiagram', () => {
     };
     const copy = cloneDiagram(diagram, {}, () => 'new1');
     expect(copy.nodes[0]).toMatchObject({ textSize: 'large', textFont: 'mono', textColor: 'red' });
+  });
+
+  // Spec section 14 - an edge's own lineStyle carries into cloneDiagram's
+  // copy the same way kind/arrow already do (a plain object spread),
+  // pinned down here so a future refactor cannot silently drop it.
+  it("carries an edge's own lineStyle into the copy", () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const diagram = {
+      nodes: [
+        { id: 'a', kind: 'rect' as const, x: 0, y: 0, width: 160, height: 80, text: 'A', color: 'neutral' as const },
+        { id: 'b', kind: 'rect' as const, x: 300, y: 0, width: 160, height: 80, text: 'B', color: 'neutral' as const },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          kind: 'step' as const,
+          arrow: 'end' as const,
+          lineStyle: 'dashed' as const,
+          source: { nodeId: 'a', side: 'right' as const },
+          target: { nodeId: 'b', side: 'left' as const },
+        },
+      ],
+    };
+    const copy = cloneDiagram(diagram, {}, makeId);
+    expect(copy.edges[0]).toMatchObject({ lineStyle: 'dashed' });
   });
 
   // Spec section 10: "cloneDiagram keeps group ids consistent" - every
