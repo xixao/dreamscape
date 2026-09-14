@@ -1553,6 +1553,26 @@ describe("DiagramLayer reconnecting a connector's end (spec section 12, Matt 202
     expect(screen.getByTestId('diagram-edge-end-e1-target')).toBeInTheDocument();
   });
 
+  it('paints both end handles after every node, so a shape can never occlude its own connector\'s handle (Matt, 2026-09-14: "dragging the connector endpoint to another point on the shape does NOTHING")', () => {
+    // SVG hit-testing for overlapping elements follows DOCUMENT order, not
+    // an explicit stacking context - the last-painted element wins. The
+    // handle sits exactly on its shape's boundary, so if it ever again
+    // rendered before that shape's own <rect>/<polygon>, the shape would
+    // silently win every click meant for the handle.
+    renderLayer({ diagram: twoNodeEdgeState() });
+    const nodeA = screen.getByTestId('diagram-node-a');
+    const nodeB = screen.getByTestId('diagram-node-b');
+    const source = screen.getByTestId('diagram-edge-end-e1-source');
+    const target = screen.getByTestId('diagram-edge-end-e1-target');
+
+    for (const handle of [source, target]) {
+      for (const node of [nodeA, nodeB]) {
+        // DOCUMENT_POSITION_FOLLOWING (4): `node` comes before `handle`.
+        expect(node.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+    }
+  });
+
   it('renders no handles when nothing is selected', () => {
     renderLayer({ diagram: twoNodeEdgeState([]) });
     expect(screen.queryByTestId('diagram-edge-end-e1-source')).not.toBeInTheDocument();
