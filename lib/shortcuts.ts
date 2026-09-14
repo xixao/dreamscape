@@ -100,6 +100,12 @@ export const SHORTCUTS: Shortcut[] = [
   // other shortcut so the overlay/dialog/README always list them.
   { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
   { id: 'diagram-select-all', area: 'Edit', keys: ['Mod', 'A'], label: 'Select all diagram elements' },
+  // Marquee selection and groups (spec docs/superpowers/specs/2026-09-13-
+  // diagrams-design.md section 10) - guarded (not `always`) like every
+  // other diagram-selection-only shortcut above, since neither means
+  // anything outside the diagram.
+  { id: 'diagram-group', area: 'Edit', keys: ['Mod', 'G'], label: 'Group the selected shapes' },
+  { id: 'diagram-ungroup', area: 'Edit', keys: ['Shift', 'Mod', 'G'], label: 'Ungroup' },
   { id: 'diagram-context-menu', area: 'Edit', keys: ['Shift', 'F10'], label: 'Open the menu for the diagram selection' },
   // Nudges whichever selection is active - a diagram element, or (spec
   // docs/superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
@@ -262,6 +268,14 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // Cmd+A selects all diagram elements (keyboard.tsx only acts on it when
   // the diagram tool is active or a diagram element is selected).
   if (mod && !shift && key === 'a') return 'diagram-select-all';
+  // Cmd+G groups, Cmd+Shift+G ungroups the diagram selection (keyboard.tsx
+  // only acts on either while one exists) - checked before the generic
+  // `if (mod) return null` below, same as diagram-duplicate/
+  // diagram-select-all above; `!shift`/`shift` keeps the two distinct from
+  // each other (Shift+G alone, with no Mod, is the unrelated
+  // layout-grid-toggle further down).
+  if (mod && !shift && key === 'g') return 'diagram-group';
+  if (mod && shift && key === 'g') return 'diagram-ungroup';
   if (mod && event.key === "'") return 'pixel-grid-toggle';
   if (mod) return null;
 

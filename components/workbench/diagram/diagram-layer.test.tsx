@@ -2122,3 +2122,354 @@ describe('DiagramLayer placement', () => {
     expect(screen.queryByTestId('diagram-placement-surface')).not.toBeInTheDocument();
   });
 });
+
+// Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 10,
+// build steps 2-4: groups.
+describe('DiagramLayer groups: click/shift-click selection', () => {
+  it('clicking a grouped shape selects all members of its group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130 });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'select',
+      selection: expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+      ]),
+    });
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toHaveLength(2);
+  });
+
+  it('clicking a grouped shape also selects the connector between members', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a', side: 'right' }, target: { nodeId: 'b', side: 'left' } })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, edges }) });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130 });
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toEqual(
+      expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+        { type: 'edge', id: 'e1' },
+      ]),
+    );
+  });
+
+  it('clicking an ungrouped shape still selects just that one shape', () => {
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node()] }) });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-node000001'), { pointerId: 1, clientX: 150, clientY: 130 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'node000001' }] });
+  });
+
+  it('shift+click on a member adds the whole group to the selection', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' }), node({ id: 'c', x: 800 })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, selection: [{ type: 'node', id: 'c' }] }) });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130, shiftKey: true });
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toEqual(
+      expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+        { type: 'node', id: 'c' },
+      ]),
+    );
+    expect(call![0].selection).toHaveLength(3);
+  });
+
+  it('shift+click on a member of an already fully-selected group removes the whole group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 1, clientX: 150, clientY: 130, shiftKey: true });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [] });
+  });
+});
+
+describe('DiagramLayer groups: entering a group with double-click', () => {
+  it('double-clicking a not-yet-entered member enters the group, selects just that shape, and does not start editing', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'a' }] });
+    expect(screen.queryByTestId('diagram-text-input-a')).not.toBeInTheDocument();
+  });
+
+  it('a second double-click, now inside the entered group, edits the shape\'s text instead', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1', text: 'Hello' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    expect(screen.getByTestId('diagram-text-input-a')).toBeInTheDocument();
+  });
+
+  it('double-clicking an ungrouped shape still starts editing directly, unaffected', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Hello' })] }) });
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-node000001'));
+    expect(screen.getByTestId('diagram-text-input-node000001')).toBeInTheDocument();
+  });
+
+  it('once entered via double-click, a plain click on another member of the same group selects just that member (real reducer)', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    render(
+      <RealReducerHarness
+        initial={stateWith({
+          nodes,
+          selection: [
+            { type: 'node', id: 'a' },
+            { type: 'node', id: 'b' },
+          ],
+        })}
+      />,
+    );
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    expect(screen.getByTestId('diagram-node-a')).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('diagram-node-b')).not.toHaveAttribute('data-selected');
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-b'), { pointerId: 1, clientX: 450, clientY: 130 });
+    expect(screen.getByTestId('diagram-node-b')).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('diagram-node-a')).not.toHaveAttribute('data-selected');
+  });
+
+  it('clicking a different, ungrouped shape leaves the entered group - a later click on a former group member selects the whole group again (real reducer)', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' }), node({ id: 'c', x: 800 })];
+    render(<RealReducerHarness initial={stateWith({ nodes, selection: [{ type: 'node', id: 'a' }] })} />);
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a')); // enters g1
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-c'), { pointerId: 1, clientX: 850, clientY: 130 }); // ungrouped, unrelated
+    fireEvent.pointerUp(screen.getByTestId('diagram-node-c'), { pointerId: 1, clientX: 850, clientY: 130 });
+
+    fireEvent.pointerDown(screen.getByTestId('diagram-node-a'), { pointerId: 2, clientX: 150, clientY: 130 });
+    // The whole group is selected again (not just 'a') - visible as the
+    // shared group outline, since a fully-selected group's own members no
+    // longer carry the individual data-selected attribute (see the
+    // "selected-group outline" describe block below).
+    expect(screen.getByTestId('diagram-group-outline-g1')).toBeInTheDocument();
+  });
+});
+
+describe('DiagramLayer groups: selected-group outline', () => {
+  it('draws one dashed outline around a fully-selected group instead of per-member outlines and handles', () => {
+    const nodes = [
+      node({ id: 'a', groupId: 'g1', x: 0, y: 0, width: 40, height: 40 }),
+      node({ id: 'b', groupId: 'g1', x: 100, y: 100, width: 40, height: 40 }),
+    ];
+    renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    expect(screen.getByTestId('diagram-group-outline-g1')).toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-resize-a-se')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('diagram-resize-b-se')).not.toBeInTheDocument();
+  });
+
+  it('does not draw a group outline when only one member is selected', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    renderLayer({ diagram: stateWith({ nodes, selection: [{ type: 'node', id: 'a' }] }) });
+    expect(screen.queryByTestId('diagram-group-outline-g1')).not.toBeInTheDocument();
+    // The individually-selected member keeps its own ordinary outline/handles.
+    expect(screen.getByTestId('diagram-resize-a-se')).toBeInTheDocument();
+  });
+});
+
+describe('DiagramLayer context menu (Group/Ungroup, build step 4)', () => {
+  it('disables Group with fewer than two shapes selected', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(await screen.findByRole('menuitem', { name: 'Group' })).toHaveAttribute('data-disabled');
+  });
+
+  it('enables Group with two or more shapes selected, and dispatches group for the whole selection', async () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b', x: 400 })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    const groupItem = await screen.findByRole('menuitem', { name: 'Group' });
+    expect(groupItem).not.toHaveAttribute('data-disabled');
+
+    await userEvent.click(groupItem);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'group', ids: ['a', 'b'], groupId: expect.any(String) });
+  });
+
+  it('disables Ungroup when the selection is not a group', async () => {
+    renderLayer({ diagram: stateWith({ nodes: [node()], selection: [{ type: 'node', id: 'node000001' }] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-node000001'));
+    expect(await screen.findByRole('menuitem', { name: 'Ungroup' })).toHaveAttribute('data-disabled');
+  });
+
+  it('enables Ungroup when the selection is a whole group, and dispatches ungroup for it', async () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    const ungroupItem = await screen.findByRole('menuitem', { name: 'Ungroup' });
+    expect(ungroupItem).not.toHaveAttribute('data-disabled');
+
+    await userEvent.click(ungroupItem);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'ungroup', groupId: 'g1' });
+  });
+
+  it('deleting via the context menu while a group is selected removes every member', async () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'delete', ids: ['a', 'b'] });
+  });
+});
+
+describe('DiagramLayer groups: drag acts on the whole group (spec: "already act on the selection and therefore on groups")', () => {
+  it('dragging one member of a selected group moves every member together', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({
+      diagram: stateWith({
+        nodes,
+        selection: [
+          { type: 'node', id: 'a' },
+          { type: 'node', id: 'b' },
+        ],
+      }),
+    });
+    const el = screen.getByTestId('diagram-node-a');
+    fireEvent.pointerDown(el, { pointerId: 1, clientX: 150, clientY: 130 });
+    fireEvent.pointerMove(el, { pointerId: 1, clientX: 158, clientY: 130 });
+    fireEvent.pointerUp(el, { pointerId: 1, clientX: 158, clientY: 130 });
+    expect(dispatch).toHaveBeenCalledWith({ type: 'move', ids: ['a', 'b'], dx: 8, dy: 0 });
+  });
+});
+
+describe('DiagramLayer quick-add from a grouped shape (spec: "adds the new shape outside the group")', () => {
+  it('the quick-add dispatch names only the source shape - the reducer itself never copies a groupId onto the new node (see store.test.ts)', () => {
+    const nodes = [node({ id: 'node000001', groupId: 'g1' })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes }) });
+    hoverAt(150, 130);
+    fireEvent.click(screen.getByTestId('diagram-quick-add-node000001-right'));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'quickAdd', sourceId: 'node000001', side: 'right' }),
+    );
+  });
+});
+
+// Review finding A: right-clicking an unselected grouped shape used to
+// select only that one shape while still showing "Ungroup" as available -
+// choosing it then silently stripped groupId from sibling nodes that were
+// never selected or visible in the menu at all. ensureSelected now expands
+// to the whole group first, the same as a plain click would.
+describe('DiagramLayer context menu on an unselected grouped shape (review finding A)', () => {
+  it('right-clicking an unselected member selects the whole group, not just that one shape', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const { dispatch } = renderLayer({ diagram: stateWith({ nodes, selection: [] }) });
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'select',
+      selection: expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+      ]),
+    });
+    const call = dispatch.mock.calls.find((c) => c[0].type === 'select');
+    expect(call![0].selection).toHaveLength(2);
+  });
+
+  it('end-to-end with the real reducer: the whole group is visibly selected and Ungroup correctly shows as available (no silent action on an invisible sibling)', async () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    render(<RealReducerHarness initial={stateWith({ nodes, selection: [] })} />);
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-a'));
+
+    // The whole group is now genuinely selected (shown as one shared
+    // outline, since a fully-selected 2-member group suppresses each
+    // member's own data-selected - see the "selected-group outline"
+    // describe block above).
+    expect(screen.getByTestId('diagram-group-outline-g1')).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Ungroup' })).not.toHaveAttribute('data-disabled');
+  });
+
+  it('right-clicking an unselected member while "inside" a DIFFERENT entered group still selects just that member, not the whole group', () => {
+    const groupNodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const other = node({ id: 'c', x: 800, groupId: 'g1' });
+    // Not a realistic 3-member "entered" scenario by itself - this test
+    // only cares that ensureSelected respects enteredGroupId the same way
+    // a plain click does, via the shared groupSelectionFor helper.
+    const { dispatch } = renderLayer({
+      diagram: stateWith({ nodes: [...groupNodes, other], selection: [] }),
+    });
+    // Enter g1 via double-click on 'a' first.
+    fireEvent.doubleClick(screen.getByTestId('diagram-node-a'));
+    dispatch.mockClear();
+    // Right-click the OTHER still-unselected member of the SAME (now
+    // entered) group - should select just 'b', not the whole group.
+    fireEvent.contextMenu(screen.getByTestId('diagram-node-b'));
+    expect(dispatch).toHaveBeenCalledWith({ type: 'select', selection: [{ type: 'node', id: 'b' }] });
+  });
+});
+
+// Review finding B: deleting one member of a group must not leave the
+// survivor's groupId orphaned. Confirmed here end-to-end (real reducer):
+// after group -> delete one member -> the survivor keeps its own
+// resize handles when selected alone, rather than being stuck behind a
+// permanent group-of-one outline.
+describe('DiagramLayer: deleting a partial group leaves a real, still-usable survivor (review finding B)', () => {
+  it('the surviving member of a 2-member group gets its own resize handles back after the other is deleted', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', x: 400, groupId: 'g1' })];
+    const dispatchRef: { current: (action: DiagramAction) => void } = { current: () => {} };
+    render(<RealReducerHarness initial={stateWith({ nodes })} dispatchRef={dispatchRef} />);
+
+    act(() => {
+      dispatchRef.current({ type: 'delete', ids: ['a'] });
+      dispatchRef.current({ type: 'select', selection: [{ type: 'node', id: 'b' }] });
+    });
+
+    expect(screen.queryByTestId('diagram-group-outline-g1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('diagram-resize-b-se')).toBeInTheDocument();
+    expect(screen.getByTestId('diagram-node-b')).toHaveAttribute('data-selected', 'true');
+  });
+});

@@ -90,6 +90,15 @@ export function useWorkbenchKeyboard(
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
     onDiagramSelectAll?: () => void;
+    // Cmd+G / Cmd+Shift+G (spec docs/superpowers/specs/2026-09-13-diagrams-
+    // design.md section 10) - gated on diagramSelectionActive exactly like
+    // onDiagramDuplicate above (both act on "whatever's currently
+    // selected"); WorkbenchShell's own handler decides whether there is
+    // actually enough of a selection to group, or a group to ungroup, the
+    // same "the reducer/dispatch site owns the real logic" split
+    // onDiagramDuplicate already has.
+    onDiagramGroup?: () => void;
+    onDiagramUngroup?: () => void;
     // `big` is Shift held: 1 px plain, 8 px with Shift (Matt, 2026-09-13:
     // dropped the earlier 8/64 px split in favour of matching the canvas's
     // own 8 px grid). The four arrow keys nudge whichever selection is
@@ -174,6 +183,8 @@ export function useWorkbenchKeyboard(
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
+    onDiagramGroup,
+    onDiagramUngroup,
     onDiagramNudge,
     onFrameNudge,
     onDiagramUndo,
@@ -291,6 +302,18 @@ export function useWorkbenchKeyboard(
           if (!diagramSelectionActive && !diagramToolActive) return;
           event.preventDefault();
           onDiagramSelectAll?.();
+          return;
+
+        case 'diagram-group':
+          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
+          event.preventDefault();
+          onDiagramGroup?.();
+          return;
+
+        case 'diagram-ungroup':
+          if (!diagramSelectionActive || isSeparatorTarget(event.target)) return;
+          event.preventDefault();
+          onDiagramUngroup?.();
           return;
 
         case 'diagram-nudge-up':
@@ -455,6 +478,8 @@ export function useWorkbenchKeyboard(
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
+    onDiagramGroup,
+    onDiagramUngroup,
     onDiagramNudge,
     onFrameNudge,
     onDiagramUndo,

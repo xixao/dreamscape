@@ -24,6 +24,8 @@ type KeysOptions = {
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
   onDiagramSelectAll?: () => void;
+  onDiagramGroup?: () => void;
+  onDiagramUngroup?: () => void;
   onDiagramNudge?: (direction: 'up' | 'down' | 'left' | 'right', big: boolean) => void;
   onDiagramUndo?: () => void;
   onDiagramRedo?: () => void;
@@ -59,6 +61,8 @@ function Keys({
   onDiagramDelete,
   onDiagramDuplicate,
   onDiagramSelectAll,
+  onDiagramGroup,
+  onDiagramUngroup,
   onDiagramNudge,
   onDiagramUndo,
   onDiagramRedo,
@@ -93,6 +97,8 @@ function Keys({
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
+    onDiagramGroup,
+    onDiagramUngroup,
     onDiagramNudge,
     onDiagramUndo,
     onDiagramRedo,
@@ -583,6 +589,55 @@ describe('useWorkbenchKeyboard diagram selection routing', () => {
 
     expect(onDiagramDuplicate).toHaveBeenCalledTimes(1);
     expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+G does not group when no diagram selection is active', async () => {
+    const onDiagramGroup = vi.fn();
+    mount({ diagramSelectionActive: false, onDiagramGroup });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'g', metaKey: true });
+    expect(onDiagramGroup).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+G groups the diagram selection when one is active', async () => {
+    const onDiagramGroup = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramGroup });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'g', metaKey: true });
+
+    expect(onDiagramGroup).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+Shift+G does not ungroup when no diagram selection is active', async () => {
+    const onDiagramUngroup = vi.fn();
+    mount({ diagramSelectionActive: false, onDiagramUngroup });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    fireEvent.keyDown(window, { key: 'g', metaKey: true, shiftKey: true });
+    expect(onDiagramUngroup).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+Shift+G ungroups the diagram selection when one is active', async () => {
+    const onDiagramUngroup = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramUngroup });
+    await screen.findByRole('button', { name: 'Doomed' });
+
+    const notCancelled = fireEvent.keyDown(window, { key: 'g', metaKey: true, shiftKey: true });
+
+    expect(onDiagramUngroup).toHaveBeenCalledTimes(1);
+    expect(notCancelled).toBe(false);
+  });
+
+  it('Cmd+G ignores a press on a focused resize handle (separator target), same as Cmd+D', async () => {
+    const onDiagramGroup = vi.fn();
+    mount({ diagramSelectionActive: true, onDiagramGroup });
+    const separator = await screen.findByTestId('fake-separator');
+
+    fireEvent.keyDown(separator, { key: 'g', metaKey: true });
+    expect(onDiagramGroup).not.toHaveBeenCalled();
   });
 
   it('Cmd+A does not select all when diagram tool is not active and no diagram element is selected', async () => {

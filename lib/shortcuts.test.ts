@@ -175,6 +175,14 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'd', metaKey: true, shiftKey: true }))).toBeNull();
   });
 
+  it('matches Cmd+G for group and Cmd+Shift+G for ungroup, distinct from bare Shift+G (layout grid)', () => {
+    expect(matchShortcut(key({ key: 'g', metaKey: true }))).toBe('diagram-group');
+    expect(matchShortcut(key({ key: 'g', ctrlKey: true }))).toBe('diagram-group');
+    expect(matchShortcut(key({ key: 'g', metaKey: true, shiftKey: true }))).toBe('diagram-ungroup');
+    expect(matchShortcut(key({ key: 'g', ctrlKey: true, shiftKey: true }))).toBe('diagram-ungroup');
+    expect(matchShortcut(key({ key: 'g', shiftKey: true }))).toBe('layout-grid-toggle');
+  });
+
   it('matches the four arrow keys for the nudge, as distinct ids with and without Shift', () => {
     expect(matchShortcut(key({ key: 'ArrowUp' }))).toBe('diagram-nudge-up');
     expect(matchShortcut(key({ key: 'ArrowDown' }))).toBe('diagram-nudge-down');

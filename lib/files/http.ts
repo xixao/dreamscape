@@ -44,6 +44,10 @@ const diagramNodeField = z.object({
   textSize: z.enum(TEXT_SIZES).optional(),
   textFont: z.enum(TEXT_FONTS).optional(),
   textColor: z.enum(TEXT_COLORS).optional(),
+  // Marquee selection and groups (spec section 10) - shape only (a
+  // non-empty string), same split as everything else here; validateDiagram
+  // is the content rule.
+  groupId: z.string().min(1).optional(),
 });
 
 const diagramEdgeField = z.object({

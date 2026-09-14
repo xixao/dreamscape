@@ -14,6 +14,7 @@ import {
   diagramReducer,
   duplicatePairs,
   pruneEdgesForScreen,
+  selectedGroupId,
   type DiagramData,
   type DiagramNode,
   cloneDiagram,
@@ -1530,10 +1531,35 @@ function WorkbenchShell({
       // through the very same reducer action. duplicatePairs is the same
       // helper the layer itself uses, so the two never drift apart.
       const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
-      const { pairs, edgePairs } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
-      dispatchDiagram({ type: 'duplicate', pairs, edgePairs });
+      const { pairs, edgePairs, groupIdMap } = duplicatePairs(diagram, nodeIds, () => nanoid(10));
+      dispatchDiagram({ type: 'duplicate', pairs, edgePairs, groupIdMap });
     },
     onDiagramSelectAll: () => dispatchDiagram({ type: 'selectAll' }),
+    // Cmd+G (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
+    // section 10): groups every currently-selected shape under a fresh
+    // groupId - the reducer's own "two or more real nodes" guard (store.ts)
+    // makes this a safe no-op when the selection is too small or holds no
+    // shapes at all, so this handler does not need to pre-check that
+    // itself, the same "reducer trusts and applies, the layer just calls
+    // it" division diagram-layer.tsx's own duplicateSelection already has.
+    onDiagramGroup: () => {
+      const nodeIds = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
+      dispatchDiagram({ type: 'group', ids: nodeIds, groupId: nanoid(10) });
+    },
+    // Cmd+Shift+G: ungroups the group the current selection belongs to.
+    // Review finding A: the selection is not always either a whole group
+    // or nothing grouped at all - the documented double-click-to-enter
+    // gesture (and a bare right-click on an unselected member, before that
+    // was also fixed) deliberately selects just ONE member of a larger
+    // group - so this uses the same store.ts selectedGroupId every other
+    // "is this a group?" check now shares, requiring the selection to be
+    // EXACTLY one group's full membership before dissolving it; a no-op
+    // otherwise (e.g. while "inside" a group with just one member picked).
+    onDiagramUngroup: () => {
+      const groupId = selectedGroupId(diagram.nodes, diagram.selection);
+      if (!groupId) return;
+      dispatchDiagram({ type: 'ungroup', groupId });
+    },
     onDiagramNudge: (direction, big) => {
       const ids = diagram.selection.filter((item) => item.type === 'node').map((item) => item.id);
       if (ids.length === 0) return;

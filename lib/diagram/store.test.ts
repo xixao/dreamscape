@@ -3,9 +3,12 @@ import {
   createInitialDiagramState,
   diagramReducer,
   duplicatePairs,
+  edgeBounds,
+  expandToGroups,
   HISTORY_LIMIT,
   MAX_TEXT_LENGTH,
   pruneEdgesForScreen,
+  selectedGroupId,
   selectionBounds,
   validateConnection,
   type DiagramData,
@@ -350,6 +353,45 @@ describe('diagramReducer: delete', () => {
     });
     const next = diagramReducer(state, { type: 'delete', ids: ['n1'] });
     expect(next.selection).toEqual([]);
+  });
+
+  // Review finding B: "a group with a single remaining member is not a
+  // group" - deleting one member of a 2-member group must not leave the
+  // survivor with a now-unique, orphaned groupId.
+  it('clears the survivor\'s groupId when deleting drops its group to one member', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect('groupId' in next.nodes.find((n) => n.id === 'b')!).toBe(false);
+  });
+
+  it('is one undo step: undo restores both the deleted node and the survivor\'s groupId together', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes).toEqual(state.nodes);
+  });
+
+  it('leaves a group of 3+ alone when it only drops to 2 members', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c', groupId: 'g1' })],
+    });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect(next.nodes.find((n) => n.id === 'b')?.groupId).toBe('g1');
+    expect(next.nodes.find((n) => n.id === 'c')?.groupId).toBe('g1');
+  });
+
+  it('does not touch an unrelated group\'s membership', () => {
+    const state = stateWith({
+      nodes: [
+        node({ id: 'a', groupId: 'g1' }),
+        node({ id: 'b', groupId: 'g1' }),
+        node({ id: 'x', groupId: 'g2' }),
+        node({ id: 'y', groupId: 'g2' }),
+      ],
+    });
+    const next = diagramReducer(state, { type: 'delete', ids: ['a'] });
+    expect(next.nodes.find((n) => n.id === 'x')?.groupId).toBe('g2');
+    expect(next.nodes.find((n) => n.id === 'y')?.groupId).toBe('g2');
   });
 });
 
@@ -1172,5 +1214,388 @@ describe('cloneDiagram', () => {
     };
     const copy = cloneDiagram(diagram, {}, () => 'new1');
     expect(copy.nodes[0]).toMatchObject({ textSize: 'large', textFont: 'mono', textColor: 'red' });
+  });
+
+  // Spec section 10: "cloneDiagram keeps group ids consistent" - every
+  // member of the SAME old group gets the SAME new group id, not each its
+  // own random one.
+  it('gives every copied member of the same group the same fresh group id', () => {
+    const diagram = {
+      nodes: [
+        node({ id: 'a', groupId: 'g1' }),
+        node({ id: 'b', x: 300, groupId: 'g1' }),
+        node({ id: 'c', x: 600 }),
+      ],
+      edges: [],
+    };
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const copy = cloneDiagram(diagram, {}, makeId);
+    const [copyA, copyB, copyC] = copy.nodes;
+    expect(copyA.groupId).toBeDefined();
+    expect(copyA.groupId).toBe(copyB.groupId);
+    expect(copyA.groupId).not.toBe('g1');
+    expect(copyC.groupId).toBeUndefined();
+  });
+});
+
+describe('diagramReducer: group', () => {
+  it('sets a groupId on every one of two or more given nodes', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' })] });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'g1' });
+    expect(next.nodes.find((n) => n.id === 'a')).toMatchObject({ groupId: 'g1' });
+    expect(next.nodes.find((n) => n.id === 'b')).toMatchObject({ groupId: 'g1' });
+  });
+
+  it('leaves the current selection exactly as it was', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a' }), node({ id: 'b' })],
+      selection: [
+        { type: 'node' as const, id: 'a' },
+        { type: 'node' as const, id: 'b' },
+      ],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'g1' });
+    expect(next.selection).toEqual(state.selection);
+  });
+
+  it('overwrites an existing groupId - regrouping a selection that already contains grouped shapes produces one flat group', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'old' }), node({ id: 'b', groupId: 'old' }), node({ id: 'c' })],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b', 'c'], groupId: 'new' });
+    expect(next.nodes.map((n) => n.groupId)).toEqual(['new', 'new', 'new']);
+  });
+
+  it('is a no-op with fewer than two ids', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' })] });
+    const next = diagramReducer(state, { type: 'group', ids: ['a'], groupId: 'g1' });
+    expect(next).toBe(state);
+  });
+
+  it('is a no-op when fewer than two ids resolve to real nodes', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' })] });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'missing'], groupId: 'g1' });
+    expect(next).toBe(state);
+  });
+
+  it('is a no-op, no history entry, when every node already has this exact groupId', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'g1' });
+    expect(next).toBe(state);
+  });
+
+  it('is one undo step', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' }), node({ id: 'b' })] });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'g1' });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes.map((n) => n.groupId)).toEqual([undefined, undefined]);
+  });
+
+  // Review finding B (the "move away" case): "a group with a single
+  // remaining member is not a group" also applies when regrouping a
+  // SUBSET of an existing group's members strands the rest at exactly one.
+  it('clears the groupId of a lone member stranded by regrouping the rest of its old group elsewhere', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'old' }), node({ id: 'b', groupId: 'old' }), node({ id: 'c', groupId: 'old' })],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'new' });
+    expect(next.nodes.find((n) => n.id === 'a')?.groupId).toBe('new');
+    expect(next.nodes.find((n) => n.id === 'b')?.groupId).toBe('new');
+    expect('groupId' in next.nodes.find((n) => n.id === 'c')!).toBe(false);
+  });
+
+  it('does not strand a lone member when the old group still has 2+ left behind', () => {
+    const state = stateWith({
+      nodes: [
+        node({ id: 'a', groupId: 'old' }),
+        node({ id: 'b', groupId: 'old' }),
+        node({ id: 'c', groupId: 'old' }),
+        node({ id: 'd', groupId: 'old' }),
+      ],
+    });
+    const next = diagramReducer(state, { type: 'group', ids: ['a', 'b'], groupId: 'new' });
+    expect(next.nodes.find((n) => n.id === 'c')?.groupId).toBe('old');
+    expect(next.nodes.find((n) => n.id === 'd')?.groupId).toBe('old');
+  });
+});
+
+describe('diagramReducer: ungroup', () => {
+  it('clears groupId from every node that carries it', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c', groupId: 'other' })],
+    });
+    const next = diagramReducer(state, { type: 'ungroup', groupId: 'g1' });
+    expect(next.nodes.find((n) => n.id === 'a')?.groupId).toBeUndefined();
+    expect(next.nodes.find((n) => n.id === 'b')?.groupId).toBeUndefined();
+    expect(next.nodes.find((n) => n.id === 'c')?.groupId).toBe('other');
+  });
+
+  // "Absent stays absent" - not present with an `undefined` value, same
+  // convention as textSize/textFont/textColor elsewhere in this module.
+  it('removes the groupId key entirely rather than setting it to undefined', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'ungroup', groupId: 'g1' });
+    expect('groupId' in next.nodes[0]).toBe(false);
+  });
+
+  it('leaves the current selection exactly as it was', () => {
+    const state = stateWith({
+      nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })],
+      selection: [
+        { type: 'node' as const, id: 'a' },
+        { type: 'node' as const, id: 'b' },
+      ],
+    });
+    const next = diagramReducer(state, { type: 'ungroup', groupId: 'g1' });
+    expect(next.selection).toEqual(state.selection);
+  });
+
+  it('is a no-op, no history entry, when no node carries this groupId', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'other' })] });
+    const next = diagramReducer(state, { type: 'ungroup', groupId: 'g1' });
+    expect(next).toBe(state);
+  });
+
+  it('is one undo step', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'ungroup', groupId: 'g1' });
+    const undone = diagramReducer(next, { type: 'undo' });
+    expect(undone.nodes.map((n) => n.groupId)).toEqual(['g1', 'g1']);
+  });
+});
+
+describe('diagramReducer: duplicate with groupIdMap (spec section 10)', () => {
+  it('gives copies of a whole duplicated group one fresh, shared group id', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })] });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [
+        { sourceId: 'a', newId: 'copyA' },
+        { sourceId: 'b', newId: 'copyB' },
+      ],
+      groupIdMap: { g1: 'freshGroup' },
+    });
+    const copyA = next.nodes.find((n) => n.id === 'copyA');
+    const copyB = next.nodes.find((n) => n.id === 'copyB');
+    expect(copyA?.groupId).toBe('freshGroup');
+    expect(copyB?.groupId).toBe('freshGroup');
+    // The originals keep their own, unrelated group id.
+    expect(next.nodes.find((n) => n.id === 'a')?.groupId).toBe('g1');
+  });
+
+  it('leaves a copy ungrouped when its source had a groupId with no entry in groupIdMap (a partial-group duplicate)', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' })] });
+    const next = diagramReducer(state, {
+      type: 'duplicate',
+      pairs: [{ sourceId: 'a', newId: 'copyA' }],
+      groupIdMap: {},
+    });
+    expect('groupId' in next.nodes.find((n) => n.id === 'copyA')!).toBe(false);
+  });
+
+  it('leaves a copy of an ungrouped source ungrouped when no groupIdMap is given at all', () => {
+    const state = stateWith({ nodes: [node({ id: 'a' })] });
+    const next = diagramReducer(state, { type: 'duplicate', pairs: [{ sourceId: 'a', newId: 'copyA' }] });
+    expect('groupId' in next.nodes.find((n) => n.id === 'copyA')!).toBe(false);
+  });
+});
+
+describe('duplicatePairs: groupIdMap', () => {
+  it('mints one fresh group id for a group whose every member is in ids', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const state = { nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })], edges: [] };
+    const result = duplicatePairs(state, ['a', 'b'], makeId);
+    expect(result.groupIdMap.g1).toBeDefined();
+    expect(result.groupIdMap.g1).not.toBe('g1');
+  });
+
+  it('does not mint a group id for a group only partly represented in ids', () => {
+    let n = 0;
+    const makeId = () => `new${++n}`;
+    const state = { nodes: [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })], edges: [] };
+    const result = duplicatePairs(state, ['a'], makeId);
+    expect(result.groupIdMap.g1).toBeUndefined();
+  });
+
+  it('is an empty object when nothing in ids is grouped', () => {
+    const state = { nodes: [node({ id: 'a' })], edges: [] };
+    const result = duplicatePairs(state, ['a'], () => 'x');
+    expect(result.groupIdMap).toEqual({});
+  });
+});
+
+describe('expandToGroups', () => {
+  it('expands a single grouped node id to every member of its group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c' })];
+    const result = expandToGroups(nodes, [], ['a']);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        { type: 'node', id: 'a' },
+        { type: 'node', id: 'b' },
+      ]),
+    );
+    expect(result).toHaveLength(2);
+  });
+
+  it('includes every connector whose both endpoints end up in the expanded set', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' } })];
+    const result = expandToGroups(nodes, edges, ['a']);
+    expect(result).toContainEqual({ type: 'edge', id: 'e1' });
+  });
+
+  it('does not include a connector to a node outside the expanded set', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c' })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'c' } })];
+    const result = expandToGroups(nodes, edges, ['a']);
+    expect(result.some((item) => item.type === 'edge')).toBe(false);
+  });
+
+  it('passes an ungrouped id through unexpanded, with no edges of its own', () => {
+    const nodes = [node({ id: 'a' }), node({ id: 'b' })];
+    const edges = [edge({ id: 'e1', source: { nodeId: 'a' }, target: { nodeId: 'b' } })];
+    const result = expandToGroups(nodes, edges, ['a']);
+    expect(result).toEqual([{ type: 'node', id: 'a' }]);
+  });
+
+  it('unions the expansion of several ids, some grouped and some not', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c' })];
+    const result = expandToGroups(nodes, [], ['a', 'c']);
+    expect(result.map((item) => item.id).sort()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('diagramReducer: quickAdd never copies groupId', () => {
+  // Spec section 10: "Quick-add on a grouped shape adds the new shape
+  // outside the group" - already true today since the quickAdd case builds
+  // `newNode` field by field rather than spreading `source` (unlike
+  // duplicate/cloneDiagram, which DO carry group membership on purpose) -
+  // pinned down here so a future refactor of quickAdd cannot silently
+  // start copying it.
+  it('the new node has no groupId even when the source is grouped', () => {
+    const state = stateWith({ nodes: [node({ id: 'a', groupId: 'g1' })] });
+    const next = diagramReducer(state, { type: 'quickAdd', sourceId: 'a', side: 'right', newNodeId: 'new1', newEdgeId: 'edge1' });
+    const newNode = next.nodes.find((n) => n.id === 'new1');
+    expect(newNode).toBeDefined();
+    expect('groupId' in newNode!).toBe(false);
+  });
+});
+
+describe('edgeBounds', () => {
+  it('is the union bounding box of the two endpoint node boxes', () => {
+    const nodes = [
+      node({ id: 'a', x: 0, y: 0, width: 40, height: 40 }),
+      node({ id: 'b', x: 100, y: 100, width: 20, height: 20 }),
+    ];
+    const result = edgeBounds(edge({ source: { nodeId: 'a' }, target: { nodeId: 'b' } }), nodes, []);
+    expect(result).toEqual({ x: 0, y: 0, width: 120, height: 120 });
+  });
+
+  it('resolves a frame (screenId) endpoint from the frames list', () => {
+    const nodes = [node({ id: 'a', x: 0, y: 0, width: 40, height: 40 })];
+    const frames = [{ id: 's1', x: 200, y: 0, width: 100, height: 50 }];
+    const result = edgeBounds(edge({ source: { nodeId: 'a' }, target: { screenId: 's1' } }), nodes, frames);
+    expect(result).toEqual({ x: 0, y: 0, width: 300, height: 50 });
+  });
+
+  it('is null when an endpoint does not resolve to any known node or frame', () => {
+    const nodes = [node({ id: 'a' })];
+    const result = edgeBounds(edge({ source: { nodeId: 'a' }, target: { nodeId: 'missing' } }), nodes, []);
+    expect(result).toBeNull();
+  });
+
+  // Review finding D: for a `curve` connector, the union of the two
+  // endpoint boxes is not a safe bound - the bezier control points can
+  // bow well outside it (geometry.ts's BEZIER_CURVATURE grows the offset
+  // *linearly with distance*, unboundedly, not just at short spacing).
+  // Two same-height boxes 200px apart, connected top-to-top (a realistic
+  // "route over the top" case, not contrived): the curve peaks well above
+  // both boxes' own top edge.
+  describe('curve connectors use the actual bezier control points', () => {
+    const a = node({ id: 'a', x: 0, y: 100, width: 40, height: 40 });
+    const b = node({ id: 'b', x: 200, y: 100, width: 40, height: 40 });
+    const curveEdge = edge({ source: { nodeId: 'a', side: 'top' }, target: { nodeId: 'b', side: 'top' }, kind: 'curve' });
+
+    it('extends beyond the plain union of the two endpoint boxes', () => {
+      const unionOfBoxes = { x: 0, y: 100, width: 240, height: 40 };
+      const result = edgeBounds(curveEdge, [a, b], []);
+      expect(result).not.toBeNull();
+      // The curve bows upward (smaller y) past the boxes' own top edge -
+      // the naive box union would have missed this entirely.
+      expect(result!.y).toBeLessThan(unionOfBoxes.y);
+    });
+
+    it('matches the exact control-polygon bounds (both handles plus both bezier control points)', () => {
+      // distance = 200 (handle to handle); magnitude = max(200*0.28, 20) = 56.
+      // Handles at (20,100) and (220,100); both control points offset -56 in
+      // y (the 'top' side): (20,44) and (220,44). toBeCloseTo, not toEqual:
+      // Math.hypot's own floating-point rounding of the 200 distance can
+      // land a fraction of a unit off an exact integer.
+      const result = edgeBounds(curveEdge, [a, b], []);
+      expect(result).not.toBeNull();
+      expect(result!.x).toBeCloseTo(20);
+      expect(result!.y).toBeCloseTo(44);
+      expect(result!.width).toBeCloseTo(200);
+      expect(result!.height).toBeCloseTo(56);
+    });
+
+    it('still returns the plain box union for a non-curve edge between the same two shapes', () => {
+      const stepEdge = edge({ source: { nodeId: 'a', side: 'top' }, target: { nodeId: 'b', side: 'top' }, kind: 'step' });
+      const result = edgeBounds(stepEdge, [a, b], []);
+      expect(result).toEqual({ x: 0, y: 100, width: 240, height: 40 });
+    });
+  });
+});
+
+// Review finding A: "a group is selected" must mean every member of that
+// group is selected and nothing else - not merely "every selected node
+// happens to agree on one groupId," which is trivially true for a single
+// selected node too (an array of one element trivially satisfies
+// `.every(...)`). Shared by diagram-layer.tsx's Ungroup menu item and
+// workbench.tsx's Cmd+Shift+G handler so the two can never independently
+// get this wrong the way they both did before this fix.
+describe('selectedGroupId', () => {
+  it('returns the group id when the selection is exactly one whole group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBe('g1');
+  });
+
+  it('is undefined for a single selected member of a larger group (the "entered" case, and a bare right-click)', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    expect(selectedGroupId(nodes, [{ type: 'node', id: 'a' }])).toBeUndefined();
+  });
+
+  it('is undefined when the selection also includes a node outside the group', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' }), node({ id: 'c' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+      { type: 'node' as const, id: 'c' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBeUndefined();
+  });
+
+  it('is undefined for an ungrouped selection', () => {
+    expect(selectedGroupId([node({ id: 'a' })], [{ type: 'node', id: 'a' }])).toBeUndefined();
+  });
+
+  it('is undefined for an empty selection', () => {
+    expect(selectedGroupId([node({ id: 'a', groupId: 'g1' })], [])).toBeUndefined();
+  });
+
+  it('still recognizes the whole group when an internal connector is also selected alongside every member', () => {
+    const nodes = [node({ id: 'a', groupId: 'g1' }), node({ id: 'b', groupId: 'g1' })];
+    const selection = [
+      { type: 'node' as const, id: 'a' },
+      { type: 'node' as const, id: 'b' },
+      { type: 'edge' as const, id: 'e1' },
+    ];
+    expect(selectedGroupId(nodes, selection)).toBe('g1');
   });
 });
