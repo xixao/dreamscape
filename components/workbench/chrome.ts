@@ -42,6 +42,16 @@ export const SEARCH =
 export const SEARCH_INPUT =
   'h-auto min-w-0 w-full border-0 bg-transparent p-0 text-[13px] text-foreground shadow-none rounded-none focus-visible:ring-0 focus-visible:border-0 placeholder:text-t4';
 
+// A row's "i" (About) button (spec docs/superpowers/specs/2026-09-13-
+// element-docs-design.md section 1): invisible until the row is hovered or
+// something in it has focus, but always in the tab order, so a keyboard
+// user reaches it with Tab and sees it appear. Shared by every row list
+// that opens ElementDocsDialog - the Elements tab's Craft blocks
+// (component-tray.tsx) and the Diagrams tab's tools (diagram/diagram-tool-
+// tray.tsx) alike - so the two can never drift apart on this one detail.
+export const INFO_BUTTON =
+  'mr-1.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 group-focus-within:opacity-100';
+
 // SF2 §5 .btn look: secondary and primary buttons. The single shared
 // definition for the Files-page actions (components/files/files-actions.tsx)
 // and the comments composer's "Comment" button and thread's "Reply" button -

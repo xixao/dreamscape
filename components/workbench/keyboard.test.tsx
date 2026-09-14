@@ -4,6 +4,7 @@ import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { renderInEditor } from '@/test/craft-harness';
+import type { PanelMode } from '@/lib/workbench/panel-store';
 import { CanvasFrame } from './canvas-frame';
 import { isEditableTarget, useWorkbenchKeyboard } from './keyboard';
 
@@ -34,7 +35,7 @@ type KeysOptions = {
   onZoomReset?: () => void;
   onZoomToFit?: () => void;
   onZoomToSelection?: () => void;
-  onSelectPanelTab?: (mode: 'design' | 'prototype' | 'components') => void;
+  onSelectPanelTab?: (mode: PanelMode) => void;
   onPointerTool?: () => void;
   onPresent?: () => void;
   onAddScreen?: () => void;
@@ -1057,7 +1058,7 @@ describe('useWorkbenchKeyboard zoom shortcuts', () => {
 });
 
 describe('useWorkbenchKeyboard onSelectPanelTab', () => {
-  it('calls onSelectPanelTab with design, prototype and components for D, P and E', async () => {
+  it('calls onSelectPanelTab with design, prototype, components and diagrams for D, P, E and G', async () => {
     const onSelectPanelTab = vi.fn();
     mount({ onSelectPanelTab });
     await screen.findByRole('button', { name: 'Doomed' });
@@ -1065,8 +1066,9 @@ describe('useWorkbenchKeyboard onSelectPanelTab', () => {
     fireEvent.keyDown(window, { key: 'd' });
     fireEvent.keyDown(window, { key: 'p' });
     fireEvent.keyDown(window, { key: 'e' });
+    fireEvent.keyDown(window, { key: 'g' });
 
-    expect(onSelectPanelTab.mock.calls).toEqual([['design'], ['prototype'], ['components']]);
+    expect(onSelectPanelTab.mock.calls).toEqual([['design'], ['prototype'], ['components'], ['diagrams']]);
   });
 
   it('is case-insensitive and ignores the letters with a modifier or shift held', async () => {
@@ -1078,17 +1080,19 @@ describe('useWorkbenchKeyboard onSelectPanelTab', () => {
     fireEvent.keyDown(window, { key: 'd', metaKey: true });
     fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
     fireEvent.keyDown(window, { key: 'e', shiftKey: true });
+    fireEvent.keyDown(window, { key: 'g', metaKey: true });
+    fireEvent.keyDown(window, { key: 'g', shiftKey: true });
 
     expect(onSelectPanelTab).toHaveBeenCalledTimes(1);
     expect(onSelectPanelTab).toHaveBeenCalledWith('design');
   });
 
-  it('ignores D/P/E while typing in a field and while a popup or dialog owns the interaction', async () => {
+  it('ignores D/P/E/G while typing in a field and while a popup or dialog owns the interaction', async () => {
     const onSelectPanelTab = vi.fn();
     mount({ onSelectPanelTab });
     await screen.findByRole('button', { name: 'Doomed' });
 
-    for (const key of ['d', 'p', 'e']) {
+    for (const key of ['d', 'p', 'e', 'g']) {
       fireEvent.keyDown(screen.getByLabelText('typing'), { key });
       fireEvent.keyDown(screen.getByRole('button', { name: 'Clear frame' }), { key });
     }
@@ -1102,6 +1106,7 @@ describe('useWorkbenchKeyboard onSelectPanelTab', () => {
       fireEvent.keyDown(window, { key: 'd' });
       fireEvent.keyDown(window, { key: 'p' });
       fireEvent.keyDown(window, { key: 'e' });
+      fireEvent.keyDown(window, { key: 'g' });
     }).not.toThrow();
   });
 });

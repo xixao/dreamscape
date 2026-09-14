@@ -4,23 +4,19 @@ import userEvent from '@testing-library/user-event';
 import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
 import { renderInEditor } from '@/test/craft-harness';
 import { ComponentTray, filterTrayItems } from './component-tray';
-import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
-import { DIAGRAM_TOOL_ITEMS } from './diagram/diagram-palette';
 
 const GROUP_ORDER: TrayGroup[] = ['Layout', 'Text and media', 'Forms', 'Feedback', 'Data'];
-const DIAGRAM_TOOL_LABELS = DIAGRAM_TOOL_ITEMS.map((item) => item.label);
 
 describe('ComponentTray', () => {
   it('shows every tray item by its label', () => {
     const { container } = renderInEditor(<ComponentTray />);
     for (const item of trayItems) {
       // Scoped by data-tray-item (unique per Craft type) rather than a
-      // global getByText: the Elements tab's own Diagram group (spec
-      // docs/superpowers/specs/2026-09-13-diagrams-design.md section 13)
-      // renders alongside this and can show a row with the very same
-      // visible label (its Text shape tool is labelled "Text", same as the
-      // Text block here), so a bare getByText(item.label) would be
-      // ambiguous once that group is present.
+      // global getByText, for the same reason component-tray.tsx's own
+      // Elements list keeps this scoping around even now that the Diagram
+      // group has moved to its own tab (diagram/diagram-tool-tray.tsx): a
+      // bare getByText(item.label) is one query away from ambiguity the
+      // moment two rows ever share a label again.
       const row = container.querySelector(`[data-tray-item="${item.type}"]`);
       expect(row, `no row for tray item "${item.type}"`).not.toBeNull();
       expect(within(row as HTMLElement).getByText(item.label)).toBeInTheDocument();
@@ -198,11 +194,8 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
   it('gives every item an "About <label>" button inside its own row: a real tab stop, hidden until the row is hovered or focused', () => {
     const { container } = renderInEditor(<ComponentTray />);
     for (const item of trayItems) {
-      // Scoped to the item's own row: the Elements tab's Diagram group
-      // (spec docs/superpowers/specs/2026-09-13-diagrams-design.md section
-      // 13) gives its own Text shape tool the same "About Text" button
-      // label as the Craft Text block here, so an unscoped query by that
-      // one name is ambiguous once that group is present.
+      // Scoped to the item's own row, the same "do not risk an ambiguous
+      // unscoped query" precedent as the test above.
       const row = container.querySelector(`[data-tray-item="${item.type}"]`)!.closest('li')!;
       const button = within(row).getByRole('button', { name: `About ${item.label}` });
       expect(button.closest('li')!.querySelector('[data-tray-item]')).toHaveAttribute('data-tray-item', item.type);
@@ -377,162 +370,3 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
   });
 });
 
-// The Elements tab's Diagram group (spec docs/superpowers/specs/2026-09-13-
-// diagrams-design.md section 13): every tool the floating palette offers,
-// as plain buttons rather than Craft drag sources.
-describe('ComponentTray: Diagram group (Elements tab)', () => {
-  it('renders a Diagram group heading after every existing group heading', () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    const headings = Array.from(
-      container.querySelectorAll<HTMLElement>('[data-tray-group], [data-diagram-tray-group]'),
-    ).map((el) => el.textContent);
-    expect(headings).toEqual(['Layout', 'Text and media', 'Forms', 'Feedback', 'Data', 'Diagram']);
-  });
-
-  it('lists all seven diagram tools, in the palette\'s own order', () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-diagram-tray-item]'));
-    expect(rows.map((row) => row.textContent)).toEqual(DIAGRAM_TOOL_LABELS);
-  });
-
-  it('clicking a shape row calls onSelectDiagramTool with that shape', async () => {
-    const onSelectDiagramTool = vi.fn();
-    renderInEditor(<ComponentTray diagramTool={POINTER_TOOL} onSelectDiagramTool={onSelectDiagramTool} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Decision' }));
-
-    expect(onSelectDiagramTool).toHaveBeenCalledTimes(1);
-    expect(onSelectDiagramTool).toHaveBeenCalledWith({ kind: 'shape', shape: 'decision' });
-  });
-
-  it('clicking the Connector row calls onSelectDiagramTool with the connector tool', async () => {
-    const onSelectDiagramTool = vi.fn();
-    renderInEditor(<ComponentTray diagramTool={POINTER_TOOL} onSelectDiagramTool={onSelectDiagramTool} />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'Connector' }));
-
-    expect(onSelectDiagramTool).toHaveBeenCalledWith({ kind: 'connector' });
-  });
-
-  it('does nothing (never throws) on click when onSelectDiagramTool is not passed', async () => {
-    renderInEditor(<ComponentTray />);
-    await expect(userEvent.click(screen.getByRole('button', { name: 'Note' }))).resolves.not.toThrow();
-  });
-
-  it("shows only the armed tool's row as aria-pressed", () => {
-    const diagramTool: DiagramTool = { kind: 'shape', shape: 'note' };
-    renderInEditor(<ComponentTray diagramTool={diagramTool} />);
-
-    expect(screen.getByRole('button', { name: 'Note' })).toHaveAttribute('aria-pressed', 'true');
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      if (label === 'Note') continue;
-      expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'false');
-    }
-  });
-
-  it('the armed tool follows the connector tool too', () => {
-    renderInEditor(<ComponentTray diagramTool={{ kind: 'connector' }} />);
-    expect(screen.getByRole('button', { name: 'Connector' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('defaults to the plain pointer (nothing pressed) when diagramTool is not passed', () => {
-    renderInEditor(<ComponentTray />);
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'false');
-    }
-  });
-
-  it('search "arrow" finds only Connector', async () => {
-    renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'arrow');
-
-    expect(screen.getByRole('button', { name: 'Connector' })).toBeInTheDocument();
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      if (label === 'Connector') continue;
-      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
-    }
-  });
-
-  it.each(['diagram', 'flow', 'shape', 'DIAGRAM'])('search "%s" finds every diagram tool', async (query) => {
-    renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), query);
-
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
-    }
-  });
-
-  it('hides the Diagram group entirely when the search matches none of its tools', async () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'avatar');
-
-    expect(container.querySelector('[data-diagram-tray-group]')).toBeNull();
-    expect(container.querySelector('[data-diagram-tray-item]')).toBeNull();
-    // The Craft-only match still shows: the two groups are independent.
-    expect(screen.getByRole('button', { name: 'About Avatar' })).toBeInTheDocument();
-  });
-
-  it('shows "No elements match." only once both the Craft list and the Diagram list are empty', async () => {
-    renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'zzz');
-    expect(screen.getByText('No elements match.')).toBeInTheDocument();
-  });
-
-  it('diagram rows carry no drag attributes and are not counted as Craft tray items', () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      const button = screen.getByRole('button', { name: label });
-      expect(button).not.toHaveAttribute('draggable');
-      expect(button).not.toHaveAttribute('data-tray-item');
-      expect(button.closest('[data-tray-item]')).toBeNull();
-    }
-    // The Craft-only count (relied on elsewhere in this file) is unchanged.
-    expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(trayItems.length);
-  });
-
-  it('every diagram row also gets an "About <label>" docs button, hidden until hover or focus like any other row', () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    // Scoped to the Diagram section: "About Text" also exists on the Craft
-    // Text block's own row (see the regression test below), so an unscoped
-    // query by that one name would be ambiguous.
-    const diagramSection = container.querySelector<HTMLElement>('[data-diagram-tray-section="Diagram"]')!;
-    for (const label of DIAGRAM_TOOL_LABELS) {
-      const button = within(diagramSection).getByRole('button', { name: `About ${label}` });
-      expect(button).toHaveAttribute('draggable', 'false');
-      expect(button.className.split(/\s+/)).toEqual(
-        expect.arrayContaining([
-          'opacity-0',
-          'group-hover:opacity-100',
-          'focus-visible:opacity-100',
-          'group-focus-within:opacity-100',
-        ]),
-      );
-    }
-  });
-
-  it('the "i" button opens the Connector\'s own docs, distinct from any Craft block', async () => {
-    renderInEditor(<ComponentTray />);
-    await userEvent.click(screen.getByRole('button', { name: 'About Connector' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Connector' });
-    expect(within(dialog).getByText('Diagram')).toBeInTheDocument();
-  });
-
-  it('the "i" button on the diagram Text row opens a DIFFERENT dialog than the Craft Text block\'s (regression: same label, different element)', async () => {
-    const { container } = renderInEditor(<ComponentTray />);
-    const diagramSection = container.querySelector<HTMLElement>('[data-diagram-tray-section="Diagram"]')!;
-
-    await userEvent.click(within(diagramSection).getByRole('button', { name: 'About Text' }));
-    const diagramDialog = screen.getByRole('dialog', { name: 'Text' });
-    expect(within(diagramDialog).getByText('Diagram')).toBeInTheDocument();
-    expect(within(diagramDialog).getByText(/diagram canvas/)).toBeInTheDocument();
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    const craftTextRow = container.querySelector('[data-tray-item="Text"]')!.closest('li')!;
-    await userEvent.click(within(craftTextRow).getByRole('button', { name: 'About Text' }));
-    const craftDialog = screen.getByRole('dialog', { name: 'Text' });
-    expect(within(craftDialog).getByText('Text and media')).toBeInTheDocument();
-  });
-});

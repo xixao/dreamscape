@@ -367,7 +367,7 @@ describe('Topbar', () => {
   });
 
   describe('Diagram tool', () => {
-    it('has no diagram button in the top bar (Matt, 2026-09-14): Shift+D, the rail and the Elements panel open the palette', () => {
+    it('has no diagram button in the top bar (Matt, 2026-09-14): Shift+D, the rail and the Diagrams panel open the palette', () => {
       renderTopbar();
       expect(screen.queryByRole('button', { name: 'Diagram tool' })).toBeNull();
     });

@@ -1,9 +1,9 @@
 // Per-browser UI state for the right panel: which tab is active (Design,
-// Prototype or Elements) and whether the panel is minimized to a rail.
-// Neither is part of the file itself, so both live in localStorage the same
-// way lib/chat/store.ts's loadChatPanelOpen/saveChatPanelOpen keep the chat
-// panel's own open state - not the file's document.
-export type PanelMode = 'design' | 'prototype' | 'components';
+// Prototype, Elements or Diagrams) and whether the panel is minimized to a
+// rail. Neither is part of the file itself, so both live in localStorage the
+// same way lib/chat/store.ts's loadChatPanelOpen/saveChatPanelOpen keep the
+// chat panel's own open state - not the file's document.
+export type PanelMode = 'design' | 'prototype' | 'components' | 'diagrams';
 
 // Small enough surface that a plain object or the real window.localStorage
 // both satisfy it - keeps this module testable without a DOM, matching
@@ -16,7 +16,7 @@ export interface PanelStorageLike {
 const PANEL_MODE_KEY = 'assembly-workbench:panel-mode';
 const PANEL_COLLAPSED_KEY = 'assembly-workbench:panel-collapsed';
 
-const PANEL_MODES: ReadonlySet<string> = new Set<PanelMode>(['design', 'prototype', 'components']);
+const PANEL_MODES: ReadonlySet<string> = new Set<PanelMode>(['design', 'prototype', 'components', 'diagrams']);
 
 export function loadPanelMode(storage: PanelStorageLike): PanelMode {
   try {

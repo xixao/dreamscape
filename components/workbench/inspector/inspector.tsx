@@ -2,12 +2,13 @@
 
 import { useEditor } from '@craftjs/core';
 import {
+  Blocks,
   ChevronLeft,
   ChevronRight,
-  LayoutGrid,
-  SlidersHorizontal,
+  Palette,
   Trash2,
   Workflow,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -20,8 +21,11 @@ import type { AlignableFrame, FramePosition } from '@/lib/canvas/align';
 import { snapBoxFor } from '@/lib/canvas/viewport';
 import { distributeGapPxFromMeasurements, SPACING_OPTIONS, type Align, type Justify, type LayoutBoxProps, type SpacingPx } from '@/lib/classes';
 import type { DiagramAction, DiagramNode } from '@/lib/diagram/store';
-// Aliased: this module already imports lucide's LayoutGrid icon (the
-// Elements rail tab) under that same bare name.
+// Aliased so the type reads as what it is (a screen's layout grid settings),
+// not lucide's same-named icon - no longer a real naming collision since the
+// rail icons stopped using LayoutGrid (spec docs/superpowers/specs/2026-09-
+// 14-panel-tabs-icons-design.md switched Elements to Blocks), but kept
+// rather than churning every call site that already spells it LayoutGridData.
 import type {
   LayoutGrid as LayoutGridData,
   OverlayPresentation,
@@ -48,6 +52,7 @@ import {
 import { ComponentTray } from '../component-tray';
 import { DiagramFields, type DiagramFieldsSelection } from '../diagram/diagram-fields';
 import type { DiagramTool } from '../diagram/diagram-layer';
+import { DiagramToolTray } from '../diagram/diagram-tool-tray';
 import type { PanelMode } from '../prototype-context';
 import { PrototypePanel } from '../prototype-panel';
 import { useSelectedNode } from '../selection';
@@ -58,12 +63,13 @@ import { NodeBreadcrumb } from './breadcrumb';
 import { Field } from './field';
 
 // The panel names itself after the active tab so assistive technology
-// announces what is actually shown (Design, Prototype or Elements), for
-// the expanded panel and the minimized rail alike.
+// announces what is actually shown (Design, Prototype, Elements or
+// Diagrams), for the expanded panel and the minimized rail alike.
 const PANEL_LABEL: Record<PanelMode, string> = {
   design: 'Design',
   prototype: 'Prototype',
   components: 'Elements',
+  diagrams: 'Diagrams',
 };
 
 export type { PanelMode };
@@ -303,13 +309,21 @@ function measureDistributeGapPx(
   return distributeGapPxFromMeasurements(containerMain, paddingStart, paddingEnd, children);
 }
 
-// The three rail icons shown when the panel is minimized (spec
-// docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 2),
-// in the same order as the ToggleGroup's own tabs.
+// The four tab icons, shared by the expanded panel's header ToggleGroup and
+// the minimized rail (spec docs/superpowers/specs/2026-09-14-panel-tabs-
+// icons-design.md section 1: "Same four icons, same order, in both the
+// expanded panel's tab strip and the minimized rail") - Matt: "instead of
+// using words, let's use icons. Use an artist palette for design, lego
+// block for elements, the existing diagramming icon for diagrams, and you
+// can come up with an icon for prototyping that isn't a play button." Zap
+// (a lightning bolt, like Figma's own Prototype tab) reclaims Workflow for
+// Diagrams, its real meaning - Workflow used to sit on Prototype here and
+// on the removed top-bar "Diagram tool" button before that.
 const RAIL_ITEMS: { mode: PanelMode; label: string; icon: LucideIcon }[] = [
-  { mode: 'design', label: 'Design', icon: SlidersHorizontal },
-  { mode: 'prototype', label: 'Prototype', icon: Workflow },
-  { mode: 'components', label: 'Elements', icon: LayoutGrid },
+  { mode: 'design', label: 'Design', icon: Palette },
+  { mode: 'prototype', label: 'Prototype', icon: Zap },
+  { mode: 'components', label: 'Elements', icon: Blocks },
+  { mode: 'diagrams', label: 'Diagrams', icon: Workflow },
 ];
 
 function MinimizeButton({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
@@ -437,12 +451,13 @@ export function Inspector({
   // ARTBOARD_MIN_HEIGHT. Optional so every existing caller/test keeps
   // rendering exactly as before.
   measuredHeights?: ReadonlyMap<string, number>;
-  // The Elements tab's Diagram group (spec docs/superpowers/specs/2026-09-
-  // 13-diagrams-design.md section 13): passed straight through to
-  // ComponentTray, the same optional/no-op-by-default precedent as every
-  // other diagram-related prop above - workbench.tsx is the only real
-  // caller that supplies these; every existing test keeps rendering exactly
-  // as before.
+  // The Diagrams tab's own tool tray (spec docs/superpowers/specs/2026-09-
+  // 14-panel-tabs-icons-design.md, moved from the Elements tab's former
+  // Diagram group - spec docs/superpowers/specs/2026-09-13-diagrams-
+  // design.md section 13): passed straight through to DiagramToolTray, the
+  // same optional/no-op-by-default precedent as every other diagram-related
+  // prop above - workbench.tsx is the only real caller that supplies these;
+  // every existing test keeps rendering exactly as before.
   diagramTool?: DiagramTool;
   onSelectDiagramTool?: (tool: DiagramTool) => void;
 }) {
@@ -598,20 +613,41 @@ export function Inspector({
             }}
             className={cn(SEG_GROUP, 'flex-1')}
           >
-            <ToggleGroupItem value="design" className={SEG_ITEM}>
-              Design
-            </ToggleGroupItem>
-            <ToggleGroupItem value="prototype" className={SEG_ITEM}>
-              Prototype
-            </ToggleGroupItem>
-            <ToggleGroupItem value="components" className={SEG_ITEM}>
-              Elements
-            </ToggleGroupItem>
+            {/* Icon-only (spec docs/superpowers/specs/2026-09-14-panel-tabs-
+            icons-design.md section 1): each item's aria-label is its real
+            accessible name (Radix renders a ToggleGroupItem as a real
+            button), and a Tooltip shows the same word on hover - the same
+            pairing RailButton below already uses for the minimized rail.
+            The <span> is deliberate, not filler: TooltipTrigger's asChild
+            merges its own "data-state" (open/closed) onto whatever it
+            wraps, and ToggleGroupPrimitive's Toggle base spreads incoming
+            props AFTER its own "data-state" (on/off) - wrapping the
+            ToggleGroupItem directly would let the tooltip's open/closed
+            state clobber the toggle's on/off state (confirmed against
+            @radix-ui/react-toggle's source: `{ "data-state": pressed ?
+            "on" : "off", ...buttonProps }`). A plain span has no such
+            collision, so the trigger targets that instead; `flex flex-1`
+            on it reproduces the same equal-width row SEG_ITEM's own
+            `flex-1` gave the button when it sat directly in the group. */}
+            {RAIL_ITEMS.map(({ mode, label, icon: Icon }) => (
+              <Tooltip key={mode}>
+                <TooltipTrigger asChild>
+                  <span className="flex flex-1">
+                    <ToggleGroupItem value={mode} aria-label={label} className={SEG_ITEM}>
+                      <Icon className="size-4" aria-hidden />
+                    </ToggleGroupItem>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{label}</TooltipContent>
+              </Tooltip>
+            ))}
           </ToggleGroup>
           <MinimizeButton collapsed={false} onClick={onToggleCollapsed} />
         </div>
         {panelMode === 'components' ? (
-          <ComponentTray diagramTool={diagramTool} onSelectDiagramTool={onSelectDiagramTool} />
+          <ComponentTray />
+        ) : panelMode === 'diagrams' ? (
+          <DiagramToolTray diagramTool={diagramTool} onSelectDiagramTool={onSelectDiagramTool} />
         ) : (
           <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
             {panelMode === 'prototype' ? (
