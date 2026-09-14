@@ -1348,6 +1348,15 @@ function WorkbenchShell({
     else setDiagramPaletteOpen(true);
   }
 
+  // T (spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 11):
+  // opens the diagram palette if closed and arms the Text shape, so the next
+  // click places a text block and opens its editor; Escape returns to the
+  // pointer.
+  function onTextTool(): void {
+    setDiagramPaletteOpen(true);
+    setDiagramTool({ kind: 'shape', shape: 'text' });
+  }
+
   // A finished placement or connection only disarms the shape; the bar stays.
   function onDiagramToolConsumed(): void {
     setDiagramTool(POINTER_TOOL);
@@ -1518,6 +1527,7 @@ function WorkbenchShell({
     onDiagramTool: toggleDiagramPalette,
     diagramToolActive: diagramPaletteOpen || diagramTool.kind !== 'pointer',
     onExitDiagramTool: closeDiagramTool,
+    onTextTool,
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
     frameSelectionActive: pageFrameSelection.size > 0,

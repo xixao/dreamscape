@@ -55,6 +55,7 @@ export const SHORTCUTS: Shortcut[] = [
   // Registered for the overlay/README only - no handler yet (spec: "when
   // diagrams land").
   { id: 'tool-diagram', area: 'Tools', keys: ['Shift', 'D'], label: 'Diagram palette' },
+  { id: 'diagram-text-tool', area: 'Tools', keys: ['T'], label: 'Text on the canvas' },
   // Space+drag and middle-mouse-drag both pan the canvas (canvas.tsx's
   // shouldStartPan/panRef, gated on the Space key or the middle mouse
   // button) - a held pointer gesture, not a keydown chord, so
@@ -307,6 +308,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (key === 'e') return 'panel-elements';
   if (key === 'c') return 'chat-toggle';
   if (key === 'v') return 'tool-pointer';
+  if (key === 't') return 'diagram-text-tool';
   if (event.key === 'Delete' || event.key === 'Backspace') return 'delete-layer';
   if (event.key === 'Escape') return 'escape';
   if (event.key === '?') return 'shortcuts-help';

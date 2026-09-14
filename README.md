@@ -85,6 +85,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Tools | V | Pointer |
 | Tools | ⇧C | Comment tool |
 | Tools | ⇧D | Diagram palette |
+| Tools | T | Text on the canvas |
 | Canvas | Hold Space + drag or Middle mouse drag | Pan the canvas |
 | Canvas | ⌘= | Zoom in |
 | Canvas | ⌘- | Zoom out |
