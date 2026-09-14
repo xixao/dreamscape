@@ -68,7 +68,7 @@ Request: "i'd also like the ability to select all of the elements in a diagram a
 
 Request: "give the diagram shapes a font selection like small, medium, large. as well as a monospaced font, a serif font, and a sans serif font? also let me change the color of the fonts independently from the shape's colors."
 
-- Each shape carries `textSize` (small 11 px, medium 13 px which is today's size, large 16 px), `textFont` (sans = the tool's sans stack, serif = a system serif stack, mono = the tool's mono stack) and `textColor` (default white, or any of the six diagram colours at full strength, or black), all optional in the stored data so existing files read unchanged.
+- Each shape carries `textSize` (small 10 px, medium 14 px, large 20 px — widened 2026-09-14 from the original 11/13/16 so the three read as clearly distinct sizes), `textFont` (sans = the tool's sans stack, serif = a system serif stack, mono = the tool's mono stack) and `textColor` (default white, or any of the six diagram colours at full strength, or black), all optional in the stored data so existing files read unchanged.
 - The Design panel's diagram fields gain three selects, Text size, Font and Text color, next to the existing Color; with several shapes selected they apply to every selected shape as one history step (`setTextStyle` action).
 - The right-click menu gets a "Text" submenu with the same three groups as radio items.
 - Rendering on the canvas, in the Option-drag ghost and in the PNG/SVG export all honour the three; the export's font stacks and the text measurer use the chosen family and size.
