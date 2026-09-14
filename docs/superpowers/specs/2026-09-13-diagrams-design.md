@@ -95,3 +95,11 @@ Request: "select a connector line and reconnect either end to a different point 
 - Store: `reconnect({ id, end: 'source' | 'target', endpoint })`, one history step, no-op when nothing changes, refused when the result would be a self-loop or duplicate a connector that already exists (same rule as `connect`). Labels, kind and arrowheads stay.
 - Frames are valid targets exactly as for a new connector. Undo restores the previous end.
 - Tests: handle presence only when selected, the drag preview, attach to another shape, move to another side, drop on empty canvas, Escape, self-loop refusal, undo.
+
+## 13. Diagram elements in the Elements panel (Matt, 2026-09-14)
+
+"you added components in the tool palette on right column when closed, but not open. i want the open version of the panel to have all of the diagramming elements displayed in there."
+
+- The Elements tab gets a "Diagram" group (after the existing element groups) listing every diagram tool the floating palette offers: Rectangle, Rounded, Decision, Terminal, Text, Note and Connector, with the same icons and labels. Clicking one arms that tool exactly as the palette button does (the next canvas click places it; the palette opens if it was closed so the arming is visible; Escape returns to the pointer); the armed item shows the pressed state. The search filters them like any other element; the "i" documentation button applies to them with short docs entries.
+- The minimized rail's Diagram icon keeps toggling the palette; the palette itself is unchanged.
+- Tests: the group renders all seven, clicking arms the tool and shows pressed, search matches, docs entries exist.
