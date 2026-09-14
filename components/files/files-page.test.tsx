@@ -31,15 +31,11 @@ const marketing = folder({ id: 'marketing1', name: 'Marketing', parentId: null }
 const q4 = folder({ id: 'q4-1', name: 'Q4', parentId: 'marketing1' });
 
 describe('FilesPage - title and breadcrumb per level', () => {
-  it('shows "Files" as the title and as a plain (non-link) breadcrumb at the top level', () => {
+  it('shows "Files" as the title with no breadcrumb eyebrow above it at the top level (Matt, 2026-09-14: "get rid of the eyebrow \'Files\' text above the Files header")', () => {
     render(<FilesPage path={[]} folders={[]} files={[]} folderId={null} />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Files' })).toBeInTheDocument();
-    const breadcrumb = screen.getByRole('navigation', { name: 'breadcrumb' });
-    // The current crumb (shadcn BreadcrumbPage) is a <span role="link"
-    // aria-disabled="true">, not a navigable <a> - so "not an anchor" is
-    // the meaningful check, not "no role=link".
-    expect(within(breadcrumb).getByText('Files').closest('a')).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'breadcrumb' })).toBeNull();
   });
 
   it('shows the folder name as the title and "Files > Marketing" one level deep', () => {
