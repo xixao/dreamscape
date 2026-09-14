@@ -104,29 +104,29 @@ export function DiagramToolTray({
         />
       </div>
       {filteredItems.length > 0 ? (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="grid grid-cols-2 gap-2">
           {filteredItems.map((item) => {
             const docKey = diagramToolDocKey(item.tool);
             return (
               <li
                 key={docKey}
-                className="group flex items-center rounded-lg border border-transparent transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent focus-within:border-line-strong focus-within:bg-accent"
+                className="group relative flex rounded-lg border border-transparent transition-[border-color] duration-150 hover:border-line-strong hover:bg-accent focus-within:border-line-strong focus-within:bg-accent"
               >
                 <button
                   type="button"
                   data-diagram-tool-item={docKey}
                   aria-pressed={toolsEqual(diagramTool, item.tool)}
                   onClick={() => onSelectDiagramTool?.(item.tool)}
-                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-2.5 pr-2 pl-3.5"
+                  className="flex w-full flex-col items-center gap-2 rounded-lg px-2 py-4"
                 >
-                  <item.icon className="size-4 shrink-0 text-acc2" aria-hidden />
-                  <span className="text-[13px] font-medium text-foreground">{item.label}</span>
+                  <item.icon className="size-5 shrink-0 text-acc2" aria-hidden />
+                  <span className="text-[12.5px] font-medium text-foreground">{item.label}</span>
                 </button>
                 <button
                   type="button"
                   aria-label={`About ${item.label}`}
                   draggable={false}
-                  className={cn(INFO_BUTTON)}
+                  className={cn(INFO_BUTTON, 'absolute top-1 right-1 mr-0')}
                   onClick={(event) => openDocs(docKey, event.currentTarget)}
                 >
                   <Info className="size-3.5" aria-hidden />

@@ -1463,7 +1463,18 @@ function WorkbenchShell({
   const [lastDiagramSelectionActive, setLastDiagramSelectionActive] = useState(diagramSelectionActive);
   if (diagramSelectionActive !== lastDiagramSelectionActive) {
     setLastDiagramSelectionActive(diagramSelectionActive);
-    if (diagramSelectionActive) setSelectedFrameIds(new Set());
+    if (diagramSelectionActive) {
+      setSelectedFrameIds(new Set());
+      // Same Figma precedent as the Craft layer check above, for the tabs
+      // a diagram element can actually be picked from: browsing the tools
+      // grid (Diagrams) or the old Elements tab both count as "browsing",
+      // so selecting a real shape or connector on the canvas jumps to
+      // Design the same way clicking a Craft layer does. Prototype is left
+      // alone for the same reason as the Craft check: wiring up
+      // interactions means clicking diagram elements on purpose while
+      // staying on that tab.
+      if (panelMode === 'components' || panelMode === 'diagrams') setPanelMode('design');
+    }
   }
 
   // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
