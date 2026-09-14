@@ -86,3 +86,12 @@ Request: "for diagram, i need to be able to drag to select multiple items, group
 ## 11. Text tool shortcut (Matt, 2026-09-13)
 
 "if i wanted to add text outside of a frame on the canvas, how can i do that?" Free text on the canvas is the diagram's Text shape. Add `diagram-text-tool` (T, area Tools, "Text on the canvas"): opens the diagram palette if closed and arms the Text shape, so the next click places a text block and opens its editor; Escape returns to the pointer as today. README row and drift test; gated like the other single-letter tool shortcuts (never while typing). Order: after section 10 merges.
+
+## 12. Reconnecting a connector's ends (Matt, 2026-09-14)
+
+Request: "select a connector line and reconnect either end to a different point on a shape. right now, it's not movable."
+
+- A selected connector shows a round handle at each end (SF2 accent, sized like the resize handles, 1/zoom). Dragging a handle detaches that end: a dashed preview follows the pointer from the fixed end; releasing over a shape or frame attaches to it on the side nearest the pointer (same resolution as drawing a new connector), releasing over a different side of the same shape moves the end to that side, releasing over empty canvas or pressing Escape leaves the connector unchanged. The other end never moves.
+- Store: `reconnect({ id, end: 'source' | 'target', endpoint })`, one history step, no-op when nothing changes, refused when the result would be a self-loop or duplicate a connector that already exists (same rule as `connect`). Labels, kind and arrowheads stay.
+- Frames are valid targets exactly as for a new connector. Undo restores the previous end.
+- Tests: handle presence only when selected, the drag preview, attach to another shape, move to another side, drop on empty canvas, Escape, self-loop refusal, undo.
