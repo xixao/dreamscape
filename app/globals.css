@@ -168,3 +168,34 @@
     color: var(--muted-foreground);
   }
 }
+
+/* Presentation chrome stays separate from the component canvas theme. */
+.presentation-stage > header {
+  min-height: 68px;
+  padding-inline: 24px;
+  background: #1e1c26;
+  box-shadow: none;
+}
+.presentation-stage main {
+  background: radial-gradient(ellipse at 50% 40%, #282531 0%, #19171f 75%);
+  padding: 40px;
+}
+.presentation-stage [data-testid="artboard"] {
+  box-shadow: 0 24px 70px #0005, 0 1px 4px #0003;
+}
+.presentation-stage aside {
+  background: #211f29;
+  flex-shrink: 0;
+}
+.presentation-stage aside h2 { font-size: 17px; letter-spacing: -.025em; }
+.presentation-stage [role="tablist"] { padding: 4px; border: 1px solid #ffffff0a; }
+.presentation-stage [role="tab"] { min-height: 34px; font-size: 12px; }
+.presentation-stage aside button { transition: background-color 140ms ease, border-color 140ms ease; }
+.presentation-stage aside label > span, .presentation-stage aside dt { color: #aaa5b9; }
+.presentation-stage aside input, .presentation-stage aside textarea { font-size: 13px; line-height: 1.6; }
+@media (min-width: 1024px) { .presentation-stage aside { width: 344px; } }
+@media (max-width: 639px) {
+  .presentation-stage > header { padding-inline: 12px; }
+  .presentation-stage main { padding: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { .presentation-stage aside button { transition: none; } }

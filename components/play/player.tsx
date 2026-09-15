@@ -1,9 +1,10 @@
 'use client';
 
 import { Editor, Frame } from '@craftjs/core';
-import { MonitorIcon, SmartphoneIcon, XIcon } from 'lucide-react';
+import { MonitorIcon, SmartphoneIcon, XIcon, MoreHorizontalIcon, PanelRightIcon, ChevronDownIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { resolver } from '@/components/blocks/registry';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -433,20 +434,21 @@ export function Player({
 
   return (
     <PlayProvider value={play}>
-      <div className="relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
+      <TooltipProvider delayDuration={300}>
+      <div className="presentation-stage relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
         <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate text-sm font-semibold tracking-tight">{overviewTitle}</span>
-            <span className="text-xs text-t4">Presentation · {currentScreen.name}</span>
+            <span className="hidden text-xs text-muted-foreground md:block">Presentation</span>
             <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
-            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="Zoom options">{fitView ? 'Fit' : `${Math.round(presentationZoom * 100)}%`} ▾</Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-48" align="end"><DropdownMenuItem onSelect={() => setFitView(true)}>Fit to window</DropdownMenuItem>{[.5,.75,1,1.25,1.5,2].map((zoom) => <DropdownMenuItem key={zoom} onSelect={() => changeZoom(zoom)}>{zoom * 100}%</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options">•••</Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem><DropdownMenuItem onSelect={() => void toggleFullscreen()}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</DropdownMenuItem><DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(window.location.href).then(() => setSaveMessage('Presentation link copied.'), () => setSaveMessage('Could not copy the link.')); }}>Copy presentation link</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger></TooltipTrigger><TooltipContent className="z-[110]" sideOffset={8}>Desktop preview</TooltipContent></Tooltip><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger></TooltipTrigger><TooltipContent className="z-[110]" sideOffset={8}>Mobile preview</TooltipContent></Tooltip><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="Zoom options">{fitView ? 'Fit' : `${Math.round(presentationZoom * 100)}%`} <ChevronDownIcon className="size-3" aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-48" align="end"><DropdownMenuItem onSelect={() => setFitView(true)}>Fit to window</DropdownMenuItem>{[.5,.75,1,1.25,1.5,2].map((zoom) => <DropdownMenuItem key={zoom} onSelect={() => changeZoom(zoom)}>{zoom * 100}%</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options"><MoreHorizontalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem><DropdownMenuItem onSelect={() => void toggleFullscreen()}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</DropdownMenuItem><DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(window.location.href).then(() => setSaveMessage('Presentation link copied.'), () => setSaveMessage('Could not copy the link.')); }}>Copy presentation link</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); }} aria-pressed={commentsPanelOpen}>
-              Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
+              <PanelRightIcon className="size-4" aria-hidden="true" /> Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
@@ -454,7 +456,7 @@ export function Player({
         {saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
         <div className="flex min-h-0 flex-1">
         <main ref={previewRef} className="flex min-w-0 flex-1 items-start justify-start overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
-          <div className="mx-auto shrink-0" style={{ zoom: presentationZoom }}>
+          <div className="m-auto shrink-0" style={{ zoom: presentationZoom }}>
             <StageProvider key={`${state.currentScreenId}-${viewportMode}-${playbackKey}`} initialWidth={presentationWidth}>
               <div
                 ref={artboardRef}
@@ -531,7 +533,7 @@ export function Player({
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Review</h2>
-                <p className="mt-1 text-xs text-t4">{visibleThreads.length} on this screen</p>
+                <p className="mt-1 text-xs text-muted-foreground">Explore the work. Add perspective.</p>
               </div>
               {reviewPanelTab === 'comments' && <Button type="button" variant={commentMode ? 'secondary' : 'outline'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
                 {commentMode ? 'Cancel pin' : 'Place comment'}
@@ -540,12 +542,12 @@ export function Player({
             </div>
             <div className="mb-4 grid grid-cols-3 gap-1 rounded-md bg-(color:--chip) p-1" role="tablist" aria-label="Review panel">
               {(['screens', 'comments', 'overview'] as const).map((tab) => (
-                <button key={tab} type="button" role="tab" aria-selected={reviewPanelTab === tab} className={cn('rounded px-2 py-1.5 text-[11px] capitalize', reviewPanelTab === tab ? 'bg-accent text-foreground' : 'text-t4 hover:text-t2')} onClick={() => setReviewPanelTab(tab)}>{tab}</button>
+                <button key={tab} type="button" role="tab" aria-selected={reviewPanelTab === tab} className={cn('rounded px-2 py-1.5 text-[11px] capitalize', reviewPanelTab === tab ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')} onClick={() => setReviewPanelTab(tab)}>{tab}</button>
               ))}
             </div>
             {reviewPanelTab === 'screens' ? (
               <div className="space-y-2">
-                {(file.pages?.length ? file.pages : [{ id: undefined, name: 'Screens' }]).map((page) => <section key={page.id ?? 'screens'} className="space-y-2"><h3 className="pt-3 text-xs font-medium text-muted-foreground">{page.name}</h3>{baseScreens.filter((screen) => !page.id || screen.pageId === page.id).map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}>{screen.name}</button>)}</section>)}
+                {(file.pages?.length ? file.pages : [{ id: undefined, name: 'Screens' }]).map((page) => <section key={page.id ?? 'screens'} className="space-y-2"><h3 className="pt-3 text-xs font-medium text-muted-foreground">{page.name}</h3>{baseScreens.filter((screen) => !page.id || screen.pageId === page.id).map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}><span className="block font-medium">{screen.name}</span><span className="mt-1 block text-xs text-muted-foreground">{screen.stageWidth} px{screen.id === currentScreen.id ? ' · Viewing now' : ' · Open screen'}</span></button>)}</section>)}
               </div>
             ) : reviewPanelTab === 'overview' ? (
               <div className="space-y-3 text-xs"><label className="block"><span className="text-t4">Presentation title</span><input className="mt-1 h-9 w-full rounded-md border border-line-soft bg-(color:--chip) px-2 text-t2" value={overviewTitle} onChange={(event) => setOverviewTitle(event.target.value)} /></label><label className="block"><span className="text-t4">Presenter notes</span><textarea value={overviewNotes} onChange={(event) => setOverviewNotes(event.target.value)} placeholder="Add context for reviewers…" className="mt-1 min-h-24 w-full rounded-md border border-line-soft bg-(color:--chip) p-2 text-t2" /></label><dl className="space-y-3 border-t border-line-soft pt-3"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {devicePreset?.name ?? viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl><Button type="button" size="sm" onClick={() => { try { localStorage.setItem(`dreamscape:presentation-overview:${file.id}`, JSON.stringify({ title: overviewTitle, notes: overviewNotes })); setSaveMessage('Overview saved in this browser.'); } catch { setSaveMessage('Could not save overview. Your draft is still here.'); } }}>Save overview</Button><p className="text-muted-foreground">Saved on this browser. Shared viewers do not receive these notes.</p></div>
@@ -568,6 +570,7 @@ export function Player({
         )}
         </div>
       </div>
+      </TooltipProvider>
     </PlayProvider>
   );
 }
