@@ -393,13 +393,13 @@ export function Player({
   return (
     <PlayProvider value={play}>
       <div className="theme-basic flex min-h-screen flex-col overflow-auto bg-background text-foreground">
-        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 shadow-panel">
+        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate text-sm font-semibold">{file.name}</span>
             <span className="text-xs text-muted-foreground">Presentation · {currentScreen.name}</span>
             <span className="rounded border px-2 py-0.5 text-[11px] text-muted-foreground">Read-only</span>
           </div>
-          <div className="flex items-center gap-1" aria-label="Presentation controls">
+          <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
             <Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('desktop')} aria-pressed={viewportMode === 'desktop'}>
               Desktop
             </Button>
@@ -417,13 +417,13 @@ export function Player({
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
         </header>
-        <main className="flex flex-1 items-start justify-center overflow-auto p-8" aria-label="Presentation preview">
+        <main className="flex flex-1 items-start justify-center overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
           <div style={{ zoom: presentationZoom }}>
             <StageProvider key={`${state.currentScreenId}-${viewportMode}`} initialWidth={presentationWidth}>
               <div
                 ref={artboardRef}
                 data-testid="artboard"
-                className={cn('relative shrink-0 bg-background', currentScreen.stageHeight != null && 'overflow-auto')}
+                className={cn('relative shrink-0 bg-background shadow-panel-lg ring-1 ring-border/70', currentScreen.stageHeight != null && 'overflow-auto')}
                 style={
                   currentScreen.stageHeight != null
                     ? { width: presentationWidth, height: currentScreen.stageHeight }
