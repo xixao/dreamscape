@@ -232,11 +232,16 @@ export function Player({
   const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile'>('desktop');
   const [devicePreset, setDevicePreset] = useState<DevicePreset | null>(null);
   const [presentationZoom, setPresentationZoom] = useState(1);
+  const [fitView, setFitView] = useState(true);
+  const previewRef = useRef<HTMLElement>(null);
+  const [overviewTitle, setOverviewTitle] = useState(file.name);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [playbackKey, setPlaybackKey] = useState(0);
   const [commentStore] = useState(() => createCommentStore(file.id));
   const allThreads = useSyncExternalStore(commentStore.subscribe, commentStore.list, () => []);
   const [commentMode, setCommentMode] = useState(false);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
-  const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'overview'>('comments');
+  const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'overview'>('screens');
   const [overviewNotes, setOverviewNotes] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
@@ -361,22 +366,45 @@ export function Player({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closeHref, overlaysById]);
 
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`dreamscape:presentation-overview:${file.id}`) ?? 'null');
+      if (saved && typeof saved.title === 'string' && typeof saved.notes === 'string') {
+        // Hydrate browser-only metadata after SSR; subsequent edits stay in draft state.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setOverviewTitle(saved.title); setOverviewNotes(saved.notes);
+      }
+    } catch { setSaveMessage('Saved overview could not be loaded.'); }
+  }, [file.id]);
+  useEffect(() => {
+    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
   const presentationWidth = devicePreset?.width ?? (viewportMode === 'mobile' ? 390 : (currentScreen?.stageWidth ?? 0));
-  const zoomIn = () => setPresentationZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))));
-  const zoomOut = () => setPresentationZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))));
+  const changeZoom = (value: number) => { setFitView(false); setPresentationZoom(Math.max(.1, Math.min(2, value))); };
+  useLayoutEffect(() => {
+    const host = previewRef.current;
+    if (!host || !fitView) return;
+    const measure = () => setPresentationZoom(Math.max(.1, Math.min(1, (host.clientWidth - 64) / Math.max(1, presentationWidth), (host.clientHeight - 64) / (devicePreset?.height ?? currentScreen?.stageHeight ?? ARTBOARD_MIN_HEIGHT))));
+    const observer = new ResizeObserver(measure);
+    observer.observe(host); measure();
+    return () => observer.disconnect();
+  }, [fitView, presentationWidth, devicePreset, currentScreen, commentsPanelOpen]);
   const resetPresentation = () => {
     dispatch({ type: 'reset', screenId: resolveInitialScreenId(baseScreens, file.pages, initialScreenId, initialPageId) ?? currentScreen.id });
     setViewportMode('desktop');
     setDevicePreset(null);
-    setPresentationZoom(1);
+    setPresentationZoom(1); setFitView(true); setPlaybackKey((key) => key + 1);
     setCommentMode(false);
     setPendingPin(null);
     setOpenThreadId(null);
   };
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen?.();
-    setIsFullscreen((value) => !value);
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { setSaveMessage('Fullscreen is unavailable in this browser.'); }
   };
   const visibleThreads = allThreads.filter((thread) => !thread.screenId || thread.screenId === currentScreen.id);
   useLayoutEffect(() => {
@@ -390,7 +418,7 @@ export function Player({
     observer.observe(element);
     update();
     return () => observer.disconnect();
-  }, [state.currentScreenId, viewportMode, presentationZoom]);
+  }, [state.currentScreenId, viewportMode, presentationZoom, commentsPanelOpen, devicePreset]);
 
   // Only reachable for a file whose screens array is empty (or holds
   // nothing but overlay frames), which validateScreens never allows in a
@@ -405,39 +433,36 @@ export function Player({
 
   return (
     <PlayProvider value={play}>
-      <div className="flex min-h-screen flex-col overflow-auto bg-canvas font-sans text-foreground">
+      <div className="relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
         <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="truncate text-sm font-semibold tracking-tight">{file.name}</span>
+            <span className="truncate text-sm font-semibold tracking-tight">{overviewTitle}</span>
             <span className="text-xs text-t4">Presentation · {currentScreen.name}</span>
             <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
-            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
-            <Button type="button" variant="ghost" size="sm" onClick={zoomOut} aria-label="Zoom out">−</Button>
-            <span className="min-w-12 text-center font-mono text-xs" aria-live="polite">{Math.round(presentationZoom * 100)}%</span>
-            <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
-            <Button type="button" variant="ghost" size="sm" onClick={toggleFullscreen}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</Button>
-            <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
-            <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); setReviewPanelTab('comments'); }} aria-pressed={commentsPanelOpen}>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="Zoom options">{fitView ? 'Fit' : `${Math.round(presentationZoom * 100)}%`} ▾</Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-48" align="end"><DropdownMenuItem onSelect={() => setFitView(true)}>Fit to window</DropdownMenuItem>{[.5,.75,1,1.25,1.5,2].map((zoom) => <DropdownMenuItem key={zoom} onSelect={() => changeZoom(zoom)}>{zoom * 100}%</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options">•••</Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem><DropdownMenuItem onSelect={() => void toggleFullscreen()}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</DropdownMenuItem><DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(window.location.href).then(() => setSaveMessage('Presentation link copied.'), () => setSaveMessage('Could not copy the link.')); }}>Copy presentation link</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); }} aria-pressed={commentsPanelOpen}>
               Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
         </header>
+        {saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
         <div className="flex min-h-0 flex-1">
-        <main className="flex min-w-0 flex-1 items-start justify-center overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
-          <div style={{ zoom: presentationZoom }}>
-            <StageProvider key={`${state.currentScreenId}-${viewportMode}`} initialWidth={presentationWidth}>
+        <main ref={previewRef} className="flex min-w-0 flex-1 items-start justify-start overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
+          <div className="mx-auto shrink-0" style={{ zoom: presentationZoom }}>
+            <StageProvider key={`${state.currentScreenId}-${viewportMode}-${playbackKey}`} initialWidth={presentationWidth}>
               <div
                 ref={artboardRef}
                 data-testid="artboard"
-                className={cn('theme-basic relative shrink-0 bg-background text-foreground shadow-panel-lg ring-1 ring-line-strong', currentScreen.stageHeight != null && 'overflow-auto')}
+                className={cn('theme-basic relative shrink-0 bg-background text-foreground shadow-panel-lg ring-1 ring-line-strong', (devicePreset?.height ?? currentScreen.stageHeight) != null && 'overflow-auto')}
                 style={
-                  currentScreen.stageHeight != null
-                    ? { width: presentationWidth, height: currentScreen.stageHeight }
+                  (devicePreset?.height ?? currentScreen.stageHeight) != null
+                    ? { width: presentationWidth, height: devicePreset?.height ?? currentScreen.stageHeight ?? undefined }
                     : { width: presentationWidth, minHeight: ARTBOARD_MIN_HEIGHT }
                 }
                 onClickCapture={(event) => {
@@ -490,7 +515,7 @@ export function Player({
         })}
         <div
           className={cn(
-            'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
+            'absolute bottom-2 left-4 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
             chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
           )}
         >
@@ -502,15 +527,16 @@ export function Player({
         </div>
         </main>
         {commentsPanelOpen && (
-          <aside className="w-full shrink-0 border-l border-line-soft bg-card p-4 sm:w-80" aria-label="Presentation comments">
+          <aside className="fixed inset-x-0 bottom-0 z-[85] max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-80 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none" aria-label="Review">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold">Comments</h2>
+                <h2 className="text-sm font-semibold">Review</h2>
                 <p className="mt-1 text-xs text-t4">{visibleThreads.length} on this screen</p>
               </div>
-              <Button type="button" variant={commentMode ? 'secondary' : 'outline'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
+              {reviewPanelTab === 'comments' && <Button type="button" variant={commentMode ? 'secondary' : 'outline'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
                 {commentMode ? 'Cancel pin' : 'Place comment'}
-              </Button>
+              </Button>}
+              <Button variant="ghost" size="icon" aria-label="Close review panel" onClick={() => setCommentsPanelOpen(false)}><XIcon /></Button>
             </div>
             <div className="mb-4 grid grid-cols-3 gap-1 rounded-md bg-(color:--chip) p-1" role="tablist" aria-label="Review panel">
               {(['screens', 'comments', 'overview'] as const).map((tab) => (
@@ -519,10 +545,10 @@ export function Player({
             </div>
             {reviewPanelTab === 'screens' ? (
               <div className="space-y-2">
-                {baseScreens.map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}>{screen.name}</button>)}
+                {(file.pages?.length ? file.pages : [{ id: undefined, name: 'Screens' }]).map((page) => <section key={page.id ?? 'screens'} className="space-y-2"><h3 className="pt-3 text-xs font-medium text-muted-foreground">{page.name}</h3>{baseScreens.filter((screen) => !page.id || screen.pageId === page.id).map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}>{screen.name}</button>)}</section>)}
               </div>
             ) : reviewPanelTab === 'overview' ? (
-              <div className="space-y-3 text-xs"><label className="block"><span className="text-t4">Presentation title</span><input className="mt-1 h-9 w-full rounded-md border border-line-soft bg-(color:--chip) px-2 text-t2" defaultValue={file.name} /></label><label className="block"><span className="text-t4">Presenter notes</span><textarea value={overviewNotes} onChange={(event) => setOverviewNotes(event.target.value)} placeholder="Add context for reviewers…" className="mt-1 min-h-24 w-full rounded-md border border-line-soft bg-(color:--chip) p-2 text-t2" /></label><dl className="space-y-3 border-t border-line-soft pt-3"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {devicePreset?.name ?? viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl><Button type="button" size="sm" onClick={() => window.localStorage.setItem(`dreamscape:presentation-notes:${file.id}`, overviewNotes)}>Save overview</Button></div>
+              <div className="space-y-3 text-xs"><label className="block"><span className="text-t4">Presentation title</span><input className="mt-1 h-9 w-full rounded-md border border-line-soft bg-(color:--chip) px-2 text-t2" value={overviewTitle} onChange={(event) => setOverviewTitle(event.target.value)} /></label><label className="block"><span className="text-t4">Presenter notes</span><textarea value={overviewNotes} onChange={(event) => setOverviewNotes(event.target.value)} placeholder="Add context for reviewers…" className="mt-1 min-h-24 w-full rounded-md border border-line-soft bg-(color:--chip) p-2 text-t2" /></label><dl className="space-y-3 border-t border-line-soft pt-3"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {devicePreset?.name ?? viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl><Button type="button" size="sm" onClick={() => { try { localStorage.setItem(`dreamscape:presentation-overview:${file.id}`, JSON.stringify({ title: overviewTitle, notes: overviewNotes })); setSaveMessage('Overview saved in this browser.'); } catch { setSaveMessage('Could not save overview. Your draft is still here.'); } }}>Save overview</Button><p className="text-muted-foreground">Saved on this browser. Shared viewers do not receive these notes.</p></div>
             ) : visibleThreads.length === 0 ? (
               <div className="rounded-md border border-dashed border-line-strong p-4 text-xs text-t4">
                 No comments on this screen yet.

@@ -1019,7 +1019,7 @@ describe('Player overlays', () => {
   // events, so its Close link is the way out of Play.
   it('keeps the Play chip under a dismissible overlay, so a right sheet\'s or a top-right toast\'s close button stays on top', async () => {
     const user = await renderOnLogin();
-    expect(playChip()).toHaveClass('fixed', 'top-3', 'right-3', 'z-50');
+    expect(playChip()).toHaveClass('absolute', 'bottom-2', 'left-4', 'z-50');
     expect(playChip()).not.toHaveClass('pointer-events-auto');
 
     await user.click(screen.getByRole('button', { name: 'Open panel' }));
