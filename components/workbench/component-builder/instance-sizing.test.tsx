@@ -23,3 +23,12 @@ describe('instance sizing', () => {
     expect(style({ widthMode: 'fixed', widthPx: 480, maxWidth: { value: 90, unit: '%' } })).toMatchObject({ width: 480, maxWidth: '90%' });
   });
 });
+
+it('steps instance width and maximum width by ten', () => {
+  const onChange = vi.fn();
+  render(<InstanceSizing props={{ widthMode: 'fixed', widthPx: 320, maxWidth: { value: 800, unit: 'px' } }} onChange={onChange} />);
+  fireEvent.keyDown(screen.getByLabelText('Component width'), { key: 'ArrowUp', shiftKey: true });
+  expect(onChange).toHaveBeenCalledWith({ widthPx: 330 });
+  fireEvent.keyDown(screen.getByLabelText('Maximum width'), { key: 'ArrowDown', shiftKey: true });
+  expect(onChange).toHaveBeenCalledWith({ maxWidth: { value: 790, unit: 'px' } });
+});

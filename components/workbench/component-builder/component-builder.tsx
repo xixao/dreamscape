@@ -1,4 +1,7 @@
 'use client';
+import { shiftNumericStep } from '../inspector/numeric-step';
+import { applyImageAspect } from '@/components/blocks/image-size';
+import { createTrayElement } from '../create-tray-element';
 import { Editor, Frame, useEditor, useNode, type NodeId, type NodeTree } from '@craftjs/core';
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
@@ -192,7 +195,7 @@ function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize
   const activate = () => { activeRef.current = true; onActivate(); };
   return <section hidden={!visible} className={`${visible ? 'flex' : 'hidden'} min-w-[200px] flex-1 flex-col rounded-xl border ${active ? 'border-acc/70' : 'border-line-soft'} bg-card/40`} onPointerDownCapture={activate} onDragEnter={activate}>
     <div className="flex items-center gap-2 px-3 py-3"><button onClick={activate} className="text-xs font-semibold capitalize">{compact ? 'Component' : size.label}</button></div>
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><WidthControl label={`${size.label} width`} value={width} onChange={onWidthChange} /><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><WidthControl label={`${size.label} width`} value={width} onChange={onWidthChange} /><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onKeyDown={event => shiftNumericStep(event, height, height => onResize({ width, height }), 1, 10000)} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
     <div ref={setHost} className="component-builder-preview min-h-0 flex-1 overflow-auto rounded-b-xl p-3 flex items-center">
       <Editor resolver={resolver} onRender={BuilderIndicator} indicator={{ success: '#8C97DB', error: '#E05D5D' }} onNodesChange={query => {
         const next = query.serialize();
@@ -273,7 +276,7 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
       parent = node.data.linkedNodes.content ?? node.data.parent ?? 'ROOT';
     }
     if (!query.getNodes()[parent]) parent = 'ROOT';
-    const tree: NodeTree = query.parseReactElement(item.create()).toNodeTree();
+    const tree: NodeTree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree();
     actions.addNodeTree(tree, parent, position); actions.selectNode(tree.rootNodeId);
     window.dispatchEvent(new Event('dreamscape-builder-added'));
   }, [actions, query, selected]);
@@ -338,6 +341,7 @@ function BuilderFields({ scope, setScope, deselected }: { deselected: boolean; s
       const overridden = sizeStyles?.[breakpoint]?.[field.prop] !== undefined || (isResponsive(base) && base[breakpoint] !== ((props.componentShared as Record<string, unknown> | undefined)?.[field.prop] ?? base.mobile));
       return <div key={field.prop}><Field field={{ ...field, responsive: false }} value={value} breakpoint={breakpoint} onChange={next => {
         actions.setProp(id, p => {
+          if (node.data.name === 'Image' && field.prop === 'aspect') applyImageAspect(p, next);
           if (responsive && scope === 'size') {
             if (field.responsive) {
               if (p.componentShared?.[field.prop] === undefined) p.componentShared = { ...p.componentShared, [field.prop]: resolve(base, 'mobile') };

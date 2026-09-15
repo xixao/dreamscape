@@ -67,9 +67,6 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
   const editorSnapshot = useSettledEditorState();
   const nodes = editorSnapshot.nodes;
   const isSelected = editorSnapshot.events.selected.has(id);
-  const treeVersion = Object.entries(nodes)
-    .map(([nodeId, node]) => `${nodeId}:${node.data.nodes.join(',')}`)
-    .join('|');
   // The stage scales the artboard with a CSS transform to fit the column
   // (see stage.tsx / canvas-frame.tsx). `zoom` and `width` are read here only
   // to force the effect below to re-measure when either changes; see the
@@ -88,7 +85,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
   const isRoot = id === ROOT_NODE;
   const isZone = ZONE_TYPES.has(name);
   const interaction = !isRoot && !isZone ? getInteraction({ data: { custom } }) : null;
-  const showOutline = !isRoot && !isZone && (isSelected || isHovered);
+  const showOutline = isSelected || (!isRoot && !isZone && isHovered);
   const showTag = panelMode === 'prototype' && interaction !== null;
   const active = showOutline || showTag;
 
@@ -98,7 +95,10 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
       setRect(null);
       return;
     }
-    const update = () => setRect(dom.getBoundingClientRect());
+    const update = () => {
+      const next = dom.getBoundingClientRect();
+      setRect(previous => previous && previous.top === next.top && previous.left === next.left && previous.width === next.width && previous.height === next.height ? previous : next);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(dom);
@@ -120,12 +120,12 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     // layout box, so neither ResizeObserver nor a window resize/scroll event
     // fires for it. Depending on them here forces a re-measure whenever the
     // artboard rescales (preset switch or a resize-handle drag).
-    // `treeVersion` is the same kind of dependency: adding, removing or moving
+    // The node snapshot also changes when inspector props change: adding, removing or moving
     // a node elsewhere in the tree can shift this node's position (e.g. a new
     // sibling pushes it over) without resizing this node's own box, which is
     // the one thing ResizeObserver watches. Depending on it here forces a
     // re-measure on every such structural change.
-  }, [dom, active, zoom, width, treeVersion, targetWindow]);
+  }, [dom, active, zoom, width, nodes, targetWindow]);
 
   const tagText = showTag ? describeInteraction(interaction, screens, nodes) : null;
 
@@ -140,7 +140,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
               <SelectionOutline
                 rect={rect}
                 color="var(--acc)"
-                label={displayName || name}
+                label={String(custom.layerName || displayName || name)}
                 weight={isSelected ? 'selected' : 'hover'}
               />
             )}

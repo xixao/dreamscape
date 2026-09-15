@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *, [data-appearance="dark"], [data-appearance="dark"] *));
+@custom-variant dark (&:is(.dark *, [data-appearance="dark"], [data-appearance="dark"] *, [data-appearance="internal-dark"], [data-appearance="internal-dark"] *));
 
 @theme inline {
   --color-background: var(--background);
@@ -174,7 +174,8 @@
 .component-builder-preview [data-block="LayoutBox"] { min-height: var(--component-node-min-height, 0px) !important; }
 
 /* Design-system appearance is scoped to content, independent of editor chrome. */
-.theme-basic[data-appearance="dark"] {
+.theme-basic[data-appearance="dark"],
+.theme-basic[data-appearance="internal-dark"] {
   color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

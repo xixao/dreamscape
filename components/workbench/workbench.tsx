@@ -1,6 +1,8 @@
 'use client';
 
 import { ComponentLibraryProvider } from './component-builder/library-context';
+import { createTrayElement } from './create-tray-element';
+import { trayItems } from '@/components/blocks/registry';
 import { AppearanceContext } from './appearance-context';
 import { countInstances, updateInstances, replaceSelection, type ComponentDefinition } from '@/lib/custom-components/model';
 import { Editor, useEditor } from '@craftjs/core';
@@ -256,7 +258,7 @@ export function Workbench({
 }) {
   const [components, setComponents] = useState<ComponentDefinition[]>(file.components ?? []);
   const [saveState, setSaveState] = useState<SaveState>('saved');
-  const [appearance, setAppearance] = useState<'light' | 'dark'>(file.appearance ?? 'light');
+  const [appearance, setAppearance] = useState<'light' | 'dark' | 'internal-light' | 'internal-dark'>(file.appearance ?? 'light');
   const [fileName, setFileName] = useState(file.name);
   // Computed once, up front, and reused by every state initializer below
   // rather than each calling resolveInitialPages/resolveInitialScreens
@@ -382,7 +384,13 @@ export function Workbench({
     const previous = lastSavedLayoutsRef.current[screenId];
     if (previous !== undefined && canonicalLayout(json) === canonicalLayout(previous)) return;
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
-    const next = screensRef.current.map((screen) => (screen.id === screenId ? { ...screen, layout: json } : screen));
+    const frameSize = JSON.parse(json).ROOT?.custom?.frameSize;
+    const inspectorScreens = JSON.parse(json).ROOT?.custom?.inspectorScreens;
+    const next = screensRef.current.map(screen => {
+      const patch = inspectorScreens?.owner === screenId ? inspectorScreens.patches?.[screen.id] : undefined;
+      const restored = patch ? Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value === null ? undefined : value])) : {};
+      return { ...screen, ...restored, ...(screen.id === screenId ? { ...(frameSize ? { stageWidth: frameSize.width, stageHeight: frameSize.height, deviceName: frameSize.deviceName } : {}), layout: json } : {}) };
+    });
     screensRef.current = next;
     // Deferred to a microtask rather than called inline: this firing can
     // happen synchronously from INSIDE another component's render phase.
@@ -722,6 +730,28 @@ export function Workbench({
   // it - saved through this same path (spec docs/superpowers/specs/2026-09-
   // 12-infinite-canvas-design.md section 6: "saves x, y through the existing
   // save path"), debounced exactly like every other screen edit.
+  function recordInspectorScreens(updates: { id: string; patch: Record<string, unknown> }[]): void {
+    const actions = editorActionsRef.current;
+    if (!actions) return;
+    const owner = currentScreenIdRef.current;
+    const before: Record<string, Record<string, unknown>> = {};
+    const after: Record<string, Record<string, unknown>> = {};
+    for (const { id, patch } of updates) {
+      const screen = screensRef.current.find(screen => screen.id === id);
+      if (!screen) continue;
+      before[id] = Object.fromEntries(Object.keys(patch).map(key => [key, (screen as unknown as Record<string, unknown>)[key] ?? null]));
+      after[id] = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value ?? null]));
+    }
+    actions.history.ignore().setCustom('ROOT', custom => {
+      const patches = custom.inspectorScreens?.owner === owner ? custom.inspectorScreens.patches : {};
+      custom.inspectorScreens = { owner, patches: { ...patches } };
+      for (const id of Object.keys(before)) custom.inspectorScreens.patches[id] = { ...patches[id], ...before[id] };
+    });
+    actions.setCustom('ROOT', custom => {
+      for (const id of Object.keys(after)) Object.assign(custom.inspectorScreens.patches[id], after[id]);
+    });
+  }
+
   function moveScreen(id: string, position: { x: number; y: number }): void {
     // Review fix wave item 1 (blocker): validateScreens rejects a
     // non-integer x/y with a 400 that lib/persistence.ts never retries, so
@@ -743,15 +773,7 @@ export function Workbench({
   // inspector's alignment fields) both move several frames at once and
   // must land in one save, not one per frame.
   function moveScreens(updates: { id: string; x: number; y: number }[]): void {
-    // Same defensive rounding as moveScreen above (review fix wave item 1).
-    const byId = new Map(updates.map((update) => [update.id, { x: Math.round(update.x), y: Math.round(update.y) }]));
-    const next = screens.map((screen) => {
-      const update = byId.get(screen.id);
-      return update ? { ...screen, x: update.x, y: update.y } : screen;
-    });
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    recordInspectorScreens(updates.map(update => ({ id: update.id, patch: { x: Math.round(update.x), y: Math.round(update.y) } })));
   }
 
   // The Design panel's Frame section (columns/gutter/margin fields and the
@@ -763,12 +785,8 @@ export function Workbench({
   // been customized still produces a complete, valid LayoutGrid rather than
   // a half-filled patch.
   function updateLayoutGrid(id: string, patch: Partial<LayoutGrid>): void {
-    const next = screens.map((screen) =>
-      screen.id === id ? { ...screen, layoutGrid: { ...DEFAULT_LAYOUT_GRID, ...screen.layoutGrid, ...patch } } : screen,
-    );
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    const screen = screensRef.current.find(screen => screen.id === id);
+    recordInspectorScreens([{ id, patch: { layoutGrid: { ...DEFAULT_LAYOUT_GRID, ...screen?.layoutGrid, ...patch } } }]);
   }
 
   // The Design panel's Overlay section (inspector.tsx, spec section 5):
@@ -788,12 +806,7 @@ export function Workbench({
   // custom name is left untouched here exactly by this function never
   // being told to change it.
   function updateScreenPresentation(id: string, presentation: OverlayPresentation, name?: string): void {
-    const next = screens.map((screen) =>
-      screen.id === id ? { ...screen, presentation, ...(name !== undefined ? { name } : null) } : screen,
-    );
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    recordInspectorScreens([{ id, patch: { presentation, ...(name !== undefined ? { name } : {}) } }]);
   }
 
   function duplicateScreen(id: string): void {
@@ -925,55 +938,22 @@ export function Workbench({
   // to a saved screen - "the user set an explicit size by hand, so whatever
   // device it had is gone" - and both always clear deviceName the same way.
   function handleSizeChange(next: { width: number; height: number | null; deviceName: string | null }): void {
-    const current = screens.find((screen) => screen.id === currentScreenId);
-    // No-op guard: WorkbenchShell's own size-reinit effect (below) calls
-    // setWidth/setSize/setDevice whenever the screen changes, purely to make
-    // StageProvider's context match a screen it didn't remount for (see the
-    // comment on <StageProvider> below) - not because anything actually
-    // changed. Without this, every screen switch would queue an identical,
-    // pointless save. stageHeight/deviceName are compared against null (not
-    // undefined) since a Screen predating this feature (or one already
-    // cleared) may omit them entirely.
-    if (
-      current &&
-      current.stageWidth === next.width &&
-      (current.stageHeight ?? null) === next.height &&
-      (current.deviceName ?? null) === next.deviceName
-    ) {
-      return;
+    const current = screensRef.current.find(screen => screen.id === currentScreenIdRef.current);
+    if (!current || (current.stageWidth === next.width && (current.stageHeight ?? null) === next.height && (current.deviceName ?? null) === next.deviceName)) return;
+    const actions = editorActionsRef.current;
+    if (actions) {
+      // Seed the pre-resize dimensions without adding an undo step. The
+      // subsequent change shares Craft's history with inspector/node edits.
+      actions.history.ignore().setCustom('ROOT', custom => { custom.frameSize = { width: current.stageWidth, height: current.stageHeight ?? null, deviceName: current.deviceName ?? null }; });
+      actions.history.throttle(300).setCustom('ROOT', custom => { custom.frameSize = next; });
+    } else {
+      const nextScreens = screensRef.current.map(screen => screen.id === current.id ? { ...screen, stageWidth: next.width, stageHeight: next.height, deviceName: next.deviceName } : screen);
+      screensRef.current = nextScreens; setScreens(nextScreens); queuePatch({ screens: nextScreens });
     }
-    const nextScreens = screens.map((screen) =>
-      screen.id === currentScreenId
-        ? { ...screen, stageWidth: next.width, stageHeight: next.height, deviceName: next.deviceName }
-        : screen,
-    );
-    screensRef.current = nextScreens;
-    setScreens(nextScreens);
-    queuePatch({ screens: nextScreens });
   }
 
   function handleDeviceChange(device: { width: number; height: number; deviceName: string }): void {
-    const current = screens.find((screen) => screen.id === currentScreenId);
-    // Same no-op guard as handleSizeChange, above, and for the same
-    // reason: WorkbenchShell's resync effect calls setDevice whenever the
-    // screen changes and already has this exact device, purely to make the
-    // stage context match it - not because anything actually changed.
-    if (
-      current &&
-      current.stageWidth === device.width &&
-      current.stageHeight === device.height &&
-      current.deviceName === device.deviceName
-    ) {
-      return;
-    }
-    const next = screens.map((screen) =>
-      screen.id === currentScreenId
-        ? { ...screen, stageWidth: device.width, stageHeight: device.height, deviceName: device.deviceName }
-        : screen,
-    );
-    screensRef.current = next;
-    setScreens(next);
-    queuePatch({ screens: next });
+    handleSizeChange(device);
   }
 
   const currentScreen = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
@@ -1000,7 +980,7 @@ export function Workbench({
   }
 
   return (
-    <AppearanceContext.Provider value={{ appearance, setAppearance: next => { setAppearance(next); queuePatch({ appearance: next }); }, setFrameAppearance: (id, value) => { const next = screensRef.current.map(screen => screen.id === id ? { ...screen, appearance: value } : screen); screensRef.current = next; setScreens(next); queuePatch({ screens: next }); } }}>
+    <AppearanceContext.Provider value={{ appearance, setAppearance: next => { setAppearance(next); queuePatch({ appearance: next }); }, setFrameAppearance: (id, value) => recordInspectorScreens([{ id, patch: { appearance: value } }]) }}>
     <ComponentLibraryProvider fileId={file.id} components={components} saveState={saveState}
       onSave={(definition, sourceId) => changeComponent(definition, false, sourceId)} onRemove={definition => changeComponent(definition, true)}
       count={id => countInstances(screens.map(screen => screen.layout), id)}>
@@ -1751,7 +1731,7 @@ function WorkbenchShell({
       setWidth(screen.stageWidth);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentScreenId]);
+  }, [currentScreenId, screens.find(screen => screen.id === currentScreenId)?.stageWidth, screens.find(screen => screen.id === currentScreenId)?.stageHeight, screens.find(screen => screen.id === currentScreenId)?.deviceName]);
 
   // Chat temporarily occupies the Layers panel footprint.
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -1879,7 +1859,7 @@ function WorkbenchShell({
               )}
               <LayerStackMenu />
             </StageErrorBoundary>
-            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"

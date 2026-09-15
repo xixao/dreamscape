@@ -59,7 +59,7 @@ export type FileSummary = {
   screenCount?: number;
 };
 export type FileRecord = FileSummary & {
-  appearance?: 'light' | 'dark';
+  appearance?: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   // Same optionality rationale as folderId/screenCount above: workbench.tsx's
   // BASE_FILE predates screens. Real repository code always populates it.
   screens?: Screen[];
@@ -77,7 +77,7 @@ export type FileRecord = FileSummary & {
 // validateScreens has said so. A Screen is a ScreenInput, so every caller
 // that already holds validated screens is unaffected.
 export type SaveInput = {
-  appearance?: 'light' | 'dark';
+  appearance?: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   name?: string;
   screens?: ScreenInput[];
   pages?: Page[];
@@ -136,7 +136,7 @@ function normalizeFolderName(name: string): string {
 // repository boundary, the same way toRecord's JSON.stringify(row.layout)
 // used to for the single old `layout` column.
 type StoredScreen = {
-  appearance?: 'light' | 'dark';
+  appearance?: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   id: string;
   name: string;
   layout: Record<string, unknown>;
@@ -221,7 +221,7 @@ function toRecord(row: FileRow): FileRecord {
     screens: toApiScreens(row.screens),
     pages: row.pages as Page[],
     components: row.components as ComponentDefinition[],
-    appearance: row.appearance === 'dark' ? 'dark' : 'light',
+    appearance: (['light', 'dark', 'internal-light', 'internal-dark'].includes(row.appearance) ? row.appearance : 'light') as NonNullable<FileRecord['appearance']>,
   };
 }
 
@@ -365,7 +365,7 @@ export function createFilesRepository(db: Db) {
     const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
     if (input.appearance !== undefined) {
-      if (!['light', 'dark'].includes(input.appearance)) return { ok: false, invalid: 'Invalid appearance' };
+      if (!['light', 'dark', 'internal-light', 'internal-dark'].includes(input.appearance)) return { ok: false, invalid: 'Invalid appearance' };
       patch.appearance = input.appearance;
     }
     if (input.name !== undefined) patch.name = input.name;

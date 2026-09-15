@@ -44,7 +44,7 @@ export const SIZE_FIELDS: FieldSchema[] = ['width', 'height'].flatMap(axis => [
 export const APPEARANCE_FIELDS: FieldSchema[] = [
   numberField('cornerRadius', 'Corner radius', 'Style'),
   { prop: 'border', label: 'Border', kind: 'border', section: 'Style' },
-  { prop: 'fillColor', label: 'Fill color', kind: 'text', section: 'Style' },
+  { prop: 'fillColor', label: 'Fill color', kind: 'color', section: 'Style' },
   { prop: 'shadow', label: 'Shadow', kind: 'select', section: 'Style', options: ['none', 'soft', 'medium'].map(value => ({ value, label: value })) },
   ...['Top', 'Right', 'Bottom', 'Left'].map(side => numberField(`padding${side}Px`, `Padding ${side.toLowerCase()}`)),
 ];

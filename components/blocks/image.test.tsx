@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/alt-text -- `Image` here is this file's own block (components/blocks/image.tsx),
    not next/image's Image; jsx-a11y matches the component name and does not know the difference. */
 import { describe, expect, it } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
@@ -76,7 +76,7 @@ describe('Image block', () => {
     act(() => editor().actions.setProp(id, props => { props.aspect = 'wide'; }));
     expect(surface.style.aspectRatio).toBe('21 / 9');
     expect(surface).not.toHaveClass('flex-1');
-    expect(container.querySelector('[data-block="Image"]')).toHaveClass('flex-1', 'self-start');
+    expect(container.querySelector('[data-block="Image"]')).toHaveClass('flex-1');
     act(() => editor().actions.setProp(id, props => { props.aspect = 'portrait'; }));
     expect(surface.style.aspectRatio).toBe('3 / 4');
   });
@@ -113,4 +113,40 @@ describe('Image block in play mode', () => {
 
     expect(play.back).toHaveBeenCalledTimes(1);
   });
+});
+
+it('renders a real image with alt text inside the selected aspect and radius', async () => {
+  const { container } = renderTree(<Element is={LayoutBox} canvas><Image src="https://example.com/photo.jpg" alt="Mountain lake" aspect="video" radius="lg" /></Element>);
+  const image = await screen.findByRole('img', { name: 'Mountain lake' });
+  expect(image).toHaveAttribute('src', 'https://example.com/photo.jpg');
+  expect(image).toHaveClass('object-cover');
+  expect(container.querySelector('[data-image-surface]')).toHaveClass('aspect-video', 'rounded-lg');
+  expect(screen.queryByText('Image')).toBeNull();
+});
+
+it('resizes a selected image with a zoomed pointer drag and preserves locked proportions', async () => {
+  const view = renderTree(<Element is={LayoutBox} canvas><Image size={{ width: 200, height: 100, locked: true }} /></Element>);
+  const id = view.editor().query.node(ROOT_NODE).get().data.nodes[0];
+  act(() => view.editor().actions.selectNode(id));
+  const block = view.container.querySelector('[data-block="Image"]') as HTMLElement;
+  Object.defineProperties(block, { offsetWidth: { configurable: true, value: 200 }, offsetHeight: { configurable: true, value: 100 } });
+  block.getBoundingClientRect = () => ({ width: 100, height: 50, top: 0, left: 0, bottom: 50, right: 100, x: 0, y: 0, toJSON() {} });
+  const handle = await screen.findByRole('button', { name: 'Resize image corner' });
+  handle.setPointerCapture = () => {};
+  fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 50 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientX: 125, clientY: 75 });
+  fireEvent.pointerUp(handle, { pointerId: 1 });
+  expect(view.editor().query.node(id).get().data.props.size).toEqual({ width: 250, height: 125, locked: true });
+});
+
+it('keeps an automatic image at its intrinsic width when its parent grows', async () => {
+  const view = renderTree(<Element is={LayoutBox} canvas><Image src="https://example.com/logo.png" alt="Logo" /></Element>);
+  const image = await screen.findByRole('img', { name: 'Logo' });
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 225 });
+  fireEvent.load(image);
+  const block = view.container.querySelector('[data-block="Image"]');
+  expect(block).toHaveStyle({ width: '225px', flexShrink: '0' });
+  expect(block).not.toHaveClass('self-start');
+  act(() => view.editor().actions.setProp(ROOT_NODE, props => { props.widthMode = 'fixed'; props.widthPx = 900; }));
+  expect(block).toHaveStyle({ width: '225px' });
 });

@@ -1,5 +1,8 @@
 'use client';
 
+import { ImageSizeControl } from './image-size-control';
+import type { ImageSize } from '@/components/blocks/image-size';
+import { ImageSource } from './image-source';
 import { BorderControl } from './border-control';
 import type { BorderSettings } from '@/components/blocks/design-controls';
 import { SpacingInput } from './spacing-input';
@@ -80,6 +83,9 @@ export function Field({ field, value, breakpoint, onChange, onJumpToBreakpoint }
       </button>
     ) : null;
 
+  if (field.kind === 'image-size') return <ImageSizeControl value={current as ImageSize} onChange={commit} />;
+  if (field.kind === 'image-source') return <ImageSource value={String(current ?? '')} onChange={commit} />;
+
   if (field.kind === 'width-limit') {
     const limit = (current ?? { value: 0, unit: 'px' }) as { value: number; unit: 'px' | '%' };
     const presets = limit.unit === '%' ? [0, 25, 50, 75, 100] : [0, 240, 320, 480, 640, 960];
@@ -90,7 +96,7 @@ export function Field({ field, value, breakpoint, onChange, onJumpToBreakpoint }
 
   if (field.kind === 'color') {
     const tokens = ['border', 'input', 'ring', 'background', 'foreground', 'card', 'card-foreground', 'primary', 'primary-foreground', 'secondary', 'secondary-foreground', 'muted', 'muted-foreground', 'accent', 'accent-foreground', 'destructive', 'chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5'];
-    const options = [{ value: 'default', label: 'Default', color: 'var(--border)' }, ...tokens.map(token => ({ value: `var(--${token})`, label: `--${token}`, color: `var(--${token})` })), { value: 'transparent', label: 'Transparent', color: 'transparent' }];
+    const options = [{ value: 'default', label: 'Default', color: field.prop === 'fillColor' ? 'transparent' : 'var(--border)' }, ...tokens.map(token => ({ value: `var(--${token})`, label: `--${token}`, color: `var(--${token})` })), { value: 'transparent', label: 'Transparent', color: 'transparent' }];
     const selected = typeof current === 'string' && current ? current : 'default';
     if (!options.some(option => option.value === selected)) options.push({ value: selected, label: selected, color: selected });
     return <div data-field={field.prop} className="flex flex-col gap-1.5">

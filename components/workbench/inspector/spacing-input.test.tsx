@@ -43,3 +43,18 @@ describe('editable spacing input', () => {
     expect(change).not.toHaveBeenCalled();
   });
 });
+
+it('steps by ten with Shift+Arrow, respects bounds, and does not duplicate the edit on blur', async () => {
+  const change = vi.fn();
+  render(<Harness onCommit={change} max={30} />);
+  const input = screen.getByRole('combobox', { name: 'Padding' });
+  await userEvent.click(input);
+  await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+  expect(input).toHaveValue('26');
+  await userEvent.keyboard('{Shift>}{ArrowUp}{/Shift}');
+  expect(input).toHaveValue('30');
+  await userEvent.keyboard('{Shift>}{ArrowDown}{/Shift}');
+  expect(input).toHaveValue('20');
+  await userEvent.click(screen.getByRole('button', { name: 'Outside' }));
+  expect(change.mock.calls.map(call => call[0])).toEqual([26, 30, 20]);
+});

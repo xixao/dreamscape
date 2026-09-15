@@ -1,5 +1,6 @@
 'use client';
-import { useAppearance } from '../appearance-context';
+import { applyImageAspect } from '@/components/blocks/image-size';
+import { useAppearance, APPEARANCE_OPTIONS } from '../appearance-context';
 import { FieldLayout } from './field-layout';
 
 import { InstanceFields } from '../component-builder/instance-fields';
@@ -701,7 +702,7 @@ export function Inspector({
                     </Badge>
                   )}
                 </div>
-                {isRoot && appearanceSettings.setFrameAppearance && <section className={SECTION}><h3 className={SECTION_TITLE}>Appearance</h3><select aria-label="Frame appearance" className="w-full rounded-md border bg-background p-2 text-xs" value={currentScreen?.appearance ?? 'inherit'} onChange={e => appearanceSettings.setFrameAppearance?.(currentScreenId, e.target.value === 'inherit' ? undefined : e.target.value as 'light' | 'dark')}><option value="inherit">File default · {appearanceSettings.appearance === 'dark' ? 'Dark' : 'Light'}</option><option value="light">Light</option><option value="dark">Dark</option></select></section>}
+                {isRoot && appearanceSettings.setFrameAppearance && <section className={SECTION}><h3 className={SECTION_TITLE}>Appearance</h3><select aria-label="Frame appearance" className="w-full rounded-md border bg-background p-2 text-xs" value={currentScreen?.appearance ?? 'inherit'} onChange={e => appearanceSettings.setFrameAppearance?.(currentScreenId, e.target.value === 'inherit' ? undefined : e.target.value as 'light' | 'dark' | 'internal-light' | 'internal-dark')}><option value="inherit">File default · {APPEARANCE_OPTIONS.find(option => option.value === appearanceSettings.appearance)?.label}</option>{APPEARANCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></section>}
                 {isRoot && (
                   <section className={SECTION} data-testid="frame-section">
                     <h3 className={SECTION_TITLE}>Frame</h3>
@@ -801,6 +802,7 @@ export function Inspector({
                             onChange={(next) => {
                               const setter = (draft: Record<string, unknown>) => {
                                 draft[field.prop] = next;
+                                if (type === 'Image' && field.prop === 'aspect') applyImageAspect(draft, next);
                               };
                               if (field.kind === 'text') actions.history.throttle(500).setProp(id, setter);
                               else actions.setProp(id, setter);

@@ -396,6 +396,31 @@ describe('Workbench', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => typeof init?.body === 'string' && JSON.parse(init.body).appearance === 'dark')).toBe(true));
   });
 
+  it('undoes and redoes root-frame appearance including inheritance', async () => {
+    render(<Workbench file={makeFile()} />);
+    fireEvent.mouseDown(frameBody().querySelector('[data-block="LayoutBox"]')!);
+    const control = await screen.findByRole('combobox', { name: 'Frame appearance' });
+    await userEvent.selectOptions(control, 'internal-dark');
+    await waitFor(() => expect(frameBody()).toHaveAttribute('data-appearance', 'internal-dark'));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(control).toHaveValue('inherit'));
+    expect(frameBody()).toHaveAttribute('data-appearance', 'light');
+    await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => expect(control).toHaveValue('internal-dark'));
+  });
+
+  it('undoes a layout grid toggle and restores it on redo', async () => {
+    render(<Workbench file={makeFile()} />);
+    fireEvent.keyDown(window, { key: 'G', shiftKey: true });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+    const reverted = JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
+    expect(reverted.screens[0].layoutGrid?.visible ?? false).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+    expect(JSON.parse(fetchMock.mock.calls.at(-1)![1].body).screens[0].layoutGrid.visible).toBe(true);
+  });
+
   it('omits the destructive New frame action from the top bar', () => {
     render(<Workbench file={makeFile()} />);
     expect(screen.queryByRole('button', { name: 'New frame' })).not.toBeInTheDocument();
@@ -1286,6 +1311,20 @@ describe('Workbench', () => {
   });
 
   describe('resize handles', () => {
+    it('undoes and redoes a corner resize including both dimensions', async () => {
+      render(<Workbench file={makeFile()} />);
+      const handle = screen.getByRole('separator', { name: 'Resize frame' });
+      const original = handle.getAttribute('aria-valuetext');
+      fireEvent.pointerDown(handle, { clientX: 0, clientY: 0, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientX: 60, clientY: 20, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientX: 60, clientY: 20, pointerId: 1 });
+      await waitFor(() => expect(handle).toHaveAttribute('aria-valuetext', `${1500} × ${ARTBOARD_MIN_HEIGHT + 20}`));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(handle).toHaveAttribute('aria-valuetext', original));
+      await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+      await waitFor(() => expect(handle).toHaveAttribute('aria-valuetext', `${1500} × ${ARTBOARD_MIN_HEIGHT + 20}`));
+    });
+
     it('PATCHes stageHeight, on the current screen and with no device, when the height handle sets a fixed height', async () => {
       render(<Workbench file={makeFile()} />);
 

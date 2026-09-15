@@ -1,5 +1,6 @@
 'use client';
 
+import { createTrayElement } from './create-tray-element';
 import { useComponentLibrary } from './component-builder/library-context';
 import { CreateComponentCard, CustomTray } from './component-builder/custom-tray';
 import { useRef, useState } from 'react';
@@ -53,7 +54,7 @@ function matchesOverlayHint(query: string): boolean {
 // design.md section 1).
 export function ComponentTray() {
   const library = useComponentLibrary();
-  const { connectors } = useEditor();
+  const { connectors, query } = useEditor();
   const [filter, setFilter] = useState('');
   // One Element documentation dialog for the whole tray. The type outlives
   // `open` so the dialog's closing animation keeps showing the element it
@@ -112,8 +113,9 @@ export function ComponentTray() {
                     this item's drag. */}
                     <div
                       data-tray-item={item.type}
+                      onDragStart={event => { event.dataTransfer.setData('application/x-dreamscape-element', item.type); }}
                       ref={(element) => {
-                        if (element) connectors.create(element, item.create());
+                        if (element) connectors.create(element, () => createTrayElement(item, query.getOptions().resolver));
                       }}
                       className="flex min-w-0 flex-1 cursor-grab items-center gap-3 py-2 pr-2 pl-3 active:cursor-grabbing"
                     >

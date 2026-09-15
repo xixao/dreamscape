@@ -4,7 +4,7 @@ import type { Page, Screen } from './files/repository';
 export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 
 export type FilePatch = {
-  appearance?: 'light' | 'dark';
+  appearance?: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   components?: ComponentDefinition[];
   screens?: Screen[];
   pages?: Page[];

@@ -48,7 +48,7 @@ describe('NodeIndicator', () => {
     return null;
   }
 
-  it('draws a selected outline for a block but never for the root', async () => {
+  it('draws a selected outline for a block', async () => {
     render(
       <Editor resolver={resolver} onRender={NodeIndicator}>
         <StageProvider>
@@ -67,7 +67,7 @@ describe('NodeIndicator', () => {
     expect(outline).toHaveTextContent('Button');
   });
 
-  it('draws nothing when only the root is selected', async () => {
+  it('draws the root frame outline when the root is selected', async () => {
     render(
       <Editor resolver={resolver} onRender={NodeIndicator}>
         <StageProvider>
@@ -81,7 +81,7 @@ describe('NodeIndicator', () => {
       </Editor>,
     );
     await screen.findByRole('button', { name: 'Alone' });
-    await waitFor(() => expect(screen.queryByTestId('selection-outline')).toBeNull());
+    expect(await screen.findByTestId('selection-outline')).toHaveAttribute('data-weight', 'selected');
   });
 
   it('shows the displayName, not the resolver name, in the outline tag for a nested LayoutBox', async () => {
@@ -194,6 +194,9 @@ describe('NodeIndicator re-measurement', () => {
     });
     await screen.findByRole('button', { name: 'New' });
     await waitFor(() => expect(outline).toHaveStyle({ top: '42px' }));
+    top = 80;
+    act(() => handle!.actions.setProp(ROOT_NODE, props => { props.paddingPx = 48; }));
+    await waitFor(() => expect(outline).toHaveStyle({ top: '80px' }));
   });
 });
 

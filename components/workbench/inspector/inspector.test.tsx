@@ -947,11 +947,27 @@ it('offers inherited and explicit appearance only on the root frame', async () =
   const { editor } = renderInEditor(<AppearanceContext.Provider value={{ appearance: 'dark', setFrameAppearance: update }}><Frame><Element is={LayoutBox} canvas><Button /></Element></Frame><Inspector screens={ONE_SCREEN} currentScreenId="s1" panelMode="design" onPanelModeChange={() => {}} collapsed={false} onToggleCollapsed={() => {}} /></AppearanceContext.Provider>);
   act(() => editor().actions.selectNode(ROOT_NODE));
   const control = await screen.findByRole('combobox', { name: 'Frame appearance' });
-  expect(screen.getByRole('option', { name: 'File default · Dark' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'File default · External - Dark' })).toBeInTheDocument();
+  for (const name of ['External - Light', 'External - Dark', 'Internal - Light', 'Internal - Dark']) expect(screen.getByRole('option', { name })).toBeInTheDocument();
   await userEvent.selectOptions(control, 'light');
   expect(update).toHaveBeenLastCalledWith('s1', 'light');
   await userEvent.selectOptions(control, 'inherit');
   expect(update).toHaveBeenLastCalledWith('s1', undefined);
   act(() => editor().actions.selectNode(editor().query.node(ROOT_NODE).get().data.nodes[0]));
   await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Frame appearance' })).not.toBeInTheDocument());
+});
+
+it('undoes an image aspect preset and its linked size as one inspector edit', async () => {
+  const { Image } = await import('@/components/blocks/image');
+  const { editor } = renderInEditor(<><Frame><Element is={LayoutBox} canvas><Image size={{ width: 400, height: 400, locked: true }} /></Element></Frame><Inspector screens={ONE_SCREEN} currentScreenId="s1" panelMode="design" onPanelModeChange={() => {}} collapsed={false} onToggleCollapsed={() => {}} /></>);
+  const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+  act(() => { editor().actions.selectNode(id); editor().actions.history.clear(); });
+  await userEvent.click(screen.getByRole('combobox', { name: 'Aspect ratio' }));
+  await userEvent.click(screen.getByRole('option', { name: 'Video (16:9)' }));
+  expect(editor().query.node(id).get().data.props.size.height).toBe(225);
+  act(() => editor().actions.history.undo());
+  expect(editor().query.node(id).get().data.props).toMatchObject({ aspect: 'square', size: { width: 400, height: 400 } });
+  expect(editor().query.history.canUndo()).toBe(false);
+  act(() => editor().actions.history.redo());
+  expect(editor().query.node(id).get().data.props).toMatchObject({ aspect: 'video', size: { height: 225 } });
 });

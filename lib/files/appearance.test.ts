@@ -17,3 +17,12 @@ it('persists file defaults and independent frame overrides through save and dupl
   await repo.save(file.id, { screens: saved.screens!.map(s => ({ ...s, appearance: undefined })) });
   expect((await repo.get(file.id))!.screens![0].appearance).toBeUndefined();
 });
+
+it('preserves internal theme choices through saving and duplication', async () => {
+  const repo = createFilesRepository(await getDb());
+  const file = await repo.create();
+  expect(await repo.save(file.id, { appearance: 'internal-dark', screens: file.screens!.map(s => ({ ...s, appearance: 'internal-light' })) })).toMatchObject({ ok: true });
+  const copy = (await repo.duplicate(file.id))!;
+  expect(copy.appearance).toBe('internal-dark');
+  expect(copy.screens![0].appearance).toBe('internal-light');
+});

@@ -129,3 +129,13 @@ describe('Field', () => {
     expect(screen.getByTestId('breakpoint-caption')).toHaveTextContent('mobile: column');
   });
 });
+
+it('opens the fill color token menu and applies a selected variable', async () => {
+  const { APPEARANCE_FIELDS, designStyle } = await import('@/components/blocks/design-controls');
+  const onChange = vi.fn();
+  render(<Field field={APPEARANCE_FIELDS.find(field => field.prop === 'fillColor')!} value="" breakpoint="desktop" onChange={onChange} />);
+  await userEvent.click(screen.getByRole('combobox', { name: 'Fill color' }));
+  await userEvent.click(screen.getByRole('option', { name: '--primary' }));
+  expect(onChange).toHaveBeenCalledWith('var(--primary)');
+  expect(designStyle({ fillColor: 'var(--primary)' })).toMatchObject({ backgroundColor: 'var(--primary)' });
+});

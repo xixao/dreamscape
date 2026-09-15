@@ -1,7 +1,7 @@
 'use client';
 
 import { SharePrototypeButton } from './prototype-actions';
-import { useAppearance } from './appearance-context';
+import { useAppearance, APPEARANCE_OPTIONS } from './appearance-context';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
@@ -149,7 +149,7 @@ function IconAction({
 function FileNameField(props: { fileName: string; onRename: (name: string) => void }) {
   const { appearance, setAppearance } = useAppearance();
   if (!setAppearance) return <RenameFileField {...props} />;
-  return <PopoverPrimitive.Root><PopoverPrimitive.Trigger asChild><button type="button" aria-label="File settings" className={cn(CHIP, 'w-56 justify-between')}><span className="truncate">{props.fileName}</span><ChevronDown className="size-3 shrink-0" /></button></PopoverPrimitive.Trigger><PopoverPrimitive.Portal><PopoverPrimitive.Content align="start" className={`${MENU_POPOVER} z-50 w-64 space-y-3 p-3`}><h2 className="text-sm font-semibold">File settings</h2><RenameFileField {...props} /><label className="flex flex-col gap-2 text-xs">Appearance<select aria-label="File appearance" className="rounded-md border bg-background p-2" value={appearance} onChange={event => setAppearance(event.target.value as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></select></label><p className="text-xs text-muted-foreground">Default for frames in this file. Frames can override it.</p></PopoverPrimitive.Content></PopoverPrimitive.Portal></PopoverPrimitive.Root>;
+  return <PopoverPrimitive.Root><PopoverPrimitive.Trigger asChild><button type="button" aria-label="File settings" className={cn(CHIP, 'w-56 justify-between')}><span className="truncate">{props.fileName}</span><ChevronDown className="size-3 shrink-0" /></button></PopoverPrimitive.Trigger><PopoverPrimitive.Portal><PopoverPrimitive.Content align="start" className={`${MENU_POPOVER} z-50 w-64 space-y-3 p-3`}><h2 className="text-sm font-semibold">File settings</h2><RenameFileField {...props} /><label className="flex flex-col gap-2 text-xs">Appearance<select aria-label="File appearance" className="rounded-md border bg-background p-2" value={appearance} onChange={event => setAppearance(event.target.value as 'light' | 'dark' | 'internal-light' | 'internal-dark')}>{APPEARANCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><p className="text-xs text-muted-foreground">Default for frames in this file. Frames can override it.</p></PopoverPrimitive.Content></PopoverPrimitive.Portal></PopoverPrimitive.Root>;
 }
 
 function RenameFileField({

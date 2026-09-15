@@ -1,4 +1,5 @@
 'use client';
+import { shiftNumericStep } from './numeric-step';
 
 import { Eye, EyeOff, Minus, Plus, SlidersHorizontal } from 'lucide-react';
 import type { BorderSettings } from '@/components/blocks/design-controls';
@@ -17,7 +18,7 @@ export function BorderControl({ value, onChange }: { value?: BorderSettings; onC
     {enabled && <>
       <div className="flex items-center gap-1">
         <div className="min-w-0 flex-1 [&_label]:sr-only [&_[data-field]]:gap-0"><Field field={{ prop: 'borderColor', label: 'Border color', kind: 'color', section: 'Style' }} value={b.color} breakpoint="desktop" onChange={color => update({ color: String(color) })} /></div>
-        <label className="flex h-8 w-16 shrink-0 items-center rounded-md border px-1 text-xs"><span className="sr-only">Border opacity</span><input aria-label="Border opacity" type="number" min={0} max={100} value={b.opacity ?? 100} className="w-full min-w-0 bg-transparent outline-none" onChange={e => { if (e.target.value !== '') update({ opacity: Math.max(0, Math.min(100, Number(e.target.value))) }); }} /><span>%</span></label>
+        <label className="flex h-8 w-16 shrink-0 items-center rounded-md border px-1 text-xs"><span className="sr-only">Border opacity</span><input aria-label="Border opacity" type="number" min={0} max={100} value={b.opacity ?? 100} onKeyDown={event => shiftNumericStep(event, b.opacity ?? 100, opacity => update({ opacity }), 0, 100)} className="w-full min-w-0 bg-transparent outline-none" onChange={e => { if (e.target.value !== '') update({ opacity: Math.max(0, Math.min(100, Number(e.target.value))) }); }} /><span>%</span></label>
         <button type="button" className={icon} aria-label={b.visible === false ? 'Show border' : 'Hide border'} onClick={() => update({ visible: b.visible === false })}>{b.visible === false ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>
         <button type="button" className={icon} aria-label="Remove border" onClick={() => update({ width: 0, top: 0, right: 0, bottom: 0, left: 0 })}><Minus className="size-4" /></button>
       </div>

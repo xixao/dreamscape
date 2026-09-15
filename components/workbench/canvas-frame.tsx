@@ -80,7 +80,7 @@ function CanvasFrameImpl({
   height: number | null;
   zoom: number;
   title?: string;
-  appearance?: 'light' | 'dark';
+  appearance?: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   // The floor `autoHeight` never measures below, for a `height: null`
   // (auto) frame - defaults to the whole-screen ARTBOARD_MIN_HEIGHT, every
   // caller's own floor before this prop existed. stage.tsx passes an
@@ -119,7 +119,7 @@ function CanvasFrameImpl({
   const fileAppearance = useAppearance().appearance;
   const effectiveAppearance = appearance ?? fileAppearance;
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
-  useEffect(() => { if (canvasDoc) { canvasDoc.document.body.dataset.appearance = effectiveAppearance; canvasDoc.document.body.style.colorScheme = effectiveAppearance; } }, [canvasDoc, effectiveAppearance]);
+  useEffect(() => { if (canvasDoc) { canvasDoc.document.body.dataset.appearance = effectiveAppearance; canvasDoc.document.body.style.colorScheme = effectiveAppearance.endsWith('dark') ? 'dark' : 'light'; } }, [canvasDoc, effectiveAppearance]);
   const [autoHeight, setAutoHeight] = useState(minHeight);
   const setStageCanvasDocument = useStage().setCanvasDocument;
 

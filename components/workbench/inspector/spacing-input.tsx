@@ -1,5 +1,6 @@
 'use client';
 
+import { shiftNumericStep } from './numeric-step';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { ChevronDown } from 'lucide-react';
@@ -53,6 +54,8 @@ export function SpacingInput({ id, label, value, options, max, integer = false, 
           onChange={event => { setDraft(event.target.value); setActive(-1); setError(false); setOpen(true); }}
           onBlur={() => { commit(draft); setOpen(false); setActive(-1); }}
           onKeyDown={event => {
+            const numericDraft = Number(draft.trim().replace(/\s*(px|%)$/i, ''));
+            if (shiftNumericStep(event, Number.isFinite(numericDraft) ? numericDraft : value, next => { setDraft(String(next)); setError(false); onChange(next); }, 0, max)) { setOpen(false); setActive(-1); return; }
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault(); event.stopPropagation(); setOpen(true);
               if (!validOptions.length) return;

@@ -439,7 +439,7 @@ function OverlayHost({
   closeOverlayById,
   onEscapeKeyDown,
 }: {
-  fileAppearance: 'light' | 'dark';
+  fileAppearance: 'light' | 'dark' | 'internal-light' | 'internal-dark';
   overlay: OverlayScreen;
   closeOverlayById: (screenId: string) => void;
   onEscapeKeyDown: (event: KeyboardEvent) => void;

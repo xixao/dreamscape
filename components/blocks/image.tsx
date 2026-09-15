@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react';
+import { resizeImage, type ImageSize } from './image-size';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Image as ImageIcon } from 'lucide-react';
 import { usePlay } from '@/components/play/play-context';
@@ -10,13 +12,19 @@ export type ImageAspect = 'square' | 'video' | 'portrait' | 'wide';
 export type ImageRadius = 'none' | 'md' | 'lg' | 'full';
 
 export interface ImageBlockProps extends GrowProps {
+  size: ImageSize;
   label: string;
+  src: string;
+  alt: string;
   aspect: ImageAspect;
   radius: ImageRadius;
 }
 
 export const IMAGE_DEFAULTS: ImageBlockProps = {
+  size: { width: 0, height: 0, locked: true },
   label: 'Image',
+  src: '',
+  alt: '',
   aspect: 'square',
   radius: 'md',
   grow: false,
@@ -39,31 +47,50 @@ const RADIUS_CLASSES: Record<ImageRadius, string> = {
 export const Image: UserComponent<Partial<ImageBlockProps>> = (props) => {
   const merged: ImageBlockProps = { ...IMAGE_DEFAULTS, ...props };
   const play = usePlay();
+  const [intrinsic, setIntrinsic] = useState<{ src: string; width: number } | null>(null);
+  const ownWidth = merged.size.width || (intrinsic?.src === merged.src ? intrinsic.width : 320);
+  const ratio = { square: 1, video: 16 / 9, portrait: 3 / 4, wide: 21 / 9 }[merged.aspect];
+  const ownHeight = merged.size.height || ownWidth / ratio;
   const {
     connectors: { connect, drag },
-    custom,
-  } = useNode((node) => ({ custom: node.data.custom }));
+    custom, selected, enabled, actions: { setProp },
+  } = useNode((node) => ({ custom: node.data.custom, selected: node.events.selected, enabled: node.data.custom?.instanceReadonly !== true }));
+  const host = useRef<HTMLDivElement | null>(null);
+  const dragSize = useRef<{ x: number; y: number; scale: number; size: ImageSize } | null>(null);
+
   const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
   return (
     <div
       ref={(element) => {
+        host.current = element;
         if (element) connect(drag(element));
       }}
       data-block="Image"
       className={cn(
-        'w-full min-w-0 self-start',
+        'relative w-full min-w-0',
         blockClasses(merged),
       )}
+      style={merged.grow ? undefined : { width: ownWidth, flexShrink: 0 }}
       onClick={onClick}
     >
       <div data-image-surface className={cn('relative w-full overflow-hidden bg-muted text-muted-foreground', ASPECT_CLASSES[merged.aspect], RADIUS_CLASSES[merged.radius])}
-        style={{ aspectRatio: { square: '1 / 1', video: '16 / 9', portrait: '3 / 4', wide: '21 / 9' }[merged.aspect] }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+        style={{ height: merged.grow ? undefined : ownHeight, aspectRatio: merged.size.width > 0 && merged.size.height > 0 ? `${merged.size.width} / ${merged.size.height}` : { square: '1 / 1', video: '16 / 9', portrait: '3 / 4', wide: '21 / 9' }[merged.aspect] }}>
+        {merged.src ? (
+          // Uploaded images are stored in the file; URL images may use any host.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={merged.src} alt={merged.alt} onLoad={event => { const width = event.currentTarget.naturalWidth; if (width > 0) setIntrinsic({ src: merged.src, width }); }} draggable={false} className="block w-full object-cover" style={{ aspectRatio: 'inherit', height: merged.grow ? undefined : '100%' }} />
+        ) : <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <ImageIcon className="size-8" aria-hidden />
           <span className="text-sm">{merged.label}</span>
-        </div>
+        </div>}
       </div>
+      {selected && enabled && play.mode !== 'play' && (['width', 'height', 'corner'] as const).map(axis => <button key={axis} aria-label={`Resize image ${axis}`} type="button"
+        className="absolute z-[60] size-3 border border-white bg-indigo-400" style={{ right: axis === 'height' ? '50%' : -6, bottom: axis === 'width' ? '50%' : -6, cursor: axis === 'corner' ? 'nwse-resize' : axis === 'width' ? 'ew-resize' : 'ns-resize', touchAction: 'none' }}
+        onPointerDown={event => { event.preventDefault(); event.stopPropagation(); const el = host.current; if (!el) return; dragSize.current = { x: event.clientX, y: event.clientY, scale: el.getBoundingClientRect().width / el.offsetWidth || 1, size: { width: el.offsetWidth, height: el.offsetHeight, locked: merged.size.locked } }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={event => { const start = dragSize.current; if (!start) return; event.stopPropagation(); const width = start.size.width + (event.clientX - start.x) / start.scale; const height = start.size.height + (event.clientY - start.y) / start.scale; const size = axis === 'height' ? resizeImage(start.size, 'height', height) : resizeImage(start.size, 'width', width); if (axis === 'corner' && !size.locked) size.height = Math.max(1, Math.round(height)); setProp((p: ImageBlockProps) => { p.size = size; }, 300); }}
+        onPointerUp={() => { dragSize.current = null; }} onPointerCancel={() => { dragSize.current = null; }} onLostPointerCapture={() => { dragSize.current = null; }}
+        onClick={event => { event.preventDefault(); event.stopPropagation(); }} />)}
     </div>
   );
 };
@@ -76,6 +103,9 @@ Image.craft = {
 export const imageSchema: BlockSchema = {
   type: 'Image',
   fields: [
+    { prop: 'size', label: 'Size', kind: 'image-size', section: 'Layout' },
+    { prop: 'src', label: 'Image', kind: 'image-source', section: 'Content' },
+    { prop: 'alt', label: 'Alt text', kind: 'text', section: 'Content' },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     {
       prop: 'aspect',
