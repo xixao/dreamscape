@@ -7,7 +7,6 @@ import { resolver } from '@/components/blocks/registry';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { LABEL } from '@/components/workbench/chrome';
 import { StageProvider } from '@/components/workbench/stage-context';
 import type { FileRecord, OverlayPresentation, OverlayScreen, Screen, ToastPosition } from '@/lib/files/repository';
 import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
@@ -39,7 +38,8 @@ type PlayAction =
   // run from the screen itself, or Escape). With one: exactly that overlay,
   // wherever it sits in the stack (its own close button or backdrop, or a
   // Close overlay interaction fired from inside it).
-  | { type: 'closeOverlay'; screenId?: string };
+  | { type: 'closeOverlay'; screenId?: string }
+  | { type: 'reset'; screenId: string };
 
 // A plain reducer (rather than a ref-juggled useCallback, as
 // components/workbench/workbench.tsx uses for its own not-quite-comparable
@@ -106,6 +106,13 @@ function playReducer(state: PlayState, action: PlayAction): PlayState {
       if (!state.overlayStack.includes(action.screenId)) return state;
       return { ...state, overlayStack: state.overlayStack.filter((id) => id !== action.screenId) };
     }
+    case 'reset':
+      return {
+        currentScreenId: action.screenId,
+        history: [],
+        openDialogIds: new Set(),
+        overlayStack: [],
+      };
     default:
       return state;
   }
@@ -216,6 +223,8 @@ export function Player({
     openDialogIds: new Set<string>(),
     overlayStack: initialOverlayId !== undefined && overlaysById.has(initialOverlayId) ? [initialOverlayId] : [],
   });
+  const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [presentationZoom, setPresentationZoom] = useState(1);
 
   // Ignores a navigate interaction whose stored targetScreenId names a
   // screen that no longer exists (deleted in the editor after the
@@ -255,19 +264,6 @@ export function Player({
 
   const currentScreen = baseScreens.find((screen) => screen.id === state.currentScreenId) ?? baseScreens[0];
   const closeHref = `/f/${file.id}#s=${state.currentScreenId}`;
-
-  // The Play chip and every overlay's own X share the viewport's top-right
-  // corner (a sheet's or toast's close button is `absolute top-3 right-3`
-  // inside a surface pinned there), so the chip only rises above the
-  // overlays - and opts back into pointer events, behind a modal's
-  // `pointer-events: none` on <body> - when the top overlay is not
-  // dismissible: the one case where it is the way out of Play, and the one
-  // case where the overlay shows no X for it to cover. Otherwise it keeps
-  // its plain z-50 and the overlays paint over it (portalled dialogs and
-  // sheets by DOM order, toasts by their z-[60]).
-  const topOverlay =
-    state.overlayStack.length > 0 ? overlaysById.get(state.overlayStack[state.overlayStack.length - 1]) : undefined;
-  const chipAboveOverlays = topOverlay !== undefined && !isDismissible(topOverlay.presentation);
 
   // Read by the Escape handler below instead of closing over
   // state.openDialogIds / state.overlayStack directly: that effect is only
@@ -350,27 +346,57 @@ export function Player({
   // expected in production.
   if (!currentScreen) return null;
 
+  const presentationWidth = viewportMode === 'mobile' ? 390 : currentScreen.stageWidth;
+  const zoomIn = () => setPresentationZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))));
+  const zoomOut = () => setPresentationZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))));
+  const resetPresentation = () => {
+    dispatch({ type: 'reset', screenId: resolveInitialScreenId(baseScreens, file.pages, initialScreenId, initialPageId) ?? currentScreen.id });
+    setViewportMode('desktop');
+    setPresentationZoom(1);
+  };
+
   return (
     <PlayProvider value={play}>
-      <div className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
-        <StageProvider key={state.currentScreenId} initialWidth={currentScreen.stageWidth}>
-          <div
-            data-testid="artboard"
-            className={cn(
-              'relative shrink-0 bg-background',
-              currentScreen.stageHeight != null && 'overflow-auto',
-            )}
-            style={
-              currentScreen.stageHeight != null
-                ? { width: currentScreen.stageWidth, height: currentScreen.stageHeight }
-                : { width: currentScreen.stageWidth, minHeight: ARTBOARD_MIN_HEIGHT }
-            }
-          >
-            <Editor resolver={resolver} enabled={false}>
-              <Frame key={state.currentScreenId} data={currentScreen.layout} />
-            </Editor>
+      <div className="theme-basic flex min-h-screen flex-col overflow-auto bg-background text-foreground">
+        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 shadow-panel">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="truncate text-sm font-semibold">{file.name}</span>
+            <span className="text-xs text-muted-foreground">Presentation · {currentScreen.name}</span>
+            <span className="rounded border px-2 py-0.5 text-[11px] text-muted-foreground">Read-only</span>
           </div>
-        </StageProvider>
+          <div className="flex items-center gap-1" aria-label="Presentation controls">
+            <Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('desktop')} aria-pressed={viewportMode === 'desktop'}>
+              Desktop
+            </Button>
+            <Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('mobile')} aria-pressed={viewportMode === 'mobile'}>
+              Mobile
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={zoomOut} aria-label="Zoom out">−</Button>
+            <span className="min-w-12 text-center font-mono text-xs" aria-live="polite">{Math.round(presentationZoom * 100)}%</span>
+            <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
+            <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
+            <a href={closeHref} className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Exit</a>
+          </div>
+        </header>
+        <main className="flex flex-1 items-start justify-center overflow-auto p-8" aria-label="Presentation preview">
+          <div style={{ zoom: presentationZoom }}>
+            <StageProvider key={`${state.currentScreenId}-${viewportMode}`} initialWidth={presentationWidth}>
+              <div
+                data-testid="artboard"
+                className={cn('relative shrink-0 bg-background', currentScreen.stageHeight != null && 'overflow-auto')}
+                style={
+                  currentScreen.stageHeight != null
+                    ? { width: presentationWidth, height: currentScreen.stageHeight }
+                    : { width: presentationWidth, minHeight: ARTBOARD_MIN_HEIGHT }
+                }
+              >
+                <Editor resolver={resolver} enabled={false}>
+                  <Frame key={state.currentScreenId} data={currentScreen.layout} />
+                </Editor>
+              </div>
+            </StageProvider>
+          </div>
         {/* Overlay frames, bottom to top, each a sibling of the screen's
             Editor (never inside it) with its own StageProvider and Editor.
             Array order is stacking order: Radix layers dialogs and sheets
@@ -386,18 +412,7 @@ export function Player({
             />
           ) : null;
         })}
-        <div
-          className={cn(
-            'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
-            chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
-          )}
-        >
-          <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
-          <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
-          <a href={closeHref} className="text-t2 underline hover:no-underline">
-            Close
-          </a>
-        </div>
+        </main>
       </div>
     </PlayProvider>
   );
