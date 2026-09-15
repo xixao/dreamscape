@@ -1,7 +1,7 @@
 'use client';
 
 import { Editor, Frame } from '@craftjs/core';
-import { MonitorIcon, SmartphoneIcon, XIcon, MoreHorizontalIcon, PanelRightIcon, ChevronDownIcon } from 'lucide-react';
+import { MonitorIcon, SmartphoneIcon, XIcon, MoreHorizontalIcon, PanelRightIcon, ChevronDownIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -244,7 +244,8 @@ export function Player({
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'overview'>('screens');
   const [overviewNotes, setOverviewNotes] = useState('');
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
   const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
@@ -346,6 +347,13 @@ export function Player({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return;
+      if (isExpanded) {
+        event.preventDefault();
+        setIsExpanded(false);
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+        requestAnimationFrame(() => expandButtonRef.current?.focus());
+        return;
+      }
       const seenByOverlay = escapeEventRef.current === event;
       escapeEventRef.current = null;
 
@@ -365,7 +373,7 @@ export function Player({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeHref, overlaysById]);
+  }, [closeHref, overlaysById, isExpanded]);
 
   useEffect(() => {
     try {
@@ -378,7 +386,12 @@ export function Player({
     } catch { setSaveMessage('Saved overview could not be loaded.'); }
   }, [file.id]);
   useEffect(() => {
-    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const update = () => {
+      if (!document.fullscreenElement) {
+        setIsExpanded(false);
+        requestAnimationFrame(() => expandButtonRef.current?.focus());
+      }
+    };
     document.addEventListener('fullscreenchange', update);
     return () => document.removeEventListener('fullscreenchange', update);
   }, []);
@@ -401,11 +414,16 @@ export function Player({
     setPendingPin(null);
     setOpenThreadId(null);
   };
-  const toggleFullscreen = async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
-    } catch { setSaveMessage('Fullscreen is unavailable in this browser.'); }
+  const toggleExpanded = async () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+      requestAnimationFrame(() => expandButtonRef.current?.focus());
+    } else {
+      setIsExpanded(true);
+      // Embedded browsers may not support native fullscreen; expanded view still works.
+      await document.documentElement.requestFullscreen?.().catch(() => {});
+    }
   };
   const visibleThreads = allThreads.filter((thread) => !thread.screenId || thread.screenId === currentScreen.id);
   useLayoutEffect(() => {
@@ -436,7 +454,7 @@ export function Player({
     <PlayProvider value={play}>
       <TooltipProvider delayDuration={300}>
       <div className="presentation-stage relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
-        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        {!isExpanded && <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate text-sm font-semibold tracking-tight">{overviewTitle}</span>
             <span className="hidden text-xs text-muted-foreground md:block">{currentScreen.name}</span>
@@ -446,14 +464,16 @@ export function Player({
             <DropdownMenu><Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger></TooltipTrigger><TooltipContent className="z-[110]" sideOffset={8}>Desktop preview</TooltipContent></Tooltip><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             <DropdownMenu><Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger></TooltipTrigger><TooltipContent className="z-[110]" sideOffset={8}>Mobile preview</TooltipContent></Tooltip><DropdownMenuContent className="z-[100] min-w-72 max-h-80" align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="Zoom options">{fitView ? 'Fit' : `${Math.round(presentationZoom * 100)}%`} <ChevronDownIcon className="size-3" aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-48" align="end"><DropdownMenuItem onSelect={() => setFitView(true)}>Fit to window</DropdownMenuItem>{[.5,.75,1,1.25,1.5,2].map((zoom) => <DropdownMenuItem key={zoom} onSelect={() => changeZoom(zoom)}>{zoom * 100}%</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
-            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options"><MoreHorizontalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem><DropdownMenuItem onSelect={() => void toggleFullscreen()}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</DropdownMenuItem><DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(window.location.href).then(() => setSaveMessage('Presentation link copied.'), () => setSaveMessage('Could not copy the link.')); }}>Copy presentation link</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options"><MoreHorizontalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem><DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(window.location.href).then(() => setSaveMessage('Presentation link copied.'), () => setSaveMessage('Could not copy the link.')); }}>Copy presentation link</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); }} aria-pressed={commentsPanelOpen}>
               <PanelRightIcon className="size-4" aria-hidden="true" /> Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
+            <Tooltip><TooltipTrigger asChild><Button ref={expandButtonRef} type="button" variant="ghost" size="icon" aria-label="Expand presentation" onClick={() => void toggleExpanded()}><MaximizeIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Expand presentation</TooltipContent></Tooltip>
             <a href={closeHref} className={cn("ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", exitAboveOverlays && "pointer-events-auto")}>Exit</a>
           </div>
-        </header>
-        {saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
+        </header>}
+        {isExpanded && <Button autoFocus type="button" variant="secondary" size="sm" className="pointer-events-auto absolute right-4 top-4 z-[110] gap-2 border shadow-lg" aria-label="Exit expanded view" onClick={() => void toggleExpanded()}><MinimizeIcon aria-hidden="true" className="size-4" /> Back to presentation</Button>}
+        {!isExpanded && saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
         <div className="flex min-h-0 flex-1">
         <main ref={previewRef} className="flex min-w-0 flex-1 items-start justify-start overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
           <div className="m-auto shrink-0" style={{ zoom: presentationZoom }}>
@@ -516,7 +536,7 @@ export function Player({
           ) : null;
         })}
         </main>
-        {commentsPanelOpen && (
+        {commentsPanelOpen && !isExpanded && (
           <aside className="fixed inset-x-0 bottom-0 z-[85] max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-80 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none" aria-label="Review">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>

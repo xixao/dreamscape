@@ -269,6 +269,20 @@ describe('Player', () => {
     expect(artboard).toHaveClass('overflow-auto');
   });
 
+  it('expands the stage and returns with Escape without leaving playback', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} initialScreenId="screen1" />);
+    await user.click(screen.getByRole('button', { name: 'Expand presentation' }));
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Exit expanded view' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Exit expanded view' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Expand presentation' }));
+    await user.click(screen.getByRole('button', { name: 'Exit expanded view' }));
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+  });
+
   it('shows the screen name and Exit link in the top bar', async () => {
     render(<Player file={makeFile()} initialScreenId="screen1" />);
     await screen.findByRole('button', { name: 'Go to second screen' });
