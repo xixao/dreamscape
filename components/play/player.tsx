@@ -233,6 +233,7 @@ export function Player({
   const allThreads = useSyncExternalStore(commentStore.subscribe, commentStore.list, () => []);
   const [commentMode, setCommentMode] = useState(false);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'details'>('comments');
   const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
@@ -401,18 +402,17 @@ export function Player({
             <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
-            <Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('desktop')} aria-pressed={viewportMode === 'desktop'}>
-              Desktop
-            </Button>
-            <Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('mobile')} aria-pressed={viewportMode === 'mobile'}>
-              Mobile
-            </Button>
+            <label className="sr-only" htmlFor="presentation-viewport">Preview viewport</label>
+            <select id="presentation-viewport" value={viewportMode} onChange={(event) => setViewportMode(event.target.value as 'desktop' | 'mobile')} className="h-9 rounded-md border border-line-strong bg-(color:--chip) px-2 text-xs text-t2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <option value="desktop">Preview: Desktop</option>
+              <option value="mobile">Preview: Mobile</option>
+            </select>
             <Button type="button" variant="ghost" size="sm" onClick={zoomOut} aria-label="Zoom out">−</Button>
             <span className="min-w-12 text-center font-mono text-xs" aria-live="polite">{Math.round(presentationZoom * 100)}%</span>
             <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
             <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
-            <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => setCommentsPanelOpen((value) => !value)} aria-pressed={commentsPanelOpen}>
+            <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); setReviewPanelTab('comments'); }} aria-pressed={commentsPanelOpen}>
               Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
             </Button>
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
@@ -503,7 +503,18 @@ export function Player({
                 {commentMode ? 'Cancel pin' : 'Place comment'}
               </Button>
             </div>
-            {visibleThreads.length === 0 ? (
+            <div className="mb-4 grid grid-cols-3 gap-1 rounded-md bg-(color:--chip) p-1" role="tablist" aria-label="Review panel">
+              {(['screens', 'comments', 'details'] as const).map((tab) => (
+                <button key={tab} type="button" role="tab" aria-selected={reviewPanelTab === tab} className={cn('rounded px-2 py-1.5 text-[11px] capitalize', reviewPanelTab === tab ? 'bg-accent text-foreground' : 'text-t4 hover:text-t2')} onClick={() => setReviewPanelTab(tab)}>{tab}</button>
+              ))}
+            </div>
+            {reviewPanelTab === 'screens' ? (
+              <div className="space-y-2">
+                {baseScreens.map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}>{screen.name}</button>)}
+              </div>
+            ) : reviewPanelTab === 'details' ? (
+              <dl className="space-y-3 text-xs"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl>
+            ) : visibleThreads.length === 0 ? (
               <div className="rounded-md border border-dashed border-line-strong p-4 text-xs text-t4">
                 No comments on this screen yet.
               </div>
