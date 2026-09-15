@@ -1,3 +1,4 @@
+import { isComponentLayout } from '@/lib/custom-components/model';
 import { snapToSpacing } from '@/lib/classes';
 import {
   ARROW_KINDS,
@@ -23,7 +24,7 @@ import {
 } from '@/lib/diagram/store';
 import { clampWidth } from '@/lib/stage';
 
-type SerializedNodeLike = { type?: { resolvedName?: string } | string };
+type SerializedNodeLike = { props?: Record<string, unknown>; type?: { resolvedName?: string } | string };
 
 function resolvedTypeName(node: SerializedNodeLike | undefined): string | undefined {
   return typeof node?.type === 'string' ? node.type : node?.type?.resolvedName;
@@ -73,6 +74,9 @@ export function validateLayout(json: string, knownTypes: ReadonlySet<string>): V
 
   for (const [id, node] of Object.entries(parsed as Record<string, SerializedNodeLike>)) {
     const name = resolvedTypeName(node);
+    if (name === 'CustomComponent' && (typeof node?.props?.layout !== 'string' || !isComponentLayout(node.props.layout))) {
+      return { ok: false, reason: 'Invalid custom component definition' };
+    }
     if (!name || !knownTypes.has(name)) {
       return { ok: false, reason: `uses an unknown block "${name}" (node ${id})` };
     }

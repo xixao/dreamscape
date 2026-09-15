@@ -437,8 +437,8 @@ describe('Inspector', () => {
       const frameSection = within(panel).getByTestId('frame-section');
 
       expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('12');
-      expect(within(frameSection).getByLabelText('Gutter')).toHaveTextContent('24 px');
-      expect(within(frameSection).getByLabelText('Margin')).toHaveTextContent('32 px');
+      expect(within(frameSection).getByLabelText('Gutter')).toHaveValue('24');
+      expect(within(frameSection).getByLabelText('Margin')).toHaveValue('32');
       expect(within(frameSection).getByLabelText('Show layout grid')).not.toBeChecked();
     });
 

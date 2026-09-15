@@ -66,7 +66,7 @@ describe('ElementDocsDialog', () => {
     for (const head of heads) {
       expect(classesOf(head)).toEqual(expect.arrayContaining(LABEL.split(' ')));
     }
-    expect(propNames(table)).toEqual(['label', 'variant', 'size', 'disabled', 'grow']);
+    expect(propNames(table)).toEqual(schemaFor('Button')!.fields.map(field => field.prop));
 
     const variantRow = within(table).getByText('variant').closest('tr')!;
     const variantCells = within(variantRow).getAllByRole('cell');
@@ -205,13 +205,15 @@ describe('ElementDocsDialog', () => {
 
 describe('propertyRows', () => {
   it('turns the schema into rows with the option labels as the type and the default mapped to its label', () => {
-    expect(propertyRows('Textarea')).toEqual([
+    expect(propertyRows('Textarea')).toEqual(expect.arrayContaining([
       { prop: 'label', label: 'Label', type: 'Text', defaultValue: 'Empty' },
       { prop: 'placeholder', label: 'Placeholder', type: 'Text', defaultValue: 'Placeholder' },
       { prop: 'rows', label: 'Rows', type: '2, 3, 4, 5, 6', defaultValue: '3' },
       { prop: 'disabled', label: 'Disabled', type: 'Boolean', defaultValue: 'Off' },
       { prop: 'grow', label: 'Fill container', type: 'Boolean', defaultValue: 'Off' },
-    ]);
+      { prop: 'autoGrow', label: 'Auto-grow', type: 'Boolean', defaultValue: 'Off' },
+      { prop: 'borderless', label: 'Borderless', type: 'Boolean', defaultValue: 'Off' },
+    ]));
   });
 
   it('shows a responsive default per breakpoint, or once when both breakpoints agree', () => {

@@ -1,5 +1,7 @@
+import { designStyle, SIZE_DEFAULTS, APPEARANCE_DEFAULTS, SIZE_FIELDS, APPEARANCE_FIELDS } from './design-controls';
+import type { Breakpoint } from '@/lib/responsive';
 import { ROOT_NODE, useNode, type UserComponent } from '@craftjs/core';
-import type { ReactNode } from 'react';
+import type { ReactNode, CSSProperties } from 'react';
 import {
   COLUMN_OPTIONS,
   LAYOUT_BOX_DEFAULTS,
@@ -17,7 +19,7 @@ import { useStage } from '@/components/workbench/stage-context';
 import { DropZone, StageEmptyState } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
-export type LayoutBoxBlockProps = Partial<LayoutBoxProps> & { children?: ReactNode };
+export type LayoutBoxBlockProps = Partial<LayoutBoxProps> & { children?: ReactNode; sizeStyles?: Partial<Record<Breakpoint, Partial<LayoutBoxProps>>> };
 
 export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...props }) => {
   const { breakpoint } = useStage();
@@ -49,7 +51,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
   // needs a normalizer at the point that layout is loaded, before Craft.js
   // deserializes it (see the `lib/files/validate.ts` normaliser note in the
   // task brief) -- out of this sub-project's file scope.
-  const merged: LayoutBoxProps = { ...LAYOUT_BOX_DEFAULTS, ...props, ...normalizeSpacing(props) };
+  const merged: LayoutBoxProps = { ...LAYOUT_BOX_DEFAULTS, ...props, ...normalizeSpacing(props), ...props.sizeStyles?.[breakpoint] };
 
   return (
     <div
@@ -60,7 +62,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
       }}
       data-block="LayoutBox"
       className={cn(layoutBoxClasses(merged, breakpoint), !isRoot && blockClasses(merged))}
-      style={isRoot ? { minHeight: ARTBOARD_MIN_HEIGHT } : undefined}
+      style={{ ...(isRoot ? { minHeight: ARTBOARD_MIN_HEIGHT } : {}), gap: merged.gapPx, padding: merged.paddingPx, ...designStyle(merged), '--component-node-min-height': merged.minHeightPx !== undefined ? `${merged.minHeightPx}px` : undefined } as CSSProperties}
       onClick={onClick}
     >
       {childCount === 0 ? (isRoot ? <StageEmptyState /> : <DropZone />) : children}
@@ -70,7 +72,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
 
 LayoutBox.craft = {
   displayName: 'Frame',
-  props: LAYOUT_BOX_DEFAULTS,
+  props: { ...LAYOUT_BOX_DEFAULTS, ...SIZE_DEFAULTS, ...APPEARANCE_DEFAULTS },
   rules: {
     canDrag: (node) => node.id !== ROOT_NODE,
   },
@@ -82,6 +84,7 @@ const isGrid = (props: Record<string, unknown>) => props.mode === 'grid';
 export const layoutBoxSchema: BlockSchema = {
   type: 'LayoutBox',
   fields: [
+    ...SIZE_FIELDS, ...APPEARANCE_FIELDS,
     {
       prop: 'mode',
       label: 'Layout',
@@ -143,14 +146,14 @@ export const layoutBoxSchema: BlockSchema = {
     {
       prop: 'gapPx',
       label: 'Gap',
-      kind: 'select',
+      kind: 'spacing',
       section: 'Layout',
       options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
     },
     {
       prop: 'paddingPx',
       label: 'Padding',
-      kind: 'select',
+      kind: 'spacing',
       section: 'Layout',
       options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
     },

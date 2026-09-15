@@ -1,12 +1,13 @@
 'use client';
 
-import { ROOT_NODE, useEditor, useNode } from '@craftjs/core';
+import { ROOT_NODE, useNode } from '@craftjs/core';
 import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { ZONE_TYPES } from '@/components/blocks/registry';
 import { describeInteraction, getInteraction } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
+import { useSettledEditorState } from './use-settled-editor-state';
 import { InteractionTag } from './interaction-tag';
 import { usePrototypeContext } from './prototype-context';
 import { useStage } from './stage-context';
@@ -45,8 +46,8 @@ export function SelectionOutline({
     >
       {weight === 'selected' && (
         <span
-          className="absolute top-0 left-0 -translate-y-full bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white uppercase"
-          style={{ backgroundColor: color === 'var(--acc)' ? 'var(--primary)' : color }}
+          className={cn('absolute top-0 left-0 bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white uppercase', rect.top >= 24 && '-translate-y-full')}
+          style={{ top: Math.max(0, -rect.top), backgroundColor: color === 'var(--acc)' ? 'var(--primary)' : color }}
         >
           {label}
         </span>
@@ -63,21 +64,12 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     isHovered: node.events.hovered,
     custom: node.data.custom,
   }));
-  const { isSelected, treeVersion, nodes } = useEditor((state) => ({
-    isSelected: state.events.selected.has(id),
-    // A cheap fingerprint of the whole tree's shape: every node id paired with
-    // its own ordered children, joined into one string. It changes whenever any
-    // node anywhere is added, removed, or moved, unlike a plain node-count or
-    // id-list check, which misses a same-parent reorder. Read only to force the
-    // effect below to re-run; see the note in its dependency array.
-    treeVersion: Object.entries(state.nodes)
-      .map(([nodeId, node]) => `${nodeId}:${node.data.nodes.join(',')}`)
-      .join('|'),
-    // A plain reference, not a transform: describeInteraction below only
-    // reads from it when this node actually has an interaction to describe
-    // (rare), so this costs nothing for every other node's collector.
-    nodes: state.nodes,
-  }));
+  const editorSnapshot = useSettledEditorState();
+  const nodes = editorSnapshot.nodes;
+  const isSelected = editorSnapshot.events.selected.has(id);
+  const treeVersion = Object.entries(nodes)
+    .map(([nodeId, node]) => `${nodeId}:${node.data.nodes.join(',')}`)
+    .join('|');
   // The stage scales the artboard with a CSS transform to fit the column
   // (see stage.tsx / canvas-frame.tsx). `zoom` and `width` are read here only
   // to force the effect below to re-measure when either changes; see the

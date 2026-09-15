@@ -8,12 +8,12 @@ import {
 } from './responsive';
 
 describe('breakpointForWidth', () => {
-  it('is mobile below 768 and desktop from 768 up', () => {
+  it('uses mobile below 768, tablet below 1024, and desktop above', () => {
     expect(BREAKPOINT_MD).toBe(768);
     expect(breakpointForWidth(320)).toBe('mobile');
     expect(breakpointForWidth(375)).toBe('mobile');
     expect(breakpointForWidth(767)).toBe('mobile');
-    expect(breakpointForWidth(768)).toBe('desktop');
+    expect(breakpointForWidth(768)).toBe('tablet');
     expect(breakpointForWidth(1440)).toBe('desktop');
   });
 });

@@ -17,7 +17,8 @@ describe('Image block', () => {
     );
     const block = container.querySelector('[data-block="Image"]');
     expect(block).not.toBeNull();
-    expect(block).toHaveClass('bg-muted', 'aspect-square', 'rounded-md', 'w-full');
+    expect(block).toHaveClass('w-full');
+    expect(block?.querySelector('[data-image-surface]')).toHaveClass('bg-muted', 'aspect-square', 'rounded-md');
     expect(await screen.findByText('Image')).toBeInTheDocument();
     expect(block?.querySelector('svg')).not.toBeNull();
   });
@@ -44,7 +45,7 @@ describe('Image block', () => {
         </Element>,
       );
       await screen.findByText('Image');
-      expect(container.querySelector('[data-block="Image"]')).toHaveClass(className);
+      expect(container.querySelector('[data-image-surface]')).toHaveClass(className);
       unmount();
     }
   });
@@ -62,11 +63,23 @@ describe('Image block', () => {
         </Element>,
       );
       await screen.findByText('Image');
-      expect(container.querySelector('[data-block="Image"]')).toHaveClass(className);
+      expect(container.querySelector('[data-image-surface]')).toHaveClass(className);
       unmount();
     }
   });
 
+  it('updates the ratio surface independently of its flex layout wrapper', () => {
+    const { container, editor } = renderTree(<Element is={LayoutBox} canvas direction={{ mobile: 'row' }}><Image grow /></Element>);
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    const surface = container.querySelector('[data-image-surface]') as HTMLElement;
+    expect(surface.style.aspectRatio).toBe('1 / 1');
+    act(() => editor().actions.setProp(id, props => { props.aspect = 'wide'; }));
+    expect(surface.style.aspectRatio).toBe('21 / 9');
+    expect(surface).not.toHaveClass('flex-1');
+    expect(container.querySelector('[data-block="Image"]')).toHaveClass('flex-1', 'self-start');
+    act(() => editor().actions.setProp(id, props => { props.aspect = 'portrait'; }));
+    expect(surface.style.aspectRatio).toBe('3 / 4');
+  });
   it('applies grow', async () => {
     const { container } = renderTree(
       <Element is={LayoutBox} canvas>

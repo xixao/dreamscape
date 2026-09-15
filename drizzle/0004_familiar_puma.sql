@@ -1,0 +1,1 @@
+ALTER TABLE "files" ADD COLUMN "components" jsonb DEFAULT '[]' NOT NULL;

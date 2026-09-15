@@ -1,5 +1,7 @@
 'use client';
 
+import { ComponentLibraryProvider } from './component-builder/library-context';
+import { countInstances, updateInstances, replaceSelection, type ComponentDefinition } from '@/lib/custom-components/model';
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
@@ -37,7 +39,8 @@ import {
 import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
-import { CHIP } from './chrome';
+import { CHIP, PANEL } from './chrome';
+import { LayersPanel } from './layers-panel';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
@@ -248,6 +251,7 @@ export function Workbench({
   // below - purely a hint for that notice, never re-validated here.
   invalidScreenIds?: string[];
 }) {
+  const [components, setComponents] = useState<ComponentDefinition[]>(file.components ?? []);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [fileName, setFileName] = useState(file.name);
   // Computed once, up front, and reused by every state initializer below
@@ -979,7 +983,22 @@ export function Workbench({
       ? INVALID_LAYOUT_NOTICE
       : undefined;
 
+  function changeComponent(definition: ComponentDefinition, remove = false, sourceId?: string) {
+    const nextComponents = remove ? components.filter(item => item.id !== definition.id)
+      : [...components.filter(item => item.id !== definition.id), definition];
+    const nextScreens = screensRef.current.map(screen => {
+      return { ...screen, layout: updateInstances(sourceId && screen.id === currentScreenIdRef.current ? replaceSelection(screen.layout, sourceId, definition) : screen.layout, definition, remove) };
+    });
+    setComponents(nextComponents); setScreens(nextScreens); screensRef.current = nextScreens;
+    const focused = nextScreens.find(screen => screen.id === currentScreenIdRef.current);
+    if (focused) editorActionsRef.current?.deserialize(focused.layout);
+    queuePatch({ components: nextComponents, screens: nextScreens });
+  }
+
   return (
+    <ComponentLibraryProvider fileId={file.id} components={components} saveState={saveState}
+      onSave={(definition, sourceId) => changeComponent(definition, false, sourceId)} onRemove={definition => changeComponent(definition, true)}
+      count={id => countInstances(screens.map(screen => screen.layout), id)}>
     <Editor
       resolver={resolver}
       onRender={NodeIndicator}
@@ -1047,6 +1066,7 @@ export function Workbench({
         />
       </StageProvider>
     </Editor>
+    </ComponentLibraryProvider>
   );
 }
 
@@ -1855,6 +1875,7 @@ function WorkbenchShell({
               )}
               <LayerStackMenu />
             </StageErrorBoundary>
+            {!uiHidden && <aside aria-label="Layers panel" className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 w-64 has-[[data-layers-collapsed=true]]:w-10')}><LayersPanel /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"

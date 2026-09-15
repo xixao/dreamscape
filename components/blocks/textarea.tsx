@@ -1,3 +1,5 @@
+import { useEffect, useRef, useId } from 'react';
+import { designStyle, SIZE_DEFAULTS, SIZE_FIELDS, type DesignProps } from './design-controls';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { Textarea as UiTextarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -9,7 +11,8 @@ import { GROW_FIELD, type BlockSchema } from './schema';
 
 export type TextareaRows = 2 | 3 | 4 | 5 | 6;
 
-export interface TextareaBlockProps extends GrowProps {
+export interface TextareaBlockProps extends GrowProps, DesignProps {
+  borderless?: boolean; autoGrow?: boolean; previewText?: string;
   label: string;
   placeholder: string;
   rows: TextareaRows;
@@ -17,6 +20,7 @@ export interface TextareaBlockProps extends GrowProps {
 }
 
 export const TEXTAREA_DEFAULTS: TextareaBlockProps = {
+  ...SIZE_DEFAULTS, borderless: false, autoGrow: false, previewText: '',
   label: '',
   placeholder: 'Placeholder',
   rows: 3,
@@ -27,6 +31,30 @@ export const TEXTAREA_DEFAULTS: TextareaBlockProps = {
 export const Textarea: UserComponent<Partial<TextareaBlockProps>> = (props) => {
   const merged: TextareaBlockProps = { ...TEXTAREA_DEFAULTS, ...props };
   const play = usePlay();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputId = useId();
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || !merged.autoGrow) return;
+    const resize = () => {
+      input.style.height = 'auto';
+      const min = merged.minHeightPx ?? 64;
+      const max = Math.max(min, merged.maxHeightPx || 10000);
+      const measured = input.scrollHeight + input.offsetHeight - input.clientHeight;
+      input.style.height = `${Math.min(max, Math.max(min, measured))}px`;
+      input.style.overflowY = measured > max ? 'auto' : 'hidden';
+    };
+    resize();
+    input.addEventListener('input', resize);
+    let lastWidth = input.parentElement?.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const width = input.parentElement?.clientWidth;
+      if (width !== lastWidth) { lastWidth = width; resize(); }
+    });
+    // Observe the wrapper width: observing the textarea would react to our own height write.
+    if (input.parentElement) observer.observe(input.parentElement);
+    return () => { input.removeEventListener('input', resize); observer.disconnect(); input.style.height = ''; input.style.overflowY = ''; };
+  }, [merged.autoGrow, merged.minHeightPx, merged.maxHeightPx, merged.previewText]);
   const {
     connectors: { connect, drag },
     custom,
@@ -40,11 +68,16 @@ export const Textarea: UserComponent<Partial<TextareaBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Textarea"
+      style={{ width: designStyle(merged).width, minWidth: designStyle(merged).minWidth, maxWidth: designStyle(merged).maxWidth }}
       className={cn('flex flex-col gap-2', blockClasses(merged))}
       onClick={onClick}
     >
-      {merged.label !== '' && <Label>{merged.label}</Label>}
+      {merged.label !== '' && <Label htmlFor={inputId}>{merged.label}</Label>}
       <UiTextarea
+        ref={inputRef} id={inputId} aria-label={merged.label || merged.placeholder || 'Message'}
+        value={!isPlay ? merged.previewText ?? '' : undefined}
+        defaultValue={isPlay ? merged.previewText : undefined}
+        style={{ ...designStyle({ ...merged, widthMode: 'fill' }), ...(merged.borderless ? { border: 0, boxShadow: 'none', background: 'transparent' } : {}), ...(merged.autoGrow ? { resize: 'none', fieldSizing: 'fixed' } : {}) }}
         placeholder={merged.placeholder}
         rows={merged.rows}
         readOnly={!isPlay}
@@ -65,6 +98,10 @@ Textarea.craft = {
 export const textareaSchema: BlockSchema = {
   type: 'Textarea',
   fields: [
+    ...SIZE_FIELDS,
+    { prop: 'borderless', label: 'Borderless', kind: 'boolean', section: 'Style' },
+    { prop: 'autoGrow', label: 'Auto-grow', kind: 'boolean', section: 'Layout' },
+    { prop: 'previewText', label: 'Preview text', kind: 'text', section: 'Content' },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     { prop: 'placeholder', label: 'Placeholder', kind: 'text', section: 'Content' },
     {

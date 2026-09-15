@@ -1,3 +1,4 @@
+import { designStyle, SIZE_DEFAULTS, APPEARANCE_DEFAULTS, SIZE_FIELDS, APPEARANCE_FIELDS, type DesignProps } from './design-controls';
 import { Element, useNode, type UserComponent } from '@craftjs/core';
 import type { ReactNode } from 'react';
 import {
@@ -14,12 +15,13 @@ import { cn } from '@/lib/utils';
 import { DropZone } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
-export interface CardBlockProps extends GrowProps {
+export interface CardBlockProps extends GrowProps, DesignProps {
   title: string;
   description: string;
 }
 
 export const CARD_DEFAULTS: CardBlockProps = {
+  ...SIZE_DEFAULTS, ...APPEARANCE_DEFAULTS,
   title: 'Card title',
   description: '',
   grow: false,
@@ -67,6 +69,7 @@ export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Card"
+      style={designStyle(merged)}
       className={cn(blockClasses(merged))}
       onClick={onClick}
     >
@@ -89,6 +92,7 @@ Card.craft = {
 export const cardSchema: BlockSchema = {
   type: 'Card',
   fields: [
+    ...SIZE_FIELDS, ...APPEARANCE_FIELDS,
     { prop: 'title', label: 'Title', kind: 'text', section: 'Content' },
     { prop: 'description', label: 'Description', kind: 'text', section: 'Content' },
     GROW_FIELD,

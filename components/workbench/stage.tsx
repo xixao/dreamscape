@@ -174,7 +174,7 @@ const HANDLE_META: Record<
  * closes over the render's pre-drag value for whichever field it is not
  * updating itself.
  */
-function ResizeHandle({
+export function ResizeHandle({
   axis,
   width,
   height,

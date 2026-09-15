@@ -133,7 +133,7 @@ describe('Topbar', () => {
     expect(presetButton('Mobile')).toHaveAttribute('data-state', 'off');
 
     await userEvent.click(presetButton('Tablet'));
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · desktop');
+    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · tablet');
     expect(presetButton('Tablet')).toHaveAttribute('data-state', 'on');
 
     await userEvent.click(presetButton('Mobile'));
@@ -142,7 +142,7 @@ describe('Topbar', () => {
 
   it('shows no active preset at a custom width', () => {
     renderTopbar({}, { width: 900 });
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · desktop');
+    expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · tablet');
     for (const label of ['Mobile', 'Tablet', 'Desktop']) {
       expect(presetButton(label)).toHaveAttribute('data-state', 'off');
     }

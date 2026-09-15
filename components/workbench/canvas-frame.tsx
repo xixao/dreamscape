@@ -7,21 +7,39 @@ import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { invalidateDropCache, type CraftEventHandlerLike } from '@/lib/craft-positioner';
 import { type CanvasDocument, useStage } from './stage-context';
 
-// Marks every stylesheet node this component copies into the iframe head,
-// so a later sync pass can tell "copied by us" apart from anything else
-// that might land in that head, and so it can cheaply clear and re-copy
-// instead of diffing node-by-node (HMR style injection/removal is rare
-// enough in practice that re-copying the whole set on every parent-head
-// mutation is not worth optimizing away).
+// Preserve loaded sheets when menus inject/remove their temporary styles.
+// Replacing every link briefly strips the canvas of its layout styles.
 const SYNC_MARKER = 'data-canvas-sync';
 
-function copyStylesheets(iframeDoc: Document): void {
-  iframeDoc.head.querySelectorAll(`[${SYNC_MARKER}]`).forEach((node) => node.remove());
-  document.head.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
-    const clone = node.cloneNode(true) as Element;
-    clone.setAttribute(SYNC_MARKER, '');
-    iframeDoc.head.appendChild(clone);
-  });
+function createStylesheetSync(iframeDoc: Document): () => void {
+  const copies = new Map<Element, Element>();
+  return () => {
+    const sources = Array.from(document.head.querySelectorAll('link[rel="stylesheet"], style'));
+    const current = new Set(sources);
+    for (const [source, clone] of copies) {
+      if (!current.has(source)) { clone.remove(); copies.delete(source); }
+    }
+    let cursor: ChildNode | null = iframeDoc.head.querySelector(`[${SYNC_MARKER}]`);
+    for (const source of sources) {
+      let clone = copies.get(source);
+      if (!clone) {
+        clone = source.cloneNode(true) as Element;
+        clone.setAttribute(SYNC_MARKER, '');
+        copies.set(source, clone);
+      } else {
+        for (const attribute of Array.from(clone.attributes)) {
+          if (attribute.name !== SYNC_MARKER && !source.hasAttribute(attribute.name)) clone.removeAttribute(attribute.name);
+        }
+        for (const attribute of Array.from(source.attributes)) {
+          if (clone.getAttribute(attribute.name) !== attribute.value) clone.setAttribute(attribute.name, attribute.value);
+        }
+        if (clone.textContent !== source.textContent) clone.textContent = source.textContent;
+      }
+      // Retain cascade order without detaching unchanged, loaded links.
+      if (clone !== cursor) iframeDoc.head.insertBefore(clone, cursor);
+      cursor = clone.nextSibling;
+    }
+  };
 }
 
 /**
@@ -186,8 +204,9 @@ function CanvasFrameImpl({
       iframeDoc.body.style.margin = '0';
       iframeDoc.body.style.colorScheme = 'light';
 
-      copyStylesheets(iframeDoc);
-      const styleObserver = new MutationObserver(() => copyStylesheets(iframeDoc));
+      const syncStylesheets = createStylesheetSync(iframeDoc);
+      syncStylesheets();
+      const styleObserver = new MutationObserver(syncStylesheets);
       // `attributes`/`characterData` alongside the original `childList`/
       // `subtree`: HMR can rewrite an existing `<link href>` or a `<style>`
       // text node in place (no node added or removed), which `childList`

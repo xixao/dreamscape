@@ -124,6 +124,36 @@ describe('CanvasFrame', () => {
     }
   });
 
+  it('keeps loaded canvas styles attached when dropdown styles appear and disappear', async () => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = 'https://example.test/stable.css';
+    const style = document.createElement('style'); style.textContent = '.stable { display: flex; }';
+    const menu = document.createElement('style'); menu.textContent = 'body[data-scroll-locked] { overflow: hidden; }';
+    document.head.append(link, style);
+    try {
+      renderFrame(<div>Content</div>);
+      const head = (screen.getByTestId('canvas-frame') as HTMLIFrameElement).contentDocument!.head;
+      const copiedLink = head.querySelector('link[href$="stable.css"]');
+      const copiedStyle = Array.from(head.querySelectorAll('style')).find(node => node.textContent === style.textContent);
+      expect(copiedLink).not.toBeNull();
+      const removed: Node[] = [];
+      const observer = new MutationObserver(records => records.forEach(record => removed.push(...record.removedNodes)));
+      observer.observe(head, { childList: true });
+      try {
+        for (let index = 0; index < 3; index++) {
+          document.head.appendChild(menu);
+          await waitFor(() => expect(head.textContent).toContain('data-scroll-locked'));
+          menu.remove();
+          await waitFor(() => expect(head.textContent).not.toContain('data-scroll-locked'));
+          expect(head.querySelector('link[href$="stable.css"]')).toBe(copiedLink);
+          expect(copiedStyle?.isConnected).toBe(true);
+        }
+        expect(removed).not.toContain(copiedLink);
+        expect(removed).not.toContain(copiedStyle);
+      } finally { observer.disconnect(); }
+    } finally { link.remove(); style.remove(); menu.remove(); }
+  });
+
   it('re-copies a stylesheet when an existing link href or style text is rewritten in place (HMR), not just on add/remove', async () => {
     const link = document.createElement('link');
     link.rel = 'stylesheet';

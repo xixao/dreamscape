@@ -21,6 +21,7 @@ import { ROOT_LAYOUT_PROPS } from '@/lib/classes';
  * keys exactly, so the two cannot silently drift apart.
  */
 const KNOWN_TYPE_NAMES = [
+  'CustomComponent',
   'LayoutBox',
   'Button',
   'Input',

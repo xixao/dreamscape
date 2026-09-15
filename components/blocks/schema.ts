@@ -22,7 +22,7 @@ export type BlockType =
 
 export type ZoneType = 'CardContent' | 'DialogContent' | 'TabsContent';
 
-export type FieldKind = 'select' | 'text' | 'boolean';
+export type FieldKind = 'select' | 'text' | 'boolean' | 'spacing' | 'color' | 'border';
 
 export type SectionName = 'Layout' | 'Content' | 'Style' | 'Editor';
 
@@ -37,6 +37,8 @@ export interface FieldSchema {
   kind: FieldKind;
   section: SectionName;
   options?: readonly FieldOption[];
+  max?: number;
+  integer?: boolean;
   responsive?: boolean;
   editorOnly?: boolean;
   showWhen?: (props: Record<string, unknown>) => boolean;

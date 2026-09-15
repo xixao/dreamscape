@@ -1,3 +1,4 @@
+import { componentLibrarySchema } from '@/lib/custom-components/model';
 import { z } from 'zod';
 import { getDb } from '@/db/client';
 import { ARROW_KINDS, CONNECTOR_KINDS, DIAGRAM_COLORS, LINE_STYLES, NODE_KINDS, TEXT_COLORS, TEXT_FONTS, TEXT_SIZES } from '@/lib/diagram/store';
@@ -168,6 +169,7 @@ export const saveBody = z
   .object({
     name: nameField,
     pages: pagesField.optional(),
+    components: componentLibrarySchema.optional(),
     screens: screensField.optional(),
     baseUpdatedAt: z.iso.datetime().optional(),
     folderId: folderIdField,
@@ -176,6 +178,7 @@ export const saveBody = z
     (body) =>
       body.name !== undefined ||
       body.pages !== undefined ||
+      body.components !== undefined ||
       body.screens !== undefined ||
       body.folderId !== undefined,
     'empty patch',

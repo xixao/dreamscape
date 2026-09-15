@@ -1,3 +1,4 @@
+import { componentLibrarySchema, type ComponentDefinition } from '@/lib/custom-components/model';
 import { asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Db } from '@/db/client';
@@ -65,6 +66,7 @@ export type FileRecord = FileSummary & {
   // a FileRecord literal written before pages existed still type-checks
   // with no pages. Real repository code always populates it.
   pages?: Page[];
+  components?: ComponentDefinition[];
 };
 // `screens` is ScreenInput[], not Screen[]: save() (like create() below)
 // validates and normalizes whatever it is given through validateScreens,
@@ -77,6 +79,7 @@ export type SaveInput = {
   name?: string;
   screens?: ScreenInput[];
   pages?: Page[];
+  components?: ComponentDefinition[];
   baseUpdatedAt?: string;
   folderId?: string | null;
 };
@@ -212,6 +215,7 @@ function toRecord(row: FileRow): FileRecord {
     ...toSummary(row),
     screens: toApiScreens(row.screens),
     pages: row.pages as Page[],
+    components: row.components as ComponentDefinition[],
   };
 }
 
@@ -355,6 +359,11 @@ export function createFilesRepository(db: Db) {
     const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
     if (input.name !== undefined) patch.name = input.name;
+    if (input.components !== undefined) {
+      const validated = componentLibrarySchema.safeParse(input.components);
+      if (!validated.success) return { ok: false, invalid: validated.error.issues[0].message };
+      patch.components = validated.data;
+    }
     // Pages and screens are re-validated together whenever either changes:
     // deleting a page must remove its screens in the same patch, and a
     // page-only patch (rename, reorder) must still re-check every EXISTING
@@ -432,6 +441,7 @@ export function createFilesRepository(db: Db) {
         id: nanoid(10),
         name: `${row.name} copy`,
         pages: reIdPages,
+        components: row.components,
         screens: reIdScreens,
         folderId: row.folderId,
       })

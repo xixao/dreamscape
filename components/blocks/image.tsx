@@ -52,15 +52,18 @@ export const Image: UserComponent<Partial<ImageBlockProps>> = (props) => {
       }}
       data-block="Image"
       className={cn(
-        'flex w-full flex-col items-center justify-center gap-2 bg-muted text-muted-foreground',
-        ASPECT_CLASSES[merged.aspect],
-        RADIUS_CLASSES[merged.radius],
+        'w-full min-w-0 self-start',
         blockClasses(merged),
       )}
       onClick={onClick}
     >
-      <ImageIcon className="size-8" aria-hidden />
-      <span className="text-sm">{merged.label}</span>
+      <div data-image-surface className={cn('relative w-full overflow-hidden bg-muted text-muted-foreground', ASPECT_CLASSES[merged.aspect], RADIUS_CLASSES[merged.radius])}
+        style={{ aspectRatio: { square: '1 / 1', video: '16 / 9', portrait: '3 / 4', wide: '21 / 9' }[merged.aspect] }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <ImageIcon className="size-8" aria-hidden />
+          <span className="text-sm">{merged.label}</span>
+        </div>
+      </div>
     </div>
   );
 };

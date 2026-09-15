@@ -214,7 +214,7 @@ const SAVE_STATE_CLASS: Record<SaveState, string> = {
   conflict: 'text-bad',
 };
 
-function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: string }) {
+export function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: string }) {
   return (
     <div className="flex items-center gap-2">
       <span
