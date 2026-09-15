@@ -173,18 +173,18 @@
 .presentation-stage > header {
   min-height: 68px;
   padding-inline: 24px;
-  background: #1e1c26;
+  background: var(--card);
   box-shadow: none;
 }
 .presentation-stage main {
-  background: radial-gradient(ellipse at 50% 40%, #282531 0%, #19171f 75%);
+  background: var(--canvas);
   padding: 40px;
 }
 .presentation-stage [data-testid="artboard"] {
   box-shadow: 0 24px 70px #0005, 0 1px 4px #0003;
 }
 .presentation-stage aside {
-  background: #211f29;
+  background: var(--card);
   flex-shrink: 0;
 }
 .presentation-stage aside h2 { font-size: 17px; letter-spacing: -.025em; }
