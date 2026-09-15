@@ -232,6 +232,7 @@ export function Player({
   const [commentStore] = useState(() => createCommentStore(file.id));
   const allThreads = useSyncExternalStore(commentStore.subscribe, commentStore.list, () => []);
   const [commentMode, setCommentMode] = useState(false);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
@@ -411,13 +412,14 @@ export function Player({
             <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
             <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
-            <Button type="button" variant={commentMode ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
+            <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => setCommentsPanelOpen((value) => !value)} aria-pressed={commentsPanelOpen}>
               Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
             </Button>
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
         </header>
-        <main className="flex flex-1 items-start justify-center overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
+        <div className="flex min-h-0 flex-1">
+        <main className="flex min-w-0 flex-1 items-start justify-center overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
           <div style={{ zoom: presentationZoom }}>
             <StageProvider key={`${state.currentScreenId}-${viewportMode}`} initialWidth={presentationWidth}>
               <div
@@ -490,6 +492,35 @@ export function Player({
           </a>
         </div>
         </main>
+        {commentsPanelOpen && (
+          <aside className="w-full shrink-0 border-l border-line-soft bg-card p-4 sm:w-80" aria-label="Presentation comments">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Comments</h2>
+                <p className="mt-1 text-xs text-t4">{visibleThreads.length} on this screen</p>
+              </div>
+              <Button type="button" variant={commentMode ? 'secondary' : 'outline'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
+                {commentMode ? 'Cancel pin' : 'Place comment'}
+              </Button>
+            </div>
+            {visibleThreads.length === 0 ? (
+              <div className="rounded-md border border-dashed border-line-strong p-4 text-xs text-t4">
+                No comments on this screen yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visibleThreads.map((thread) => (
+                  <button key={thread.id} type="button" className="w-full rounded-md border border-line-soft bg-(color:--chip) p-3 text-left hover:border-line-strong" onClick={() => setOpenThreadId(thread.id)}>
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-t4"><span>{thread.author}</span><span>{new Date(thread.createdAt).toLocaleDateString()}</span></div>
+                    <p className="mt-1 line-clamp-3 text-sm text-t2">{thread.text}</p>
+                    {thread.replies.length > 0 && <span className="mt-2 block text-[11px] text-t4">{thread.replies.length} {thread.replies.length === 1 ? 'reply' : 'replies'}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </aside>
+        )}
+        </div>
       </div>
     </PlayProvider>
   );
