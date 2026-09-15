@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { CanvasFrame } from '@/components/workbench/canvas-frame';
 import { StageProvider } from '@/components/workbench/stage-context';
 import { LABEL } from '@/components/workbench/chrome';
 import { CommentLayer, type PendingPin } from '@/components/workbench/comments/comment-layer';
@@ -547,7 +548,7 @@ export function Player({
             </div>
             {reviewPanelTab === 'screens' ? (
               <div className="space-y-2">
-                {(file.pages?.length ? file.pages : [{ id: undefined, name: 'Screens' }]).map((page) => <section key={page.id ?? 'screens'} className="space-y-2"><h3 className="pt-3 text-xs font-medium text-muted-foreground">{page.name}</h3>{baseScreens.filter((screen) => !page.id || screen.pageId === page.id).map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}><span className="block font-medium">{screen.name}</span><span className="mt-1 block text-xs text-muted-foreground">{screen.stageWidth} px{screen.id === currentScreen.id ? ' · Viewing now' : ' · Open screen'}</span></button>)}</section>)}
+                {(file.pages?.length ? file.pages : [{ id: undefined, name: 'Screens' }]).map((page) => <section key={page.id ?? 'screens'} className="space-y-2"><h3 className="pt-3 text-xs font-medium text-muted-foreground">{page.name}</h3>{baseScreens.filter((screen) => !page.id || screen.pageId === page.id).map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}><ScreenThumbnail screen={screen} /><span className="mt-3 block font-medium">{screen.name}</span><span className="mt-1 block text-xs text-muted-foreground">{screen.stageWidth} px{screen.id === currentScreen.id ? ' · Viewing now' : ' · Open screen'}</span></button>)}</section>)}
               </div>
             ) : reviewPanelTab === 'overview' ? (
               <div className="space-y-3 text-xs"><label className="block"><span className="text-t4">Presentation title</span><input className="mt-1 h-9 w-full rounded-md border border-line-soft bg-(color:--chip) px-2 text-t2" value={overviewTitle} onChange={(event) => setOverviewTitle(event.target.value)} /></label><label className="block"><span className="text-t4">Presenter notes</span><textarea value={overviewNotes} onChange={(event) => setOverviewNotes(event.target.value)} placeholder="Add context for reviewers…" className="mt-1 min-h-24 w-full rounded-md border border-line-soft bg-(color:--chip) p-2 text-t2" /></label><dl className="space-y-3 border-t border-line-soft pt-3"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {devicePreset?.name ?? viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl><Button type="button" size="sm" onClick={() => { try { localStorage.setItem(`dreamscape:presentation-overview:${file.id}`, JSON.stringify({ title: overviewTitle, notes: overviewNotes })); setSaveMessage('Overview saved in this browser.'); } catch { setSaveMessage('Could not save overview. Your draft is still here.'); } }}>Save overview</Button><p className="text-muted-foreground">Saved on this browser. Shared viewers do not receive these notes.</p></div>
@@ -736,4 +737,25 @@ function OverlayHost({
   }
 
   return <PlayProvider value={boundPlay}>{content}</PlayProvider>;
+}
+
+
+/** Reuses the editor canvas so responsive styles use the screen dimensions. */
+function ScreenThumbnail({ screen }: { screen: Screen }) {
+  const width = Math.max(1, screen.stageWidth);
+  const height = screen.stageHeight ?? ARTBOARD_MIN_HEIGHT;
+  const scale = Math.min(272 / width, 144 / Math.max(1, height));
+  return (
+    <span aria-hidden="true" inert className="pointer-events-none flex h-36 w-full items-center justify-center overflow-hidden rounded border border-white/10 bg-white/5">
+      <span className="block shrink-0 overflow-hidden" style={{ width: width * scale, height: height * scale }}>
+        <StageProvider initialWidth={width}>
+          <Editor resolver={resolver} enabled={false}>
+            <CanvasFrame width={width} height={height} zoom={scale} reportDocument={false} title={`Preview of ${screen.name}`}>
+              <Frame data={screen.layout} />
+            </CanvasFrame>
+          </Editor>
+        </StageProvider>
+      </span>
+    </span>
+  );
 }
