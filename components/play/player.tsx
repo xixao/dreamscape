@@ -1,10 +1,11 @@
 'use client';
 
 import { Editor, Frame } from '@craftjs/core';
-import { XIcon } from 'lucide-react';
+import { MonitorIcon, SmartphoneIcon, XIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { StageProvider } from '@/components/workbench/stage-context';
@@ -412,12 +413,8 @@ export function Player({
             <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
-            <label className="sr-only" htmlFor="presentation-viewport">Preview viewport</label>
-            <select id="presentation-viewport" value={devicePreset?.name ?? viewportMode} onChange={(event) => { const value = event.target.value; const preset = DEVICE_PRESET_GROUPS.flatMap((group) => group.devices).find((device) => device.name === value); setDevicePreset(preset ?? null); if (!preset) setViewportMode(value as 'desktop' | 'mobile'); }} className="h-9 max-w-52 rounded-md border border-line-strong bg-(color:--chip) px-2 text-xs text-t2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <option value="desktop">Preview: Desktop</option>
-              <option value="mobile">Preview: Mobile</option>
-              {DEVICE_PRESET_GROUPS.map((group) => <optgroup key={group.group} label={group.group}>{group.devices.map((device) => <option key={`${group.group}-${device.name}`} value={device.name}>{device.name} · {device.width}×{device.height}</option>)}</optgroup>)}
-            </select>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" title="Desktop preview"><MonitorIcon /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Desktop viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Desktop').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('desktop'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('desktop'); }}>Default desktop</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+            <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant={viewportMode === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" title="Mobile preview"><SmartphoneIcon /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Mobile viewports</DropdownMenuLabel><DropdownMenuSeparator />{DEVICE_PRESET_GROUPS.filter((group) => group.group === 'Phone' || group.group === 'Tablet').flatMap((group) => group.devices).map((device) => <DropdownMenuItem key={device.name} onSelect={() => { setDevicePreset(device); setViewportMode('mobile'); }}>{device.name} · {device.width}×{device.height}</DropdownMenuItem>)}<DropdownMenuItem onSelect={() => { setDevicePreset(null); setViewportMode('mobile'); }}>Default mobile</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
             <Button type="button" variant="ghost" size="sm" onClick={zoomOut} aria-label="Zoom out">−</Button>
             <span className="min-w-12 text-center font-mono text-xs" aria-live="polite">{Math.round(presentationZoom * 100)}%</span>
             <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
@@ -425,7 +422,7 @@ export function Player({
             <Button type="button" variant="ghost" size="sm" onClick={toggleFullscreen}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</Button>
             <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
             <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); setReviewPanelTab('comments'); }} aria-pressed={commentsPanelOpen}>
-              Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
+              Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
             <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
