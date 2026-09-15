@@ -392,12 +392,12 @@ export function Player({
 
   return (
     <PlayProvider value={play}>
-      <div className="theme-basic flex min-h-screen flex-col overflow-auto bg-background text-foreground">
-        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
+      <div className="flex min-h-screen flex-col overflow-auto bg-canvas font-sans text-foreground">
+        <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="truncate text-sm font-semibold">{file.name}</span>
-            <span className="text-xs text-muted-foreground">Presentation · {currentScreen.name}</span>
-            <span className="rounded border px-2 py-0.5 text-[11px] text-muted-foreground">Read-only</span>
+            <span className="truncate text-sm font-semibold tracking-tight">{file.name}</span>
+            <span className="text-xs text-t4">Presentation · {currentScreen.name}</span>
+            <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
             <Button type="button" variant={viewportMode === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setViewportMode('desktop')} aria-pressed={viewportMode === 'desktop'}>
@@ -423,7 +423,7 @@ export function Player({
               <div
                 ref={artboardRef}
                 data-testid="artboard"
-                className={cn('relative shrink-0 bg-background shadow-panel-lg ring-1 ring-border/70', currentScreen.stageHeight != null && 'overflow-auto')}
+                className={cn('theme-basic relative shrink-0 bg-background text-foreground shadow-panel-lg ring-1 ring-line-strong', currentScreen.stageHeight != null && 'overflow-auto')}
                 style={
                   currentScreen.stageHeight != null
                     ? { width: presentationWidth, height: currentScreen.stageHeight }
