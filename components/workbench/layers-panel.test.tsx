@@ -1,0 +1,62 @@
+import { Editor, Element, Frame } from '@craftjs/core';
+import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, vi } from 'vitest';
+import { resolver } from '@/components/blocks/registry';
+import { LayoutBox } from '@/components/blocks/layout-box';
+import { Card } from '@/components/blocks/card';
+import { Button } from '@/components/blocks/button';
+import { StageProvider } from './stage-context';
+import { LayersPanel } from './layers-panel';
+
+describe('Layers panel', () => {
+  it('exposes separate utility actions in expanded and collapsed panels', async () => {
+    const open = vi.fn();
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel onOpenShortcuts={open} /></Editor></StageProvider>);
+    await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('href', '/dreamscape-source.zip');
+    await userEvent.click(screen.getByRole('button', { name: 'Minimize layers panel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('download');
+  });
+  it('nests a dragged button inside a frame without losing it', async () => {
+    const user = userEvent.setup();
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas><Button /><Element is={LayoutBox} canvas /></Element></Frame><LayersPanel /></Editor></StageProvider>);
+    const tree = screen.getByRole('tree');
+    const source = within(tree).getByRole('button', { name: 'Button' }).parentElement!;
+    const destination = within(tree).getAllByRole('button', { name: 'Frame' })[1].parentElement!;
+    const data = new Map<string, string>();
+    const dataTransfer = { setData: (key: string, value: string) => data.set(key, value), getData: (key: string) => data.get(key), types: ['application/x-dreamscape-layer'] };
+    destination.getBoundingClientRect = () => ({ top: 0, height: 40 } as DOMRect);
+    fireEvent.dragStart(source, { dataTransfer });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperties(drop, { dataTransfer: { value: dataTransfer }, clientY: { value: 20 } });
+    fireEvent(destination, drop);
+    await waitFor(() => expect(within(destination.parentElement!).getByRole('button', { name: 'Button' })).toBeInTheDocument());
+    await user.click(within(tree).getAllByRole('button', { name: 'Collapse Frame' })[1]);
+    expect(within(tree).queryByRole('button', { name: 'Button' })).not.toBeInTheDocument();
+  });
+  it('selects, renames, reorders, duplicates nested content, and deletes', async () => {
+    const user = userEvent.setup();
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas><Element is={LayoutBox} canvas><Button label="Mic" /></Element><Card title="Example" /></Element></Frame><LayersPanel /></Editor></StageProvider>);
+    const tree = screen.getByRole('tree');
+    await user.click(within(tree).getByRole('button', { name: 'Button' }));
+    await user.click(screen.getByRole('button', { name: 'Rename layer' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Layer name' }));
+    await user.type(screen.getByRole('textbox', { name: 'Layer name' }), 'Microphone{Enter}');
+    await waitFor(() => expect(within(tree).getByRole('treeitem', { name: 'Microphone' })).toHaveAttribute('aria-selected', 'true'));
+    await user.click(within(tree).getAllByRole('button', { name: 'Frame' })[1]);
+    await user.click(within(tree.querySelector('[aria-selected="true"]')!.firstElementChild as HTMLElement).getByRole('button', { name: 'Duplicate layer' }));
+    await waitFor(() => expect(within(tree).getAllByRole('treeitem', { name: 'Microphone' })).toHaveLength(2));
+    await user.click(screen.getByRole('button', { name: 'Move layer down' }));
+    const names = within(tree).getAllByRole('treeitem').map(item => item.getAttribute('aria-label'));
+    expect(names.lastIndexOf('Frame')).toBeGreaterThan(names.indexOf('Card'));
+    await user.click(within(tree.querySelector('[aria-selected="true"]')!.firstElementChild as HTMLElement).getByRole('button', { name: 'Delete layer' }));
+    await waitFor(() => expect(within(tree).getAllByRole('treeitem', { name: 'Microphone' })).toHaveLength(1));
+    await user.click(within(tree).getByRole('button', { name: 'Card' }));
+    await user.click(within(tree.querySelector('[aria-selected="true"]')!.firstElementChild as HTMLElement).getByRole('button', { name: 'Duplicate layer' }));
+    await waitFor(() => expect(within(tree).getAllByRole('treeitem', { name: 'CardContent' })).toHaveLength(2));
+  });
+});

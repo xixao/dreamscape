@@ -56,10 +56,10 @@ export default async function PlayPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ screen?: string | string[]; page?: string | string[]; overlay?: string | string[] }>;
+  searchParams: Promise<{ screen?: string | string[]; page?: string | string[]; overlay?: string | string[]; view?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { screen, page, overlay } = await searchParams;
+  const { screen, page, overlay, view } = await searchParams;
   const file = await getFile(id);
   if (!file) notFound();
 
@@ -93,6 +93,8 @@ export default async function PlayPage({
 
   return (
     <PlayerLoader
+      shared={firstSearchParam(view) === 'shared'}
+      closeTab
       file={{ ...file, screens }}
       initialScreenId={initialScreenId}
       initialPageId={initialPageId}

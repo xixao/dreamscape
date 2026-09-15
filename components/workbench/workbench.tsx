@@ -1,5 +1,8 @@
 'use client';
 
+import { ComponentLibraryProvider } from './component-builder/library-context';
+import { AppearanceContext } from './appearance-context';
+import { countInstances, updateInstances, replaceSelection, type ComponentDefinition } from '@/lib/custom-components/model';
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
@@ -35,9 +38,12 @@ import {
   savePanelMode,
 } from '@/lib/workbench/panel-store';
 import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
+import { PanelResize, useLeftPanelWidth } from './panel-resize';
+import { LeftPanelContext } from './left-panel-tabs';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
-import { CHIP } from './chrome';
+import { CHIP, PANEL } from './chrome';
+import { LayersPanel } from './layers-panel';
 import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
@@ -248,7 +254,9 @@ export function Workbench({
   // below - purely a hint for that notice, never re-validated here.
   invalidScreenIds?: string[];
 }) {
+  const [components, setComponents] = useState<ComponentDefinition[]>(file.components ?? []);
   const [saveState, setSaveState] = useState<SaveState>('saved');
+  const [appearance, setAppearance] = useState<'light' | 'dark'>(file.appearance ?? 'light');
   const [fileName, setFileName] = useState(file.name);
   // Computed once, up front, and reused by every state initializer below
   // rather than each calling resolveInitialPages/resolveInitialScreens
@@ -979,7 +987,23 @@ export function Workbench({
       ? INVALID_LAYOUT_NOTICE
       : undefined;
 
+  function changeComponent(definition: ComponentDefinition, remove = false, sourceId?: string) {
+    const nextComponents = remove ? components.filter(item => item.id !== definition.id)
+      : [...components.filter(item => item.id !== definition.id), definition];
+    const nextScreens = screensRef.current.map(screen => {
+      return { ...screen, layout: updateInstances(sourceId && screen.id === currentScreenIdRef.current ? replaceSelection(screen.layout, sourceId, definition) : screen.layout, definition, remove) };
+    });
+    setComponents(nextComponents); setScreens(nextScreens); screensRef.current = nextScreens;
+    const focused = nextScreens.find(screen => screen.id === currentScreenIdRef.current);
+    if (focused) editorActionsRef.current?.deserialize(focused.layout);
+    queuePatch({ components: nextComponents, screens: nextScreens });
+  }
+
   return (
+    <AppearanceContext.Provider value={{ appearance, setAppearance: next => { setAppearance(next); queuePatch({ appearance: next }); }, setFrameAppearance: (id, value) => { const next = screensRef.current.map(screen => screen.id === id ? { ...screen, appearance: value } : screen); screensRef.current = next; setScreens(next); queuePatch({ screens: next }); } }}>
+    <ComponentLibraryProvider fileId={file.id} components={components} saveState={saveState}
+      onSave={(definition, sourceId) => changeComponent(definition, false, sourceId)} onRemove={definition => changeComponent(definition, true)}
+      count={id => countInstances(screens.map(screen => screen.layout), id)}>
     <Editor
       resolver={resolver}
       onRender={NodeIndicator}
@@ -1048,6 +1072,8 @@ export function Workbench({
         />
       </StageProvider>
     </Editor>
+    </ComponentLibraryProvider>
+    </AppearanceContext.Provider>
   );
 }
 
@@ -1760,15 +1786,13 @@ function WorkbenchShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId]);
 
-  // The chat panel floats immediately to the right of the right panel,
-  // whichever width that panel currently is (spec docs/superpowers/specs/
-  // 2026-09-12-infinite-canvas-design.md section 4) - a complete, literal
-  // Tailwind class per branch (not built by interpolating a variable into
-  // the arbitrary-value bracket) so the build's class scanner can see both.
-  const chatPositionClass = panelCollapsed ? 'right-[56px]' : 'right-[336px]';
+  // Chat temporarily occupies the Layers panel footprint.
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useLeftPanelWidth();
+  const chatPositionClass = 'left-3 w-64';
 
   return (
-    <ChatTransportProvider transport={placeholderTransport}>
+    <LeftPanelContext.Provider value={{ chatOpen, setChatOpen, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           {/*
@@ -1889,6 +1913,7 @@ function WorkbenchShell({
               )}
               <LayerStackMenu />
             </StageErrorBoundary>
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"
@@ -1915,6 +1940,9 @@ function WorkbenchShell({
             {!uiHidden && chatOpen && (
               <ChatPanel
                 key="chat-panel"
+                left={12}
+                width={leftWidth}
+                onWidthChange={setLeftWidth}
                 fileId={fileId}
                 onClose={() => setChatOpen(false)}
                 className={chatPositionClass}
@@ -1941,6 +1969,6 @@ function WorkbenchShell({
           </div>
         </CanvasViewportProvider>
       </PrototypeProvider>
-    </ChatTransportProvider>
+    </ChatTransportProvider></LeftPanelContext.Provider>
   );
 }

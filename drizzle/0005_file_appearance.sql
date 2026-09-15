@@ -1,0 +1,1 @@
+ALTER TABLE "files" ADD COLUMN "appearance" text DEFAULT 'light' NOT NULL;

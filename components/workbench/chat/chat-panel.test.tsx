@@ -38,7 +38,7 @@ describe('ChatPanel', () => {
     renderPanel();
     expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear conversation' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Clear conversation' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close chat' })).toBeInTheDocument();
   });
 
@@ -123,17 +123,6 @@ describe('ChatPanel', () => {
       () => expect(screen.queryByRole('status', { name: 'Assistant is typing' })).toBeNull(),
       { timeout: 2000 },
     );
-  });
-
-  it('Clear conversation empties the log and disables itself again', async () => {
-    renderPanel();
-    await sendMessage('Hello there');
-    await screen.findByText(PLACEHOLDER_REPLY_TEXT, undefined, { timeout: 2000 });
-
-    await userEvent.click(screen.getByRole('button', { name: 'Clear conversation' }));
-
-    expect(screen.getByText('Ask about this design')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Clear conversation' })).toBeDisabled();
   });
 
   it('persists the conversation to localStorage keyed by file id', async () => {

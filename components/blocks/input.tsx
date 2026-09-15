@@ -14,6 +14,7 @@ export interface InputBlockProps extends GrowProps {
   placeholder: string;
   type: InputType;
   disabled: boolean;
+  borderless?: boolean;
 }
 
 export const INPUT_DEFAULTS: InputBlockProps = {
@@ -22,6 +23,7 @@ export const INPUT_DEFAULTS: InputBlockProps = {
   type: 'text',
   disabled: false,
   grow: false,
+  borderless: false,
 };
 
 export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
@@ -45,6 +47,7 @@ export const Input: UserComponent<Partial<InputBlockProps>> = (props) => {
     >
       {merged.label !== '' && <Label>{merged.label}</Label>}
       <UiInput
+        style={merged.borderless ? { border: 0, boxShadow: 'none', background: 'transparent' } : undefined}
         type={merged.type}
         placeholder={merged.placeholder}
         readOnly={!isPlay}
@@ -80,6 +83,7 @@ export const inputSchema: BlockSchema = {
       ],
     },
     { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'Style' },
+    { prop: 'borderless', label: 'Borderless', kind: 'boolean', section: 'Style' },
     GROW_FIELD,
   ],
 };

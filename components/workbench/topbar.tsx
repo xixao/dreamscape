@@ -1,5 +1,8 @@
 'use client';
 
+import { SharePrototypeButton } from './prototype-actions';
+import { useAppearance } from './appearance-context';
+import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import Link from 'next/link';
@@ -7,12 +10,8 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
-  FilePlus2,
   MessageCircle,
-  Command,
-  MessageSquareText,
   Monitor,
-  MoreHorizontal,
   Play,
   Redo2,
   Smartphone,
@@ -147,7 +146,13 @@ function IconAction({
   );
 }
 
-function FileNameField({
+function FileNameField(props: { fileName: string; onRename: (name: string) => void }) {
+  const { appearance, setAppearance } = useAppearance();
+  if (!setAppearance) return <RenameFileField {...props} />;
+  return <PopoverPrimitive.Root><PopoverPrimitive.Trigger asChild><button type="button" aria-label="File settings" className={cn(CHIP, 'w-56 justify-between')}><span className="truncate">{props.fileName}</span><ChevronDown className="size-3 shrink-0" /></button></PopoverPrimitive.Trigger><PopoverPrimitive.Portal><PopoverPrimitive.Content align="start" className={`${MENU_POPOVER} z-50 w-64 space-y-3 p-3`}><h2 className="text-sm font-semibold">File settings</h2><RenameFileField {...props} /><label className="flex flex-col gap-2 text-xs">Appearance<select aria-label="File appearance" className="rounded-md border bg-background p-2" value={appearance} onChange={event => setAppearance(event.target.value as 'light' | 'dark')}><option value="light">Light</option><option value="dark">Dark</option></select></label><p className="text-xs text-muted-foreground">Default for frames in this file. Frames can override it.</p></PopoverPrimitive.Content></PopoverPrimitive.Portal></PopoverPrimitive.Root>;
+}
+
+function RenameFileField({
   fileName,
   onRename,
 }: {
@@ -214,7 +219,7 @@ const SAVE_STATE_CLASS: Record<SaveState, string> = {
   conflict: 'text-bad',
 };
 
-function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: string }) {
+export function SaveIndicator({ saveState, notice }: { saveState: SaveState; notice?: string }) {
   return (
     <div className="flex items-center gap-2">
       <span
@@ -367,41 +372,12 @@ function ZoomMenu({
   );
 }
 
-// The top bar's overflow menu (spec docs/superpowers/specs/2026-09-13-
-// shortcuts-and-elements-design.md section 3): "Keyboard shortcuts" opens
-// the shortcuts dialog (shortcuts-overlay.tsx), the same one the ⌘ button
-// next to this menu opens. "Download source" is a plain link to the same
-// zipped-source route as the files page's own header link
-// (components/files/files-page.tsx) - public/dreamscape-source.zip,
-// rebuilt by scripts/pack-source.mjs on every build.
-function MoreMenu({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="More">
-          <MoreHorizontal className="size-4" aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={MENU_POPOVER}>
-        <DropdownMenuItem className={MENU_ROW} onSelect={() => onOpenShortcuts?.()}>
-          Keyboard shortcuts
-        </DropdownMenuItem>
-        <DropdownMenuItem className={MENU_ROW} asChild>
-          <a href="/dreamscape-source.zip" download>
-            Download source
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 export function Topbar({
   fileName,
   onRename,
   saveState,
   notice,
-  onNew,
   onAddScreen,
   onAddOverlay,
   fileId,
@@ -425,13 +401,10 @@ export function Topbar({
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
-  chatOpen,
-  onToggleChat,
   onZoomIn,
   onZoomOut,
   onZoomToFit,
   onZoomToSelection,
-  onOpenShortcuts,
   onPresent,
 }: {
   fileName: string;
@@ -608,12 +581,9 @@ export function Topbar({
           </TooltipTrigger>
           <TooltipContent>Present</TooltipContent>
         </Tooltip>
+        <SharePrototypeButton playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
-        <IconAction label="New frame" icon={FilePlus2} onClick={onNew} />
-        <IconAction label="Chat" icon={MessageSquareText} pressed={chatOpen} onClick={onToggleChat} />
-        <IconAction label="Keyboard shortcuts" icon={Command} onClick={() => onOpenShortcuts?.()} />
-        <MoreMenu onOpenShortcuts={onOpenShortcuts} />
       </header>
     </TooltipProvider>
   );

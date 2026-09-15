@@ -14,6 +14,15 @@ import { NodeIndicator, SelectionOutline } from './node-indicator';
 type EditorHandle = { actions: ReturnType<typeof useEditor>['actions']; query: ReturnType<typeof useEditor>['query'] };
 
 describe('SelectionOutline', () => {
+  it('keeps the label inside the frame near its top edge, including after scrolling', () => {
+    const rect = { top: 8, left: 8, width: 300, height: 200 };
+    const { rerender } = render(<SelectionOutline rect={rect} color="var(--acc)" label="Card" weight="selected" />);
+    expect(screen.getByText('Card')).not.toHaveClass('-translate-y-full');
+    rerender(<SelectionOutline rect={{ ...rect, top: -12 }} color="var(--acc)" label="Card" weight="selected" />);
+    expect(screen.getByText('Card')).toHaveStyle({ top: '12px' });
+    rerender(<SelectionOutline rect={{ ...rect, top: 40 }} color="var(--acc)" label="Card" weight="selected" />);
+    expect(screen.getByText('Card')).toHaveClass('-translate-y-full');
+  });
   it('positions itself from the rect and shows the label only when selected', () => {
     const rect = { top: 10, left: 20, width: 100, height: 40 } as DOMRect;
     const { rerender } = render(

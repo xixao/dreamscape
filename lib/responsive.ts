@@ -1,13 +1,13 @@
-export type Breakpoint = 'mobile' | 'desktop';
+export type Breakpoint = 'mobile' | 'tablet' | 'desktop';
 
-export type Responsive<T> = { mobile: T; desktop?: T };
+export type Responsive<T> = { mobile: T; tablet?: T; desktop?: T };
 
-export const BREAKPOINTS: readonly Breakpoint[] = ['mobile', 'desktop'];
+export const BREAKPOINTS: readonly Breakpoint[] = ['mobile', 'tablet', 'desktop'];
 
 export const BREAKPOINT_MD = 768;
 
 export function breakpointForWidth(width: number): Breakpoint {
-  return width < BREAKPOINT_MD ? 'mobile' : 'desktop';
+  return width < BREAKPOINT_MD ? 'mobile' : width < 1024 ? 'tablet' : 'desktop';
 }
 
 export function isResponsive<T>(value: unknown): value is Responsive<T> {
@@ -16,7 +16,8 @@ export function isResponsive<T>(value: unknown): value is Responsive<T> {
 
 export function resolve<T>(value: Responsive<T> | T, breakpoint: Breakpoint): T {
   if (isResponsive<T>(value)) {
-    return value[breakpoint] ?? value.mobile;
+    // Legacy layouts used desktop from 768px; preserve them when tablet is absent.
+    return value[breakpoint] ?? (breakpoint === 'tablet' ? value.desktop : undefined) ?? value.mobile;
   }
   return value;
 }

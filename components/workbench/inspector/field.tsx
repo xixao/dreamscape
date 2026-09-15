@@ -1,5 +1,8 @@
 'use client';
 
+import { BorderControl } from './border-control';
+import type { BorderSettings } from '@/components/blocks/design-controls';
+import { SpacingInput } from './spacing-input';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,6 +79,38 @@ export function Field({ field, value, breakpoint, onChange, onJumpToBreakpoint }
         {otherBreakpoint(breakpoint)}: {String(other)}
       </button>
     ) : null;
+
+  if (field.kind === 'width-limit') {
+    const limit = (current ?? { value: 0, unit: 'px' }) as { value: number; unit: 'px' | '%' };
+    const presets = limit.unit === '%' ? [0, 25, 50, 75, 100] : [0, 240, 320, 480, 640, 960];
+    return <div className="flex flex-col gap-1.5">{labelRow}<div className="flex gap-2"><div className="min-w-0 flex-1"><SpacingInput id={id} label={field.label} value={limit.value} unit={limit.unit} max={10000} options={presets.map(value => ({ value, label: value === 0 ? 'No limit' : `${value}${limit.unit}` }))} onChange={value => commit({ ...limit, value })} /></div><Select value={limit.unit} onValueChange={unit => commit({ ...limit, unit })}><SelectTrigger aria-label="Maximum width unit" className="w-20"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="px">px</SelectItem><SelectItem value="%">%</SelectItem></SelectContent></Select></div><p className="text-[10px] text-muted-foreground">{limit.value === 0 ? 'No maximum width.' : limit.unit === '%' ? 'Relative to the parent container.' : 'Maximum width in pixels.'} Set 0 for no limit.</p></div>;
+  }
+
+  if (field.kind === 'border') return <BorderControl value={current as BorderSettings} onChange={commit} />;
+
+  if (field.kind === 'color') {
+    const tokens = ['border', 'input', 'ring', 'background', 'foreground', 'card', 'card-foreground', 'primary', 'primary-foreground', 'secondary', 'secondary-foreground', 'muted', 'muted-foreground', 'accent', 'accent-foreground', 'destructive', 'chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5'];
+    const options = [{ value: 'default', label: 'Default', color: 'var(--border)' }, ...tokens.map(token => ({ value: `var(--${token})`, label: `--${token}`, color: `var(--${token})` })), { value: 'transparent', label: 'Transparent', color: 'transparent' }];
+    const selected = typeof current === 'string' && current ? current : 'default';
+    if (!options.some(option => option.value === selected)) options.push({ value: selected, label: selected, color: selected });
+    return <div data-field={field.prop} className="flex flex-col gap-1.5">
+      {labelRow}
+      <Select value={selected} onValueChange={next => commit(next === 'default' ? '' : next)}>
+        <SelectTrigger id={id} aria-label={field.label} className="w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>{options.map(option => <SelectItem key={option.value} value={option.value}><span className="inline-flex items-center gap-2"><span aria-hidden className="theme-basic inline-block size-4 shrink-0 rounded border" style={{ backgroundColor: option.color }} /><span>{option.label}</span></span></SelectItem>)}</SelectContent>
+      </Select>
+      {caption}
+    </div>;
+  }
+
+  if (field.kind === 'spacing') {
+    return <div data-field={field.prop} className="flex flex-col gap-1.5">
+      {labelRow}
+      <SpacingInput id={id} label={field.label} value={Number(current ?? 0)} options={field.options ?? []}
+        max={field.max} integer={field.integer} onChange={commit} />
+      {caption}
+    </div>;
+  }
 
   if (field.kind === 'boolean') {
     return (

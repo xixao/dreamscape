@@ -1,4 +1,5 @@
 'use client';
+import { exitPreview } from './exit-preview';
 
 import { Editor, Frame } from '@craftjs/core';
 import { MonitorIcon, SmartphoneIcon, XIcon, MoreHorizontalIcon, PanelRightIcon, ChevronDownIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
@@ -203,11 +204,15 @@ function assertNever(value: never): never {
  * ignored unless it names an overlay frame of this file.
  */
 export function Player({
+  shared = false,
+  closeTab = false,
   file,
   initialScreenId,
   initialPageId,
   initialOverlayId,
 }: {
+  shared?: boolean;
+  closeTab?: boolean;
   file: FileRecord;
   initialScreenId?: string;
   initialPageId?: string;
@@ -369,11 +374,11 @@ export function Player({
       }
 
       if (event.defaultPrevented || openDialogIdsRef.current.size > 0) return;
-      window.location.assign(closeHref);
+      if (!shared) exitPreview(closeHref, closeTab);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeHref, overlaysById, isExpanded]);
+  }, [closeHref, overlaysById, isExpanded, shared, closeTab]);
 
   useEffect(() => {
     try {
@@ -454,7 +459,7 @@ export function Player({
     <PlayProvider value={play}>
       <TooltipProvider delayDuration={300}>
       <div className="presentation-stage relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
-        {!isExpanded && <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        {!shared && !isExpanded && <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate text-sm font-semibold tracking-tight">{overviewTitle}</span>
             <span className="hidden text-xs text-muted-foreground md:block">{currentScreen.name}</span>
@@ -469,11 +474,11 @@ export function Player({
               <PanelRightIcon className="size-4" aria-hidden="true" /> Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
             <Tooltip><TooltipTrigger asChild><Button ref={expandButtonRef} type="button" variant="ghost" size="icon" aria-label="Expand presentation" onClick={() => void toggleExpanded()}><MaximizeIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Expand presentation</TooltipContent></Tooltip>
-            <a href={closeHref} className={cn("ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", exitAboveOverlays && "pointer-events-auto")}>Exit</a>
+            <a href={closeHref} onClick={event => { event.preventDefault(); exitPreview(closeHref, closeTab); }} className={cn("ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", exitAboveOverlays && "pointer-events-auto")}>Exit</a>
           </div>
         </header>}
-        {isExpanded && <Button autoFocus type="button" variant="secondary" size="sm" className="pointer-events-auto absolute right-4 top-4 z-[110] gap-2 border shadow-lg" aria-label="Exit expanded view" onClick={() => void toggleExpanded()}><MinimizeIcon aria-hidden="true" className="size-4" /> Back to presentation</Button>}
-        {!isExpanded && saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
+        {!shared && isExpanded && <Button autoFocus type="button" variant="secondary" size="sm" className="pointer-events-auto absolute right-4 top-4 z-[110] gap-2 border shadow-lg" aria-label="Exit expanded view" onClick={() => void toggleExpanded()}><MinimizeIcon aria-hidden="true" className="size-4" /> Back to presentation</Button>}
+        {!shared && !isExpanded && saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
         <div className="flex min-h-0 flex-1">
         <main ref={previewRef} className="flex min-w-0 flex-1 items-start justify-start overflow-auto bg-muted/20 p-4 sm:p-8" aria-label="Presentation preview">
           <div className="m-auto shrink-0" style={{ zoom: presentationZoom }}>
@@ -481,6 +486,7 @@ export function Player({
               <div
                 ref={artboardRef}
                 data-testid="artboard"
+                data-appearance={currentScreen.appearance ?? file.appearance ?? 'light'}
                 className={cn('theme-basic relative shrink-0 bg-background text-foreground shadow-panel-lg ring-1 ring-line-strong', (devicePreset?.height ?? currentScreen.stageHeight) != null && 'overflow-auto')}
                 style={
                   (devicePreset?.height ?? currentScreen.stageHeight) != null
@@ -498,7 +504,7 @@ export function Player({
               </div>
             </StageProvider>
           </div>
-          <CommentLayer
+          {!shared && <CommentLayer
             commentMode={commentMode}
             threads={visibleThreads}
             pendingPin={pendingPin}
@@ -519,7 +525,7 @@ export function Player({
             onCloseThread={() => setOpenThreadId(null)}
             onSubmitReply={(threadId, { author, text }) => { commentStore.reply(threadId, { author, text }); }}
             onResolveThread={(threadId) => { commentStore.resolve(threadId); setOpenThreadId(null); }}
-          />
+          />}
         {/* Overlay frames, bottom to top, each a sibling of the screen's
             Editor (never inside it) with its own StageProvider and Editor.
             Array order is stacking order: Radix layers dialogs and sheets
@@ -528,6 +534,7 @@ export function Player({
           const overlay = overlaysById.get(id);
           return overlay ? (
             <OverlayHost
+              fileAppearance={file.appearance ?? 'light'}
               key={id}
               overlay={overlay}
               closeOverlayById={closeOverlayById}
@@ -536,7 +543,7 @@ export function Player({
           ) : null;
         })}
         </main>
-        {commentsPanelOpen && !isExpanded && (
+        {!shared && commentsPanelOpen && !isExpanded && (
           <aside className="fixed inset-x-0 bottom-0 z-[85] max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-80 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none" aria-label="Review">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
@@ -608,10 +615,12 @@ const TOAST_POSITION_CLASSES: Record<ToastPosition, string> = {
  * (a toast shown above a dialog must not swallow the dialog's own Cancel).
  */
 function OverlayHost({
+  fileAppearance,
   overlay,
   closeOverlayById,
   onEscapeKeyDown,
 }: {
+  fileAppearance: 'light' | 'dark';
   overlay: OverlayScreen;
   closeOverlayById: (screenId: string) => void;
   onEscapeKeyDown: (event: KeyboardEvent) => void;
@@ -671,6 +680,7 @@ function OverlayHost({
           <SheetContent
             side={presentation.side}
             data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
             className={cn(
               'theme-basic gap-0 overflow-auto p-0 text-foreground',
               horizontal &&
@@ -696,6 +706,7 @@ function OverlayHost({
           aria-label={overlay.name}
           data-overlay-toast="true"
           data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
           className={cn(
             'theme-basic pointer-events-auto fixed z-[60] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-background text-foreground shadow-lg',
             TOAST_POSITION_CLASSES[presentation.position],
@@ -725,6 +736,7 @@ function OverlayHost({
         <Dialog open modal onOpenChange={handleOpenChange}>
           <DialogContent
             data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
             className="theme-basic max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto p-0 text-foreground sm:max-w-[calc(100vw-2rem)]"
             style={{ width: overlay.stageWidth }}
             showCloseButton={dismissible}

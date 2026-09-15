@@ -354,6 +354,7 @@ describe('Workbench', () => {
   it('PATCHes the new name when the file name field is renamed', async () => {
     render(<Workbench file={makeFile({ name: 'Untitled' })} />);
 
+    await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
     const field = screen.getByTestId('file-name');
     await userEvent.clear(field);
     await userEvent.type(field, 'My design{Enter}');
@@ -387,20 +388,18 @@ describe('Workbench', () => {
     expect(fetchMock.mock.calls[0][1].keepalive).toBe(true);
   });
 
-  it('New frame still clears the layout after confirming', async () => {
+  it('changes the file appearance and updates inheriting artboards', async () => {
     render(<Workbench file={makeFile()} />);
-    expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'File appearance' }), 'dark');
+    await waitFor(() => expect(frameBody()).toHaveAttribute('data-appearance', 'dark'));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => typeof init?.body === 'string' && JSON.parse(init.body).appearance === 'dark')).toBe(true));
+  });
 
-    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
-    expect(await screen.findByText('Start a new frame?')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByText('Start a new frame?')).toBeNull());
+  it('omits the destructive New frame action from the top bar', () => {
+    render(<Workbench file={makeFile()} />);
+    expect(screen.queryByRole('button', { name: 'New frame' })).not.toBeInTheDocument();
     expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Clear frame' }));
-    expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
 
   describe('unchanged layout on mount', () => {
@@ -997,6 +996,7 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile()} />);
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
 
+      await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
       fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name' }), { key: 'g', shiftKey: true });
 
       expect(fetchMock).not.toHaveBeenCalled();
@@ -1352,23 +1352,24 @@ describe('Workbench', () => {
       localStorage.clear();
     });
 
-    it('is closed by default; the topbar button opens it floating beside the right panel, reflected in aria-pressed', async () => {
+    it('switches between Layers and Chat using the left panel tabs', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
-      const chatButton = screen.getByRole('button', { name: 'Chat' });
-      expect(chatButton).toHaveAttribute('aria-pressed', 'false');
+      const chatButton = screen.getByRole('radio', { name: 'Chat' });
+      expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('aria-checked', 'false');
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
 
       await userEvent.click(chatButton);
 
-      expect(chatButton).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('aria-checked', 'true');
       const chat = screen.getByRole('complementary', { name: 'Chat' });
-      expect(chat).toHaveClass('w-[360px]');
-      // Floats immediately left of the (expanded, 320px) right panel.
-      expect(chat).toHaveClass('right-[336px]');
+      expect(chat).toHaveStyle({ width: '256px' });
+      expect(screen.queryByRole('complementary', { name: 'Layers panel' })).not.toBeInTheDocument();
+      // Occupies the left Layers panel footprint.
+      expect(chat).toHaveStyle({ left: '12px' });
 
-      await userEvent.click(chatButton);
-      expect(chatButton).toHaveAttribute('aria-pressed', 'false');
+      await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+      expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('aria-checked', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
     });
@@ -1379,7 +1380,7 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'j', metaKey: true });
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('aria-checked', 'true');
 
       fireEvent.keyDown(window, { key: 'j', metaKey: true });
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
@@ -1387,7 +1388,7 @@ describe('Workbench', () => {
 
     it('hides with Cmd+\ along with the other panels and returns with them', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { key: '\\', metaKey: true });
@@ -1431,8 +1432,8 @@ describe('Workbench', () => {
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
       expect(screen.queryByRole('complementary', { name: 'Elements' })).toBeNull();
 
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
+      await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ left: '12px' });
     });
 
     it('selecting a layer while on Elements switches to Design', async () => {
@@ -1652,14 +1653,14 @@ describe('Workbench', () => {
 
     it('Cmd+. toggles the panel collapsed, with the chat panel following it to stay flush beside it', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
+      await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ left: '12px' });
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[56px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ left: '12px' });
 
       fireEvent.keyDown(window, { key: '.', metaKey: true });
-      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('right-[336px]');
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ left: '12px' });
     });
 
     it('clicking a rail icon expands the panel on that tab', async () => {
@@ -1712,8 +1713,9 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
     });
 
-    it('are ignored while typing, such as renaming the file', () => {
+    it('are ignored while typing, such as renaming the file', async () => {
       render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'e' });
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'g' });
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
@@ -1742,11 +1744,10 @@ describe('Workbench', () => {
       expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
     });
 
-    it('opens from the top bar overflow menu', async () => {
+    it('opens from the Layers utility action', async () => {
       render(<Workbench file={makeFile()} />);
 
-      await userEvent.click(screen.getByRole('button', { name: 'More' }));
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
 
       expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
     });
@@ -1776,10 +1777,10 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile()} />);
       const before = transform();
 
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
       expect(transform()).toBe(before);
 
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
       expect(transform()).toBe(before);
     });
 
@@ -1864,7 +1865,7 @@ describe('Workbench', () => {
 
     it('the chat panel floats below the top bar too, at the same height as the right panel', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('absolute', 'top-[76px]', 'bottom-3');
     });
 
@@ -2140,6 +2141,7 @@ describe('Workbench', () => {
       expect(await within(frameBody()).findByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
 
+      await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
       await userEvent.click(screen.getByTestId('file-name'));
       fireEvent.keyDown(screen.getByTestId('file-name'), { key: ']', metaKey: true, shiftKey: true });
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');

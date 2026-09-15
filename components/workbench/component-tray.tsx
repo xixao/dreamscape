@@ -1,5 +1,7 @@
 'use client';
 
+import { useComponentLibrary } from './component-builder/library-context';
+import { CreateComponentCard, CustomTray } from './component-builder/custom-tray';
 import { useRef, useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import { Info, Search } from 'lucide-react';
@@ -50,6 +52,7 @@ function matchesOverlayHint(query: string): boolean {
 // duplicated (see docs/superpowers/specs/2026-09-12-panels-and-zoom-
 // design.md section 1).
 export function ComponentTray() {
+  const library = useComponentLibrary();
   const { connectors } = useEditor();
   const [filter, setFilter] = useState('');
   // One Element documentation dialog for the whole tray. The type outlives
@@ -70,6 +73,7 @@ export function ComponentTray() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <CreateComponentCard />
       <div className="px-2 pt-2">
         <div className={SEARCH}>
           <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -83,6 +87,7 @@ export function ComponentTray() {
         </div>
       </div>
       <div className="flex flex-col overflow-y-auto pb-2">
+        <CustomTray filter={filter} />
         {GROUP_ORDER.map((group) => {
           const items = filteredItems.filter((item) => item.group === group);
           if (items.length === 0) return null;
@@ -136,7 +141,7 @@ export function ComponentTray() {
           );
         })}
       </div>
-      {filteredItems.length === 0 && (
+      {filteredItems.length === 0 && !library?.components.some(item => item.name.toLowerCase().includes(filter.trim().toLowerCase())) && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">
           {matchesOverlayHint(filter) ? OVERLAY_HINT_MESSAGE : 'No elements match.'}
         </p>

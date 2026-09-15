@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppearance } from './appearance-context';
 import { Editor, Frame, useEditor, type EditorState } from "@craftjs/core";
 import {
   memo,
@@ -174,7 +175,7 @@ const HANDLE_META: Record<
  * closes over the render's pre-drag value for whichever field it is not
  * updating itself.
  */
-function ResizeHandle({
+export function ResizeHandle({
   axis,
   width,
   height,
@@ -364,6 +365,8 @@ function StageImpl({
   // test. Optional so callers written before this existed keep working.
   onMeasuredHeight?: (id: string, height: number) => void;
 }) {
+  const fileAppearance = useAppearance().appearance;
+  const effectiveAppearance = screen.appearance ?? fileAppearance;
   const { width, height, zoom, setWidth, setSize } = useStage();
   const { query } = useEditor();
   const canvas = useCanvasDocument();
@@ -488,10 +491,12 @@ function StageImpl({
       <div
         ref={artboardRef}
         data-testid="artboard"
+        data-appearance={effectiveAppearance}
         className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
         style={{ width, height: effectiveHeight }}
       >
         <CanvasFrame
+          appearance={screen.appearance}
           width={width}
           height={height}
           // Always 1, never the viewport zoom: canvas.tsx's single ancestor
@@ -656,6 +661,8 @@ function FramePreviewImpl({
   // Stage's identical prop above.
   diagramFrameSelect?: DiagramFrameSelect;
 }) {
+  const fileAppearance = useAppearance().appearance;
+  const effectiveAppearance = screen.appearance ?? fileAppearance;
   const [frameDocument, setFrameDocument] = useState<CanvasDocument | null>(null);
   // Mirrors Stage's own contentHeight/effectiveHeight above: CanvasFrame's
   // ResizeObserver-backed measurement when this frame has no fixed height
@@ -763,6 +770,7 @@ function FramePreviewImpl({
   return (
     <div
       data-testid="artboard-preview"
+      data-appearance={effectiveAppearance}
       className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
       style={{ width: screen.stageWidth, height: effectiveHeight }}
       onPointerDown={(event) => {
@@ -775,6 +783,7 @@ function FramePreviewImpl({
       }}
     >
       <CanvasFrame
+          appearance={screen.appearance}
         width={screen.stageWidth}
         height={screen.stageHeight ?? null}
         zoom={1}

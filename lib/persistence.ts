@@ -1,3 +1,4 @@
+import type { ComponentDefinition } from './custom-components/model';
 import type { Page, Screen } from './files/repository';
 
 export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
@@ -5,6 +6,8 @@ export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 export type FlushResult = 'saved' | 'error' | 'conflict';
 
 export type FilePatch = {
+  appearance?: 'light' | 'dark';
+  components?: ComponentDefinition[];
   screens?: Screen[];
   pages?: Page[];
   name?: string;

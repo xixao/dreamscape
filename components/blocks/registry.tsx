@@ -1,3 +1,4 @@
+import { CustomComponent } from './custom-component';
 import { Element } from '@craftjs/core';
 import {
   AlignLeft,
@@ -45,6 +46,7 @@ import { Textarea, textareaSchema } from './textarea';
 import type { BlockSchema, BlockType } from './schema';
 
 export const resolver = {
+  CustomComponent,
   LayoutBox,
   Button,
   Input,

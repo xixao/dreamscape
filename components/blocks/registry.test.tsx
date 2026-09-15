@@ -56,6 +56,7 @@ describe('registry', () => {
         'Card',
         'CardContent',
         'Checkbox',
+        'CustomComponent',
         'Dialog',
         'DialogContent',
         'Image',

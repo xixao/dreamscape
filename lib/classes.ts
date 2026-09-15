@@ -1,3 +1,4 @@
+import type { DesignProps } from '@/components/blocks/design-controls';
 import { type Breakpoint, type Responsive, resolve } from './responsive';
 
 export type LayoutMode = 'flex' | 'grid';
@@ -5,14 +6,14 @@ export type Direction = 'row' | 'column';
 export type Columns = 1 | 2 | 3 | 4;
 export type Align = 'start' | 'center' | 'end' | 'stretch';
 export type Justify = 'start' | 'center' | 'end' | 'between';
-export type SpacingPx = 0 | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 64;
+export type SpacingPx = number;
 export type Background = 'none' | 'muted' | 'card';
 
 export interface GrowProps {
   grow?: boolean;
 }
 
-export interface LayoutBoxProps extends GrowProps {
+export interface LayoutBoxProps extends GrowProps, DesignProps {
   mode: LayoutMode;
   direction: Responsive<Direction>;
   columns: Responsive<Columns>;
@@ -221,8 +222,8 @@ export function layoutBoxClasses(props: LayoutBoxProps, breakpoint: Breakpoint):
   }
   parts.push(
     ALIGN_CLASSES[resolve(props.align, breakpoint)],
-    GAP_PX_CLASSES[gapPx],
-    PADDING_PX_CLASSES[paddingPx],
+    GAP_PX_CLASSES[gapPx] ?? '',
+    PADDING_PX_CLASSES[paddingPx] ?? '',
   );
   const background = BACKGROUND_CLASSES[props.background];
   if (background) parts.push(background);

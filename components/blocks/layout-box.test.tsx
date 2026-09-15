@@ -65,6 +65,15 @@ describe('LayoutBox', () => {
     expect(root).not.toHaveClass('flex-1');
   });
 
+  it('renders custom pixel spacing exactly and preserves it in serialization', async () => {
+    const { container, editor } = renderTree(<Element is={LayoutBox} canvas gapPx={13.5} paddingPx={101} />);
+    const [root] = await findBoxes(container, 1);
+    expect(root).toHaveStyle({ gap: '13.5px', padding: '101px' });
+    const saved = JSON.parse(editor().query.serialize());
+    expect(saved.ROOT.props.gapPx).toBe(13.5);
+    expect(saved.ROOT.props.paddingPx).toBe(101);
+  });
+
   it('renders the root from its node props, so the inspector can edit it', async () => {
     const { container, editor } = renderTree(<Element is={LayoutBox} canvas />);
     const [root] = await findBoxes(container, 1);

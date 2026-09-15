@@ -69,6 +69,10 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 4. Run `npm run db:seed` if the database is new.
 5. Click through the production URL: open a file, edit, reload, and confirm the edit persisted.
 
+## Spacing controls
+
+Gap, padding, layout-grid gutter, and layout-grid margin use editable pixel fields. Focus or click a field to choose an 8 px preset, or type a custom value. Enter or leaving the field applies it; Escape cancels the edit. Gap and padding accept nonnegative fractional pixels, including values beyond the preset list. Grid gutter and margin retain their existing whole-pixel limits (200 px and 400 px). Custom spacing persists with the design and works in Component Builder and Play mode.
+
 ## Keyboard shortcuts in the editor
 
 Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, the top bar's zoom menu and the shortcuts dialog (the ⌘ button in the top bar, or "?") all read from (`lib/shortcuts.test.ts` fails if this table and the registry ever disagree). A bare letter or Shift+letter is ignored while typing in a text field or while a menu or dialog is open; the rest work everywhere, including from inside the chat composer.

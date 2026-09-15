@@ -1,3 +1,4 @@
+import { AppearanceContext } from '../appearance-context';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
@@ -437,8 +438,8 @@ describe('Inspector', () => {
       const frameSection = within(panel).getByTestId('frame-section');
 
       expect(within(frameSection).getByLabelText('Columns')).toHaveTextContent('12');
-      expect(within(frameSection).getByLabelText('Gutter')).toHaveTextContent('24 px');
-      expect(within(frameSection).getByLabelText('Margin')).toHaveTextContent('32 px');
+      expect(within(frameSection).getByLabelText('Gutter')).toHaveValue('24');
+      expect(within(frameSection).getByLabelText('Margin')).toHaveValue('32');
       expect(within(frameSection).getByLabelText('Show layout grid')).not.toBeChecked();
     });
 
@@ -939,4 +940,18 @@ describe('Inspector', () => {
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
   });
+});
+
+it('offers inherited and explicit appearance only on the root frame', async () => {
+  const update = vi.fn();
+  const { editor } = renderInEditor(<AppearanceContext.Provider value={{ appearance: 'dark', setFrameAppearance: update }}><Frame><Element is={LayoutBox} canvas><Button /></Element></Frame><Inspector screens={ONE_SCREEN} currentScreenId="s1" panelMode="design" onPanelModeChange={() => {}} collapsed={false} onToggleCollapsed={() => {}} /></AppearanceContext.Provider>);
+  act(() => editor().actions.selectNode(ROOT_NODE));
+  const control = await screen.findByRole('combobox', { name: 'Frame appearance' });
+  expect(screen.getByRole('option', { name: 'File default · Dark' })).toBeInTheDocument();
+  await userEvent.selectOptions(control, 'light');
+  expect(update).toHaveBeenLastCalledWith('s1', 'light');
+  await userEvent.selectOptions(control, 'inherit');
+  expect(update).toHaveBeenLastCalledWith('s1', undefined);
+  act(() => editor().actions.selectNode(editor().query.node(ROOT_NODE).get().data.nodes[0]));
+  await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Frame appearance' })).not.toBeInTheDocument());
 });

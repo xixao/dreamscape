@@ -1,8 +1,11 @@
 'use client';
 
+import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs } from '../left-panel-tabs';
+import { useContext } from 'react';
+import { PanelResize } from '../panel-resize';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { nanoid } from 'nanoid';
-import { ArrowUp, Bot, X } from 'lucide-react';
+import { ArrowUp, Bot, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { createChatStore } from '@/lib/chat/store';
@@ -86,6 +89,9 @@ export function ChatPanel({
   fileId,
   onClose,
   className,
+  width,
+  left,
+  onWidthChange,
 }: {
   fileId: string;
   onClose: () => void;
@@ -96,7 +102,11 @@ export function ChatPanel({
   // the same literal-class-per-branch approach its own floating classes
   // already use, so the build's class scanner can see every one.
   className?: string;
+  width?: number;
+  left?: number;
+  onWidthChange?: (width: number) => void;
 }) {
+  const panelMode = useContext(LeftPanelContext);
   const transport = useChatTransport();
   // Lazy useState, not useMemo, so the store is created exactly once per
   // mount - the same reasoning as the file saver in workbench.tsx.
@@ -171,25 +181,21 @@ export function ChatPanel({
     textareaRef.current?.focus();
   }
 
-  function handleClear(): void {
-    controllerRef.current?.abort();
-    setPending(false);
-    store.clear();
-    setMessages([]);
-  }
-
+  if (panelMode?.collapsed) return <aside aria-label="Chat" style={{ width: 40, left }} className={cn(PANEL, 'absolute top-[76px] bottom-3 z-10 flex flex-col items-center gap-1 py-2', className)}>
+    <button type="button" aria-label="Expand chat panel" aria-expanded={false} title="Expand chat panel" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => panelMode.setCollapsed?.(false)}><ChevronRight className="size-4" /></button>
+    <div className="my-1 h-px w-6 bg-border" />
+    <LeftPanelTabs compact />
+  </aside>;
   return (
-    <aside aria-label="Chat" className={cn(PANEL, 'absolute top-[76px] bottom-3 z-10 flex w-[360px] min-h-0 flex-col', className)}>
-      <div className={PANEL_HEADER}>
-        <span className={PANEL_TITLE}>Chat</span>
-        <div className="flex-1" />
-        <Button variant="ghost" size="sm" disabled={messages.length === 0} onClick={handleClear}>
-          Clear conversation
-        </Button>
-        <Button variant="ghost" size="icon" aria-label="Close chat" onClick={onClose}>
-          <X className="size-4" aria-hidden />
-        </Button>
-      </div>
+    <aside style={{ width, left }} aria-label="Chat" className={cn(PANEL, 'absolute top-[76px] bottom-3 z-10 flex w-[360px] min-h-0 flex-col', className)}>
+      {width && onWidthChange && <PanelResize width={width} onChange={onWidthChange} />}
+      {panelMode ? <>
+        <LeftPanelHeader action={<button type="button" aria-label="Minimize chat panel" aria-expanded={true} title="Minimize chat panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => panelMode.setCollapsed?.(true)}><ChevronLeft className="size-4" /></button>} />
+      </> : <div className={PANEL_HEADER}>
+        <span className={PANEL_TITLE}>Chat</span><div className="flex-1" />
+        <Button variant="ghost" size="icon" aria-label="Close chat" onClick={onClose}><X className="size-4" aria-hidden /></Button>
+      </div>}
+
 
       {messages.length === 0 ? (
         <div className={cn(EMPTY, 'm-3 flex flex-1 flex-col items-center justify-center gap-3')}>

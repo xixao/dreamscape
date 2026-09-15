@@ -1,3 +1,4 @@
+import { componentLibrarySchema, type ComponentDefinition } from '@/lib/custom-components/model';
 import { asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { Db } from '@/db/client';
@@ -58,6 +59,7 @@ export type FileSummary = {
   screenCount?: number;
 };
 export type FileRecord = FileSummary & {
+  appearance?: 'light' | 'dark';
   // Same optionality rationale as folderId/screenCount above: workbench.tsx's
   // BASE_FILE predates screens. Real repository code always populates it.
   screens?: Screen[];
@@ -65,6 +67,7 @@ export type FileRecord = FileSummary & {
   // a FileRecord literal written before pages existed still type-checks
   // with no pages. Real repository code always populates it.
   pages?: Page[];
+  components?: ComponentDefinition[];
 };
 // `screens` is ScreenInput[], not Screen[]: save() (like create() below)
 // validates and normalizes whatever it is given through validateScreens,
@@ -74,9 +77,11 @@ export type FileRecord = FileSummary & {
 // validateScreens has said so. A Screen is a ScreenInput, so every caller
 // that already holds validated screens is unaffected.
 export type SaveInput = {
+  appearance?: 'light' | 'dark';
   name?: string;
   screens?: ScreenInput[];
   pages?: Page[];
+  components?: ComponentDefinition[];
   baseUpdatedAt?: string;
   folderId?: string | null;
 };
@@ -131,6 +136,7 @@ function normalizeFolderName(name: string): string {
 // repository boundary, the same way toRecord's JSON.stringify(row.layout)
 // used to for the single old `layout` column.
 type StoredScreen = {
+  appearance?: 'light' | 'dark';
   id: string;
   name: string;
   layout: Record<string, unknown>;
@@ -171,6 +177,7 @@ function toApiScreens(raw: unknown): Screen[] {
     pageId: screen.pageId,
     ...overlayFields(screen),
     layoutGrid: screen.layoutGrid,
+    appearance: screen.appearance,
   }));
 }
 
@@ -193,6 +200,7 @@ function toStoredScreen(screen: Screen): StoredScreen {
     pageId: screen.pageId!,
     ...overlayFields(screen),
     layoutGrid: screen.layoutGrid,
+    appearance: screen.appearance,
   };
 }
 
@@ -212,6 +220,8 @@ function toRecord(row: FileRow): FileRecord {
     ...toSummary(row),
     screens: toApiScreens(row.screens),
     pages: row.pages as Page[],
+    components: row.components as ComponentDefinition[],
+    appearance: row.appearance === 'dark' ? 'dark' : 'light',
   };
 }
 
@@ -354,7 +364,16 @@ export function createFilesRepository(db: Db) {
     // never going backward (or sideways) relative to what's already stored.
     const now = new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
     const patch: Partial<typeof files.$inferInsert> = { updatedAt: now };
+    if (input.appearance !== undefined) {
+      if (!['light', 'dark'].includes(input.appearance)) return { ok: false, invalid: 'Invalid appearance' };
+      patch.appearance = input.appearance;
+    }
     if (input.name !== undefined) patch.name = input.name;
+    if (input.components !== undefined) {
+      const validated = componentLibrarySchema.safeParse(input.components);
+      if (!validated.success) return { ok: false, invalid: validated.error.issues[0].message };
+      patch.components = validated.data;
+    }
     // Pages and screens are re-validated together whenever either changes:
     // deleting a page must remove its screens in the same patch, and a
     // page-only patch (rename, reorder) must still re-check every EXISTING
@@ -432,6 +451,8 @@ export function createFilesRepository(db: Db) {
         id: nanoid(10),
         name: `${row.name} copy`,
         pages: reIdPages,
+        components: row.components,
+        appearance: row.appearance,
         screens: reIdScreens,
         folderId: row.folderId,
       })

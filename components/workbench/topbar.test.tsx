@@ -133,7 +133,7 @@ describe('Topbar', () => {
     expect(presetButton('Mobile')).toHaveAttribute('data-state', 'off');
 
     await userEvent.click(presetButton('Tablet'));
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · desktop');
+    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · tablet');
     expect(presetButton('Tablet')).toHaveAttribute('data-state', 'on');
 
     await userEvent.click(presetButton('Mobile'));
@@ -142,7 +142,7 @@ describe('Topbar', () => {
 
   it('shows no active preset at a custom width', () => {
     renderTopbar({}, { width: 900 });
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · desktop');
+    expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · tablet');
     for (const label of ['Mobile', 'Tablet', 'Desktop']) {
       expect(presetButton(label)).toHaveAttribute('data-state', 'off');
     }
@@ -203,10 +203,9 @@ describe('Topbar', () => {
     expect(undo).toBeDisabled();
   });
 
-  it('calls onNew', async () => {
-    const { onNew } = renderTopbar();
-    await userEvent.click(screen.getByRole('button', { name: 'New frame' }));
-    expect(onNew).toHaveBeenCalledTimes(1);
+  it('keeps relocated actions out of the top navigation', () => {
+    renderTopbar();
+    for (const name of ['New frame', 'Chat', 'Keyboard shortcuts', 'More']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   });
 
   it('has a ghost link back to Files before the product name, at the top level when the file has no folder', () => {
@@ -373,39 +372,6 @@ describe('Topbar', () => {
     });
   });
 
-  describe('Chat toggle', () => {
-    it('reflects chatOpen through aria-pressed', () => {
-      renderTopbar({ chatOpen: false });
-      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'false');
-    });
-
-    it('is pressed when chatOpen is true', () => {
-      renderTopbar({ chatOpen: true });
-      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
-    });
-
-    it('calls onToggleChat when clicked', async () => {
-      const { onToggleChat } = renderTopbar({ chatOpen: false });
-      await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-      expect(onToggleChat).toHaveBeenCalledTimes(1);
-    });
-
-    // The top bar floats full width over the canvas (spec docs/superpowers/
-    // specs/2026-09-12-infinite-canvas-design.md section 4) regardless of
-    // the chat panel: unlike the old grid layout, opening chat never
-    // narrows it - chat floats independently, beside the right panel.
-    it('floats the same full width whether chat is open or closed', () => {
-      const { unmount } = renderTopbar({ chatOpen: false });
-      const closed = screen.getByRole('button', { name: 'Chat' }).closest('header');
-      expect(closed).toHaveClass('absolute', 'top-3', 'left-3', 'right-3');
-      unmount();
-
-      renderTopbar({ chatOpen: true });
-      const open = screen.getByRole('button', { name: 'Chat' }).closest('header');
-      expect(open).toHaveClass('absolute', 'top-3', 'left-3', 'right-3');
-    });
-  });
-
   describe('device presets', () => {
     it('shows "Device" on the chip and the plain width readout when none is set', () => {
       renderTopbar({}, { width: 1440 });
@@ -543,47 +509,6 @@ describe('Topbar', () => {
       await userEvent.click(screen.getByTestId('stage-readout'));
       await userEvent.click(screen.getByRole('menuitem', { name: 'Zoom to 200%' }));
       expect(screen.getByTestId('viewport-probe')).toHaveTextContent('2');
-    });
-  });
-
-  describe('keyboard shortcuts button', () => {
-    it('shows a ⌘ button that opens the shortcuts dialog through onOpenShortcuts', async () => {
-      const onOpenShortcuts = vi.fn();
-      renderTopbar({ onOpenShortcuts });
-      await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
-      expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('overflow menu', () => {
-    it('has a More button that opens a menu with a Keyboard shortcuts item', async () => {
-      renderTopbar();
-      await userEvent.click(screen.getByRole('button', { name: 'More' }));
-      expect(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' })).toBeInTheDocument();
-    });
-
-    it('calls onOpenShortcuts when the item is chosen', async () => {
-      const onOpenShortcuts = vi.fn();
-      renderTopbar({ onOpenShortcuts });
-      await userEvent.click(screen.getByRole('button', { name: 'More' }));
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
-      expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
-    });
-
-    it('does nothing when onOpenShortcuts is not provided', async () => {
-      renderTopbar();
-      await userEvent.click(screen.getByRole('button', { name: 'More' }));
-      await expect(
-        userEvent.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' })),
-      ).resolves.not.toThrow();
-    });
-
-    it('has a Download source item linking to the zipped source with the download attribute', async () => {
-      renderTopbar();
-      await userEvent.click(screen.getByRole('button', { name: 'More' }));
-      const item = screen.getByRole('menuitem', { name: 'Download source' });
-      expect(item).toHaveAttribute('href', '/dreamscape-source.zip');
-      expect(item).toHaveAttribute('download');
     });
   });
 

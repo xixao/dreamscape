@@ -1,5 +1,8 @@
 'use client';
+import { useAppearance } from '../appearance-context';
+import { FieldLayout } from './field-layout';
 
+import { InstanceFields } from '../component-builder/instance-fields';
 import { useEditor } from '@craftjs/core';
 import {
   Blocks,
@@ -111,14 +114,18 @@ const LAYOUT_GRID_COLUMNS_FIELD: FieldSchema = {
 const LAYOUT_GRID_GUTTER_FIELD: FieldSchema = {
   prop: 'gutter',
   label: 'Gutter',
-  kind: 'select',
+  kind: 'spacing',
+  integer: true,
+  max: 200,
   section: 'Layout',
   options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
 };
 const LAYOUT_GRID_MARGIN_FIELD: FieldSchema = {
   prop: 'margin',
   label: 'Margin',
-  kind: 'select',
+  kind: 'spacing',
+  integer: true,
+  max: 400,
   section: 'Layout',
   options: SPACING_OPTIONS.map((value) => ({ value, label: `${value} px` })),
 };
@@ -506,6 +513,7 @@ export function Inspector({
       layoutContainer,
     };
   });
+  const appearanceSettings = useAppearance();
   const schema = type ? schemaFor(type) : null;
 
   const selectedFrames = screens.filter((screen) => selectedFrameIds.has(screen.id));
@@ -673,6 +681,8 @@ export function Inspector({
               </>
             ) : diagramSelection ? (
               <DiagramFields selected={diagramSelection} onAction={(action) => onDiagramAction?.(action)} />
+            ) : type === 'CustomComponent' && id && props ? (
+              <InstanceFields id={id} props={props} />
             ) : !id || !type || !schema || !props ? (
               <div className={EMPTY}>
                 <b className={EMPTY_TITLE}>Nothing selected</b>
@@ -691,6 +701,7 @@ export function Inspector({
                     </Badge>
                   )}
                 </div>
+                {isRoot && appearanceSettings.setFrameAppearance && <section className={SECTION}><h3 className={SECTION_TITLE}>Appearance</h3><select aria-label="Frame appearance" className="w-full rounded-md border bg-background p-2 text-xs" value={currentScreen?.appearance ?? 'inherit'} onChange={e => appearanceSettings.setFrameAppearance?.(currentScreenId, e.target.value === 'inherit' ? undefined : e.target.value as 'light' | 'dark')}><option value="inherit">File default · {appearanceSettings.appearance === 'dark' ? 'Dark' : 'Light'}</option><option value="light">Light</option><option value="dark">Dark</option></select></section>}
                 {isRoot && (
                   <section className={SECTION} data-testid="frame-section">
                     <h3 className={SECTION_TITLE}>Frame</h3>
@@ -780,12 +791,11 @@ export function Inspector({
                   return (
                     <section key={section} className={SECTION}>
                       <h3 className={SECTION_TITLE}>{SECTION_TITLES[section]}</h3>
-                      <div className="flex flex-col gap-3">
-                        {fields.map((field) => (
+                      <FieldLayout fields={fields} renderField={(field) => (
                           <Field
                             key={field.prop}
                             field={field}
-                            value={props[field.prop]}
+                            value={field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(type ?? '') ? 1 : 0), color: props.borderColor } : props[field.prop]}
                             breakpoint={breakpoint}
                             onJumpToBreakpoint={setPreset}
                             onChange={(next) => {
@@ -796,8 +806,7 @@ export function Inspector({
                               else actions.setProp(id, setter);
                             }}
                           />
-                        ))}
-                      </div>
+                        )} />
                     </section>
                   );
                 })}
