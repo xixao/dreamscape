@@ -6,6 +6,7 @@ template conformance remains under review. No blanket UI approval is implied.
 
 ## Start Here
 
+- [Dreamscape presentation integration](dreamscape-integration/README.md): current integration scope. Dreamscape owns the library, editor, Player, saves and comments; Tone supplies presentation reference patterns. This plan does not remove capabilities from the standalone prototype.
 - [Component inventory](component-inventory.md): count and consumers for every used product/UI JSX type.
 - [Component health review](component-health.md): reuse verdicts, confirmed duplicates, boundaries and next work.
 - [Navigation and control budget](style-guide/navigation.md): one owner per control, persistent choices prioritized by task, secondary choices disclosed without hiding safety.
