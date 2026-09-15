@@ -2,12 +2,15 @@
 
 import { Editor, Frame } from '@craftjs/core';
 import { XIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { StageProvider } from '@/components/workbench/stage-context';
+import { CommentLayer, type PendingPin } from '@/components/workbench/comments/comment-layer';
+import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
+import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
 import type { FileRecord, OverlayPresentation, OverlayScreen, Screen, ToastPosition } from '@/lib/files/repository';
 import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -225,6 +228,14 @@ export function Player({
   });
   const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile'>('desktop');
   const [presentationZoom, setPresentationZoom] = useState(1);
+  const [commentStore] = useState(() => createCommentStore(file.id));
+  const allThreads = useSyncExternalStore(commentStore.subscribe, commentStore.list, () => []);
+  const [commentMode, setCommentMode] = useState(false);
+  const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
+  const artboardRef = useRef<HTMLDivElement>(null);
+  const [artboardRect, setArtboardRect] = useState<Rect | null>(null);
 
   // Ignores a navigate interaction whose stored targetScreenId names a
   // screen that no longer exists (deleted in the editor after the
@@ -353,6 +364,28 @@ export function Player({
     dispatch({ type: 'reset', screenId: resolveInitialScreenId(baseScreens, file.pages, initialScreenId, initialPageId) ?? currentScreen.id });
     setViewportMode('desktop');
     setPresentationZoom(1);
+    setCommentMode(false);
+    setPendingPin(null);
+    setOpenThreadId(null);
+  };
+  const visibleThreads = allThreads.filter((thread) => !thread.screenId || thread.screenId === currentScreen.id);
+  useLayoutEffect(() => {
+    const element = artboardRef.current;
+    if (!element) return;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setArtboardRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    update();
+    return () => observer.disconnect();
+  }, [state.currentScreenId, viewportMode, presentationZoom]);
+  const placeComment = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!commentMode || !artboardRef.current) return;
+    const rect = artboardRef.current.getBoundingClientRect();
+    const point = toArtboardPoint(event.clientX, event.clientY, rect, presentationZoom);
+    setPendingPin({ x: point.x, y: point.y });
   };
 
   return (
@@ -376,6 +409,9 @@ export function Player({
             <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
             <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
+            <Button type="button" variant={commentMode ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
+              Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
+            </Button>
             <a href={closeHref} className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Exit</a>
           </div>
         </header>
@@ -383,6 +419,7 @@ export function Player({
           <div style={{ zoom: presentationZoom }}>
             <StageProvider key={`${state.currentScreenId}-${viewportMode}`} initialWidth={presentationWidth}>
               <div
+                ref={artboardRef}
                 data-testid="artboard"
                 className={cn('relative shrink-0 bg-background', currentScreen.stageHeight != null && 'overflow-auto')}
                 style={
@@ -390,6 +427,10 @@ export function Player({
                     ? { width: presentationWidth, height: currentScreen.stageHeight }
                     : { width: presentationWidth, minHeight: ARTBOARD_MIN_HEIGHT }
                 }
+                onClickCapture={(event) => {
+                  if (commentMode) event.preventDefault();
+                  placeComment(event);
+                }}
               >
                 <Editor resolver={resolver} enabled={false}>
                   <Frame key={state.currentScreenId} data={currentScreen.layout} />
@@ -397,6 +438,28 @@ export function Player({
               </div>
             </StageProvider>
           </div>
+          <CommentLayer
+            commentMode={commentMode}
+            threads={visibleThreads}
+            pendingPin={pendingPin}
+            openThreadId={openThreadId}
+            authorName={authorName}
+            zoom={presentationZoom}
+            artboardRect={artboardRect}
+            onPlacePin={() => {}}
+            onCancelPending={() => setPendingPin(null)}
+            onSubmitComment={({ author, text }) => {
+              if (!pendingPin) return;
+              if (!authorName) { setAuthorName(author); setAuthorNameState(author); }
+              commentStore.add({ x: pendingPin.x, y: pendingPin.y, pageId: currentScreen.pageId, screenId: currentScreen.id, author, text });
+              setPendingPin(null);
+              setCommentMode(false);
+            }}
+            onPinClick={(id) => { setPendingPin(null); setOpenThreadId(id); }}
+            onCloseThread={() => setOpenThreadId(null)}
+            onSubmitReply={(threadId, { author, text }) => { commentStore.reply(threadId, { author, text }); }}
+            onResolveThread={(threadId) => { commentStore.resolve(threadId); setOpenThreadId(null); }}
+          />
         {/* Overlay frames, bottom to top, each a sibling of the screen's
             Editor (never inside it) with its own StageProvider and Editor.
             Array order is stacking order: Radix layers dialogs and sheets
