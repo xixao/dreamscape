@@ -15,6 +15,7 @@ import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
 import type { FileRecord, OverlayPresentation, OverlayScreen, Screen, ToastPosition } from '@/lib/files/repository';
 import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
+import { DEVICE_PRESET_GROUPS, type DevicePreset } from '@/lib/stage/device-presets';
 import { cn } from '@/lib/utils';
 import { PlayProvider, usePlay, type PlayContextValue } from './play-context';
 
@@ -228,12 +229,15 @@ export function Player({
     overlayStack: initialOverlayId !== undefined && overlaysById.has(initialOverlayId) ? [initialOverlayId] : [],
   });
   const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [devicePreset, setDevicePreset] = useState<DevicePreset | null>(null);
   const [presentationZoom, setPresentationZoom] = useState(1);
   const [commentStore] = useState(() => createCommentStore(file.id));
   const allThreads = useSyncExternalStore(commentStore.subscribe, commentStore.list, () => []);
   const [commentMode, setCommentMode] = useState(false);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
-  const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'details'>('comments');
+  const [reviewPanelTab, setReviewPanelTab] = useState<'screens' | 'comments' | 'overview'>('comments');
+  const [overviewNotes, setOverviewNotes] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
@@ -356,16 +360,22 @@ export function Player({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closeHref, overlaysById]);
 
-  const presentationWidth = viewportMode === 'mobile' ? 390 : (currentScreen?.stageWidth ?? 0);
+  const presentationWidth = devicePreset?.width ?? (viewportMode === 'mobile' ? 390 : (currentScreen?.stageWidth ?? 0));
   const zoomIn = () => setPresentationZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))));
   const zoomOut = () => setPresentationZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))));
   const resetPresentation = () => {
     dispatch({ type: 'reset', screenId: resolveInitialScreenId(baseScreens, file.pages, initialScreenId, initialPageId) ?? currentScreen.id });
     setViewportMode('desktop');
+    setDevicePreset(null);
     setPresentationZoom(1);
     setCommentMode(false);
     setPendingPin(null);
     setOpenThreadId(null);
+  };
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.();
+    setIsFullscreen((value) => !value);
   };
   const visibleThreads = allThreads.filter((thread) => !thread.screenId || thread.screenId === currentScreen.id);
   useLayoutEffect(() => {
@@ -403,14 +413,16 @@ export function Player({
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
             <label className="sr-only" htmlFor="presentation-viewport">Preview viewport</label>
-            <select id="presentation-viewport" value={viewportMode} onChange={(event) => setViewportMode(event.target.value as 'desktop' | 'mobile')} className="h-9 rounded-md border border-line-strong bg-(color:--chip) px-2 text-xs text-t2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <select id="presentation-viewport" value={devicePreset?.name ?? viewportMode} onChange={(event) => { const value = event.target.value; const preset = DEVICE_PRESET_GROUPS.flatMap((group) => group.devices).find((device) => device.name === value); setDevicePreset(preset ?? null); if (!preset) setViewportMode(value as 'desktop' | 'mobile'); }} className="h-9 max-w-52 rounded-md border border-line-strong bg-(color:--chip) px-2 text-xs text-t2 outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <option value="desktop">Preview: Desktop</option>
               <option value="mobile">Preview: Mobile</option>
+              {DEVICE_PRESET_GROUPS.map((group) => <optgroup key={group.group} label={group.group}>{group.devices.map((device) => <option key={`${group.group}-${device.name}`} value={device.name}>{device.name} · {device.width}×{device.height}</option>)}</optgroup>)}
             </select>
             <Button type="button" variant="ghost" size="sm" onClick={zoomOut} aria-label="Zoom out">−</Button>
             <span className="min-w-12 text-center font-mono text-xs" aria-live="polite">{Math.round(presentationZoom * 100)}%</span>
             <Button type="button" variant="ghost" size="sm" onClick={zoomIn} aria-label="Zoom in">+</Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setPresentationZoom(1)}>Reset zoom</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={toggleFullscreen}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</Button>
             <Button type="button" variant="outline" size="sm" onClick={resetPresentation}>Reset play</Button>
             <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); setReviewPanelTab('comments'); }} aria-pressed={commentsPanelOpen}>
               Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
@@ -504,7 +516,7 @@ export function Player({
               </Button>
             </div>
             <div className="mb-4 grid grid-cols-3 gap-1 rounded-md bg-(color:--chip) p-1" role="tablist" aria-label="Review panel">
-              {(['screens', 'comments', 'details'] as const).map((tab) => (
+              {(['screens', 'comments', 'overview'] as const).map((tab) => (
                 <button key={tab} type="button" role="tab" aria-selected={reviewPanelTab === tab} className={cn('rounded px-2 py-1.5 text-[11px] capitalize', reviewPanelTab === tab ? 'bg-accent text-foreground' : 'text-t4 hover:text-t2')} onClick={() => setReviewPanelTab(tab)}>{tab}</button>
               ))}
             </div>
@@ -512,8 +524,8 @@ export function Player({
               <div className="space-y-2">
                 {baseScreens.map((screen) => <button key={screen.id} type="button" className={cn('w-full rounded-md border p-3 text-left text-sm', screen.id === currentScreen.id ? 'border-ring bg-accent' : 'border-line-soft bg-(color:--chip)')} onClick={() => dispatch({ type: 'navigate', screenId: screen.id })}>{screen.name}</button>)}
               </div>
-            ) : reviewPanelTab === 'details' ? (
-              <dl className="space-y-3 text-xs"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl>
+            ) : reviewPanelTab === 'overview' ? (
+              <div className="space-y-3 text-xs"><label className="block"><span className="text-t4">Presentation title</span><input className="mt-1 h-9 w-full rounded-md border border-line-soft bg-(color:--chip) px-2 text-t2" defaultValue={file.name} /></label><label className="block"><span className="text-t4">Presenter notes</span><textarea value={overviewNotes} onChange={(event) => setOverviewNotes(event.target.value)} placeholder="Add context for reviewers…" className="mt-1 min-h-24 w-full rounded-md border border-line-soft bg-(color:--chip) p-2 text-t2" /></label><dl className="space-y-3 border-t border-line-soft pt-3"><div><dt className="text-t4">Page</dt><dd className="mt-1 text-t2">{file.pages?.find((page) => page.id === currentScreen.pageId)?.name ?? 'Page 1'}</dd></div><div><dt className="text-t4">Screen</dt><dd className="mt-1 text-t2">{currentScreen.name}</dd></div><div><dt className="text-t4">Viewport</dt><dd className="mt-1 text-t2">{presentationWidth} px · {devicePreset?.name ?? viewportMode}</dd></div><div><dt className="text-t4">Status</dt><dd className="mt-1 text-ok">Read-only</dd></div></dl><Button type="button" size="sm" onClick={() => window.localStorage.setItem(`dreamscape:presentation-notes:${file.id}`, overviewNotes)}>Save overview</Button></div>
             ) : visibleThreads.length === 0 ? (
               <div className="rounded-md border border-dashed border-line-strong p-4 text-xs text-t4">
                 No comments on this screen yet.
