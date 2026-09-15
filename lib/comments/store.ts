@@ -19,6 +19,9 @@ export interface CommentThread {
   x: number;
   y: number;
   anchorNodeId?: string;
+  /** The page/screen context is optional for compatibility with old threads. */
+  pageId?: string;
+  screenId?: string;
   author: string;
   text: string;
   createdAt: string;
@@ -27,7 +30,7 @@ export interface CommentThread {
 
 export interface CommentStore {
   list(): CommentThread[];
-  add(input: { x: number; y: number; anchorNodeId?: string; author: string; text: string }): CommentThread;
+  add(input: { x: number; y: number; anchorNodeId?: string; pageId?: string; screenId?: string; author: string; text: string }): CommentThread;
   reply(threadId: string, input: { author: string; text: string }): CommentReply | null;
   resolve(threadId: string): void;
   subscribe(fn: () => void): () => void;
@@ -69,6 +72,21 @@ export function createCommentStore(fileId: string, storage: Storage = localStora
   let threads = readThreads(fileId, storage);
   const listeners = new Set<() => void>();
 
+  // The editor and presentation can be open in separate tabs. Storage events
+  // keep each view current without changing the existing localStorage schema.
+  // The originating tab still notifies its own subscribers through commit().
+  const onStorage = (event: StorageEvent) => {
+    if (event.storageArea !== storage || event.key !== threadsKey(fileId)) return;
+    try {
+      const parsed: unknown = event.newValue ? JSON.parse(event.newValue) : [];
+      threads = Array.isArray(parsed) ? (parsed as CommentThread[]) : [];
+      for (const listener of listeners) listener();
+    } catch {
+      // Ignore malformed external data; the local view remains usable.
+    }
+  };
+  if (typeof window !== 'undefined') window.addEventListener('storage', onStorage);
+
   function commit(next: CommentThread[]): void {
     threads = next;
     writeThreads(fileId, storage, threads);
@@ -79,13 +97,15 @@ export function createCommentStore(fileId: string, storage: Storage = localStora
     list() {
       return threads;
     },
-    add({ x, y, anchorNodeId, author, text }) {
+    add({ x, y, anchorNodeId, pageId, screenId, author, text }) {
       const thread: CommentThread = {
         id: nanoid(10),
         fileId,
         x,
         y,
         ...(anchorNodeId !== undefined ? { anchorNodeId } : {}),
+        ...(pageId !== undefined ? { pageId } : {}),
+        ...(screenId !== undefined ? { screenId } : {}),
         author,
         text,
         createdAt: new Date().toISOString(),

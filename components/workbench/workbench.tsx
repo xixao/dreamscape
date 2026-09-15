@@ -1668,9 +1668,10 @@ function WorkbenchShell({
   // node.
   useDropPlaceholder();
 
+  const visibleThreads = threads.filter((thread) => !thread.screenId || thread.screenId === currentScreenId);
   const commentsProps: StageCommentsProps = {
     commentMode,
-    threads,
+    threads: visibleThreads,
     pendingPin,
     openThreadId,
     authorName,
@@ -1685,7 +1686,15 @@ function WorkbenchShell({
         setAuthorName(author);
         setAuthorNameState(author);
       }
-      commentStore.add({ x: pendingPin.x, y: pendingPin.y, anchorNodeId: pendingPin.anchorNodeId, author, text });
+      commentStore.add({
+        x: pendingPin.x,
+        y: pendingPin.y,
+        anchorNodeId: pendingPin.anchorNodeId,
+        pageId: currentPageId,
+        screenId: currentScreenId,
+        author,
+        text,
+      });
       setPendingPin(null);
       setCommentMode(false);
     },
