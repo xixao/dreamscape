@@ -1536,14 +1536,25 @@ function WorkbenchShell({
     const href = presentHrefFor(fileId, currentPageId, screens, currentScreenId);
     // Reserve the tab during the user gesture so the browser does not treat
     // the later, post-save navigation as an unsolicited popup.
-    const tab = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    // Open during the user gesture so the later save acknowledgement can
+    // navigate the reserved tab without replacing the editor. We detach the
+    // opener immediately after obtaining it; using `noopener` in this first
+    // call makes some browsers return null even when the tab was created.
+    const tab = window.open('about:blank', '_blank');
     const result = await flushAndConfirm();
     if (result !== 'saved') {
       tab?.close();
       return;
     }
-    if (tab) tab.location.href = href;
-    else window.location.assign(href);
+    if (tab) {
+      try { tab.opener = null; } catch { /* browser may expose opener read-only */ }
+      tab.location.href = href;
+    } else {
+      // A blocked popup must not navigate away from the editor. Ask the
+      // browser once more after the save; if it remains blocked, the saved
+      // Present button is still available for an explicit retry.
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }
   }
 
   // The viewport centre (screen space, relative to the canvas's own origin -
