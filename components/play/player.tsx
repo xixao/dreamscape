@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { CanvasFrame } from '@/components/workbench/canvas-frame';
 import { StageProvider } from '@/components/workbench/stage-context';
-import { LABEL } from '@/components/workbench/chrome';
 import { CommentLayer, type PendingPin } from '@/components/workbench/comments/comment-layer';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
@@ -291,7 +290,7 @@ export function Player({
   const currentScreen = baseScreens.find((screen) => screen.id === state.currentScreenId) ?? baseScreens[0];
   const closeHref = `/f/${file.id}#s=${state.currentScreenId}`;
   const topOverlay = state.overlayStack.length > 0 ? overlaysById.get(state.overlayStack[state.overlayStack.length - 1]) : undefined;
-  const chipAboveOverlays = topOverlay !== undefined && !isDismissible(topOverlay.presentation);
+  const exitAboveOverlays = topOverlay !== undefined && !isDismissible(topOverlay.presentation);
 
   // Read by the Escape handler below instead of closing over
   // state.openDialogIds / state.overlayStack directly: that effect is only
@@ -440,7 +439,7 @@ export function Player({
         <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="flex min-w-0 items-center gap-3">
             <span className="truncate text-sm font-semibold tracking-tight">{overviewTitle}</span>
-            <span className="hidden text-xs text-muted-foreground md:block">Presentation</span>
+            <span className="hidden text-xs text-muted-foreground md:block">{currentScreen.name}</span>
             <span className="rounded border border-line-strong bg-(color:--chip) px-2 py-0.5 text-[11px] text-t4">Read-only</span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
@@ -451,7 +450,7 @@ export function Player({
             <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); }} aria-pressed={commentsPanelOpen}>
               <PanelRightIcon className="size-4" aria-hidden="true" /> Review{visibleThreads.length > 0 ? ` · ${visibleThreads.length}` : ''}
             </Button>
-            <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
+            <a href={closeHref} className={cn("ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", exitAboveOverlays && "pointer-events-auto")}>Exit</a>
           </div>
         </header>
         {saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
@@ -516,18 +515,6 @@ export function Player({
             />
           ) : null;
         })}
-        <div
-          className={cn(
-            'absolute bottom-2 left-4 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
-            chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
-          )}
-        >
-          <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
-          <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
-          <a href={closeHref} className="text-t2 underline hover:no-underline">
-            Close
-          </a>
-        </div>
         </main>
         {commentsPanelOpen && (
           <aside className="fixed inset-x-0 bottom-0 z-[85] max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-80 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none" aria-label="Review">

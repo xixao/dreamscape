@@ -269,12 +269,12 @@ describe('Player', () => {
     expect(artboard).toHaveClass('overflow-auto');
   });
 
-  it('shows the screen name and a close link back to the editor in the overlay', async () => {
+  it('shows the screen name and Exit link in the top bar', async () => {
     render(<Player file={makeFile()} initialScreenId="screen1" />);
     await screen.findByRole('button', { name: 'Go to second screen' });
 
     expect(screen.getByText('Login')).toBeInTheDocument();
-    expect(screen.getByText('Esc to exit')).toBeInTheDocument();
+    expect(screen.queryByText('Esc to exit')).not.toBeInTheDocument();
     expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
   });
 
@@ -662,13 +662,6 @@ function zIndexClass(element: Element): number {
   return Number(match[1] ?? match[2]);
 }
 
-// The "Esc to exit" chip: Play's own chrome, sitting above every overlay.
-function playChip(): HTMLElement {
-  const chip = screen.getByText('Esc to exit').parentElement;
-  if (!chip) throw new Error('no Play chip');
-  return chip;
-}
-
 describe('Player overlays', () => {
   async function renderOnLogin(file = makeOverlayFile(), extraProps: { initialOverlayId?: string } = {}) {
     const user = userEvent.setup();
@@ -1010,67 +1003,15 @@ describe('Player overlays', () => {
     expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
   });
 
-  // The chip and every overlay's own X share the viewport's top-right
-  // corner (a sheet's or toast's close button is `absolute top-3 right-3`
-  // inside a surface pinned to that corner). Two states, then: under a
-  // dismissible overlay the chip keeps its plain z-50 so the overlay - and
-  // its X - paint over it; only under a NON-dismissible one, which shows no
-  // X at all, does the chip rise above everything and opt back into pointer
-  // events, so its Close link is the way out of Play.
-  it('keeps the Play chip under a dismissible overlay, so a right sheet\'s or a top-right toast\'s close button stays on top', async () => {
-    const user = await renderOnLogin();
-    expect(playChip()).toHaveClass('absolute', 'bottom-2', 'left-4', 'z-50');
-    expect(playChip()).not.toHaveClass('pointer-events-auto');
-
-    await user.click(screen.getByRole('button', { name: 'Open panel' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Panel' });
-    expect(sheet).toHaveAttribute('data-side', 'right');
-    const sheetClose = within(sheet).getByRole('button', { name: 'Close' });
-    expect(sheetClose).toHaveClass('absolute', 'top-3', 'right-3');
-
-    // Same z-index, and the portalled sheet comes later in the DOM, so it
-    // (and the X inside it) paints over the chip.
-    const chip = playChip();
-    expect(chip).toHaveClass('z-50');
-    expect(chip).not.toHaveClass('pointer-events-auto');
-    expect(zIndexClass(sheet)).toBe(zIndexClass(chip));
-    expect(chip.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    await user.click(sheetClose);
-    await waitFor(() => expect(screen.queryByRole('dialog', { hidden: true })).toBeNull());
-
-    await user.click(screen.getByRole('button', { name: 'Show alert' }));
-    const toast = await screen.findByRole('status', { name: 'Alert' });
-    expect(toast).toHaveClass('top-4', 'right-4');
-    expect(zIndexClass(toast)).toBeGreaterThan(zIndexClass(playChip()));
-    expect(playChip()).not.toHaveClass('pointer-events-auto');
-    expect(within(toast).getByRole('button', { name: 'Close overlay' })).toBeInTheDocument();
-  });
-
-  it('raises the Play chip above a non-dismissible overlay and keeps it clickable, so its Close link is a way out', async () => {
+  it('keeps the top-bar Exit available above a non-dismissible overlay', async () => {
     const user = await renderOnLogin();
     await user.click(screen.getByRole('button', { name: 'Open locked' }));
     const locked = await screen.findByRole('dialog', { name: 'Locked' });
-    expect(within(locked).queryByRole('button', { name: 'Close' })).toBeNull();
-
-    // Radix puts pointer-events: none on <body> behind a modal; the chip
-    // opts back in and rises above the dialog (z-50) and any toast (z-[60]).
-    const chip = playChip();
-    expect(zIndexClass(chip)).toBe(70);
-    expect(zIndexClass(chip)).toBeGreaterThan(zIndexClass(locked));
-    expect(chip).toHaveClass('pointer-events-auto');
-    expect(screen.getByRole('link', { hidden: true })).toHaveAttribute('href', '/f/file1#s=screen1');
-
-    // A dismissible sheet on top of the locked dialog is the top overlay
-    // again: the chip drops back under it.
-    await user.click(within(locked).getByRole('button', { name: 'Open filters from locked' }));
-    await screen.findByRole('dialog', { name: 'Filters' });
-    expect(playChip()).toHaveClass('z-50');
-    expect(playChip()).not.toHaveClass('pointer-events-auto');
-
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(1));
-    expect(playChip()).toHaveClass('z-[70]', 'pointer-events-auto');
+    const exit = screen.getByRole('link', { name: 'Exit', hidden: true });
+    expect(exit).toHaveAttribute('href', '/f/file1#s=screen1');
+    expect(exit).toHaveClass('pointer-events-auto');
+    expect(zIndexClass(exit.closest('header')!)).toBeGreaterThan(zIndexClass(locked));
+    expect(screen.queryByText('Esc to exit')).not.toBeInTheDocument();
   });
 
   it('a legacy inline Dialog block inside an overlay: Escape closes it first, then the overlay, and only then exits Play', async () => {
