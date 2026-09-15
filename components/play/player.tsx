@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { StageProvider } from '@/components/workbench/stage-context';
+import { LABEL } from '@/components/workbench/chrome';
 import { CommentLayer, type PendingPin } from '@/components/workbench/comments/comment-layer';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
@@ -275,6 +276,8 @@ export function Player({
 
   const currentScreen = baseScreens.find((screen) => screen.id === state.currentScreenId) ?? baseScreens[0];
   const closeHref = `/f/${file.id}#s=${state.currentScreenId}`;
+  const topOverlay = state.overlayStack.length > 0 ? overlaysById.get(state.overlayStack[state.overlayStack.length - 1]) : undefined;
+  const chipAboveOverlays = topOverlay !== undefined && !isDismissible(topOverlay.presentation);
 
   // Read by the Escape handler below instead of closing over
   // state.openDialogIds / state.overlayStack directly: that effect is only
@@ -351,13 +354,7 @@ export function Player({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closeHref, overlaysById]);
 
-  // Only reachable for a file whose screens array is empty (or holds
-  // nothing but overlay frames), which validateScreens (lib/files/
-  // validate.ts) never allows a real saved file to have - defensive, not
-  // expected in production.
-  if (!currentScreen) return null;
-
-  const presentationWidth = viewportMode === 'mobile' ? 390 : currentScreen.stageWidth;
+  const presentationWidth = viewportMode === 'mobile' ? 390 : (currentScreen?.stageWidth ?? 0);
   const zoomIn = () => setPresentationZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))));
   const zoomOut = () => setPresentationZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))));
   const resetPresentation = () => {
@@ -381,6 +378,11 @@ export function Player({
     update();
     return () => observer.disconnect();
   }, [state.currentScreenId, viewportMode, presentationZoom]);
+
+  // Only reachable for a file whose screens array is empty (or holds
+  // nothing but overlay frames), which validateScreens never allows in a
+  // real saved file. The hook above must remain unconditional.
+  if (!currentScreen) return null;
   const placeComment = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!commentMode || !artboardRef.current) return;
     const rect = artboardRef.current.getBoundingClientRect();
@@ -412,7 +414,7 @@ export function Player({
             <Button type="button" variant={commentMode ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
               Comments{visibleThreads.length > 0 ? ` (${visibleThreads.length})` : ''}
             </Button>
-            <a href={closeHref} className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Exit</a>
+            <button type="button" className="ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => window.location.assign(closeHref)}>Exit</button>
           </div>
         </header>
         <main className="flex flex-1 items-start justify-center overflow-auto p-8" aria-label="Presentation preview">
@@ -475,6 +477,18 @@ export function Player({
             />
           ) : null;
         })}
+        <div
+          className={cn(
+            'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
+            chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
+          )}
+        >
+          <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
+          <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
+          <a href={closeHref} className="text-t2 underline hover:no-underline">
+            Close
+          </a>
+        </div>
         </main>
       </div>
     </PlayProvider>

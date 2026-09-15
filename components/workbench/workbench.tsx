@@ -25,7 +25,7 @@ import type { FileRecord, LayoutGrid, OverlayPresentation, OverlayPresentationTy
 import { createOverlayScreen, isOverlay, nextOverlayDefaultName, wouldStrandPage } from '@/lib/files/screens';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
 import { placeholderTransport } from '@/lib/chat/transport';
-import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
+import { createFileSaver, type FilePatch, type FlushResult, type SaveState } from '@/lib/persistence';
 import { STAGE_PRESETS } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import {
@@ -1020,6 +1020,7 @@ export function Workbench({
             queuePatch({ name });
           }}
           saveState={saveState}
+          flushAndConfirm={saver.flushAndConfirm}
           notice={notice}
           pages={pages}
           currentPageId={currentPageId}
@@ -1056,6 +1057,7 @@ function WorkbenchShell({
   fileName,
   onRename,
   saveState,
+  flushAndConfirm,
   notice,
   pages,
   currentPageId,
@@ -1086,6 +1088,7 @@ function WorkbenchShell({
   fileName: string;
   onRename: (name: string) => void;
   saveState: SaveState;
+  flushAndConfirm: () => Promise<FlushResult>;
   notice?: string;
   pages: Page[];
   currentPageId: string;
@@ -1534,7 +1537,7 @@ function WorkbenchShell({
     // Reserve the tab during the user gesture so the browser does not treat
     // the later, post-save navigation as an unsolicited popup.
     const tab = window.open('about:blank', '_blank', 'noopener,noreferrer');
-    const result = await saver.flushAndConfirm();
+    const result = await flushAndConfirm();
     if (result !== 'saved') {
       tab?.close();
       return;
