@@ -1204,3 +1204,22 @@ describe('Player overlays', () => {
 function cleanupRender() {
   cleanup();
 }
+
+it('presents the file appearance unless the active frame overrides it', () => {
+  const file = { ...makeFile(), appearance: 'dark' as const };
+  const { container, rerender } = render(<Player file={file} initialScreenId="screen1" />);
+  expect(container.querySelector('.theme-basic')).toHaveAttribute('data-appearance', 'dark');
+  rerender(<Player file={{ ...file, screens: file.screens!.map(s => ({ ...s, appearance: 'light' as const })) }} initialScreenId="screen1" />);
+  expect(container.querySelector('.theme-basic')).toHaveAttribute('data-appearance', 'light');
+});
+
+it('keeps shared playback free of editor exit controls and Escape navigation', async () => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { ...window.location, assign });
+  render(<Player file={makeFile()} initialScreenId="screen1" shared />);
+  expect(screen.queryByText('Esc to exit')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Close' })).not.toBeInTheDocument();
+  await userEvent.keyboard('{Escape}');
+  expect(assign).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});

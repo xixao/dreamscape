@@ -92,7 +92,7 @@ Card.craft = {
 export const cardSchema: BlockSchema = {
   type: 'Card',
   fields: [
-    ...SIZE_FIELDS, ...APPEARANCE_FIELDS,
+    ...SIZE_FIELDS.map(field => field.prop === 'maxWidthPx' ? { ...field, prop: 'maxWidth', label: 'Maximum width', kind: 'width-limit' as const } : field), ...APPEARANCE_FIELDS,
     { prop: 'title', label: 'Title', kind: 'text', section: 'Content' },
     { prop: 'description', label: 'Description', kind: 'text', section: 'Content' },
     GROW_FIELD,

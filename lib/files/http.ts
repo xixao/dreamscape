@@ -114,6 +114,7 @@ const screenField = z.object({
   name: z.string(),
   layout: z.string(),
   stageWidth: z.number().int(),
+  appearance: z.enum(['light', 'dark']).optional(),
   stageHeight: z.number().int().nullable().optional(),
   deviceName: z.string().nullable().optional(),
   // Overlay frames (spec section 2): `kind` absent means a plain screen.
@@ -169,6 +170,7 @@ export const saveBody = z
   .object({
     name: nameField,
     pages: pagesField.optional(),
+    appearance: z.enum(['light', 'dark']).optional(),
     components: componentLibrarySchema.optional(),
     screens: screensField.optional(),
     baseUpdatedAt: z.iso.datetime().optional(),
@@ -178,6 +180,7 @@ export const saveBody = z
     (body) =>
       body.name !== undefined ||
       body.pages !== undefined ||
+      body.appearance !== undefined ||
       body.components !== undefined ||
       body.screens !== undefined ||
       body.folderId !== undefined,

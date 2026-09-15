@@ -16,3 +16,10 @@ describe('border rendering', () => {
     expect(designStyle({ border: { width: 4, sides: 'custom', top: 0, left: 8 } })).toMatchObject({ borderTopWidth: 0, borderRightWidth: 4, borderBottomWidth: 4, borderLeftWidth: 8 });
   });
 });
+
+it('supports percentage and pixel maximum widths and preserves legacy values', () => {
+  expect(designStyle({ maxWidth: { value: 75, unit: '%' } }).maxWidth).toBe('75%');
+  expect(designStyle({ maxWidth: { value: 640, unit: 'px' } }).maxWidth).toBe('640px');
+  expect(designStyle({ maxWidthPx: 480 }).maxWidth).toBe(480);
+  expect(designStyle({ maxWidthPx: 480, maxWidth: { value: 0, unit: '%' } }).maxWidth).toBeUndefined();
+});

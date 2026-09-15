@@ -562,3 +562,14 @@ describe('useCanvasDocument', () => {
     expect(screen.getByTestId('outside-probe')).toHaveTextContent('set');
   });
 });
+
+it('updates appearance without recreating the iframe or its content', async () => {
+  const { rerender } = render(<StageProvider><CanvasFrame width={400} height={300} zoom={1} appearance="light"><button>Keep me</button></CanvasFrame></StageProvider>);
+  const iframe = document.querySelector('iframe')!;
+  await waitFor(() => expect(iframe.contentDocument?.body.dataset.appearance).toBe('light'));
+  const button = iframe.contentDocument!.querySelector('button');
+  rerender(<StageProvider><CanvasFrame width={400} height={300} zoom={1} appearance="dark"><button>Keep me</button></CanvasFrame></StageProvider>);
+  await waitFor(() => expect(iframe.contentDocument?.body.dataset.appearance).toBe('dark'));
+  expect(document.querySelector('iframe')).toBe(iframe);
+  expect(iframe.contentDocument!.querySelector('button')).toBe(button);
+});

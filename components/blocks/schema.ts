@@ -22,7 +22,7 @@ export type BlockType =
 
 export type ZoneType = 'CardContent' | 'DialogContent' | 'TabsContent';
 
-export type FieldKind = 'select' | 'text' | 'boolean' | 'spacing' | 'color' | 'border';
+export type FieldKind = 'select' | 'text' | 'boolean' | 'spacing' | 'color' | 'border' | 'width-limit';
 
 export type SectionName = 'Layout' | 'Content' | 'Style' | 'Editor';
 

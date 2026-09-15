@@ -230,3 +230,37 @@ describe('Component Builder assembly', () => {
     expect(tree[tree.ROOT.nodes[0]].type.resolvedName).toBe('Button');
   });
 });
+
+it('opens and closes the existing Chat panel from the builder header', async () => {
+  render(<ComponentBuilder fileId="cc-chat" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={vi.fn()} />);
+  const toggle = screen.getByRole('radio', { name: 'Chat' });
+  await userEvent.click(toggle);
+  expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveClass('left-3');
+  expect(screen.queryByRole('complementary', { name: 'Layers panel' })).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('data-state', 'on');
+  await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+  expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Layers' })).toHaveAttribute('data-state', 'on');
+  expect(screen.getByRole('complementary', { name: 'Layers panel' })).toBeInTheDocument();
+});
+
+it('switches the left panel between Layers and Chat using its tabs', async () => {
+  render(<ComponentBuilder fileId="cc-tabs" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={vi.fn()} />);
+  await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+  expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+  expect(screen.queryByRole('complementary', { name: 'Layers panel' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+  expect(screen.getByRole('complementary', { name: 'Layers panel' })).toBeInTheDocument();
+  expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument();
+});
+
+it('collapses Chat to a rail and expands it again', async () => {
+  render(<ComponentBuilder fileId="cc-chat-collapse" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={vi.fn()} />);
+  await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Minimize chat panel' }));
+  expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ width: '40px' });
+  expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Expand chat panel' }));
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
+});

@@ -200,6 +200,7 @@ export type LayoutGrid = { columns: number; gutter: number; margin: number; visi
 // lib/files/layout.ts's layoutMissingPositions over the file's screens on
 // load to fill them in before the canvas ever renders one.
 export type Screen = {
+  appearance?: 'light' | 'dark';
   id: string;
   name: string;
   layout: string;
@@ -236,6 +237,7 @@ export type Screen = {
 // such as create()'s default screen and lib/examples's exampleToScreens),
 // before the content rules below have normalized it into a Screen.
 export type ScreenInput = {
+  appearance?: 'light' | 'dark';
   id: string;
   name: string;
   layout: string;
@@ -532,6 +534,7 @@ export function validateScreens(
       if (!validatedGrid.ok) return { ok: false, reason: validatedGrid.reason };
     }
 
+    if (raw.appearance !== undefined && !['light', 'dark'].includes(raw.appearance)) return { ok: false, reason: 'Invalid frame appearance' };
     screens.push({
       id: raw.id,
       name,
@@ -545,6 +548,7 @@ export function validateScreens(
       ...(kind !== undefined ? { kind: kind as ScreenKind } : {}),
       ...(presentation !== undefined ? { presentation } : {}),
       layoutGrid: raw.layoutGrid,
+      appearance: raw.appearance,
     });
   }
 

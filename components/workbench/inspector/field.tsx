@@ -80,6 +80,12 @@ export function Field({ field, value, breakpoint, onChange, onJumpToBreakpoint }
       </button>
     ) : null;
 
+  if (field.kind === 'width-limit') {
+    const limit = (current ?? { value: 0, unit: 'px' }) as { value: number; unit: 'px' | '%' };
+    const presets = limit.unit === '%' ? [0, 25, 50, 75, 100] : [0, 240, 320, 480, 640, 960];
+    return <div className="flex flex-col gap-1.5">{labelRow}<div className="flex gap-2"><div className="min-w-0 flex-1"><SpacingInput id={id} label={field.label} value={limit.value} unit={limit.unit} max={10000} options={presets.map(value => ({ value, label: value === 0 ? 'No limit' : `${value}${limit.unit}` }))} onChange={value => commit({ ...limit, value })} /></div><Select value={limit.unit} onValueChange={unit => commit({ ...limit, unit })}><SelectTrigger aria-label="Maximum width unit" className="w-20"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="px">px</SelectItem><SelectItem value="%">%</SelectItem></SelectContent></Select></div><p className="text-[10px] text-muted-foreground">{limit.value === 0 ? 'No maximum width.' : limit.unit === '%' ? 'Relative to the parent container.' : 'Maximum width in pixels.'} Set 0 for no limit.</p></div>;
+  }
+
   if (field.kind === 'border') return <BorderControl value={current as BorderSettings} onChange={commit} />;
 
   if (field.kind === 'color') {

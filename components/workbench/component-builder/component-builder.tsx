@@ -10,6 +10,7 @@ import { isResponsive, resolve, type Breakpoint } from '@/lib/responsive';
 import { StageProvider, useStage } from '../stage-context';
 import { CanvasFrame } from '../canvas-frame';
 import { Field } from '../inspector/field';
+import { WidthControl } from './width-control';
 import { FieldLayout } from '../inspector/field-layout';
 import { LayersPanel } from '../layers-panel';
 import { bindCanvasDelete } from './delete-key';
@@ -25,6 +26,9 @@ import { ElementPicker } from './element-picker';
 import { PRIMARY_BUTTON, LABEL, PANEL } from '../chrome';
 import { nextZoomStep, MIN_ZOOM, MAX_ZOOM } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
+import { PanelResize, useLeftPanelWidth } from '../panel-resize';
+import { LeftPanelContext } from '../left-panel-tabs';
+import { ChatPanel } from '../chat/chat-panel';
 import { SaveIndicator } from '../topbar';
 import { bindPreviewZoom, type PreviewZoomChange } from './preview-zoom';
 
@@ -60,6 +64,9 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
   const [name, setName] = useState(initial.name);
   const [zoom, setZoom] = useState(1);
   const [history, dispatch] = useReducer(historyReducer, { layout: initial.layout, past: [], future: [] });
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useLeftPanelWidth();
+  const [chatOpen, setChatOpen] = useState(false);
   const [view, setView] = useState<'all' | 'component'>('component');
   const [widths, setWidths] = useState({ desktop: 1024, tablet: 768, mobile: 320 });
   const [fitHeights, setFitHeights] = useState({ desktop: true, tablet: true, mobile: true });
@@ -98,7 +105,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
     onSave(parsed.data);
   }, [existing, initial.id, name, history.layout, onSave]);
   const hasContent = (JSON.parse(history.layout) as Tree).ROOT.nodes.length > 0;
-  return <SelectPortalContainer.Provider value={menuContainer}><div ref={attachRoot} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Component Builder"
+  return <LeftPanelContext.Provider value={{ chatOpen, setChatOpen, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><SelectPortalContainer.Provider value={menuContainer}><div ref={attachRoot} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Component Builder"
     className="fixed inset-0 z-[80] bg-canvas outline-none"
     onKeyDown={event => {
       event.stopPropagation();
@@ -130,15 +137,16 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         onSave(valid.data); try { localStorage.removeItem(draftKey); } catch { /* Saving the file still succeeds. */ }
       }}>Add to Components</button>}
     </header>
+    {chatOpen && <ChatPanel left={12} width={leftWidth} onWidthChange={setLeftWidth} fileId={fileId} onClose={() => setChatOpen(false)} className="absolute top-[76px] left-3 bottom-3 z-30 w-64" />}
     <div className="contents group/layers-shell">
-      <aside aria-label="Layers panel" ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 w-64 has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`} />
-      <main onClick={event => {
+      <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`}><PanelResize width={leftWidth} onChange={setLeftWidth} /></aside>
+      <main style={{ '--left-padding': `${leftCollapsed ? 64 : leftWidth + 24}px` } as React.CSSProperties} onClick={event => {
         const target = event.target as HTMLElement;
         // React portal events bubble here from the iframe and side panels.
         // Only actual DOM descendants of the workspace can be blank canvas.
         if (!event.currentTarget.contains(target)) return;
         if (!target.closest('[data-component-frame],button,input,select,label,[role="separator"]')) setSelected('');
-      }} className="absolute inset-0 flex min-w-0 flex-col bg-canvas pt-[76px] pr-[344px] pb-3 pl-[280px] group-has-[[data-layers-collapsed=true]]/layers-shell:pl-16">
+      }} className={`absolute inset-0 flex min-w-0 flex-col bg-canvas pt-[76px] pr-[344px] pb-3 pl-[var(--left-padding)] ${chatOpen ? '' : 'group-has-[[data-layers-collapsed=true]]/layers-shell:pl-16'}`}>
         <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-4"><button aria-pressed={view === 'all'} className="rounded-md border border-line-soft px-3 py-2 text-xs" onClick={() => setView(current => current === 'all' ? 'component' : 'all')}>{view === 'all' ? 'Single frame' : 'Compare widths'}</button>
           <div role="group" aria-label="Preview zoom" className="flex shrink-0 items-center gap-2 text-xs">
             <button aria-label="Zoom out" disabled={zoom <= MIN_ZOOM} className="rounded border px-2 py-1 disabled:opacity-30" onClick={() => setZoom(current => nextZoomStep(current, 'out'))}>−</button>
@@ -158,7 +166,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         <aside aria-label="Builder design" className="min-h-0 flex-1 overflow-auto" ref={setPanel} />
       </div>
     </div>
-  </div></SelectPortalContainer.Provider>;
+  </div></SelectPortalContainer.Provider></LeftPanelContext.Provider>;
 }
 
 function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize, visible, width, onWidthChange, layout, onChange, active, onActivate, selected, onSelect, layers, panel, scope, setScope, zoom, onZoom }: {
@@ -184,7 +192,7 @@ function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize
   const activate = () => { activeRef.current = true; onActivate(); };
   return <section hidden={!visible} className={`${visible ? 'flex' : 'hidden'} min-w-[200px] flex-1 flex-col rounded-xl border ${active ? 'border-acc/70' : 'border-line-soft'} bg-card/40`} onPointerDownCapture={activate} onDragEnter={activate}>
     <div className="flex items-center gap-2 px-3 py-3"><button onClick={activate} className="text-xs font-semibold capitalize">{compact ? 'Component' : size.label}</button></div>
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><label className="flex items-center gap-1">Width<input aria-label={`${size.label} width`} type="number" min={240} max={3840} value={width} onChange={event => { if (event.target.value) onWidthChange(Number(event.target.value)); }} className="w-16 rounded border bg-background px-1 py-0.5 font-mono" />px</label><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><WidthControl label={`${size.label} width`} value={width} onChange={onWidthChange} /><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
     <div ref={setHost} className="component-builder-preview min-h-0 flex-1 overflow-auto rounded-b-xl p-3 flex items-center">
       <Editor resolver={resolver} onRender={BuilderIndicator} indicator={{ success: '#8C97DB', error: '#E05D5D' }} onNodesChange={query => {
         const next = query.serialize();
@@ -294,7 +302,7 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
     <div data-component-frame style={{ width: width * scale, height: effectiveHeight * scale, position: 'relative', flexShrink: 0, margin: 'auto' }}>
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
     <CanvasFrame width={width} height={effectiveHeight} zoom={scale} minHeight={0} title={`${title} component preview`}>
-      <div ref={setContent} className="component-builder-preview theme-basic"><Frame data={layout} /></div>
+      <div ref={setContent} className="component-builder-preview"><Frame data={layout} /></div>
     </CanvasFrame>
     </div>
     <ResizeHandle axis="width" width={width} height={effectiveHeight} zoom={scale} onWidthChange={onWidthChange} />
@@ -325,7 +333,7 @@ function BuilderFields({ scope, setScope, deselected }: { deselected: boolean; s
     </div>
     <FieldLayout fields={fields.filter(field => !field.showWhen || field.showWhen(props))} renderField={field => {
       const responsive = field.responsive || (layoutBox && (field.section === 'Layout' || field.section === 'Style'));
-      const base = field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(node.data.name) ? 1 : 0), color: props.borderColor } : props[field.prop];
+      const base = field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(node.data.name) ? 1 : 0), color: props.borderColor } : props[field.prop];
       const value = sizeStyles?.[breakpoint]?.[field.prop] ?? resolve(base, breakpoint);
       const overridden = sizeStyles?.[breakpoint]?.[field.prop] !== undefined || (isResponsive(base) && base[breakpoint] !== ((props.componentShared as Record<string, unknown> | undefined)?.[field.prop] ?? base.mobile));
       return <div key={field.prop}><Field field={{ ...field, responsive: false }} value={value} breakpoint={breakpoint} onChange={next => {

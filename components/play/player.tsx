@@ -1,4 +1,5 @@
 'use client';
+import { exitPreview } from './exit-preview';
 
 import { Editor, Frame } from '@craftjs/core';
 import { XIcon } from 'lucide-react';
@@ -189,11 +190,15 @@ function assertNever(value: never): never {
  * ignored unless it names an overlay frame of this file.
  */
 export function Player({
+  shared = false,
+  closeTab = false,
   file,
   initialScreenId,
   initialPageId,
   initialOverlayId,
 }: {
+  shared?: boolean;
+  closeTab?: boolean;
   file: FileRecord;
   initialScreenId?: string;
   initialPageId?: string;
@@ -338,11 +343,11 @@ export function Player({
       }
 
       if (event.defaultPrevented || openDialogIdsRef.current.size > 0) return;
-      window.location.assign(closeHref);
+      if (!shared) exitPreview(closeHref, closeTab);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeHref, overlaysById]);
+  }, [closeHref, overlaysById, shared, closeTab]);
 
   // Only reachable for a file whose screens array is empty (or holds
   // nothing but overlay frames), which validateScreens (lib/files/
@@ -352,7 +357,7 @@ export function Player({
 
   return (
     <PlayProvider value={play}>
-      <div className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
+      <div data-appearance={currentScreen.appearance ?? file.appearance ?? 'light'} className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
         <StageProvider key={state.currentScreenId} initialWidth={currentScreen.stageWidth}>
           <div
             data-testid="artboard"
@@ -379,6 +384,7 @@ export function Player({
           const overlay = overlaysById.get(id);
           return overlay ? (
             <OverlayHost
+              fileAppearance={file.appearance ?? 'light'}
               key={id}
               overlay={overlay}
               closeOverlayById={closeOverlayById}
@@ -386,7 +392,7 @@ export function Player({
             />
           ) : null;
         })}
-        <div
+        {!shared && <div
           className={cn(
             'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
             chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',
@@ -394,10 +400,10 @@ export function Player({
         >
           <span className={cn(LABEL, 'text-t2')}>{currentScreen.name}</span>
           <span className={cn(LABEL, 'text-t4')}>Esc to exit</span>
-          <a href={closeHref} className="text-t2 underline hover:no-underline">
+          <a href={closeHref} onClick={event => { event.preventDefault(); exitPreview(closeHref, closeTab); }} className="text-t2 underline hover:no-underline">
             Close
           </a>
-        </div>
+        </div>}
       </div>
     </PlayProvider>
   );
@@ -428,10 +434,12 @@ const TOAST_POSITION_CLASSES: Record<ToastPosition, string> = {
  * (a toast shown above a dialog must not swallow the dialog's own Cancel).
  */
 function OverlayHost({
+  fileAppearance,
   overlay,
   closeOverlayById,
   onEscapeKeyDown,
 }: {
+  fileAppearance: 'light' | 'dark';
   overlay: OverlayScreen;
   closeOverlayById: (screenId: string) => void;
   onEscapeKeyDown: (event: KeyboardEvent) => void;
@@ -491,6 +499,7 @@ function OverlayHost({
           <SheetContent
             side={presentation.side}
             data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
             className={cn(
               'theme-basic gap-0 overflow-auto p-0 text-foreground',
               horizontal &&
@@ -516,6 +525,7 @@ function OverlayHost({
           aria-label={overlay.name}
           data-overlay-toast="true"
           data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
           className={cn(
             'theme-basic pointer-events-auto fixed z-[60] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-background text-foreground shadow-lg',
             TOAST_POSITION_CLASSES[presentation.position],
@@ -545,6 +555,7 @@ function OverlayHost({
         <Dialog open modal onOpenChange={handleOpenChange}>
           <DialogContent
             data-overlay-id={overlay.id}
+            data-appearance={overlay.appearance ?? fileAppearance}
             className="theme-basic max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] gap-0 overflow-y-auto p-0 text-foreground sm:max-w-[calc(100vw-2rem)]"
             style={{ width: overlay.stageWidth }}
             showCloseButton={dismissible}

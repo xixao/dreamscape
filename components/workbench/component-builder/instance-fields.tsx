@@ -2,6 +2,7 @@
 import { useEditor } from '@craftjs/core';
 import { schemaFor } from '@/components/blocks/registry';
 import { detachInstance, type Tree, type ContentOverrides } from '@/lib/custom-components/model';
+import { InstanceSizing } from './instance-sizing';
 import { Field } from '../inspector/field';
 import { useComponentLibrary } from './library-context';
 export function InstanceFields({ id, props }: { id: string; props: Record<string, unknown> }) {
@@ -11,10 +12,13 @@ export function InstanceFields({ id, props }: { id: string; props: Record<string
   const tree = JSON.parse(props.layout as string) as Tree;
   const overrides = (props.overrides ?? {}) as ContentOverrides;
   return <div className="flex flex-col gap-4"><h3 className="font-semibold">{String(props.name)}</h3>
-    <p className="text-xs text-muted-foreground">Content belongs to this instance. Layout follows the shared component.</p>
+    <p className="text-xs text-muted-foreground">Width and content belong to this instance. Internal layout follows the shared component.</p>
     <div className="flex gap-3 text-xs text-acc">{definition && <button onClick={() => library?.open(definition)}>Edit component</button>}
       <button onClick={() => { const layout = JSON.parse(query.serialize()) as Tree; detachInstance(layout, id); actions.deserialize(JSON.stringify(layout)); actions.selectNode(id); }}>Detach</button>
     </div>
+    <section className="flex flex-col gap-3 border-t border-line-soft pt-3">
+      <InstanceSizing props={props} onChange={patch => actions.setProp(id, p => { Object.assign(p, patch); })} />
+    </section>
     {Object.entries(tree).map(([nodeId, node]) => {
       const fields = schemaFor(node.type.resolvedName)?.fields.filter(field => field.section === 'Content') ?? [];
       if (!fields.length) return null;

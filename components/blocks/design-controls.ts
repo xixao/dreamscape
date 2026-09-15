@@ -3,7 +3,8 @@ import type { FieldSchema } from './schema';
 export interface BorderSettings { width: number; color?: string; opacity?: number; visible?: boolean; style?: 'solid' | 'dashed' | 'dotted'; sides?: 'all' | 'top' | 'right' | 'bottom' | 'left' | 'custom'; top?: number; right?: number; bottom?: number; left?: number; }
 export interface DesignProps {
   border?: BorderSettings;
-  widthMode?: 'auto' | 'fit' | 'fill' | 'fixed'; heightMode?: 'auto' | 'fit' | 'fill' | 'fixed';
+  maxWidth?: { value: number; unit: 'px' | '%' };
+  widthMode?: 'auto' | 'fit' | 'fill' | 'fixed' | 'percent'; widthPercent?: number; heightMode?: 'auto' | 'fit' | 'fill' | 'fixed';
   widthPx?: number; heightPx?: number; minWidthPx?: number; maxWidthPx?: number; minHeightPx?: number; maxHeightPx?: number;
   cornerRadius?: number; borderWidth?: number; borderColor?: string; fillColor?: string; shadow?: 'none' | 'soft' | 'medium';
   paddingTopPx?: number; paddingRightPx?: number; paddingBottomPx?: number; paddingLeftPx?: number;
@@ -12,8 +13,8 @@ const px = (value: number | undefined) => typeof value === 'number' && Number.is
 export function designStyle(p: DesignProps): CSSProperties {
   const dimension = (mode: DesignProps['widthMode'], value?: number) => mode === 'fixed' ? px(value) ?? 100 : mode === 'fill' ? '100%' : mode === 'fit' ? 'fit-content' : undefined;
   const style: CSSProperties = {
-    width: dimension(p.widthMode, p.widthPx), height: dimension(p.heightMode, p.heightPx),
-    minWidth: px(p.minWidthPx), maxWidth: p.maxWidthPx ? px(p.maxWidthPx) : undefined,
+    width: p.widthMode === 'percent' ? `${Math.max(0, p.widthPercent ?? 100)}%` : dimension(p.widthMode, p.widthPx), height: dimension(p.heightMode, p.heightPx),
+    minWidth: px(p.minWidthPx), maxWidth: p.maxWidth ? (px(p.maxWidth.value) ? `${px(p.maxWidth.value)}${p.maxWidth.unit}` : undefined) : p.maxWidthPx ? px(p.maxWidthPx) : undefined,
     minHeight: px(p.minHeightPx), maxHeight: p.maxHeightPx ? Math.max(px(p.minHeightPx) ?? 0, px(p.maxHeightPx) ?? 0) : undefined,
     borderRadius: px(p.cornerRadius), borderWidth: px(p.borderWidth), borderStyle: p.borderWidth === undefined ? undefined : 'solid',
     borderColor: p.borderColor || undefined, backgroundColor: p.fillColor || undefined,
@@ -49,6 +50,7 @@ export const APPEARANCE_FIELDS: FieldSchema[] = [
 ];
 
 export const SIZE_DEFAULTS: DesignProps = {
+  maxWidth: undefined,
   ...Object.fromEntries(SIZE_FIELDS.map(field => [field.prop, undefined])),
   widthMode: 'auto', heightMode: 'auto', widthPx: 100, heightPx: 100,
 };

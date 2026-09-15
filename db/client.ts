@@ -1,4 +1,5 @@
 import path from 'node:path';
+import migrationJournal from '../drizzle/meta/_journal.json';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeon } from 'drizzle-orm/neon-http';
 import { PGlite } from '@electric-sql/pglite';
@@ -16,7 +17,7 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 // /f/[id]). Outside tests the promise is cached on globalThis so every route
 // in the process shares one database. Tests keep the module-level cache: each
 // test file expects a fresh database.
-type DbGlobal = typeof globalThis & { __assemblyWorkbenchDb?: Promise<Db> };
+type DbGlobal = typeof globalThis & { __assemblyWorkbenchDb?: Promise<Db>; __assemblyWorkbenchMigrationVersion?: number };
 
 let dbPromise: Promise<Db> | null = null;
 
@@ -49,6 +50,16 @@ export function getDb(): Promise<Db> {
   const shared = globalThis as DbGlobal;
   if (!shared.__assemblyWorkbenchDb) {
     shared.__assemblyWorkbenchDb = createDb();
+    shared.__assemblyWorkbenchMigrationVersion = migrationJournal.entries.length;
+  }
+  // Apply newly added local migrations after HMR without losing in-memory files.
+  // Hosted databases continue to require an explicit migration command.
+  if (process.env.NODE_ENV === 'development' && !process.env.DATABASE_URL && shared.__assemblyWorkbenchMigrationVersion !== migrationJournal.entries.length) {
+    shared.__assemblyWorkbenchDb = shared.__assemblyWorkbenchDb.then(async db => {
+      await migrate(db as Parameters<typeof migrate>[0], { migrationsFolder: path.join(process.cwd(), 'drizzle') });
+      return db;
+    });
+    shared.__assemblyWorkbenchMigrationVersion = migrationJournal.entries.length;
   }
   return shared.__assemblyWorkbenchDb;
 }

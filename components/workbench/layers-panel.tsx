@@ -1,16 +1,20 @@
 'use client';
 
 import { useEditor, type NodeTree } from '@craftjs/core';
-import { useState } from 'react';
+import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader } from './left-panel-tabs';
+import { useContext, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { ChevronDown, ChevronRight, ChevronLeft, Layers, ArrowUp, ArrowDown, Copy, Trash2, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, ArrowUp, ArrowDown, Copy, Trash2, Pencil } from 'lucide-react';
 import { useSettledEditorState } from './use-settled-editor-state';
 import { LABEL } from './chrome';
 
-export function LayersPanel({ onAddElement }: { onAddElement?: (type: string, parent: string, index: number) => void }) {
+export function LayersPanel({ onAddElement, onOpenShortcuts }: { onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
+  const panelMode = useContext(LeftPanelContext);
   const { actions, query } = useEditor();
   const state = useSettledEditorState();
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const panelCollapsed = panelMode?.collapsed ?? localCollapsed;
+  const setPanelCollapsed = panelMode?.setCollapsed ?? setLocalCollapsed;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -104,13 +108,20 @@ export function LayersPanel({ onAddElement }: { onAddElement?: (type: string, pa
       {children.length > 0 && !collapsed.has(id) && <div role="group">{children.map(child => rows(child, depth + 1))}</div>}
     </div>;
   }
+  const utilities = onOpenShortcuts && <div className={`border-t border-line-soft p-2 ${panelCollapsed ? 'mt-auto flex flex-col items-center' : 'flex flex-col gap-1'}`}>
+    <button type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" className="flex items-center gap-2 rounded p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenShortcuts}><Command className="size-4 shrink-0" />{!panelCollapsed && 'Keyboard shortcuts'}</button>
+    <a href="/dreamscape-source.zip" download title="Download source" aria-label="Download source" className="flex items-center gap-2 rounded p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><Download className="size-4 shrink-0" />{!panelCollapsed && 'Download source'}</a>
+  </div>;
   if (panelCollapsed) return <div data-layers-collapsed="true" className="flex h-full flex-col items-center gap-1 py-2">
     <button aria-label="Expand layers panel" aria-expanded={false} title="Expand layers panel" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(false)}><ChevronRight className="size-4" /></button>
     <div className="my-1 h-px w-6 bg-border" />
+    {panelMode && <LeftPanelTabs compact />}
     <button aria-label="Show layers" title="Layers" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(false)}><Layers className="size-4" /></button>
+    {utilities}
   </div>;
   return <div className="flex h-full min-h-0 flex-col" onKeyDown={event => event.stopPropagation()}>
-    <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>
+    {panelMode ? <LeftPanelHeader action={<button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button>} /> : <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>}
+
     <div role="tree" aria-label="Layers" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}
     <p className="px-3 py-2 text-[10px] text-muted-foreground">Drag between layers to reorder, or onto a frame to nest. Double-click a name to rename.</p>
@@ -119,5 +130,6 @@ export function LayersPanel({ onAddElement }: { onAddElement?: (type: string, pa
       <button title="Move layer down" aria-label="Move layer down" disabled={!editable || index === siblings.length - 1} className="rounded p-2 hover:bg-accent disabled:opacity-30" onClick={() => move(selected, node!.data.parent!, index + 2)}><ArrowDown className="size-4" /></button>
       <button title="Rename layer" aria-label="Rename layer" disabled={!node} className="rounded p-2 hover:bg-accent disabled:opacity-30" onClick={() => { setRenaming(selected); setName(String(node!.data.custom.layerName || node!.data.displayName)); }}><Pencil className="size-4" /></button>
     </div>
+    {utilities}
   </div>;
 }

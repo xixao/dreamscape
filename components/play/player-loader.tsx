@@ -21,11 +21,15 @@ const Player = dynamic(() => import('./player').then((m) => m.Player), {
 // Present entry point (Cmd+R while an overlay frame is focused) is what
 // will pass it from app/f/[id]/play/page.tsx.
 export function PlayerLoader({
+  shared,
+  closeTab,
   file,
   initialScreenId,
   initialPageId,
   initialOverlayId,
 }: {
+  shared?: boolean;
+  closeTab?: boolean;
   file: FileRecord;
   initialScreenId?: string;
   initialPageId?: string;
@@ -33,6 +37,8 @@ export function PlayerLoader({
 }) {
   return (
     <Player
+      shared={shared}
+      closeTab={closeTab}
       file={file}
       initialScreenId={initialScreenId}
       initialPageId={initialPageId}

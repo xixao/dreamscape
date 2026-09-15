@@ -43,6 +43,8 @@ export function applyContent(layout: string, overrides: ContentOverrides = {}): 
 export function detachInstance(tree: Tree, id: string): void {
   const instance = tree[id];
   const source = JSON.parse(applyContent(instance.props.layout as string, instance.props.overrides as ContentOverrides)) as Tree;
+  if (instance.props.maxWidth !== undefined) source.ROOT.props.maxWidth = instance.props.maxWidth;
+  if (instance.props.widthMode !== undefined) { source.ROOT.props.widthMode = instance.props.widthMode; source.ROOT.props.widthPx = instance.props.widthPx ?? 320; source.ROOT.props.widthPercent = instance.props.widthPercent ?? 100; }
   const ids = Object.fromEntries(Object.keys(source).map(key => [key, key === 'ROOT' ? id : nanoid(10)]));
   for (const [key, node] of Object.entries(source)) {
     tree[ids[key]] = { ...node, parent: key === 'ROOT' ? instance.parent : ids[node.parent!],

@@ -8,9 +8,9 @@ import type { FieldOption } from '@/components/blocks/schema';
 import { CHIP, CHIP_INPUT, MENU_POPOVER } from '../chrome';
 
 /** Editable pixel value with optional presets; commits once on Enter or blur. */
-export function SpacingInput({ id, label, value, options, max, integer = false, onChange }: {
+export function SpacingInput({ id, label, value, options, max, integer = false, unit = 'px', onChange }: {
   id: string; label: string; value: number; options: readonly FieldOption[];
-  max?: number; integer?: boolean; onChange: (value: number) => void;
+  unit?: 'px' | '%'; max?: number; integer?: boolean; onChange: (value: number) => void;
 }) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,7 +28,7 @@ export function SpacingInput({ id, label, value, options, max, integer = false, 
   }, [open, active, listId]);
   const validOptions = options.filter(option => typeof option.value === 'number' && (max === undefined || option.value <= max));
   function commit(text: string) {
-    const raw = text.trim().replace(/\s*px$/i, '');
+    const raw = text.trim().replace(unit === '%' ? /\s*%$/ : /\s*px$/i, '');
     const number = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : NaN;
     if (!Number.isFinite(number) || number < 0 || (max !== undefined && number > max) || (integer && !Number.isInteger(number))) {
       setDraft(String(value)); setError(true); return;
@@ -64,7 +64,7 @@ export function SpacingInput({ id, label, value, options, max, integer = false, 
               event.preventDefault(); event.stopPropagation(); setDraft(String(value)); setError(false); setActive(-1); setOpen(false);
             }
           }} />
-        <span aria-hidden className="text-[11px] text-muted-foreground">px</span>
+        <span aria-hidden className="text-[11px] text-muted-foreground">{unit}</span>
         <button type="button" aria-label={`Show ${label.toLowerCase()} presets`} tabIndex={-1}
           className="text-muted-foreground hover:text-foreground" onMouseDown={event => event.preventDefault()}
           onClick={() => { if (open) setOpen(false); else { inputRef.current?.focus(); setOpen(true); } }}><ChevronDown className="size-3.5" /></button>

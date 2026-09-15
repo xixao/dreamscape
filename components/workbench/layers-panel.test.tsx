@@ -1,7 +1,7 @@
 import { Editor, Element, Frame } from '@craftjs/core';
 import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolver } from '@/components/blocks/registry';
 import { LayoutBox } from '@/components/blocks/layout-box';
 import { Card } from '@/components/blocks/card';
@@ -10,6 +10,17 @@ import { StageProvider } from './stage-context';
 import { LayersPanel } from './layers-panel';
 
 describe('Layers panel', () => {
+  it('exposes separate utility actions in expanded and collapsed panels', async () => {
+    const open = vi.fn();
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel onOpenShortcuts={open} /></Editor></StageProvider>);
+    await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('href', '/dreamscape-source.zip');
+    await userEvent.click(screen.getByRole('button', { name: 'Minimize layers panel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('download');
+  });
   it('nests a dragged button inside a frame without losing it', async () => {
     const user = userEvent.setup();
     render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas><Button /><Element is={LayoutBox} canvas /></Element></Frame><LayersPanel /></Editor></StageProvider>);

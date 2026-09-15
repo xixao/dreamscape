@@ -1,4 +1,5 @@
 'use client';
+import { useAppearance } from '../appearance-context';
 import { FieldLayout } from './field-layout';
 
 import { InstanceFields } from '../component-builder/instance-fields';
@@ -512,6 +513,7 @@ export function Inspector({
       layoutContainer,
     };
   });
+  const appearanceSettings = useAppearance();
   const schema = type ? schemaFor(type) : null;
 
   const selectedFrames = screens.filter((screen) => selectedFrameIds.has(screen.id));
@@ -699,6 +701,7 @@ export function Inspector({
                     </Badge>
                   )}
                 </div>
+                {isRoot && appearanceSettings.setFrameAppearance && <section className={SECTION}><h3 className={SECTION_TITLE}>Appearance</h3><select aria-label="Frame appearance" className="w-full rounded-md border bg-background p-2 text-xs" value={currentScreen?.appearance ?? 'inherit'} onChange={e => appearanceSettings.setFrameAppearance?.(currentScreenId, e.target.value === 'inherit' ? undefined : e.target.value as 'light' | 'dark')}><option value="inherit">File default · {appearanceSettings.appearance === 'dark' ? 'Dark' : 'Light'}</option><option value="light">Light</option><option value="dark">Dark</option></select></section>}
                 {isRoot && (
                   <section className={SECTION} data-testid="frame-section">
                     <h3 className={SECTION_TITLE}>Frame</h3>
@@ -792,7 +795,7 @@ export function Inspector({
                           <Field
                             key={field.prop}
                             field={field}
-                            value={field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(type ?? '') ? 1 : 0), color: props.borderColor } : props[field.prop]}
+                            value={field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(type ?? '') ? 1 : 0), color: props.borderColor } : props[field.prop]}
                             breakpoint={breakpoint}
                             onJumpToBreakpoint={setPreset}
                             onChange={(next) => {

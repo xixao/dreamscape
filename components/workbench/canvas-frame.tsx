@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppearance } from './appearance-context';
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEventHandler } from '@craftjs/core';
@@ -68,6 +69,7 @@ function CanvasFrameImpl({
   height,
   zoom,
   title = 'Frame',
+  appearance,
   minHeight = ARTBOARD_MIN_HEIGHT,
   reportDocument = true,
   onCanvasDocument,
@@ -78,6 +80,7 @@ function CanvasFrameImpl({
   height: number | null;
   zoom: number;
   title?: string;
+  appearance?: 'light' | 'dark';
   // The floor `autoHeight` never measures below, for a `height: null`
   // (auto) frame - defaults to the whole-screen ARTBOARD_MIN_HEIGHT, every
   // caller's own floor before this prop existed. stage.tsx passes an
@@ -113,7 +116,10 @@ function CanvasFrameImpl({
   children: ReactNode;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const fileAppearance = useAppearance().appearance;
+  const effectiveAppearance = appearance ?? fileAppearance;
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
+  useEffect(() => { if (canvasDoc) { canvasDoc.document.body.dataset.appearance = effectiveAppearance; canvasDoc.document.body.style.colorScheme = effectiveAppearance; } }, [canvasDoc, effectiveAppearance]);
   const [autoHeight, setAutoHeight] = useState(minHeight);
   const setStageCanvasDocument = useStage().setCanvasDocument;
 
