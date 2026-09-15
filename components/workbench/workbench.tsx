@@ -1529,8 +1529,18 @@ function WorkbenchShell({
   // design.md section 2: "Present carries `?page=`") so Play starts on the
   // right page even for the rare case of a screen id that (through some
   // future bug or hand-edited link) does not actually belong to it.
-  function presentFocusedScreen(): void {
-    window.open(presentHrefFor(fileId, currentPageId, screens, currentScreenId), '_blank', 'noopener,noreferrer');
+  async function presentFocusedScreen(): Promise<void> {
+    const href = presentHrefFor(fileId, currentPageId, screens, currentScreenId);
+    // Reserve the tab during the user gesture so the browser does not treat
+    // the later, post-save navigation as an unsolicited popup.
+    const tab = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    const result = await saver.flushAndConfirm();
+    if (result !== 'saved') {
+      tab?.close();
+      return;
+    }
+    if (tab) tab.location.href = href;
+    else window.location.assign(href);
   }
 
   // The viewport centre (screen space, relative to the canvas's own origin -
@@ -1783,6 +1793,7 @@ function WorkbenchShell({
                 onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
+                onPresent={presentFocusedScreen}
               />
             )}
             <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>

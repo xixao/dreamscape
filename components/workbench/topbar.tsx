@@ -432,6 +432,7 @@ export function Topbar({
   onZoomToFit,
   onZoomToSelection,
   onOpenShortcuts,
+  onPresent,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -468,6 +469,7 @@ export function Topbar({
   onZoomToFit: () => void;
   onZoomToSelection: () => void;
   onOpenShortcuts?: () => void;
+  onPresent?: () => void;
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -594,15 +596,15 @@ export function Topbar({
         />
         <Tooltip>
           <TooltipTrigger asChild>
-            <a
-              href={presentHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Present"
-              className={buttonVariants({ variant: 'ghost', size: 'icon' })}
-            >
-              <Play className="size-4" aria-hidden />
-            </a>
+            {onPresent ? (
+              <button type="button" aria-label="Present" className={buttonVariants({ variant: 'ghost', size: 'icon' })} onClick={onPresent}>
+                <Play className="size-4" aria-hidden />
+              </button>
+            ) : (
+              <a href={presentHref} target="_blank" rel="noopener noreferrer" aria-label="Present" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
+                <Play className="size-4" aria-hidden />
+              </a>
+            )}
           </TooltipTrigger>
           <TooltipContent>Present</TooltipContent>
         </Tooltip>

@@ -2,6 +2,8 @@ import type { Page, Screen } from './files/repository';
 
 export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 
+export type FlushResult = 'saved' | 'error' | 'conflict';
+
 export type FilePatch = {
   screens?: Screen[];
   pages?: Page[];
@@ -24,6 +26,8 @@ export function createFileSaver(options: {
 }): {
   queue(patch: FilePatch): void;
   flush(): Promise<void>;
+  /** Drain the current queue and report whether the server accepted it. */
+  flushAndConfirm(): Promise<FlushResult>;
   getState(): SaveState;
   getUpdatedAt(): string;
   dispose(): void;
@@ -103,7 +107,14 @@ export function createFileSaver(options: {
           return;
         }
 
-        if (pending !== null) attemptSend();
+        if (pending !== null) {
+          // Keep the caller's promise open across a queued follow-up patch.
+          // This is the important distinction between ordinary autosave and
+          // the Present handoff, which must wait for the final accepted edit.
+          const next = pending;
+          pending = null;
+          return sendPatch(next, false);
+        }
       })
       .catch(() => {
         inFlight = false;
@@ -118,20 +129,36 @@ export function createFileSaver(options: {
     return promise;
   }
 
+  function flush(): Promise<void> {
+    if (disposed || state === 'conflict') return Promise.resolve();
+    if (inFlight) {
+      // A second edit can be queued while the first PATCH is in flight.
+      // Present must not open after only the first response; continue once
+      // the saver has had a chance to start and finish the queued patch.
+      return (inFlightPromise ?? Promise.resolve()).then(() => {
+        if (pending !== null && state !== 'conflict') return flush();
+      });
+    }
+    if (pending === null) return Promise.resolve();
+    clearTimer();
+    const patch = pending;
+    pending = null;
+    return sendPatch(patch, true);
+  }
+
   return {
     queue(patch: FilePatch): void {
       if (disposed || state === 'conflict') return;
       pending = mergePatch(pending, patch);
       scheduleAttempt(delayMs);
     },
-    flush(): Promise<void> {
-      if (disposed || state === 'conflict') return Promise.resolve();
-      if (inFlight) return inFlightPromise ?? Promise.resolve();
-      if (pending === null) return Promise.resolve();
-      clearTimer();
-      const patch = pending;
-      pending = null;
-      return sendPatch(patch, true);
+    flush,
+    flushAndConfirm(): Promise<FlushResult> {
+      return flush().then(() => {
+        if (state === 'saved') return 'saved';
+        if (state === 'conflict') return 'conflict';
+        return 'error';
+      });
     },
     getState(): SaveState {
       return state;
