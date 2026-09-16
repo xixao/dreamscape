@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { saveViewport } from '@/lib/canvas/viewport-store';
 import { getAuthorName } from '@/lib/comments/store';
@@ -111,6 +111,68 @@ describe('comments placeholder', () => {
     window.localStorage.clear();
   });
 
+  it('creates and edits annotations, filters markers, and restores them after reload', async () => {
+    const user = userEvent.setup();
+    const view = render(<Workbench file={BASE_FILE} />);
+    await user.click(screen.getByRole('button', { name: 'Note tools' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Designer annotations' }));
+    await user.click(screen.getByRole('button', { name: 'Place a designer comment' }));
+    clickArtboard(150, 120);
+    const composer = within(await screen.findByRole('dialog', { name: 'New annotation' }));
+    await user.type(composer.getByLabelText('Your name'), 'Designer');
+    await user.type(composer.getByLabelText('Note title'), 'Composer sizing');
+    await user.type(composer.getByLabelText('Note details'), 'Fill the parent, maximum 720px.');
+    await user.click(composer.getByRole('button', { name: 'Add annotation' }));
+    const thread = within(await screen.findByRole('dialog', { name: 'Annotation 1' }));
+    expect(thread.queryByRole('button', { name: 'Resolve' })).toBeNull();
+    await user.click(thread.getByRole('button', { name: 'Edit note' }));
+    await user.type(thread.getByLabelText('Note details'), ' Keep centered.');
+    await user.click(thread.getByRole('button', { name: 'Save changes' }));
+    expect(storedThreads()[0]).toMatchObject({ kind: 'annotation', title: 'Composer sizing', screenId: SCREEN.id, text: 'Fill the parent, maximum 720px. Keep centered.' });
+    await user.click(screen.getByRole('button', { name: 'Comments 0' }));
+    expect(screen.queryByRole('button', { name: 'Annotation 1' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Annotations 1' }));
+    expect(screen.getByRole('button', { name: 'Annotation 1' })).toBeInTheDocument();
+    view.unmount(); render(<Workbench file={BASE_FILE} />);
+    await user.click(screen.getByRole('button', { name: 'Annotation 1' }));
+    expect(screen.getByRole('dialog', { name: 'Annotation 1' })).toHaveTextContent('Keep centered.');
+  });
+
+  it('keeps requirements persistent but allows accessibility issues to be resolved', async () => {
+    const user = userEvent.setup(); render(<Workbench file={BASE_FILE} />);
+    await user.click(screen.getByRole('button', { name: 'Note tools' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Accessibility annotations' }));
+    await user.click(screen.getByRole('button', { name: 'Place an accessibility comment' }));
+    clickArtboard(150, 120);
+    await user.type(screen.getByLabelText('Your name'), 'Designer');
+    await user.type(screen.getByLabelText('Note title'), 'Return focus');
+    await user.type(screen.getByLabelText('Note details'), 'Restore focus to the trigger after closing.');
+    await user.click(screen.getByRole('button', { name: 'Add accessibility note' }));
+    expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Edit note' }));
+    await user.selectOptions(screen.getByLabelText('Accessibility note type'), 'issue');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(screen.getByRole('button', { name: 'Resolve' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Resolve' }));
+    expect(storedThreads()[0]).toMatchObject({ kind: 'accessibility', accessibilityKind: 'issue', resolvedAt: expect.any(String) });
+  });
+
+  it('does not show a frame note on a different screen', async () => {
+    localStorage.setItem(THREADS_KEY, JSON.stringify([{ id: 'note1', fileId: FILE_ID, screenId: 'other-screen', x: 1, y: 2, author: 'Matt', text: 'Other frame', createdAt: new Date().toISOString(), replies: [] }]));
+    render(<Workbench file={BASE_FILE} />);
+    expect(screen.queryByRole('button', { name: 'Comment 1' })).toBeNull();
+  });
+
+  it('places a general canvas note without starting a marquee', async () => {
+    const user = userEvent.setup(); render(<Workbench file={BASE_FILE} />);
+    await enableCommentMode();
+    fireEvent.pointerDown(screen.getByTestId('canvas-root'), { button: 0, clientX: 650, clientY: 350 });
+    await fillComposer({ name: 'Matt', text: 'Page-level feedback' });
+    await submitComposer();
+    expect(storedThreads()[0]).toMatchObject({ canvas: true, pageId: PAGE_ID });
+    expect(screen.queryByTestId('marquee-selection')).toBeNull();
+  });
+
   it('toggles comment mode with the button (aria-pressed, crosshair cursor) and Shift+C', async () => {
     render(<Workbench file={BASE_FILE} />);
     const button = screen.getByRole('button', { name: 'Comment tool' });
@@ -209,7 +271,7 @@ describe('comments placeholder', () => {
     });
   });
 
-  it('Resolve removes the pin and the thread', async () => {
+  it('Resolve hides the pin and keeps the thread available to reopen', async () => {
     render(<Workbench file={BASE_FILE} />);
     await addComment({ name: 'Matt', text: 'Move this button up' });
     await userEvent.click(screen.getByRole('button', { name: 'Comment 1' }));
@@ -219,7 +281,12 @@ describe('comments placeholder', () => {
 
     expect(screen.queryByRole('button', { name: 'Comment 1' })).toBeNull();
     expect(screen.queryByRole('dialog', { name: 'Comment 1' })).toBeNull();
-    expect(storedThreads()).toHaveLength(0);
+    expect(storedThreads()[0]).toMatchObject({ resolvedAt: expect.any(String) });
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Note status' }), 'resolved');
+    await userEvent.click(screen.getByRole('button', { name: 'Comment 1' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Reopen' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Note status' }), 'open');
+    expect(screen.getByRole('button', { name: 'Comment 1' })).toBeInTheDocument();
   });
 
   it('Escape exits comment mode and cancels a pending composer without saving it', async () => {

@@ -32,7 +32,7 @@ export interface Shortcut {
 export const SHORTCUTS: Shortcut[] = [
   { id: 'panel-design', area: 'Panels', keys: ['D'], label: 'Design tab' },
   { id: 'panel-prototype', area: 'Panels', keys: ['P'], label: 'Prototype tab' },
-  { id: 'panel-elements', area: 'Panels', keys: ['E'], label: 'Elements tab' },
+  { id: 'panel-elements', area: 'Panels', keys: ['E'], label: 'Components tab' },
   // G (spec docs/superpowers/specs/2026-09-14-panel-tabs-icons-design.md
   // section 2, mnemonic "diaGram"): free single letters are scarce (T is
   // diagram-text, V is pointer, C is comment), and G was not otherwise
@@ -57,6 +57,7 @@ export const SHORTCUTS: Shortcut[] = [
   },
   { id: 'toggle-ui', area: 'Panels', keys: ['Mod', '\\'], label: 'Show or hide all panels', always: true },
   { id: 'present', area: 'Present', keys: ['Mod', 'R'], label: 'Present the focused screen', always: true },
+  { id: 'tool-section', area: 'Tools', keys: ['Shift', 'S'], label: 'Section tool' },
   { id: 'tool-pointer', area: 'Tools', keys: ['V'], label: 'Pointer' },
   { id: 'tool-comment', area: 'Tools', keys: ['Shift', 'C'], label: 'Comment tool' },
   // Registered for the overlay/README only - no handler yet (spec: "when
@@ -101,12 +102,26 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'page-prev', area: 'Screens', keys: ['Mod', 'Shift', '['], label: 'Previous page' },
   { id: 'undo', area: 'Edit', keys: ['Mod', 'Z'], label: 'Undo' },
   { id: 'redo', area: 'Edit', keys: ['Shift', 'Mod', 'Z'], label: 'Redo' },
+  { id: 'copy-elements', area: 'Edit', keys: ['Mod', 'C'], label: 'Copy selected components' },
+  { id: 'cut-elements', area: 'Edit', keys: ['Mod', 'X'], label: 'Cut selected components' },
+  { id: 'paste-elements', area: 'Edit', keys: ['Mod', 'V'], label: 'Paste into selection or after it' },
+  { id: 'copy-png', area: 'Edit', keys: ['Mod', 'Shift', 'C'], label: 'Copy selection as PNG' },
+  { id: 'create-custom-component', area: 'Edit', keys: ['Mod', 'Alt', 'K'], label: 'Create Custom Component' },
+  { id: 'detach-instance', area: 'Edit', keys: ['Mod', 'Alt', 'X'], label: 'Detach component instance' },
+  { id: 'align-center-horizontal', area: 'Edit', keys: ['Alt', 'H'], label: 'Center horizontally in layout' },
+  { id: 'align-center-vertical', area: 'Edit', keys: ['Alt', 'V'], label: 'Center vertically in layout' },
+  { id: 'zoom-region', area: 'Canvas', keys: ['Hold', 'Z + drag'], label: 'Zoom into a region' },
+  { id: 'select-child', area: 'Edit', keys: ['Enter'], label: 'Select child layers' },
+  { id: 'select-parent', area: 'Edit', keys: ['Shift', 'Enter'], label: 'Select parent layer' },
+  { id: 'select-next-sibling', area: 'Edit', keys: ['Tab'], label: 'Select next sibling on canvas' },
+  { id: 'select-prev-sibling', area: 'Edit', keys: ['Shift', 'Tab'], label: 'Select previous sibling on canvas' },
+  { id: 'wrap-in-frame', area: 'Edit', keys: ['F'], label: 'Wrap selection in a frame' },
   { id: 'delete-layer', area: 'Edit', keys: ['Delete'], label: 'Delete the selected layer' },
   // Diagram-selection-only (spec docs/superpowers/specs/2026-09-13-diagrams-
   // design.md section 3): keyboard.tsx only acts on these when a diagram
   // element is selected, but they are registered unconditionally like every
   // other shortcut so the overlay/dialog/README always list them.
-  { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the diagram selection' },
+  { id: 'diagram-duplicate', area: 'Edit', keys: ['Mod', 'D'], label: 'Duplicate the selection' },
   { id: 'diagram-select-all', area: 'Edit', keys: ['Mod', 'A'], label: 'Select all diagram elements' },
   // Marquee selection and groups (spec docs/superpowers/specs/2026-09-13-
   // diagrams-design.md section 10) - guarded (not `always`) like every
@@ -124,22 +139,22 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'diagram-nudge-up',
     area: 'Canvas',
     keys: ['↑'],
-    label: 'Nudge the selection 1 px',
+    label: 'Reorder components; nudge frames or diagrams 1 px',
   },
   { id: 'diagram-nudge-down',
     area: 'Canvas',
     keys: ['↓'],
-    label: 'Nudge the selection 1 px',
+    label: 'Reorder components; nudge frames or diagrams 1 px',
   },
   { id: 'diagram-nudge-left',
     area: 'Canvas',
     keys: ['←'],
-    label: 'Nudge the selection 1 px',
+    label: 'Reorder components; nudge frames or diagrams 1 px',
   },
   { id: 'diagram-nudge-right',
     area: 'Canvas',
     keys: ['→'],
-    label: 'Nudge the selection 1 px',
+    label: 'Reorder components; nudge frames or diagrams 1 px',
   },
   { id: 'diagram-nudge-up-shift',
     area: 'Canvas',
@@ -222,7 +237,7 @@ export function detectPlatform(): Platform {
 // tests can pass a plain object instead of constructing a DOM KeyboardEvent,
 // while a real `event: KeyboardEvent` from keyboard.tsx still satisfies it
 // structurally.
-export type ShortcutKeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey'>;
+export type ShortcutKeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey'> & { altKey?: boolean };
 
 // Cmd+=/Cmd+- (spec docs/superpowers/specs/2026-09-12-infinite-canvas-design.md
 // section 3): `event.key` alone already covers a numpad Add/Subtract press,
@@ -258,6 +273,17 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   const shift = event.shiftKey;
   const key = event.key.toLowerCase();
 
+  if (event.altKey && !shift) {
+    if (mod && (event.code === 'KeyK' || key === 'k')) return 'create-custom-component';
+    if (mod && (event.code === 'KeyX' || key === 'x')) return 'detach-instance';
+    if (!mod && (event.code === 'KeyH' || key === 'h')) return 'align-center-horizontal';
+    if (!mod && (event.code === 'KeyV' || key === 'v')) return 'align-center-vertical';
+  }
+  if (event.altKey) return null;
+  if (mod && shift && key === 'c') return 'copy-png';
+  if (mod && !shift && key === 'c') return 'copy-elements';
+  if (mod && !shift && key === 'x') return 'cut-elements';
+  if (mod && !shift && key === 'v') return 'paste-elements';
   if (mod && event.key === '\\') return 'toggle-ui';
   if (mod && key === 'j') return 'chat-toggle-mod';
   if (mod && event.key === '.') return 'panel-collapse';
@@ -293,6 +319,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // combination that only reports `key` still matches).
   if (shift && (event.code === 'Digit1' || event.key === '!')) return 'zoom-to-fit';
   if (shift && (event.code === 'Digit2' || event.key === '@')) return 'zoom-to-selection';
+  if (shift && key === 's') return 'tool-section';
   if (shift && key === 'n') return 'screen-new';
   if (shift && key === 'o') return 'new-overlay';
   if (shift && key === 'c') return 'tool-comment';
@@ -308,8 +335,11 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   if (shift && event.key === 'ArrowDown') return 'diagram-nudge-down-shift';
   if (shift && event.key === 'ArrowLeft') return 'diagram-nudge-left-shift';
   if (shift && event.key === 'ArrowRight') return 'diagram-nudge-right-shift';
+  if (event.key === 'Enter') return shift ? 'select-parent' : 'select-child';
+  if (event.key === 'Tab') return shift ? 'select-prev-sibling' : 'select-next-sibling';
   if (shift) return null;
 
+  if (key === 'f') return 'wrap-in-frame';
   if (key === 'd') return 'panel-design';
   if (key === 'p') return 'panel-prototype';
   if (key === 'e') return 'panel-elements';

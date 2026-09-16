@@ -14,6 +14,8 @@
 // where the rest of the codebase already puts it (see e.g. addScreen in
 // components/workbench/workbench.tsx).
 
+import { annotationSchema, annotationSize, annotationHeight, type Annotation } from '@/lib/accessibility/kit';
+import { validTable } from './table';
 import { bezierControlPoints, bounds, getHandlePosition, sideFromPoint, type Box, type Point, type Side } from './geometry';
 
 export type { Side } from './geometry';
@@ -23,7 +25,7 @@ export type { Side } from './geometry';
 // lib/files/validate.ts's membership checks can consume the very same
 // runtime array with full literal-type inference - a `z.enum(NODE_KINDS)`
 // only narrows to the real union when NODE_KINDS is itself a const tuple.
-export const NODE_KINDS = ['rect', 'rounded', 'decision', 'terminal', 'text', 'note'] as const;
+export const NODE_KINDS = ['rect', 'rounded', 'decision', 'terminal', 'text', 'note', 'table'] as const;
 export type DiagramNodeKind = (typeof NODE_KINDS)[number];
 
 export const DIAGRAM_COLORS = ['neutral', 'blue', 'green', 'amber', 'red', 'violet'] as const;
@@ -77,6 +79,8 @@ export interface DiagramNode {
   height: number;
   text: string;
   color: DiagramColor;
+  annotation?: Annotation;
+  table?: string[][];
   textSize?: TextSize;
   textFont?: TextFont;
   textColor?: TextColor;
@@ -173,6 +177,7 @@ export function createInitialDiagramState(data: DiagramData = createEmptyDiagram
 
 export type DiagramAction =
   | { type: 'add'; node: DiagramNode }
+  | { type: 'sectionPositions'; positions: {id:string;x:number;y:number}[] }
   | { type: 'move'; ids: string[]; dx: number; dy: number }
   // `x`/`y`, when given, reposition the node in the SAME action - a corner
   // resize (nw/ne/sw) moves the box's top-left as well as its size, and
@@ -182,6 +187,8 @@ export type DiagramAction =
   // or a resize from the bottom-right corner, which never move the box at
   // all - see diagram-layer.tsx's endResize.
   | { type: 'resize'; id: string; width: number; height: number; x?: number; y?: number }
+  | { type: 'setAnnotation'; id: string; annotation: Annotation }
+  | { type: 'setTable'; id: string; cells: string[][] }
   | { type: 'setText'; id: string; text: string }
   // `ids` (not a single `id`, unlike setKind/setArrow below) - Matt's
   // multi-selection follow-up needs the Design panel to recolour every
@@ -403,6 +410,8 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
     // delta before dispatching (diagram-layer.tsx's endDrag), so a mouse
     // drag still lands on the grid, while a keyboard nudge dispatches its 1
     // or 8 px amount unsnapped, on purpose.
+    case 'sectionPositions':
+      return {...state,nodes:state.nodes.map(node=>({...node,...action.positions.find(p=>p.id===node.id)}))};
     case 'move': {
       const ids = new Set(action.ids);
       let changed = false;
@@ -437,6 +446,20 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return commit(state, { nodes, edges: state.edges });
     }
 
+    case 'setAnnotation': {
+      const parsed = annotationSchema.safeParse(action.annotation);
+      const target = state.nodes.find(node => node.id === action.id && node.annotation);
+      if (!parsed.success || !target || JSON.stringify(target.annotation) === JSON.stringify(parsed.data)) return state;
+      const changedFormat = target.annotation?.format !== parsed.data.format;
+      const size = changedFormat ? {...annotationSize(parsed.data.format),height:annotationHeight(parsed.data)} : target.height === annotationHeight(target.annotation!,target.width) ? {height:annotationHeight(parsed.data,target.width)} : {};
+      return commit(state, {nodes: state.nodes.map(node => node.id === action.id ? {...node, ...size, annotation: parsed.data} : node), edges: state.edges});
+    }
+    case 'setTable': {
+      if (!validTable(action.cells)) return state;
+      const target = state.nodes.find(node => node.id === action.id && node.kind === 'table');
+      if (!target || JSON.stringify(target.table) === JSON.stringify(action.cells)) return state;
+      return commit(state, { nodes: state.nodes.map(node => node.id === action.id ? { ...node, table: action.cells.map(row => [...row]) } : node), edges: state.edges });
+    }
     case 'setText': {
       const text = clampText(action.text);
       if (state.nodes.some((n) => n.id === action.id)) {
@@ -899,7 +922,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return {
         nodes: previous.nodes,
         edges: previous.edges,
-        selection: [],
+        selection: state.selection.filter(item => (item.type === 'node' ? previous.nodes : previous.edges).some(value => value.id === item.id)),
         history: { past: past.slice(0, -1), future: [{ nodes: state.nodes, edges: state.edges }, ...future] },
       };
     }
@@ -911,7 +934,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       return {
         nodes: next.nodes,
         edges: next.edges,
-        selection: [],
+        selection: state.selection.filter(item => (item.type === 'node' ? next.nodes : next.edges).some(value => value.id === item.id)),
         history: {
           past: [...past, { nodes: state.nodes, edges: state.edges }].slice(-HISTORY_LIMIT),
           future: future.slice(1),

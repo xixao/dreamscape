@@ -133,8 +133,8 @@ describe('DIAGRAM_EXPORT_COLORS', () => {
     expect(Object.keys(DIAGRAM_EXPORT_COLORS).sort()).toEqual([...DIAGRAM_COLORS].sort());
   });
 
-  it('matches the on-screen Tailwind classes (white/10, white/50, *-500 at 25%, *-400)', () => {
-    expect(DIAGRAM_EXPORT_COLORS.neutral).toEqual({ fill: 'rgba(255,255,255,0.1)', stroke: 'rgba(255,255,255,0.5)' });
+  it('matches the on-screen shape colors', () => {
+    expect(DIAGRAM_EXPORT_COLORS.neutral).toEqual({ fill: '#27272a', stroke: '#9f9fa9' });
     expect(DIAGRAM_EXPORT_COLORS.blue).toEqual({ fill: 'rgba(43,127,255,0.25)', stroke: '#51a2ff' });
     expect(DIAGRAM_EXPORT_COLORS.green).toEqual({ fill: 'rgba(0,201,80,0.25)', stroke: '#05df72' });
     expect(DIAGRAM_EXPORT_COLORS.amber).toEqual({ fill: 'rgba(254,154,0,0.25)', stroke: '#ffb900' });

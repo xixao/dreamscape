@@ -131,14 +131,15 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
     let eventKey = '';
     let metaKey = false;
     let shiftKey = false;
+    let altKey = false;
     for (const token of keys) {
       if (token === 'Mod') metaKey = true;
       else if (token === 'Shift') shiftKey = true;
-      else if (token === 'Alt') continue;
+      else if (token === 'Alt') altKey = true;
       else eventKey = ARROW_KEY_BY_GLYPH[token] ?? token;
     }
     const code = shiftKey && /^\d$/.test(eventKey) ? `Digit${eventKey}` : '';
-    return key({ key: eventKey, metaKey, shiftKey, code });
+    return key({ key: eventKey, metaKey, shiftKey, altKey, code });
   }
 
   // Gestures, not keydown chords: each has its own listener elsewhere
@@ -147,7 +148,7 @@ describe('matchShortcut and SHORTCUTS never drift apart', () => {
   // matchShortcut never returns any of these ids.
   // diagram-context-menu is a window listener owned by the diagram layer (it opens a Radix menu for the
   // selection), so matchShortcut never returns it either.
-  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse', 'diagram-context-menu']);
+  const GESTURE_IDS = new Set(['pan-space', 'pan-middle-mouse', 'diagram-context-menu', 'zoom-region']);
 
   it('resolves every matchable registry entry back to its own id from its own keys', () => {
     for (const shortcut of SHORTCUTS) {
@@ -203,8 +204,8 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 'C' }))).toBe('chat-toggle');
     expect(matchShortcut(key({ key: 'c', shiftKey: true }))).toBe('tool-comment');
     expect(matchShortcut(key({ key: 'C', shiftKey: true }))).toBe('tool-comment');
-    expect(matchShortcut(key({ key: 'c', metaKey: true }))).toBeNull();
-    expect(matchShortcut(key({ key: 'c', ctrlKey: true }))).toBeNull();
+    expect(matchShortcut(key({ key: 'c', metaKey: true }))).toBe('copy-elements');
+    expect(matchShortcut(key({ key: 'c', ctrlKey: true }))).toBe('copy-elements');
   });
 
   it('matches Shift+D for the diagram palette, distinct from bare D', () => {
@@ -213,7 +214,7 @@ describe('matchShortcut', () => {
 
   it('matches bare V for the pointer tool', () => {
     expect(matchShortcut(key({ key: 'v' }))).toBe('tool-pointer');
-    expect(matchShortcut(key({ key: 'v', metaKey: true }))).toBeNull();
+    expect(matchShortcut(key({ key: 'v', metaKey: true }))).toBe('paste-elements');
   });
 
   it('matches bare T for the diagram text tool', () => {
@@ -372,7 +373,7 @@ describe('README shortcut table', () => {
   it('merges entries that share a label into one row with every key combination', () => {
     const chat = displayRows().find((row) => row.label === 'Open or close the chat panel');
     expect(chat?.keys).toHaveLength(2);
-    const nudge = displayRows().find((row) => row.label === 'Nudge the selection 1 px');
+    const nudge = displayRows().find((row) => row.ids.includes('diagram-nudge-up'));
     expect(nudge?.keys.map((keys) => keys.join(' '))).toEqual(['↑', '↓', '←', '→']);
     const nudgeShift = displayRows().find((row) => row.label === 'Nudge the selection 8 px');
     expect(nudgeShift?.keys.map((keys) => keys.join(' '))).toEqual(['Shift ↑', 'Shift ↓', 'Shift ←', 'Shift →']);

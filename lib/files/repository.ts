@@ -432,7 +432,7 @@ export function createFilesRepository(db: Db) {
     const reIdPages = (row.pages as Page[]).map((page) => {
       const newId = nanoid(10);
       pageIdMap.set(page.id, newId);
-      return { ...page, id: newId };
+      return { ...page, id: newId, ...(page.sections ? { sections: page.sections.map(section => ({ ...section, id: nanoid(10) })) } : {}) };
     });
 
     // Every screen gets a fresh id: a duplicated file's screens are new,

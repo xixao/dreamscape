@@ -69,43 +69,46 @@ Button.craft = {
   props: BUTTON_DEFAULTS,
 };
 
+const hasIcon = (props: Record<string, unknown>) => Boolean(props.icon && props.icon !== 'none');
+
 export const buttonSchema: BlockSchema = {
   type: 'Button',
+  inspectorSections: [
+    { section: 'Content', title: 'Content' },
+    { section: 'Style', title: 'Appearance' },
+    { section: 'State', title: 'State' },
+    { section: 'Layout', title: 'Layout' },
+    { section: 'Advanced', title: 'Advanced', collapsed: true },
+  ],
   fields: [
-    ...SIZE_FIELDS,
-    { prop: 'icon', label: 'Icon', kind: 'select', section: 'Content', options: [{ value: 'none', label: 'None' }, ...Object.keys(ICONS).map(value => ({ value, label: value }))] },
-    { prop: 'iconOnly', label: 'Icon only', kind: 'boolean', section: 'Content' },
-    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Content' },
-    { prop: 'iconPosition', label: 'Icon position', kind: 'select', section: 'Content', options: [{ value: 'start', label: 'Before label' }, { value: 'end', label: 'After label' }] },
+    { prop: 'label', label: 'Label', kind: 'text', section: 'Content', showWhen: p => !p.iconOnly || !hasIcon(p) },
+    { prop: 'icon', label: 'Icon', kind: 'select', section: 'Content', options: [
+      { value: 'none', label: 'None' }, { value: 'arrowUp', label: 'Arrow up' },
+      { value: 'paperclip', label: 'Attachment' }, { value: 'plus', label: 'Plus' },
+      { value: 'microphone', label: 'Microphone' }, { value: 'send', label: 'Send' },
+      { value: 'close', label: 'Close' }, { value: 'search', label: 'Search' },
+    ] },
+    { prop: 'iconOnly', label: 'Icon only', kind: 'boolean', section: 'Content', showWhen: hasIcon },
+    { prop: 'iconPosition', label: 'Icon position', kind: 'select', section: 'Content', showWhen: p => hasIcon(p) && !p.iconOnly,
+      options: [{ value: 'start', label: 'Leading' }, { value: 'end', label: 'Trailing' }] },
+    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Content', showWhen: p => hasIcon(p) && Boolean(p.iconOnly) },
+    { prop: 'variant', label: 'Variant', kind: 'select', section: 'Style', row: 'button-appearance', options: [
+      { value: 'default', label: 'Default' }, { value: 'destructive', label: 'Destructive' },
+      { value: 'outline', label: 'Outline' }, { value: 'secondary', label: 'Secondary' },
+      { value: 'ghost', label: 'Ghost' }, { value: 'link', label: 'Link' },
+    ] },
+    { prop: 'size', label: 'Size', kind: 'select', section: 'Style', row: 'button-appearance', control: 'dropdown', options: [
+      { value: 'sm', label: 'Small' }, { value: 'default', label: 'Default' }, { value: 'lg', label: 'Large' },
+    ] },
     { prop: 'circular', label: 'Circular', kind: 'boolean', section: 'Style' },
-    { prop: 'loading', label: 'Submitting', kind: 'boolean', section: 'Style' },
-    { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
-    {
-      prop: 'variant',
-      label: 'Variant',
-      kind: 'select',
-      section: 'Style',
-      options: [
-        { value: 'default', label: 'Default' },
-        { value: 'destructive', label: 'Destructive' },
-        { value: 'outline', label: 'Outline' },
-        { value: 'secondary', label: 'Secondary' },
-        { value: 'ghost', label: 'Ghost' },
-        { value: 'link', label: 'Link' },
-      ],
-    },
-    {
-      prop: 'size',
-      label: 'Size',
-      kind: 'select',
-      section: 'Style',
-      options: [
-        { value: 'default', label: 'Default' },
-        { value: 'sm', label: 'Small' },
-        { value: 'lg', label: 'Large' },
-      ],
-    },
-    { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'Style' },
+    { prop: 'loading', label: 'Loading', kind: 'boolean', section: 'State' },
+    { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'State' },
+    ...SIZE_FIELDS.map(field => ({ ...field,
+      label: field.label.replace('Minimum', 'Min').replace('Maximum', 'Max').replace(' (0 = none)', ''),
+      section: /^(min|max)/.test(field.prop) ? 'Advanced' as const : 'Layout' as const,
+      row: /Mode$/.test(field.prop) ? 'button-sizing' : /^(min|max)Width/.test(field.prop) ? 'width-limits' : /^(min|max)Height/.test(field.prop) ? 'height-limits' : undefined,
+    })),
     GROW_FIELD,
+    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Advanced', showWhen: p => !p.iconOnly || !hasIcon(p) },
   ],
 };

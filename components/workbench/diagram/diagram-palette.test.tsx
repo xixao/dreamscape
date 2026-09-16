@@ -46,11 +46,11 @@ describe('DiagramPalette', () => {
     expect(screen.getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('clicking the already-armed tool returns to the pointer', async () => {
+  it('clicking a shape again requests another insertion', async () => {
     const { onSelectTool } = renderPalette({ tool: { kind: 'shape', shape: 'note' } });
     await userEvent.click(screen.getByRole('button', { name: 'Note' }));
 
-    expect(onSelectTool).toHaveBeenCalledWith(POINTER_TOOL);
+    expect(onSelectTool).toHaveBeenCalledWith({ kind: 'shape', shape: 'note' });
   });
 });
 

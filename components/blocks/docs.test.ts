@@ -5,7 +5,7 @@ import { trayItems } from './registry';
 
 const FALLBACK = getElementDoc('NoSuchElement');
 
-// The two lists the Elements tab renders (spec docs/superpowers/specs/2026-
+// The two lists the Components tab renders (spec docs/superpowers/specs/2026-
 // 09-13-diagrams-design.md section 13): Craft tray items (registry.tsx) and
 // the diagram palette's seven tools (diagram-palette.tsx), each reduced to
 // the {key, label} pair the completeness checks below need - `key` is

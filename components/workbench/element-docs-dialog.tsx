@@ -92,8 +92,8 @@ export function propertyRows(type: string): PropertyRow[] {
 }
 
 /**
- * Element documentation (spec docs/superpowers/specs/2026-09-13-element-
- * docs-design.md): opened from the "i" button on an Elements tab row, sized
+ * Component documentation (spec docs/superpowers/specs/2026-09-13-element-
+ * docs-design.md): opened from the "i" button on an Components tab row, sized
  * like the shortcuts dialog through WIDE_DIALOG_CONTENT. Left column: the
  * element's name, its group, the Summary and Usage paragraphs from
  * components/blocks/docs.ts. Right column: the Properties table generated
@@ -193,7 +193,7 @@ export function ElementDocsDialog({
                   </tbody>
                 </table>
               ) : (
-                <p className={OVERLAY_PARAGRAPH}>This element has no properties.</p>
+                <p className={OVERLAY_PARAGRAPH}>This item has no properties.</p>
               )}
               <p className={cn(OVERLAY_CAPTION, 'mt-2')}>Full documentation is coming soon.</p>
             </div>

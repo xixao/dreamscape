@@ -1,5 +1,8 @@
 'use client';
+import { SectionTool } from './sections/section-tools';
 
+import { NoteTool } from './comments/note-tool';
+import type { NoteKind } from '@/lib/comments/store';
 import { SharePrototypeButton } from './prototype-actions';
 import { useAppearance, APPEARANCE_OPTIONS } from './appearance-context';
 import { Popover as PopoverPrimitive } from 'radix-ui';
@@ -10,7 +13,6 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
-  MessageCircle,
   Monitor,
   Play,
   Redo2,
@@ -401,10 +403,12 @@ export function Topbar({
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
+  noteKind, onStartNote, onBrowseNotes, notesVisible, onToggleNotesVisibility,
   onZoomIn,
   onZoomOut,
   onZoomToFit,
   onZoomToSelection,
+  historyOverride,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -434,6 +438,8 @@ export function Topbar({
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
+  notesVisible?: boolean; onToggleNotesVisibility?: () => void;
+  noteKind?: NoteKind; onStartNote?: (kind: NoteKind) => void; onBrowseNotes?: () => void;
   chatOpen: boolean;
   onToggleChat: () => void;
   onZoomIn: () => void;
@@ -441,6 +447,7 @@ export function Topbar({
   onZoomToFit: () => void;
   onZoomToSelection: () => void;
   onOpenShortcuts?: () => void;
+  historyOverride?: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void };
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -558,13 +565,8 @@ export function Topbar({
         />
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
-        <IconAction
-          label="Comment tool"
-          icon={MessageCircle}
-          pressed={commentMode}
-          badge={commentCount}
-          onClick={() => onToggleCommentMode?.()}
-        />
+        <SectionTool />
+        <NoteTool visible={notesVisible} onToggleVisibility={onToggleNotesVisibility} libraries active={commentMode} kind={noteKind} count={commentCount} onToggle={() => onToggleCommentMode?.()} onStart={kind => onStartNote?.(kind)} onBrowse={onBrowseNotes} />
         <Tooltip>
           <TooltipTrigger asChild>
             <a
@@ -580,8 +582,8 @@ export function Topbar({
           <TooltipContent>Present</TooltipContent>
         </Tooltip>
         <SharePrototypeButton playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
-        <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
-        <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
+        <IconAction label="Undo" icon={Undo2} disabled={!(historyOverride?.canUndo ?? canUndo)} onClick={historyOverride?.undo ?? (() => actions.history.undo())} />
+        <IconAction label="Redo" icon={Redo2} disabled={!(historyOverride?.canRedo ?? canRedo)} onClick={historyOverride?.redo ?? (() => actions.history.redo())} />
       </header>
     </TooltipProvider>
   );

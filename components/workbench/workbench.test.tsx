@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { loadViewport } from '@/lib/canvas/viewport-store';
+import { DIAGRAM_SHAPE_MIME } from '@/lib/diagram/insertion';
+import { loadViewport, saveViewport } from '@/lib/canvas/viewport-store';
 import { EXAMPLES } from '@/lib/examples';
 import type { FileRecord, Screen } from '@/lib/files/repository';
 import { createOverlayScreen } from '@/lib/files/screens';
@@ -244,7 +245,7 @@ async function changeRootLayoutMode(): Promise<void> {
   const root = frameBody().querySelector('[data-block="LayoutBox"]');
   if (!root) throw new Error('root LayoutBox not found');
   fireEvent.mouseDown(root);
-  const group = screen.getByRole('radiogroup', { name: 'Layout' });
+  const group = await screen.findByRole('radiogroup', { name: 'Layout' });
   await userEvent.click(within(group).getByRole('radio', { name: 'Grid' }));
 }
 
@@ -287,6 +288,56 @@ describe('Workbench', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     window.location.hash = '';
+  });
+
+  it('opens distinct annotation libraries and undoes deleting a canvas annotation', async () => {
+    render(<Workbench file={makeFile()} />);
+    await user.click(screen.getByRole('button', {name:'Note tools'}));
+    await user.click(screen.getByRole('menuitem', {name:'Accessibility annotations'}));
+    expect(screen.getByLabelText('Accessibility annotation library')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name:'Add Image pin'}));
+    expect(screen.getByLabelText('Accessibility annotation properties')).toBeInTheDocument();
+    const node=document.querySelector('[data-annotation-category="image"]')!;
+    fireEvent.pointerDown(node,{button:0,pointerId:1,clientX:100,clientY:100});
+    fireEvent.pointerUp(node,{button:0,pointerId:1,clientX:100,clientY:100});
+    fireEvent.keyDown(document,{key:'Delete',code:'Delete'});
+    expect(document.querySelector('[data-annotation-category="image"]')).toBeNull();
+    await user.click(screen.getByRole('button',{name:'Undo'}));
+    expect(document.querySelector('[data-annotation-category="image"]')).not.toBeNull();
+    await user.click(screen.getByRole('button', {name:'Note tools'}));
+    await user.click(screen.getByRole('menuitem', {name:'Designer annotations'}));
+    expect(screen.getByLabelText('Designer annotation library')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Accessibility annotation library')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Add Button pin'}));
+    expect(screen.getByLabelText('Designer annotation properties')).toBeInTheDocument();
+    expect(document.querySelector('[data-annotation-template="button"]')).not.toBeNull();
+    await user.click(screen.getByRole('button', {name:'Note tools'}));
+    await user.click(screen.getByRole('menuitem', {name:'Hide all comments and annotations'}));
+    expect(document.querySelector('[data-annotation-category]')).toBeNull();
+    expect(screen.queryByLabelText('Designer annotation properties')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name:'Note tools'}));
+    await user.click(screen.getByRole('menuitem', {name:'Show all comments and annotations'}));
+    expect(document.querySelector('[data-annotation-template="button"]')).not.toBeNull();
+    expect(document.querySelector('[data-annotation-category="image"]')).not.toBeNull();
+
+  });
+
+  it('saves a component definition and its replacement instance together from the keyboard action', async () => {
+    render(<Workbench file={makeFile()} />);
+    fireEvent.mouseDown(within(frameBody()).getByRole('button', { name: 'Sign in' }));
+    fireEvent.keyDown(frameBody(), { key: 'k', code: 'KeyK', metaKey: true, altKey: true });
+    const dialog = screen.getByRole('dialog', { name: 'Create Custom Component' });
+    await userEvent.clear(within(dialog).getByLabelText('Component name'));
+    await userEvent.type(within(dialog).getByLabelText('Component name'), 'Reusable sign in');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create component' }));
+    await waitFor(() => expect(frameBody().querySelector('[data-block="CustomComponent"]')).not.toBeNull());
+    await waitFor(() => {
+      const bodies = fetchMock.mock.calls.map(call => JSON.parse(call[1].body));
+      expect(bodies.some(body => body.components?.some((entry: { name: string }) => entry.name === 'Reusable sign in') && body.screens?.some((entry: { layout: string }) => entry.layout.includes('CustomComponent')))).toBe(true);
+    }, { timeout: 2000 });
+    fireEvent.keyDown(frameBody(), { key: 'z', metaKey: true });
+    await waitFor(() => expect(frameBody().querySelector('[data-block="CustomComponent"]')).toBeNull());
+    expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   it('renders the layout of the file\'s first screen', () => {
@@ -425,6 +476,173 @@ describe('Workbench', () => {
     render(<Workbench file={makeFile()} />);
     expect(screen.queryByRole('button', { name: 'New frame' })).not.toBeInTheDocument();
     expect(within(frameBody()).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  describe('canvas sections', () => {
+    const section = {id:'section001',name:'Checkout',x:-80,y:-80,width:1200,height:800};
+    const frames = [{...SCREEN_1,x:0,y:0,stageWidth:320,stageHeight:500},{...SCREEN_2,x:500,y:0,stageWidth:320,stageHeight:500}];
+    it('wraps selected frames, saves sections with the page and supports undo/redo', async () => {
+      render(<Workbench file={makeFile({screens:frames})} />);
+      fireEvent.pointerDown(screen.getByRole('button',{name:'Frame 1'}),{button:0,shiftKey:true,pointerId:1});
+      fireEvent.pointerDown(screen.getByRole('button',{name:'Frame 2'}),{button:0,shiftKey:true,pointerId:1});
+      await user.click(screen.getByRole('button',{name:'Section options'}));
+      await user.click(screen.getByRole('menuitem',{name:'Wrap selected frames in section'}));
+      expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button',{name:'Redo'}));
+      expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
+      await waitFor(()=>expect(fetchMock).toHaveBeenCalled(),{timeout:2000});
+      const patch=JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
+      expect(patch.pages[0].sections).toHaveLength(1);
+      expect(patch.screens.map((s:Screen)=>[s.x,s.y])).toEqual([[0,0],[500,0]]);
+    });
+    it('colors the section label and background, persists the color, and supports undo/redo and clearing', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      await user.click(screen.getByRole('button',{name:'Select section Checkout'}));
+      await user.click(screen.getByRole('combobox',{name:'Section highlight color'}));
+      await user.click(screen.getByRole('option',{name:'Violet'}));
+      expect(screen.getByTestId('section-label-section001')).toHaveStyle({backgroundColor:'#7c3aed',color:'#ffffff'});
+      expect(screen.getByTestId('section-section001')).toHaveStyle({backgroundColor:'#7c3aed1a'});
+      await waitFor(()=>expect(fetchMock).toHaveBeenCalled(),{timeout:1500});
+      expect(JSON.parse(fetchMock.mock.calls.at(-1)![1].body).pages[0].sections[0].color).toBe('violet');
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      expect(screen.getByTestId('section-label-section001').style.backgroundColor).toBe('');
+      await user.click(screen.getByRole('button',{name:'Redo'}));
+      expect(screen.getByTestId('section-label-section001')).toHaveStyle({backgroundColor:'#7c3aed'});
+      await user.click(screen.getByRole('combobox',{name:'Section highlight color'}));
+      await user.click(screen.getByRole('option',{name:'None'}));
+      expect(screen.getByTestId('section-label-section001').style.backgroundColor).toBe('');
+      expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'0px',top:'0px'});
+    });
+
+    it('fits annotation/diagram objects without frames and offers separate remove and delete actions', async () => {
+      const node={id:'diagram001',kind:'rect' as const,x:50,y:60,width:80,height:40,text:'Diagram',color:'neutral' as const};
+      const region={...section,width:300,height:300};
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[region],diagram:{nodes:[node],edges:[]}}]})} />);
+      await user.click(screen.getByRole('button',{name:'Section options for Checkout'}));
+      expect(screen.getByRole('menuitem',{name:'Rename'})).toBeInTheDocument();
+      expect(screen.getByRole('menuitem',{name:'Remove Section (keep objects)'})).toBeInTheDocument();
+      expect(screen.getByRole('menuitem',{name:'Resize to Fit'})).not.toHaveAttribute('data-disabled');
+      await user.click(screen.getByRole('menuitem',{name:'Resize to Fit'}));
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toHaveStyle({left:'-14px',top:'-20px',width:'208px',height:'184px'}));
+      await user.click(screen.getByRole('button',{name:'Section options for Checkout'}));
+      await user.click(screen.getByRole('menuitem',{name:'Delete'}));
+      await waitFor(()=>expect(screen.queryByTestId('section-section001')).toBeNull());
+      expect(screen.queryByTestId('diagram-node-diagram001')).toBeNull();
+      expect(screen.getByTestId('frame-screen0001')).toBeInTheDocument();
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(screen.getByTestId('diagram-node-diagram001')).toBeInTheDocument());
+      expect(screen.getByTestId('section-section001')).toBeInTheDocument();
+    });
+    it('deletes a section and its contained page frames', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      await user.click(screen.getByRole('button',{name:'Section options for Checkout'}));
+      await user.click(screen.getByRole('menuitem',{name:'Delete'}));
+      await waitFor(()=>expect(screen.queryByTestId('frame-screen0001')).toBeNull());
+      expect(screen.queryByTestId('frame-screen0002')).toBeNull();
+      expect(screen.queryByTestId('section-section001')).toBeNull();
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(screen.getByTestId('frame-screen0001')).toBeInTheDocument());
+    });
+    it('moves nested sections and diagram contents from the background and undoes the move together', async () => {
+      const nested={...section,id:'section002',name:'Nested',x:-20,y:-20,width:400,height:600};
+      const node={id:'diagram001',kind:'rect' as const,x:50,y:60,width:80,height:40,text:'Diagram',color:'neutral' as const};
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section,nested],diagram:{nodes:[node],edges:[]}}]})} />);
+      const background=screen.getByTestId('section-section001');
+      const zoom=Number(screen.getByTestId('canvas-layer').style.transform.match(/scale\(([^)]+)\)/)?.[1]??1);
+      const diagramX=()=>screen.getByTestId('diagram-node-diagram001').querySelector('rect')?.getAttribute('x');
+      fireEvent.pointerDown(background,{button:0,pointerId:9,clientX:100,clientY:100});
+      fireEvent.pointerMove(background,{pointerId:9,clientX:100+50*zoom,clientY:100+30*zoom});
+      expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'50px',top:'30px'});
+      expect(screen.getByTestId('section-section002')).toHaveStyle({left:'30px',top:'10px'});
+      expect(diagramX()).toBe('100');
+      fireEvent.pointerUp(background,{pointerId:9});
+      await waitFor(()=>expect(diagramX()).toBe('100'));
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(diagramX()).toBe('50'));
+      expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'0px',top:'0px'});
+      expect(screen.getByTestId('section-section002')).toHaveStyle({left:'-20px',top:'-20px'});
+    });
+    it('moves member frames with the title and restores the whole move in one undo', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      const title=screen.getByRole('button',{name:'Select section Checkout'});
+      const layer=screen.getByTestId('canvas-layer');
+      const zoom=Number(layer.style.transform.match(/scale\(([^)]+)\)/)?.[1]??1);
+      fireEvent.pointerDown(title,{button:0,pointerId:9,clientX:100,clientY:100});
+      fireEvent.pointerMove(title,{pointerId:9,clientX:100+50*zoom,clientY:100+30*zoom});
+      fireEvent.pointerUp(title,{pointerId:9,clientX:100+50*zoom,clientY:100+30*zoom});
+      await waitFor(()=>expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'50px',top:'30px'}));
+      expect(screen.getByTestId('frame-screen0002')).toHaveStyle({left:'550px',top:'30px'});
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'0px',top:'0px'}));
+      expect(screen.getByTestId('section-section001')).toHaveStyle({left:'-80px',top:'-80px'});
+    });
+    it.each([
+      {side:'top',expected:{left:'-80px',top:'-50px',width:'1200px',height:'770px'}},
+      {side:'right',expected:{left:'-80px',top:'-80px',width:'1250px',height:'800px'}},
+      {side:'bottom',expected:{left:'-80px',top:'-80px',width:'1200px',height:'830px'}},
+      {side:'left',expected:{left:'-30px',top:'-80px',width:'1150px',height:'800px'}},
+    ])('resizes the $side edge on one axis without moving contents', async ({side,expected})=>{
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      await user.click(screen.getByRole('button',{name:'Select section Checkout'}));
+      const edge=screen.getByRole('separator',{name:`Resize section ${side}`});
+      const zoom=Number(screen.getByTestId('canvas-layer').style.transform.match(/scale\(([^)]+)\)/)?.[1]??1);
+      fireEvent.pointerDown(edge,{button:0,pointerId:9,clientX:100,clientY:100});
+      fireEvent.pointerMove(edge,{pointerId:9,clientX:100+50*zoom,clientY:100+30*zoom});
+      expect(screen.getByTestId('section-section001')).toHaveStyle(expected);
+      fireEvent.pointerUp(edge,{pointerId:9});
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toHaveStyle(expected));
+      expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'0px',top:'0px'});
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toHaveStyle({left:'-80px',top:'-80px',width:'1200px',height:'800px'}));
+    });
+    it('resizes the region without resizing frames; deleting the section keeps its frames', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      fireEvent.pointerDown(screen.getByRole('button',{name:'Select section Checkout'}),{button:0,pointerId:1,clientX:0,clientY:0});
+      fireEvent.pointerUp(screen.getByRole('button',{name:'Select section Checkout'}),{pointerId:1});
+      fireEvent.keyDown(screen.getByRole('separator',{name:'Resize section se'}),{key:'ArrowRight',shiftKey:true});
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toHaveStyle({width:'1210px'}));
+      fireEvent.keyDown(document.body,{key:'Delete'});
+      await waitFor(()=>expect(screen.queryByTestId('section-section001')).not.toBeInTheDocument());
+      expect(screen.getByTestId('frame-screen0001')).toBeInTheDocument();
+      expect(screen.getByTestId('frame-screen0002')).toBeInTheDocument();
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      expect(await screen.findByTestId('section-section001')).toHaveStyle({width:'1210px'});
+    });
+    it('can create and undo a section on an empty page without adding a frame', async () => {
+      window.location.hash = `#p=${PAGE_2_ID}`;
+      render(<Workbench file={makeFile({pages:[{id:PAGE_ID,name:'Page 1'},{id:PAGE_2_ID,name:'Empty'}]})} />);
+      await user.click(screen.getByRole('button',{name:'Section tool'}));
+      const surface=screen.getByTestId('section-draw-surface');
+      fireEvent.pointerDown(surface,{button:0,pointerId:17,clientX:100,clientY:120});
+      fireEvent.pointerMove(surface,{pointerId:17,clientX:500,clientY:400});
+      fireEvent.pointerUp(surface,{pointerId:17,clientX:500,clientY:400});
+      expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
+      await waitFor(()=>expect(fetchMock).toHaveBeenCalled(),{timeout:2000});
+      const patch=JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
+      expect(patch.pages.find((p:{id:string})=>p.id===PAGE_2_ID).sections).toHaveLength(1);
+      expect(patch.screens.filter((s:Screen)=>s.pageId===PAGE_2_ID)).toHaveLength(0);
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument();
+    });
+    it('selecting a layer clears the section selection and shows the layer inspector', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      const rootLayer = await within(screen.getByRole('tree',{name:'Layers'})).findByRole('button',{name:'Frame'});
+      fireEvent.pointerDown(screen.getByRole('button',{name:'Select section Checkout'}),{button:0,pointerId:1});
+      fireEvent.pointerUp(screen.getByRole('button',{name:'Select section Checkout'}),{pointerId:1});
+      expect(screen.getByRole('region',{name:'Section properties'})).toBeInTheDocument();
+      await user.click(rootLayer);
+      await waitFor(()=>expect(screen.queryByRole('region',{name:'Section properties'})).not.toBeInTheDocument());
+      expect(screen.getByTestId('section-section001')).toBeInTheDocument();
+    });
+    it('Shift+S arms drawing and Escape cancels it', async () => {
+      render(<Workbench file={makeFile()} />);
+      fireEvent.keyDown(window,{key:'S',code:'KeyS',shiftKey:true});
+      expect(screen.getByTestId('section-draw-surface')).toBeInTheDocument();
+      fireEvent.keyDown(document.body,{key:'Escape'});
+      expect(screen.queryByTestId('section-draw-surface')).not.toBeInTheDocument();
+    });
   });
 
   describe('unchanged layout on mount', () => {
@@ -992,9 +1210,7 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
       await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
-      const surface = screen.getByTestId('diagram-placement-surface');
-      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 500, clientY: 500 });
-      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 500, clientY: 500 });
+
 
       expect(screen.queryByRole('button', { name: 'Align left' })).toBeNull();
     });
@@ -1260,7 +1476,7 @@ describe('Workbench', () => {
   describe('editor UI state persists across a screen switch', () => {
     // Design, Prototype and Elements are one panel's mutually exclusive
     // tabs now (docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md
-    // section 1), so a search filter typed on the Elements tab and a
+    // section 1), so a search filter typed on the Components tab and a
     // Prototype-mode selection can no longer be checked in the same moment
     // the way the pre-tab version of this test did - each is its own tab's
     // own state, and both, like panelMode itself, belong to the editor
@@ -1270,15 +1486,15 @@ describe('Workbench', () => {
       const narrowScreen2: Screen = { ...SCREEN_2, stageWidth: 375 };
       render(<Workbench file={makeFile({ screens: [SCREEN_1, narrowScreen2] })} />);
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
-      await userEvent.type(screen.getByLabelText('Search elements'), 'Button');
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      await userEvent.type(screen.getByLabelText('Search components'), 'Button');
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px');
 
       await selectFrame('Frame 2');
       expect(await within(frameBody()).findByRole('button', { name: 'Save changes' })).toBeInTheDocument();
 
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
-      expect(screen.getByLabelText('Search elements')).toHaveValue('Button');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByLabelText('Search components')).toHaveValue('Button');
       // The width readout, in contrast, IS per screen and must update.
       await waitFor(() => expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px'));
     });
@@ -1305,7 +1521,7 @@ describe('Workbench', () => {
 
       fireEvent.pointerDown(screen.getByTestId('artboard-preview'));
       expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
-      expect(screen.queryByRole('complementary', { name: 'Elements' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
       expect(screen.queryByRole('complementary', { name: 'Design' })).toBeNull();
     });
   });
@@ -1440,28 +1656,28 @@ describe('Workbench', () => {
     });
   });
 
-  describe('Elements tab', () => {
+  describe('Components tab', () => {
     function selectRoot(): void {
       const root = frameBody().querySelector('[data-block="LayoutBox"]');
       if (!root) throw new Error('root LayoutBox not found');
       fireEvent.mouseDown(root);
     }
 
-    it('renders an Elements tab alongside Design, Prototype and Diagrams', () => {
+    it('renders an Components tab alongside Design, Prototype and Diagrams', () => {
       render(<Workbench file={makeFile()} />);
       const panel = screen.getByRole('complementary', { name: 'Design' });
       const seg = within(panel).getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(seg).getByRole('radio', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(seg).getByRole('radio', { name: 'Components' })).toBeInTheDocument();
       expect(within(seg).getByRole('radio', { name: 'Diagrams' })).toBeInTheDocument();
     });
 
-    it('shows the search field and grouped list with drag sources on the Elements tab', async () => {
+    it('shows the search field and grouped list with drag sources on the Components tab', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
 
-      expect(screen.getByLabelText('Search elements')).toBeInTheDocument();
+      expect(screen.getByLabelText('Search components')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-group]')).toBeInTheDocument();
       expect(document.querySelector('[data-tray-item]')).toBeInTheDocument();
     });
@@ -1469,7 +1685,7 @@ describe('Workbench', () => {
     it('there is no left column (Elements lives in the right panel); the chat panel still floats in when opened', async () => {
       render(<Workbench file={makeFile()} />);
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
-      expect(screen.queryByRole('complementary', { name: 'Elements' })).toBeNull();
+      expect(screen.queryByRole('complementary', { name: 'Components' })).toBeNull();
 
       await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
       expect(screen.getByRole('complementary', { name: 'Chat' })).toHaveStyle({ left: '12px' });
@@ -1477,8 +1693,8 @@ describe('Workbench', () => {
 
     it('selecting a layer while on Elements switches to Design', async () => {
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
 
       selectRoot();
 
@@ -1490,9 +1706,9 @@ describe('Workbench', () => {
       selectRoot();
       await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
 
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
     });
 
     it('remembers the selected tab across a remount', async () => {
@@ -1512,11 +1728,11 @@ describe('Workbench', () => {
   });
 
   // Spec docs/superpowers/specs/2026-09-14-panel-tabs-icons-design.md: the
-  // seven diagram tools that used to sit in the Elements tab's own Diagram
+  // seven diagram tools that used to sit in the Components tab's own Diagram
   // group (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
   // section 13) now have their own Diagrams tab instead - same tools, same
   // shared armed-tool state, just relocated. This replaces this file's own
-  // former "clicking Rectangle in the Elements tab arms placement" test.
+  // former "clicking Rectangle in the Components tab arms placement" test.
   describe('Diagrams tab', () => {
     it('shows the seven diagram tools, none of them in Elements', async () => {
       render(<Workbench file={makeFile()} />);
@@ -1527,11 +1743,32 @@ describe('Workbench', () => {
         expect(within(panel).getByRole('button', { name: label })).toBeInTheDocument();
       }
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
       expect(screen.queryByRole('button', { name: 'Rectangle' })).not.toBeInTheDocument();
     });
 
-    it("clicking Rectangle in the Diagrams tab arms placement (the floating palette's Rectangle shows active)", async () => {
+    it('uses live canvas size for centered insertion after pan and zoom, even when the cached measurement is zero', async () => {
+      saveViewport(window.localStorage, 'file0000ab', PAGE_ID, {x:-800,y:300,zoom:0.5});
+      render(<Workbench file={makeFile({screens:[{...SCREEN_1,x:10000,y:10000}]})} />);
+      const root=screen.getByTestId('canvas-root');
+      vi.spyOn(root,'getBoundingClientRect').mockReturnValue({x:40,y:50,left:40,top:50,right:1640,bottom:950,width:1600,height:900,toJSON:()=>({})});
+      await user.click(screen.getByRole('radio',{name:'Diagrams'}));
+      await user.click(screen.getByRole('button',{name:'Rectangle'}));
+      function expectCentered() {
+        const nodes=screen.getAllByTestId(/^diagram-node-/);
+        const rect=nodes.at(-1)!.querySelector('rect')!;
+        const view=loadViewport(window.localStorage,'file0000ab',PAGE_ID)!;
+        expect((Number(rect.getAttribute('x'))+80)*view.zoom+view.x).toBeCloseTo(768);
+        expect((Number(rect.getAttribute('y'))+40)*view.zoom+view.y).toBeCloseTo(458);
+      }
+      expectCentered();
+      fireEvent.wheel(root,{deltaX:400,deltaY:-200});
+      fireEvent.keyDown(window,{key:'+',code:'Equal',metaKey:true});
+      await user.click(within(screen.getByRole('toolbar',{name:'Diagram palette'})).getByRole('button',{name:'Rectangle'}));
+      expectCentered();
+    });
+
+    it("clicking Rectangle in the Diagrams tab immediately inserts and selects a shape", async () => {
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('radio', { name: 'Diagrams' }));
       const panel = screen.getByRole('complementary', { name: 'Diagrams' });
@@ -1539,11 +1776,13 @@ describe('Workbench', () => {
 
       await userEvent.click(within(panel).getByRole('button', { name: 'Rectangle' }));
 
+      expect(screen.getAllByTestId(/^diagram-node-/)).toHaveLength(1);
+      expect(screen.queryByTestId('diagram-placement-surface')).not.toBeInTheDocument();
       const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
-      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
-      // The tab's own row reflects the armed tool too, now that the
-      // palette it just opened renders its own same-labelled button.
-      expect(within(panel).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'true');
+      expect(within(palette).getByRole('button', { name: 'Rectangle' })).toHaveAttribute('aria-pressed', 'false');
+      await userEvent.click(within(palette).getByRole('button', { name: 'Rectangle' }));
+      expect(screen.getAllByTestId(/^diagram-node-/)).toHaveLength(2);
+
     });
   });
 
@@ -1564,7 +1803,7 @@ describe('Workbench', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       render(<Workbench file={makeFile()} />);
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
 
       const trayButton = document.querySelector('[data-tray-item="Button"]');
       if (!trayButton) throw new Error('Button tray item not found');
@@ -1683,7 +1922,7 @@ describe('Workbench', () => {
       expect(panel).toHaveClass('w-10');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Diagrams' })).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole('button', { name: 'Expand panel' }));
@@ -1707,10 +1946,10 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Minimize panel' }));
       const panel = screen.getByRole('complementary', { name: 'Design' });
 
-      await userEvent.click(within(panel).getByRole('button', { name: 'Elements' }));
+      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
 
-      expect(screen.getByRole('complementary', { name: 'Elements' })).toHaveClass('w-80');
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
     });
 
     it('collapsed state persists across a remount', async () => {
@@ -1732,7 +1971,7 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'e' });
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'g' });
       expect(screen.getByRole('radio', { name: 'Diagrams' })).toHaveAttribute('data-state', 'on');
@@ -1748,8 +1987,8 @@ describe('Workbench', () => {
 
       fireEvent.keyDown(window, { key: 'e' });
 
-      expect(screen.getByRole('complementary', { name: 'Elements' })).toHaveClass('w-80');
-      expect(screen.getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('complementary', { name: 'Components' })).toHaveClass('w-80');
+      expect(screen.getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'on');
     });
 
     it('are ignored while typing, such as renaming the file', async () => {
@@ -1969,22 +2208,44 @@ describe('Workbench', () => {
       expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
     });
 
-    it('New page switches to a fresh, empty page showing the "no screens yet" chip; the existing New screen button still works on it', async () => {
+    it('New page opens a blank frame with its own layers and supports inserting and undoing elements', async () => {
       render(<Workbench file={twoPageFile()} />);
-
       await openPagesMenu();
       await userEvent.click(await screen.findByRole('menuitem', { name: 'New page' }));
 
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 3');
-      expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
-      // The Frames chip still renders at zero frames - it's the only way to
-      // add the page's first one - showing the no-current-frame placeholder
-      // name and a zero count.
-      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('— · 0');
-
-      await addNewFrame();
-      expect(screen.queryByText('This page has no screens yet')).toBeNull();
       expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 1 · 1');
+      expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
+      await waitFor(() => expect(within(screen.getByRole('tree', { name: 'Layers' })).getAllByRole('treeitem')).toHaveLength(1));
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
+      await userEvent.click(within(screen.getByRole('complementary', { name: 'Components' })).getByRole('button', { name: 'Add Button' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Button' })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(within(frameBody()).queryByRole('button', { name: 'Button' })).toBeNull());
+      await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Button' })).toBeInTheDocument();
+
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 1' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+      expect(within(frameBody()).queryByRole('button', { name: 'Button' })).toBeNull();
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Page 3' }));
+      expect(await within(frameBody()).findByRole('button', { name: 'Button' })).toBeInTheDocument();
+    });
+
+    it('clears stale layers on an existing empty page and lets the user add its first frame', async () => {
+      render(<Workbench file={makeFile({ ...twoPageFile(), screens: [SCREEN_1] })} />);
+      await within(frameBody()).findByRole('button', { name: 'Sign in' });
+      await openPagesMenu();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'v2' }));
+      expect(screen.getByText('This page has no screens yet')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryAllByRole('treeitem')).toHaveLength(0));
+      await userEvent.click(screen.getByRole('button', { name: 'Add frame' }));
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 1 · 1');
+      expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
+      await waitFor(() => expect(screen.getAllByRole('treeitem')).toHaveLength(1));
     });
 
     it('Duplicate page copies the current page\'s screens onto a new page with new ids', async () => {
@@ -2327,12 +2588,23 @@ describe('Workbench', () => {
       return screen.queryAllByTestId(/^diagram-node-/);
     }
 
+    function dropRectangle(at: { x: number; y: number }): void {
+      const data = new Map<string, string>();
+      const dataTransfer = { setData: (type: string, value: string) => data.set(type, value), getData: (type: string) => data.get(type) ?? '', types: [DIAGRAM_SHAPE_MIME], effectAllowed: '', dropEffect: '' };
+      const palette = screen.getByRole('toolbar', { name: 'Diagram palette' });
+      fireEvent.dragStart(within(palette).getByRole('button', { name: 'Rectangle' }), { dataTransfer });
+      const surface = screen.getByTestId('diagram-drop-surface');
+      // Translate the requested world position into the current viewport.
+      const transform = screen.getByTestId('canvas-layer').style.transform;
+      const values = transform.match(/translate\(([-.\d]+)px, ([-.\d]+)px\) scale\(([-.\d]+)\)/)!;
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.assign(event, { dataTransfer, clientX: at.x * Number(values[3]) + Number(values[1]), clientY: at.y * Number(values[3]) + Number(values[2]) });
+      fireEvent(surface, event);
+    }
+
     async function placeRectangle(at: { x: number; y: number }): Promise<void> {
       fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
-      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
-      const surface = screen.getByTestId('diagram-placement-surface');
-      fireEvent.pointerDown(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
-      fireEvent.pointerUp(surface, { pointerId: 1, clientX: at.x, clientY: at.y });
+      dropRectangle(at);
     }
 
     it('Shift+D opens the palette (the top bar no longer has a diagram button)', async () => {
@@ -2375,6 +2647,22 @@ describe('Workbench', () => {
       expect(screen.queryByRole('toolbar', { name: 'Diagram palette' })).not.toBeInTheDocument();
     });
 
+    it('diagram insertion can be undone and redone through the toolbar and keyboard after selection clears', async () => {
+      render(<Workbench file={makeFile()} />);
+      await placeRectangle({ x: 500, y: 500 });
+      const svg = screen.getByTestId('diagram-layer');
+      expect(Number(svg.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(svg.getAttribute('height'))).toBeGreaterThan(0);
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(diagramNodes()).toHaveLength(0);
+      await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+      expect(diagramNodes()).toHaveLength(1);
+      fireEvent.keyDown(window, { key: 'z', metaKey: true });
+      expect(diagramNodes()).toHaveLength(0);
+      fireEvent.keyDown(window, { key: 'z', metaKey: true, shiftKey: true });
+      expect(diagramNodes()).toHaveLength(1);
+    });
+
     it('Delete removes the selected shape instead of touching the Craft selection', async () => {
       render(<Workbench file={makeFile()} />);
       await placeRectangle({ x: 500, y: 500 });
@@ -2403,10 +2691,7 @@ describe('Workbench', () => {
       // shape resets to the pointer) - re-arm Rectangle for a second shape
       // without re-clicking "Diagram tool" itself, which would toggle the
       // still-open palette closed instead.
-      await userEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
-      const surface = screen.getByTestId('diagram-placement-surface');
-      fireEvent.pointerDown(surface, { pointerId: 1, clientX: 700, clientY: 300 });
-      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 700, clientY: 300 });
+      dropRectangle({ x: 700, y: 300 });
       expect(diagramNodes()).toHaveLength(2);
 
       const [aId, bId] = diagramNodes().map((el) => el.getAttribute('data-testid')!.replace('diagram-node-', ''));

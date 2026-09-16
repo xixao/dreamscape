@@ -10,6 +10,43 @@ vi.mock('../canvas-frame', () => ({
 }));
 describe('Component Builder assembly', () => {
   beforeEach(() => localStorage.clear());
+  it('creates a component annotation and edits it without changing the component layout', async () => {
+    const user = userEvent.setup(); const save = vi.fn(); const initial = newComponent();
+    render(<ComponentBuilder fileId="notes-cc" initial={initial} existing instances={0} onClose={vi.fn()} onSave={save} />);
+    await user.click(screen.getByRole('button', { name: 'Note tools' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Add annotation' }));
+    fireEvent.pointerDown(screen.getByTestId('component-note-cover'), { button: 0, clientX: 20, clientY: 20 });
+    const composer = within(await screen.findByRole('dialog', { name: 'New annotation' }));
+    await user.type(composer.getByLabelText('Your name'), 'Designer');
+    await user.type(composer.getByLabelText('Note title'), 'Component contract');
+    await user.type(composer.getByLabelText('Note details'), 'Keep the parent padding.');
+    await user.click(composer.getByRole('button', { name: 'Add annotation' }));
+    const thread = within(await screen.findByRole('dialog', { name: 'Annotation 1' }));
+    expect(thread.queryByRole('button', { name: 'Resolve' })).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Notes panel' })).toBeVisible();
+    const stored = JSON.parse(localStorage.getItem(`assembly-workbench:comments:notes-cc:component:${initial.id}`)!);
+    expect(stored[0]).toMatchObject({ kind: 'annotation', screenId: initial.id, title: 'Component contract' });
+    expect(save.mock.calls.every(([definition]) => definition.layout === initial.layout)).toBe(true);
+    await user.click(thread.getByRole('button', { name: 'Delete note' }));
+    await user.click(thread.getByRole('button', { name: 'Delete permanently' }));
+    expect(screen.queryByRole('button', { name: 'Annotation 1' })).toBeNull();
+  });
+
+  it('uses the grouped Button inspector and saves and undoes state changes', async () => {
+    const save = vi.fn(); const user = userEvent.setup();
+    render(<ComponentBuilder fileId="button-inspector" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={save} />);
+    await user.click(within(screen.getByRole('listbox', { name: 'Components to add' })).getByRole('option', { name: 'Button' }));
+    const panel = within(screen.getByRole('complementary', { name: 'Builder design' }));
+    for (const name of ['Content', 'Appearance', 'State', 'Layout']) expect(panel.getByRole('heading', { name })).toBeVisible();
+    const preview = within(screen.getByLabelText('mobile component preview'));
+    await user.click(panel.getByRole('switch', { name: 'Loading' }));
+    expect(preview.getByRole('button', { name: 'Button' })).toHaveAttribute('aria-busy', 'true');
+    await waitFor(() => expect(Object.values(JSON.parse(save.mock.lastCall![0].layout) as Tree).some(node => node.props.loading === true)).toBe(true));
+    await user.click(screen.getByRole('button', { name: 'Undo component edit' }));
+    expect(preview.getByRole('button', { name: 'Button' })).not.toHaveAttribute('aria-busy');
+    await user.click(screen.getByRole('button', { name: 'Redo component edit' }));
+    expect(preview.getByRole('button', { name: 'Button' })).toHaveAttribute('aria-busy', 'true');
+  });
   it('drops elements into Layers at the requested parent and position, with undo', async () => {
     const save = vi.fn(); const user = userEvent.setup();
     render(<ComponentBuilder fileId="layer-drop" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={save} />);
@@ -41,7 +78,7 @@ describe('Component Builder assembly', () => {
     const user = userEvent.setup(); const save = vi.fn();
     render(<ComponentBuilder fileId="menus" initial={newComponent()} existing instances={0} onClose={vi.fn()} onSave={save} />);
     const builder = screen.getByRole('dialog', { name: 'Component Builder' });
-    const picker = within(screen.getByRole('listbox', { name: 'Elements to add' }));
+    const picker = within(screen.getByRole('listbox', { name: 'Components to add' }));
     await user.click(picker.getByRole('option', { name: 'Card' }));
     await user.click(picker.getByRole('option', { name: 'Frame' }));
     await user.click(screen.getByRole('combobox', { name: 'Distribution' }));
@@ -52,7 +89,7 @@ describe('Component Builder assembly', () => {
       expect(Object.values(tree).some(node => (node.props.justify as { mobile?: string } | undefined)?.mobile === 'center')).toBe(true);
     });
     await user.click(picker.getByRole('option', { name: 'Button' }));
-    await user.type(screen.getByRole('combobox', { name: 'Add an element' }), 'image');
+    await user.type(screen.getByRole('combobox', { name: 'Add a component' }), 'image');
     await user.click(picker.getByRole('option', { name: 'Image' }));
     for (const [label, value, ratio] of [['Portrait (3:4)', 'portrait', '3 / 4'], ['Wide (21:9)', 'wide', '21 / 9'], ['Square', 'square', '1 / 1']]) {
       await user.click(screen.getByRole('combobox', { name: 'Aspect ratio' }));
@@ -109,15 +146,15 @@ describe('Component Builder assembly', () => {
   it('filters atoms and inserts by keyboard while keeping Design visible', async () => {
     const user = userEvent.setup();
     render(<ComponentBuilder fileId="picker" initial={newComponent()} existing={false} instances={0} onClose={vi.fn()} onSave={vi.fn()} />);
-    const input = screen.getByRole('combobox', { name: 'Add an element' });
+    const input = screen.getByRole('combobox', { name: 'Add a component' });
     expect(screen.getByRole('complementary', { name: 'Builder design' })).toBeVisible();
     await user.type(input, 'card');
-    expect(within(screen.getByRole('listbox', { name: 'Elements to add' })).getAllByRole('option')).toHaveLength(1);
+    expect(within(screen.getByRole('listbox', { name: 'Components to add' })).getAllByRole('option')).toHaveLength(1);
     await user.keyboard('{ArrowDown}{Enter}');
     expect(input).toHaveValue('');
     expect(screen.getByRole('textbox', { name: 'Title' })).toBeVisible();
     await user.type(input, 'text');
-    const results = within(screen.getByRole('listbox', { name: 'Elements to add' })).getAllByRole('option');
+    const results = within(screen.getByRole('listbox', { name: 'Components to add' })).getAllByRole('option');
     if (results.length > 1) {
       await user.keyboard('{ArrowDown}');
       expect(results[1]).toHaveAttribute('aria-selected', 'true');
@@ -127,11 +164,11 @@ describe('Component Builder assembly', () => {
     expect(input).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Add to Components' })).toBeEnabled();
     await user.type(input, 'zzzznothing');
-    expect(screen.getByRole('status')).toHaveTextContent('No matching elements');
+    expect(screen.getByRole('status')).toHaveTextContent('No matching components');
     await user.keyboard('{Enter}{Escape}');
     expect(input).toHaveValue('');
     await user.click(screen.getByRole('button', { name: 'Browse all' }));
-    expect(within(screen.getByRole('listbox', { name: 'Elements to add' })).getAllByRole('option').length).toBeGreaterThan(6);
+    expect(within(screen.getByRole('listbox', { name: 'Components to add' })).getAllByRole('option').length).toBeGreaterThan(6);
   });
   it('compares editable widths, preserves sizes, and supports fixed height', async () => {
     const user = userEvent.setup();
@@ -184,7 +221,7 @@ describe('Component Builder assembly', () => {
   it('grows the compact frame when added card content exceeds its height', async () => {
     const user = userEvent.setup();
     render(<ComponentBuilder fileId="growth" initial={newComponent()} existing={false} instances={0} onClose={vi.fn()} onSave={vi.fn()} />);
-    const tray = within(screen.getByRole('complementary', { name: 'Builder elements' }));
+    const tray = within(screen.getByRole('complementary', { name: 'Builder components' }));
     await user.click(tray.getByRole('option', { name: 'Card' }));
     const content = screen.getByLabelText('mobile component preview').querySelector('.component-builder-preview')!;
     Object.defineProperty(content, 'scrollHeight', { configurable: true, value: 720 });
@@ -202,7 +239,7 @@ describe('Component Builder assembly', () => {
   it('assembles inside a card content zone and keeps the three trees identical', async () => {
     const user = userEvent.setup(); const save = vi.fn();
     render(<ComponentBuilder fileId="nested" initial={newComponent()} existing={false} instances={0} onClose={vi.fn()} onSave={save} />);
-    const tray = within(screen.getByRole('complementary', { name: 'Builder elements' }));
+    const tray = within(screen.getByRole('complementary', { name: 'Builder components' }));
     await user.click(tray.getByRole('option', { name: 'Card' }));
     await user.click(tray.getByRole('option', { name: 'Text' }));
     await user.click(screen.getByRole('button', { name: 'Add to Components' }));
@@ -215,7 +252,7 @@ describe('Component Builder assembly', () => {
   it('adds an element to all sizes, saves it, and undoes/redoes one shared edit', async () => {
     const user = userEvent.setup(); const save = vi.fn();
     render(<ComponentBuilder fileId="test" initial={newComponent()} existing={false} instances={0} onClose={vi.fn()} onSave={save} />);
-    await user.click(within(screen.getByRole('complementary', { name: 'Builder elements' })).getByRole('option', { name: 'Button' }));
+    await user.click(within(screen.getByRole('complementary', { name: 'Builder components' })).getByRole('option', { name: 'Button' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add to Components' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Compare widths' }));
     for (const size of ['desktop', 'tablet', 'mobile']) expect(within(screen.getByLabelText(`${size} component preview`)).getByRole('button', { name: 'Button' })).toBeInTheDocument();

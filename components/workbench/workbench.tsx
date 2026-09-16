@@ -7,12 +7,18 @@ import { AppearanceContext } from './appearance-context';
 import { countInstances, updateInstances, replaceSelection, type ComponentDefinition } from '@/lib/custom-components/model';
 import { Editor, useEditor } from '@craftjs/core';
 import { nanoid } from 'nanoid';
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { placeDiagramShape } from '@/lib/diagram/placement';
+import { AnnotationLibrary } from './accessibility/annotation-library';
+import type { DesignerKind } from '@/lib/accessibility/designer-kit';
+import { createDesignerAnnotation, createAnnotation, type Category, type Annotation } from '@/lib/accessibility/kit';
+import { createDiagramNode } from '@/lib/diagram/insertion';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { defaultScreen } from '@/components/blocks/known-types';
 import { emptyLayoutJson, resolver } from '@/components/blocks/registry';
 import { fitAll, frameRect, stepZoom, zoomTo, zoomToRect, type FrameRect } from '@/lib/canvas/viewport';
 import { loadPixelGridVisible, savePixelGridVisible } from '@/lib/canvas/pixel-grid-store';
-import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
+import { useCanvasNotes } from './comments/use-canvas-notes';
+import { NotesPanel } from './comments/notes-panel';
 import { bounds as diagramBounds } from '@/lib/diagram/geometry';
 import {
   createInitialDiagramState,
@@ -39,6 +45,9 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
+import type { SectionChange } from '@/lib/canvas/sections';
+import { SectionsContext } from './sections/section-context';
+import { useSectionsController } from './sections/use-sections';
 import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
 import { PanelResize, useLeftPanelWidth } from './panel-resize';
 import { LeftPanelContext } from './left-panel-tabs';
@@ -46,7 +55,7 @@ import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP, PANEL } from './chrome';
 import { LayersPanel } from './layers-panel';
-import type { PendingPin, StageCommentsProps } from './comments/comment-layer';
+import type { CommentThread } from '@/lib/comments/store';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
@@ -55,6 +64,7 @@ import { useDropPlaceholder } from './drop-placeholder';
 import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspector/alignment-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
+import { FrameSelectionActions } from './frame-selection-actions';
 import { LayerStackMenu } from './layer-stack-menu';
 import { DEFAULT_LAYOUT_GRID, resolveLayoutGrid } from './layout-grid';
 import { NewLayoutDialog } from './new-layout-dialog';
@@ -280,7 +290,11 @@ export function Workbench({
   const initialScreens = layoutMissingPositions(resolveInitialScreens(file, initialPages));
   const initialPageId = pageIdFromHash(window.location.hash, initialScreens, initialPages);
 
-  const [pages, setPages] = useState<Page[]>(() => initialPages);
+  const [pages, setPagesState] = useState<Page[]>(() => initialPages);
+  const pagesRef = useRef(pages);
+  function setPages(next: Page[]) { pagesRef.current = next; setPagesState(next); }
+  const [sectionSession] = useState(() => nanoid());
+  const appliedSectionChange = useRef<string | null>(null);
   const [screens, setScreens] = useState<Screen[]>(() => initialScreens);
   const [currentPageId, setCurrentPageId] = useState<string>(() => initialPageId);
   const [currentScreenId, setCurrentScreenId] = useState<string>(() =>
@@ -377,6 +391,7 @@ export function Workbench({
       // First firing after this screen's Frame mounted: Craft's own
       // serialisation of what it just deserialised. Record it and stop; see
       // baselinedScreenIdsRef above.
+      appliedSectionChange.current = JSON.parse(json).ROOT?.custom?.canvasSections?.revision ?? null;
       baselinedScreenIdsRef.current.add(screenId);
       lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
       return;
@@ -384,12 +399,22 @@ export function Workbench({
     const previous = lastSavedLayoutsRef.current[screenId];
     if (previous !== undefined && canonicalLayout(json) === canonicalLayout(previous)) return;
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [screenId]: json };
+    const sectionPatch = JSON.parse(json).ROOT?.custom?.canvasSections;
+    const restoreSections = sectionPatch?.session === sectionSession && sectionPatch.revision !== appliedSectionChange.current && pagesRef.current.some(page => page.id === sectionPatch.pageId);
+    let nextPages: Page[] | undefined;
+    if (restoreSections) {
+      appliedSectionChange.current = sectionPatch.revision;
+      nextPages = pagesRef.current.map(page => page.id === sectionPatch.pageId ? { ...page, sections: sectionPatch.sections } : page);
+      pagesRef.current = nextPages;
+    }
     const frameSize = JSON.parse(json).ROOT?.custom?.frameSize;
     const inspectorScreens = JSON.parse(json).ROOT?.custom?.inspectorScreens;
-    const next = screensRef.current.map(screen => {
+    const sectionScreens = restoreSections && sectionPatch.screens ? [...screensRef.current.filter(s=>s.pageId!==sectionPatch.pageId),...sectionPatch.screens] as Screen[] : screensRef.current;
+    const next = sectionScreens.map(screen => {
       const patch = inspectorScreens?.owner === screenId ? inspectorScreens.patches?.[screen.id] : undefined;
       const restored = patch ? Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value === null ? undefined : value])) : {};
-      return { ...screen, ...restored, ...(screen.id === screenId ? { ...(frameSize ? { stageWidth: frameSize.width, stageHeight: frameSize.height, deviceName: frameSize.deviceName } : {}), layout: json } : {}) };
+      const position = restoreSections && screen.pageId === sectionPatch.pageId ? sectionPatch.positions.find((p: {id:string}) => p.id === screen.id) : undefined;
+      return { ...screen, ...restored, ...(position ? { x: position.x, y: position.y } : {}), ...(screen.id === screenId ? { ...(frameSize ? { stageWidth: frameSize.width, stageHeight: frameSize.height, deviceName: frameSize.deviceName } : {}), layout: json } : {}) };
     });
     screensRef.current = next;
     // Deferred to a microtask rather than called inline: this firing can
@@ -407,7 +432,8 @@ export function Workbench({
     // observe.
     queueMicrotask(() => {
       setScreens(next);
-      saver.queue({ screens: next });
+      if (nextPages) setPagesState(nextPages);
+      saver.queue({ screens: next, ...(nextPages ? { pages: nextPages } : {}) });
       setEditedScreenIds((prev) => (prev.has(screenId) ? prev : new Set(prev).add(screenId)));
     });
     // Deliberately empty: see the comment above this callback for why every
@@ -457,6 +483,7 @@ export function Workbench({
   function switchPage(pageId: string): void {
     if (pageId === currentPageId) return;
     void saver.flush();
+    editorActionsRef.current?.selectNode();
     editorActionsRef.current?.history.clear();
     const firstScreenId = firstScreenIdForPage(screensRef.current, pageId);
     setCurrentPageId(pageId);
@@ -468,6 +495,10 @@ export function Workbench({
     } else {
       currentScreenIdRef.current = '';
       setCurrentScreenId('');
+      // With no mounted Frame, Craft will otherwise retain the previous page's tree.
+      baselinedScreenIdsRef.current.delete('');
+      editorActionsRef.current?.selectNode();
+      editorActionsRef.current?.history.ignore().deserialize({});
       window.history.replaceState(null, '', `#p=${pageId}`);
     }
   }
@@ -484,9 +515,17 @@ export function Workbench({
 
   function addPage(): void {
     const newPage: Page = { id: nanoid(10), name: `Page ${pages.length + 1}` };
-    const next = [...pages, newPage];
-    setPages(next);
-    queuePatch({ pages: next });
+    const newScreen: Screen = {
+      id: nanoid(10), name: 'Frame 1', pageId: newPage.id, layout: emptyLayoutJson(),
+      stageWidth: STAGE_PRESETS.desktop, stageHeight: null, deviceName: null, x: 0, y: 0,
+    };
+    const nextPages = [...pages, newPage];
+    const nextScreens = [...screensRef.current, newScreen];
+    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
+    screensRef.current = nextScreens;
+    setScreens(nextScreens);
+    setPages(nextPages);
+    queuePatch({ pages: nextPages, screens: nextScreens });
     switchPage(newPage.id);
   }
 
@@ -533,7 +572,7 @@ export function Workbench({
       .map((screen) => {
         const copyId = nanoid(10);
         screenIdMap[screen.id] = copyId;
-        return { ...screen, id: copyId, pageId: newPageId, x: null, y: null };
+        return { ...screen, id: copyId, pageId: newPageId, ...(pages[index].sections?.length ? {} : { x: null, y: null }) };
       });
     // The page's flow chart comes along too, re-pointed at the copied
     // screens, so a duplicated page is a complete, independent copy.
@@ -541,6 +580,7 @@ export function Workbench({
     const newPage: Page = {
       id: newPageId,
       name: `${pages[index].name} copy`,
+      ...(pages[index].sections ? { sections: pages[index].sections.map(section => ({ ...section, id: nanoid(10) })) } : {}),
       ...(sourceDiagram ? { diagram: cloneDiagram(sourceDiagram, screenIdMap, () => nanoid(10)) } : {}),
     };
     const nextPages = [...pages.slice(0, index + 1), newPage, ...pages.slice(index + 1)];
@@ -752,6 +792,32 @@ export function Workbench({
     });
   }
 
+  function updateSections(pageId: string, change: SectionChange): void {
+    const page = pagesRef.current.find(p => p.id === pageId);
+    const actions = editorActionsRef.current;
+    if (!page || !actions) return;
+    // Files currently require at least one root frame. If deletion removes the
+    // last one, keep a fresh empty frame rather than retaining deleted content.
+    if (change.screens && !change.screens.length && screensRef.current.every(s=>s.pageId===pageId)) {
+      change = {...change,screens:[{...defaultScreen(),pageId,x:0,y:0}]};
+    }
+    const before = { ...(change.screens ? {screens:screensRef.current.filter(s=>s.pageId===pageId)} : {}), ...(change.diagram ? {diagram:page.diagram??{nodes:[],edges:[]}} : {}), diagramPositions: change.diagramPositions?.flatMap(position => { const node=page.diagram?.nodes.find(n=>n.id===position.id);return node?[{id:node.id,x:node.x,y:node.y}]:[]; }), sections: page.sections ?? [], positions: change.positions.flatMap(position => {
+      const screen = screensRef.current.find(s => s.id === position.id && s.pageId === pageId);
+      return screen ? [{id:screen.id,x:screen.x ?? 0,y:screen.y ?? 0}] : [];
+    }) };
+    actions.history.ignore().setCustom('ROOT', custom => {
+      custom.canvasSections = { ...before, pageId, session: sectionSession, revision: nanoid() };
+    });
+    actions.setCustom('ROOT', custom => {
+      custom.canvasSections = { ...change, pageId, session: sectionSession, revision: nanoid() };
+      // Frame-position history must agree with the new section positions, so
+      // an unrelated inspector edit cannot restore an older drag location.
+      for (const position of change.positions) {
+        if (custom.inspectorScreens?.patches?.[position.id]) Object.assign(custom.inspectorScreens.patches[position.id], {x:position.x,y:position.y});
+      }
+    });
+  }
+
   function moveScreen(id: string, position: { x: number; y: number }): void {
     // Review fix wave item 1 (blocker): validateScreens rejects a
     // non-integer x/y with a 400 that lib/persistence.ts never retries, so
@@ -924,6 +990,10 @@ export function Workbench({
       } else {
         currentScreenIdRef.current = '';
         setCurrentScreenId('');
+        baselinedScreenIdsRef.current.delete('');
+        editorActionsRef.current?.selectNode();
+        editorActionsRef.current?.history.ignore().deserialize({});
+        editorActionsRef.current?.history.clear();
         window.history.replaceState(null, '', `#p=${originPageId}`);
       }
     }
@@ -1035,6 +1105,7 @@ export function Workbench({
           onDeletePage={deletePage}
           onMovePage={movePage}
           onDiagramChange={updatePageDiagram}
+          onUpdateSections={updateSections}
           screens={screens}
           currentScreenId={currentScreenId}
           onSelectScreen={switchScreen}
@@ -1073,6 +1144,7 @@ function WorkbenchShell({
   onDeletePage,
   onMovePage,
   onDiagramChange,
+  onUpdateSections,
   screens,
   currentScreenId,
   onSelectScreen,
@@ -1102,6 +1174,7 @@ function WorkbenchShell({
   onDuplicatePage: (id: string) => void;
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: 'up' | 'down') => void;
+  onUpdateSections: (pageId: string, change: SectionChange) => void;
   onDiagramChange: (pageId: string, diagram: DiagramData) => void;
   // The whole file's screens, every page's own - WorkbenchShell itself
   // filters to the current page's screens (pageScreens, below) for Canvas,
@@ -1188,7 +1261,7 @@ function WorkbenchShell({
   useEffect(() => {
     savePixelGridVisible(window.localStorage, pixelGridVisible);
   }, [pixelGridVisible]);
-  const { actions, query } = useEditor();
+  const { actions, query, sectionMove } = useEditor(state=>({sectionMove:state.nodes.ROOT?.data.custom?.canvasSections}));
   const { setWidth, setSize, setDevice } = useStage();
   const [newOpen, setNewOpen] = useState(false);
   // "?", the top bar's ⌘ button and its overflow menu item all open the
@@ -1225,6 +1298,12 @@ function WorkbenchShell({
       sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
     ),
   );
+  const [lastSectionMove, setLastSectionMove] = useState(sectionMove?.revision);
+  if (sectionMove?.revision !== lastSectionMove) {
+    setLastSectionMove(sectionMove?.revision);
+    if (sectionMove?.pageId === currentPageId && sectionMove.diagram) dispatchDiagram({type:'load',data:sectionMove.diagram});
+    else if (sectionMove?.pageId === currentPageId && sectionMove.diagramPositions?.length) dispatchDiagram({type:'sectionPositions',positions:sectionMove.diagramPositions});
+  }
   const [lastDiagramPageId, setLastDiagramPageId] = useState(currentPageId);
   if (currentPageId !== lastDiagramPageId) {
     setLastDiagramPageId(currentPageId);
@@ -1365,18 +1444,53 @@ function WorkbenchShell({
 
   // A finished placement or connection only disarms the shape; the bar stays.
   function onDiagramToolConsumed(): void {
+    notes.cancel();
+    setDiagramPaletteOpen(true);
     setDiagramTool(POINTER_TOOL);
   }
 
-  // The Elements tab's Diagram group (component-tray.tsx, spec docs/
-  // superpowers/specs/2026-09-13-diagrams-design.md section 13): arms a
-  // diagram tool exactly like clicking it in the floating palette, and
-  // opens the palette if it was closed so the armed tool is visible there
-  // too - the same shape as onTextTool just above, generalised to any of
-  // the seven tools instead of always the Text shape.
+  // Both palettes insert into the visible workspace; keyboard drawing tools
+  // keep their existing click/drag-to-size behavior.
   function selectDiagramToolFromTray(tool: DiagramTool): void {
     setDiagramPaletteOpen(true);
-    setDiagramTool(tool);
+    notes.cancel();
+    sectionController.setDrawing(false);
+    sectionController.select(null);
+    actions.selectNode();
+    setSelectedFrameIds(new Set());
+    if (tool.kind !== 'shape') { setDiagramTool(tool); return; }
+    // Read the mounted canvas now: its cached size can be stale after returning
+    // from the component editor, where the main canvas is temporarily unmounted.
+    const bounds = rootRef.current?.getBoundingClientRect();
+    const width = bounds?.width || viewportSize.width || window.innerWidth;
+    const height = bounds?.height || viewportSize.height || window.innerHeight;
+    const left = uiHidden ? 16 : leftCollapsed ? 64 : leftWidth + 24;
+    const right = Math.max(left + 1, width - (uiHidden ? 16 : panelCollapsed ? 64 : 344));
+    const top = uiHidden ? 16 : 88;
+    const bottom = Math.max(top + 1, height - 72);
+    const available = { x: left, y: top, width: right - left, height: bottom - top };
+    const visible = {
+      x: (available.x - viewport.x) / viewport.zoom, y: (available.y - viewport.y) / viewport.zoom,
+      width: available.width / viewport.zoom, height: available.height / viewport.zoom,
+    };
+    const shape = createDiagramNode(tool.shape, { x: 0, y: 0 });
+    const placement = placeDiagramShape(shape, visible, [
+      ...pageScreens.map(screen => frameRect(screen, measuredHeights)), ...diagram.nodes,
+    ], 24 / viewport.zoom);
+    const node = { ...shape, ...placement.position };
+    if (placement.reveal) {
+      const zoom = Math.max(0.1, Math.min(viewport.zoom, available.width / (node.width + 32), available.height / (node.height + 32)));
+      setViewport({
+        zoom,
+        x: available.x + available.width / 2 - (node.x + node.width / 2) * zoom,
+        y: available.y + available.height / 2 - (node.y + node.height / 2) * zoom,
+      });
+    } else {
+      // Stop a pending frame-focus animation from moving the new item out of view.
+      setViewport(viewport);
+    }
+    dispatchDiagram({ type: 'add', node });
+    setDiagramTool(POINTER_TOOL);
   }
 
   // Shift+1/the zoom menu's "Zoom to fit" (spec: "Zoom to fit includes
@@ -1387,7 +1501,7 @@ function WorkbenchShell({
   // "every frame" without the same map could crop exactly the frame this
   // is meant to fit.
   function zoomToFitTargets(): FrameRect[] {
-    const targets: FrameRect[] = pageScreens.map((screen) => frameRect(screen, measuredHeights));
+    const targets: FrameRect[] = [...pageScreens.map((screen) => frameRect(screen, measuredHeights)), ...(pages.find(page => page.id === currentPageId)?.sections ?? [])];
     const diagramBox = diagramBounds(diagram.nodes);
     if (diagramBox) targets.push(diagramBox);
     return targets;
@@ -1416,14 +1530,17 @@ function WorkbenchShell({
   // canvas.tsx's own comments on this), so only the frame's own x/y needs
   // adding to place it in canvas space.
   function zoomToSelectionOrFocusedFrame(): void {
+    const section = sectionController.sections.find(s => s.id === sectionController.selected);
+    if (section) { sectionController.zoomTo(section); return; }
     const focused = pageScreens.find((screen) => screen.id === currentScreenId);
     if (!focused) return;
-    const selectedId = selectedIdFrom(query.getState());
-    const dom = selectedId ? query.getState().nodes[selectedId]?.dom : null;
+    const state = query.getState();
+    const rects = [...state.events.selected].map(id => state.nodes[id]?.dom?.getBoundingClientRect()).filter((rect): rect is DOMRect => !!rect);
     let target: FrameRect;
-    if (dom) {
-      const local = dom.getBoundingClientRect();
-      target = { x: (focused.x ?? 0) + local.left, y: (focused.y ?? 0) + local.top, width: local.width, height: local.height };
+    if (rects.length) {
+      const left = Math.min(...rects.map(rect => rect.left));
+      const top = Math.min(...rects.map(rect => rect.top));
+      target = { x: (focused.x ?? 0) + left, y: (focused.y ?? 0) + top, width: Math.max(...rects.map(rect => rect.right)) - left, height: Math.max(...rects.map(rect => rect.bottom)) - top };
     } else {
       target = frameRect(focused, measuredHeights);
     }
@@ -1431,7 +1548,7 @@ function WorkbenchShell({
   }
 
   // Figma's own behaviour: picking a layer on the canvas while the
-  // Elements tab is showing jumps the panel to Design, the same way
+  // Components tab is showing jumps the panel to Design, the same way
   // Figma does when you select something while its Assets panel is open.
   // Adjusted during render (the same pattern FileNameField in topbar.tsx
   // uses for syncedFileName) rather than in an effect: comparing against a
@@ -1440,7 +1557,7 @@ function WorkbenchShell({
   // because panelMode changed). That distinction is exactly why this
   // cannot be an effect keyed on panelMode too - choosing Prototype or
   // Elements is always explicit, and reacting to panelMode here would
-  // immediately switch a just-chosen Elements tab back to Design the
+  // immediately switch a just-chosen Components tab back to Design the
   // moment it renders, defeating the click.
   const { id: selectedNodeId } = useSelectedNode();
   const [lastSelectedNodeId, setLastSelectedNodeId] = useState(selectedNodeId);
@@ -1473,7 +1590,7 @@ function WorkbenchShell({
       setSelectedFrameIds(new Set());
       // Same Figma precedent as the Craft layer check above, for the tabs
       // a diagram element can actually be picked from: browsing the tools
-      // grid (Diagrams) or the old Elements tab both count as "browsing",
+      // grid (Diagrams) or the old Components tab both count as "browsing",
       // so selecting a real shape or connector on the canvas jumps to
       // Design the same way clicking a Craft layer does. Prototype is left
       // alone for the same reason as the Craft check: wiring up
@@ -1483,39 +1600,71 @@ function WorkbenchShell({
     }
   }
 
-  // Comments placeholder (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
-  // section 5): browser-only, one store per file, created once for this
-  // component's whole lifetime the same way `saver` is in Workbench above.
-  const [commentStore] = useState(() => createCommentStore(fileId));
-  const threads = useSyncExternalStore(commentStore.subscribe, () => commentStore.list());
-  const [commentMode, setCommentMode] = useState(false);
-  const [pendingPin, setPendingPin] = useState<PendingPin | null>(null);
-  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
-  const [authorName, setAuthorNameState] = useState<string | null>(() => getAuthorName());
-
-  // Shared by the composer's own Cancel button and Escape key (comment-composer.tsx
-  // handles Escape locally - focus is inside its textarea while it is open,
-  // which keyboard.tsx's isEditableTarget guard would otherwise swallow -
-  // see the comment there) and by Escape from useWorkbenchKeyboard below
-  // when comment mode is on but no composer is open yet.
-  function cancelPendingAndExitCommentMode(): void {
-    setPendingPin(null);
-    setCommentMode(false);
-  }
-
-  // Shared by the topbar's Comment tool button and the "c" key: turning
-  // comment mode ON is a plain toggle, but turning it OFF must also cancel a
-  // pending pin and close its composer, the same cleanup Escape and Cancel
-  // already do via cancelPendingAndExitCommentMode - otherwise a pin placed
-  // and then left mid-composer by toggling the tool off (rather than
-  // pressing Escape or Cancel) stays behind, orphaned, with no tool active
-  // to finish or discard it.
-  function toggleCommentMode(): void {
-    if (commentMode) {
-      cancelPendingAndExitCommentMode();
-    } else {
-      setCommentMode(true);
+  const notes = useCanvasNotes(fileId, currentScreenId, screens[0]?.id, currentPageId);
+  const sectionController = useSectionsController({
+    diagramNodes: diagram.nodes, diagramEdges: diagram.edges, pageId: currentPageId, sections: pages.find(page => page.id === currentPageId)?.sections ?? [], screens: pageScreens, heights: measuredHeights,
+    selectedFrameIds: pageFrameSelection, focusedScreenId: currentScreenId,
+    commit: change => onUpdateSections(currentPageId, change),
+    onStart: () => { setPanelMode('design'); notes.cancel(); setDiagramTool(POINTER_TOOL); dispatchDiagram({ type: 'clearSelection' }); setSelectedFrameIds(new Set()); },
+    focusFrame: id => { onSelectScreen(id); handleZoomToFrame(id); },
+    zoomTo: section => {
+      const left = leftCollapsed ? 64 : leftWidth + 24;
+      const size = {width:Math.max(240,viewportSize.width-left-344),height:Math.max(200,viewportSize.height-100)};
+      const next = zoomToRect(section,size,48);
+      animateTo({...next,x:next.x+left,y:next.y+76});
+    },
+  });
+  useEffect(() => { if (diagramTool.kind !== 'pointer' || notes.commentMode) sectionController.setDrawing(false); }, [diagramTool.kind, notes.commentMode]);
+  const { commentMode } = notes;
+  const [annotationLibraryMode, setAnnotationLibraryMode] = useState<'accessibility' | 'designer' | null>(null);
+  const selectedAnnotationNode = diagram.nodes.find(node => node.annotation && diagram.selection.some(item => item.type === 'node' && item.id === node.id));
+  const [lastSelectedAnnotationId, setLastSelectedAnnotationId] = useState<string | undefined>(undefined);
+  if (selectedAnnotationNode?.id !== lastSelectedAnnotationId) {
+    setLastSelectedAnnotationId(selectedAnnotationNode?.id);
+    if (selectedAnnotationNode) {
+      setAnnotationLibraryMode(selectedAnnotationNode.annotation?.library === 'designer' ? 'designer' : 'accessibility');
+      setPanelMode('design'); setPanelCollapsed(false);
     }
+  }
+  function startNoteOrLibrary(kind: 'comment' | 'annotation' | 'accessibility') {
+    notes.setVisible(true); sectionController.setDrawing(false); sectionController.select(null); setChatOpen(false);
+    if (kind === 'accessibility' || kind === 'annotation') {
+      notes.cancel(); notes.setNotesOpen(false); setAnnotationLibraryMode(kind === 'accessibility' ? 'accessibility' : 'designer');
+      setDiagramTool(POINTER_TOOL); setPanelMode('components'); setPanelCollapsed(false);
+    } else { setAnnotationLibraryMode(null); notes.start(kind); setLeftCollapsed(false); }
+  }
+  function insertAnnotation(category: Category, format: Annotation['format'], template?:DesignerKind) {
+    notes.cancel(); actions.selectNode(); setSelectedFrameIds(new Set());
+    const rect = rootRef.current?.getBoundingClientRect();
+    const left = leftCollapsed ? 64 : leftWidth + 24;
+    const right = (rect?.width || viewportSize.width) - (panelCollapsed ? 64 : 344);
+    const center = {x:((left + right)/2-viewport.x)/viewport.zoom,y:(((rect?.height || viewportSize.height)+76)/2-viewport.y)/viewport.zoom};
+    const number = Math.min(9999, Math.max(0,...diagram.nodes.map(node=>node.annotation?.number??0))+1);
+    dispatchDiagram({type:'add',node:template?createDesignerAnnotation(template,format,center,number):createAnnotation(category,format,center,number)});
+    setPanelMode('design');
+  }
+  const commentsProps = { ...notes.commentsProps, portalContainer: rootRef.current?.closest<HTMLElement>('[data-testid=workbench-shell]') };
+  const [noteToFocus, setNoteToFocus] = useState<CommentThread | null>(null);
+  useEffect(() => {
+    if (!noteToFocus) return;
+    const target = screens.find(screen => screen.id === (noteToFocus.screenId ?? screens[0]?.id));
+    const page = noteToFocus.canvas ? noteToFocus.pageId : target?.pageId;
+    if (page && page !== currentPageId) { onSwitchPage(page); return; }
+    if (noteToFocus.canvas) {
+      setViewport(current => ({ ...current, x: viewportSize.width / 2 - noteToFocus.x * current.zoom, y: viewportSize.height / 2 - noteToFocus.y * current.zoom }));
+    } else if (target) {
+      if (target.id !== currentScreenId) { onSelectScreen(target.id); return; }
+      handleZoomToFrame(target.id);
+    }
+    setNoteToFocus(null);
+  // Navigation callbacks are refreshed on every editor render; only navigation state should retrigger this request.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteToFocus, currentPageId, currentScreenId]);
+  const cancelPendingAndExitCommentMode = () => { notes.cancel(); setAnnotationLibraryMode(null); };
+  const toggleCommentMode = () => { sectionController.setDrawing(false); sectionController.select(null); notes.toggle(); setChatOpen(false); setLeftCollapsed(false); };
+  function openNote(thread: CommentThread) {
+    notes.open(thread); setChatOpen(false); setLeftCollapsed(false);
+    setNoteToFocus(thread);
   }
 
   // D/P/E (spec docs/superpowers/specs/2026-09-13-shortcuts-and-elements-
@@ -1543,6 +1692,7 @@ function WorkbenchShell({
   // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
   // position for a keyboard shortcut to anchor to the way a wheel gesture
   // has one.
+  const diagramHistoryActive = diagramSelectionActive || ((diagramPaletteOpen || annotationLibraryMode !== null) && !sectionController.selected && !selectedNodeId && pageFrameSelection.size === 0);
   const viewportCenter = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
 
   useWorkbenchKeyboard({
@@ -1550,9 +1700,10 @@ function WorkbenchShell({
     onToggleChat: () => setChatOpen((open) => !open),
     onTogglePanelCollapsed: () => setPanelCollapsed((collapsed) => !collapsed),
     onToggleCommentMode: toggleCommentMode,
-    commentMode,
+    commentMode: commentMode || !!annotationLibraryMode,
     onExitCommentMode: cancelPendingAndExitCommentMode,
     onDiagramTool: toggleDiagramPalette,
+    diagramHistoryActive,
     diagramToolActive: diagramPaletteOpen || diagramTool.kind !== 'pointer',
     onExitDiagramTool: closeDiagramTool,
     onTextTool,
@@ -1630,7 +1781,9 @@ function WorkbenchShell({
     onZoomToSelection: zoomToSelectionOrFocusedFrame,
     onSelectPanelTab: selectPanelTab,
     // V (spec section 2, "Pointer: leaves the comment or diagram tool").
+    onSectionTool: sectionController.start,
     onPointerTool: () => {
+      sectionController.setDrawing(false); sectionController.select(null);
       cancelPendingAndExitCommentMode();
       closeDiagramTool();
     },
@@ -1663,45 +1816,6 @@ function WorkbenchShell({
   // imperative (insertBefore/remove on the real artboard), never a Craft
   // node.
   useDropPlaceholder();
-
-  const commentsProps: StageCommentsProps = {
-    commentMode,
-    threads,
-    pendingPin,
-    openThreadId,
-    authorName,
-    onPlacePin: (x, y, anchorNodeId) => {
-      setOpenThreadId(null);
-      setPendingPin({ x, y, anchorNodeId });
-    },
-    onCancelPending: cancelPendingAndExitCommentMode,
-    onSubmitComment: ({ author, text }) => {
-      if (!pendingPin) return;
-      if (!authorName) {
-        setAuthorName(author);
-        setAuthorNameState(author);
-      }
-      commentStore.add({ x: pendingPin.x, y: pendingPin.y, anchorNodeId: pendingPin.anchorNodeId, author, text });
-      setPendingPin(null);
-      setCommentMode(false);
-    },
-    onPinClick: (id) => {
-      setPendingPin(null);
-      setOpenThreadId(id);
-    },
-    onCloseThread: () => setOpenThreadId(null),
-    onSubmitReply: (threadId, { author, text }) => {
-      if (!authorName) {
-        setAuthorName(author);
-        setAuthorNameState(author);
-      }
-      commentStore.reply(threadId, { author, text });
-    },
-    onResolveThread: (id) => {
-      commentStore.resolve(id);
-      setOpenThreadId((current) => (current === id ? null : current));
-    },
-  };
 
   // StageProvider is intentionally not remounted per screen (see the comment
   // on <StageProvider> in Workbench), so without this its width/height/
@@ -1739,7 +1853,7 @@ function WorkbenchShell({
   const chatPositionClass = 'left-3 w-64';
 
   return (
-    <LeftPanelContext.Provider value={{ chatOpen, setChatOpen, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
+    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           {/*
@@ -1779,13 +1893,28 @@ function WorkbenchShell({
                 onZoomToFrame={handleZoomToFrame}
                 chatOpen={chatOpen}
                 onToggleChat={() => setChatOpen((open) => !open)}
-                commentMode={commentMode}
-                onToggleCommentMode={toggleCommentMode}
-                commentCount={threads.length}
+                commentMode={commentMode || !!annotationLibraryMode}
+                onToggleCommentMode={() => { if (annotationLibraryMode) setAnnotationLibraryMode(null); else toggleCommentMode(); }}
+                commentCount={notes.threads.filter(t => !t.resolvedAt).length}
+                noteKind={annotationLibraryMode === 'designer' ? 'annotation' : annotationLibraryMode === 'accessibility' ? 'accessibility' : notes.kind}
+                onStartNote={startNoteOrLibrary}
+                notesVisible={notes.visible}
+                onToggleNotesVisibility={() => {
+                  notes.toggleVisibility();
+                  if (notes.visible) {
+                    setAnnotationLibraryMode(null);
+                    dispatchDiagram({ type: 'select', selection: diagram.selection.filter(item => item.type !== 'node' || !diagram.nodes.find(node => node.id === item.id)?.annotation) });
+                  }
+                }}
+                onBrowseNotes={() => { notes.setNotesOpen(true); setChatOpen(false); setLeftCollapsed(false); }}
                 onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
                 onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
+                historyOverride={diagramHistoryActive ? {
+                  canUndo: diagram.history.past.length > 0, canRedo: diagram.history.future.length > 0,
+                  undo: () => dispatchDiagram({ type: 'undo' }), redo: () => dispatchDiagram({ type: 'redo' }),
+                } : undefined}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
               />
             )}
@@ -1798,8 +1927,13 @@ function WorkbenchShell({
                 onMoveScreen={onMoveScreen}
                 onMoveScreens={onMoveScreens}
                 comments={commentsProps}
+                canvasComments={{ ...notes.canvasComments, portalContainer: commentsProps.portalContainer }}
                 rootRef={rootRef}
-                diagram={diagram}
+                diagram={notes.visible ? diagram : {
+                  ...diagram,
+                  nodes: diagram.nodes.filter(node => !node.annotation),
+                  edges: diagram.edges.filter(edge => !diagram.nodes.some(node => node.annotation && (edge.source.nodeId === node.id || edge.target.nodeId === node.id))),
+                }}
                 onDiagramAction={dispatchDiagram}
                 diagramTool={diagramTool}
                 onDiagramToolConsumed={onDiagramToolConsumed}
@@ -1837,29 +1971,23 @@ function WorkbenchShell({
                 <DiagramPalette
                   open={diagramPaletteOpen}
                   tool={diagramTool}
-                  onSelectTool={setDiagramTool}
+                  onSelectTool={selectDiagramToolFromTray}
                   onClose={closeDiagramTool}
                 />
               )}
-              {/*
-                Spec docs/superpowers/specs/2026-09-12-pages-design.md
-                section 3: creating a screen for an empty page is never
-                automatic - this chip just names the state. The only way to
-                add the page's first frame is the Frames chip's own "New
-                frame" item, up in the top bar (it still renders at zero
-                frames, showing "— · 0" - see frames-chip.tsx) - a second,
-                separate button here would only duplicate it.
-              */}
+              {/* Existing pages may still be empty after their frames are moved away. */}
               {pageScreens.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                   <div className={cn(CHIP, 'px-3')}>
                     <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
+                    <button type="button" className="pointer-events-auto ml-2 rounded border border-line-soft px-2 py-1 text-xs hover:bg-muted" onClick={onAddScreen}>Add frame</button>
                   </div>
                 </div>
               )}
               <LayerStackMenu />
+              <FrameSelectionActions />
             </StageErrorBoundary>
-            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"
@@ -1870,6 +1998,7 @@ function WorkbenchShell({
                 onPanelModeChange={setPanelMode}
                 collapsed={panelCollapsed}
                 onToggleCollapsed={() => setPanelCollapsed((collapsed) => !collapsed)}
+                annotationLibrary={annotationLibraryMode ? <AnnotationLibrary key={annotationLibraryMode} library={annotationLibraryMode} onInsert={insertAnnotation} onClose={() => setAnnotationLibraryMode(null)} onNote={() => {setAnnotationLibraryMode(null);notes.start(annotationLibraryMode === 'designer' ? 'annotation' : 'accessibility');}} /> : undefined}
                 diagramSelection={selectedDiagramFields()}
                 onDiagramAction={dispatchDiagram}
                 selectedFrameIds={pageFrameSelection}
@@ -1883,7 +2012,7 @@ function WorkbenchShell({
                 onSelectDiagramTool={selectDiagramToolFromTray}
               />
             )}
-            {!uiHidden && chatOpen && (
+            {!uiHidden && chatOpen && !notes.notesOpen && (
               <ChatPanel
                 key="chat-panel"
                 left={12}
@@ -1894,6 +2023,7 @@ function WorkbenchShell({
                 className={chatPositionClass}
               />
             )}
+            {!uiHidden && notes.notesOpen && <NotesPanel notes={notes} onStart={startNoteOrLibrary} width={leftWidth} onWidthChange={setLeftWidth} onOpen={openNote} targetLabel={thread => thread.canvas ? 'Canvas' : `${screens.find(s => s.id === (thread.screenId ?? screens[0]?.id))?.name ?? 'Frame removed'}${thread.anchorLabel ? ` / ${thread.anchorLabel}` : ''}`} />}
             <NewLayoutDialog
               key="new-dialog"
               open={newOpen}
@@ -1915,6 +2045,6 @@ function WorkbenchShell({
           </div>
         </CanvasViewportProvider>
       </PrototypeProvider>
-    </ChatTransportProvider></LeftPanelContext.Provider>
+    </ChatTransportProvider></LeftPanelContext.Provider></SectionsContext.Provider>
   );
 }

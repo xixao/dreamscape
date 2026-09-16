@@ -6,6 +6,7 @@ import { componentDefinitionSchema, newComponent } from '@/lib/custom-components
 import { ComponentBuilder } from './component-builder';
 
 export interface LibraryValue {
+  create?: (definition: ComponentDefinition) => void;
   components: ComponentDefinition[];
   open: (definition?: ComponentDefinition, sourceId?: string) => void;
   remove: (definition: ComponentDefinition) => void;
@@ -30,7 +31,7 @@ export function ComponentLibraryProvider({ fileId, components, onSave, onRemove,
     } catch { /* An unavailable browser store does not block creation. */ }
     setEditing(initial);
   }
-  return <Library.Provider value={{ components, open, remove: setDeleting, count,
+  return <Library.Provider value={{ components, create: definition => onSave(definition), open, remove: setDeleting, count,
     duplicate: definition => onSave({ ...definition, id: newComponent().id, name: `${definition.name} copy`.slice(0, 120) }),
   }}>
     <div inert={editing !== null || deleting !== null}>{children}</div>
@@ -39,7 +40,7 @@ export function ComponentLibraryProvider({ fileId, components, onSave, onRemove,
       saveState={saveState} onClose={() => setEditing(null)} onSave={definition => { onSave(definition, sourceId); if (!components.some(item => item.id === editing.id)) setEditing(null); }} />}
     {deleting && <div role="dialog" aria-modal="true" aria-label="Delete component" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
       <div className="w-96 rounded-xl border bg-card p-6 shadow-panel-lg"><h2 className="text-lg font-semibold">Delete {deleting.name}?</h2>
-        <p className="my-4 text-sm text-muted-foreground">{count(deleting.id)} instances will become ordinary elements. Their appearance and content will be preserved.</p>
+        <p className="my-4 text-sm text-muted-foreground">{count(deleting.id)} instances will become ordinary components. Their appearance and content will be preserved.</p>
         <div className="flex justify-end gap-3"><button autoFocus onClick={() => setDeleting(null)}>Cancel</button>
           <button className="rounded-md bg-destructive px-3 py-2 text-white" onClick={() => { onRemove(deleting); setDeleting(null); }}>Detach instances and delete</button></div>
       </div>

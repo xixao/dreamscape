@@ -123,7 +123,7 @@ describe('DiagramToolTray', () => {
   });
 
   describe('the "i" (About) button', () => {
-    it('gives every row an "About <label>" button, hidden until hover or focus like the Elements tab\'s own rows', () => {
+    it('gives every row an "About <label>" button, hidden until hover or focus like the Components tab\'s own rows', () => {
       const { container } = render(<DiagramToolTray />);
       for (const label of DIAGRAM_TOOL_LABELS) {
         const button = screen.getByRole('button', { name: `About ${label}` });
@@ -180,11 +180,11 @@ describe('DiagramToolTray', () => {
     });
   });
 
-  it('diagram rows carry no drag attributes', () => {
+  it('shapes are draggable without being mistaken for Craft blocks', () => {
     render(<DiagramToolTray />);
     for (const label of DIAGRAM_TOOL_LABELS) {
       const button = screen.getByRole('button', { name: label });
-      expect(button).not.toHaveAttribute('draggable');
+      expect(button).toHaveAttribute('draggable', label === 'Connector' ? 'false' : 'true');
       expect(button).not.toHaveAttribute('data-tray-item');
     }
   });

@@ -2,9 +2,13 @@
 import { applyImageAspect } from '@/components/blocks/image-size';
 import { useAppearance, APPEARANCE_OPTIONS } from '../appearance-context';
 import { FieldLayout } from './field-layout';
+import { SchemaSections } from './schema-sections';
 
 import { InstanceFields } from '../component-builder/instance-fields';
+import { useSections } from '../sections/section-context';
+import { SectionFields } from '../sections/section-fields';
 import { useEditor } from '@craftjs/core';
+import { useSettledEditorState } from '../use-settled-editor-state';
 import {
   Blocks,
   ChevronLeft,
@@ -72,7 +76,7 @@ import { Field } from './field';
 const PANEL_LABEL: Record<PanelMode, string> = {
   design: 'Design',
   prototype: 'Prototype',
-  components: 'Elements',
+  components: 'Components',
   diagrams: 'Diagrams',
 };
 
@@ -84,6 +88,8 @@ const SECTION_TITLES: Record<SectionName, string> = {
   Content: 'Content',
   Style: 'Appearance',
   Editor: 'Editor',
+  State: 'State',
+  Advanced: 'Advanced',
 };
 const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 
@@ -210,7 +216,7 @@ type MinimalEditor = { actions: ReturnType<typeof useEditor>['actions']; query: 
  * `canDistribute` gates the button on the container's own child count
  * instead - cheap node-tree data, not a DOM read.
  */
-function buildLayoutAlignmentContext({
+export function buildLayoutAlignmentContext({
   query,
   actions,
   layoutContainer,
@@ -330,7 +336,7 @@ function measureDistributeGapPx(
 const RAIL_ITEMS: { mode: PanelMode; label: string; icon: LucideIcon }[] = [
   { mode: 'design', label: 'Design', icon: Palette },
   { mode: 'prototype', label: 'Prototype', icon: Zap },
-  { mode: 'components', label: 'Elements', icon: Blocks },
+  { mode: 'components', label: 'Components', icon: Blocks },
   { mode: 'diagrams', label: 'Diagrams', icon: Workflow },
 ];
 
@@ -398,7 +404,9 @@ export function Inspector({
   measuredHeights,
   diagramTool,
   onSelectDiagramTool,
+  annotationLibrary,
 }: {
+  annotationLibrary?: React.ReactNode;
   screens: Screen[];
   currentScreenId: string;
   // Every page, whole-file (spec section 5) - passed straight through to
@@ -460,7 +468,7 @@ export function Inspector({
   // rendering exactly as before.
   measuredHeights?: ReadonlyMap<string, number>;
   // The Diagrams tab's own tool tray (spec docs/superpowers/specs/2026-09-
-  // 14-panel-tabs-icons-design.md, moved from the Elements tab's former
+  // 14-panel-tabs-icons-design.md, moved from the Components tab's former
   // Diagram group - spec docs/superpowers/specs/2026-09-13-diagrams-
   // design.md section 13): passed straight through to DiagramToolTray, the
   // same optional/no-op-by-default precedent as every other diagram-related
@@ -469,15 +477,16 @@ export function Inspector({
   diagramTool?: DiagramTool;
   onSelectDiagramTool?: (tool: DiagramTool) => void;
 }) {
+  const sections = useSections();
+  const canvasSection = sections?.sections.find(section=>section.id===sections.selected);
   const { id, type, displayName, isRoot } = useSelectedNode();
   const { breakpoint, setPreset } = useStage();
-  // The collector re-runs only on the next store notification, using whatever
-  // closure was current when that notification fires. Deriving the selected id
-  // from `state` here (instead of closing over the `id` returned by
-  // useSelectedNode above) keeps this collector self-contained so it reflects
-  // the same notification's selection immediately, rather than lagging a render
-  // behind it.
-  const { actions, query, props, childCount, layoutContainer } = useEditor((state) => {
+  // Frame deserialization can notify Craft subscribers during render.
+  // Read the same settled snapshot as Layers so page changes do not update
+  // the inspector from inside the newly mounted Frame's render.
+  const { actions, query } = useEditor();
+  const state = useSettledEditorState();
+  const { props, childCount, layoutContainer } = (() => {
     const [selectedId] = state.events.selected;
     const node = selectedId ? state.nodes[selectedId] : null;
     const zoneId = node?.data.linkedNodes?.content;
@@ -513,7 +522,7 @@ export function Inspector({
       childCount: container ? container.data.nodes.length : 0,
       layoutContainer,
     };
-  });
+  })();
   const appearanceSettings = useAppearance();
   const schema = type ? schemaFor(type) : null;
 
@@ -606,6 +615,27 @@ export function Inspector({
     );
   }
 
+  const renderNodeField = (field: FieldSchema) => {
+    if (!id || !props) return null;
+    return (
+      <Field
+        key={field.prop}
+        field={field}
+        value={field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(type ?? '') ? 1 : 0), color: props.borderColor } : props[field.prop]}
+        breakpoint={breakpoint}
+        onJumpToBreakpoint={setPreset}
+        onChange={(next) => {
+          const setter = (draft: Record<string, unknown>) => {
+            draft[field.prop] = next;
+            if (type === 'Image' && field.prop === 'aspect') applyImageAspect(draft, next);
+          };
+          if (field.kind === 'text') actions.history.throttle(500).setProp(id, setter);
+          else actions.setProp(id, setter);
+        }}
+      />
+    );
+  };
+
   return (
     <TooltipProvider delayDuration={0}>
       <aside
@@ -654,7 +684,7 @@ export function Inspector({
           <MinimizeButton collapsed={false} onClick={onToggleCollapsed} />
         </div>
         {panelMode === 'components' ? (
-          <ComponentTray />
+          annotationLibrary ?? <ComponentTray />
         ) : panelMode === 'diagrams' ? (
           <DiagramToolTray diagramTool={diagramTool} onSelectDiagramTool={onSelectDiagramTool} />
         ) : (
@@ -682,6 +712,8 @@ export function Inspector({
               </>
             ) : diagramSelection ? (
               <DiagramFields selected={diagramSelection} onAction={(action) => onDiagramAction?.(action)} />
+            ) : canvasSection ? (
+              <SectionFields key={canvasSection.id} section={canvasSection} />
             ) : type === 'CustomComponent' && id && props ? (
               <InstanceFields id={id} props={props} />
             ) : !id || !type || !schema || !props ? (
@@ -772,7 +804,7 @@ export function Inspector({
                   </section>
                 )}
                 {layoutAlignmentContext && <AlignmentFields context={layoutAlignmentContext} />}
-                {SECTION_ORDER.map((section) => {
+                {schema.inspectorSections ? <SchemaSections key={id} schema={schema} props={props} renderField={renderNodeField} /> : SECTION_ORDER.map((section) => {
                   const fields = schema.fields.filter(
                     (field) =>
                       field.section === section &&
@@ -792,23 +824,7 @@ export function Inspector({
                   return (
                     <section key={section} className={SECTION}>
                       <h3 className={SECTION_TITLE}>{SECTION_TITLES[section]}</h3>
-                      <FieldLayout fields={fields} renderField={(field) => (
-                          <Field
-                            key={field.prop}
-                            field={field}
-                            value={field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(type ?? '') ? 1 : 0), color: props.borderColor } : props[field.prop]}
-                            breakpoint={breakpoint}
-                            onJumpToBreakpoint={setPreset}
-                            onChange={(next) => {
-                              const setter = (draft: Record<string, unknown>) => {
-                                draft[field.prop] = next;
-                                if (type === 'Image' && field.prop === 'aspect') applyImageAspect(draft, next);
-                              };
-                              if (field.kind === 'text') actions.history.throttle(500).setProp(id, setter);
-                              else actions.setProp(id, setter);
-                            }}
-                          />
-                        )} />
+                      <FieldLayout fields={fields} renderField={renderNodeField} />
                     </section>
                   );
                 })}

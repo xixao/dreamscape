@@ -1,3 +1,5 @@
+import { annotationSchema } from '@/lib/accessibility/kit';
+import { sectionsSchema } from '@/lib/canvas/sections';
 import { componentLibrarySchema } from '@/lib/custom-components/model';
 import { z } from 'zod';
 import { getDb } from '@/db/client';
@@ -42,6 +44,8 @@ const diagramNodeField = z.object({
   // before this feature - validateDiagram (lib/files/validate.ts) is the
   // content rule for callers that reach it without going through this zod
   // shape at all (e.g. its own unit tests), same split as kind/color above.
+  annotation: annotationSchema.optional(),
+  table: z.array(z.array(z.string().max(500)).min(1).max(10)).min(1).max(20).optional(),
   textSize: z.enum(TEXT_SIZES).optional(),
   textFont: z.enum(TEXT_FONTS).optional(),
   textColor: z.enum(TEXT_COLORS).optional(),
@@ -82,6 +86,7 @@ const pageField = z.object({
   id: z.string().min(1),
   name: z.string(),
   diagram: diagramField.optional(),
+  sections: sectionsSchema.optional(),
 });
 
 const pagesField = z.array(pageField).min(1).max(50);

@@ -13,6 +13,8 @@
 // (Cmd+A, menu entries, Design panel buttons, the download) is a follow-on
 // task; nothing here imports React or reads a store.
 
+import { annotationMeta, annotationFields, stampLabel } from '@/lib/accessibility/kit';
+import { tableCells } from './table';
 import {
   anchorOnBox,
   bezierControlPoints,
@@ -122,7 +124,7 @@ const ARROWHEAD_ID = 'diagram-export-arrowhead';
 const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
 
 /**
- * What diagram-layer.tsx's COLOR_CLASSES (`fill-white/10 stroke-white/50`,
+ * What diagram-layer.tsx's COLOR_CLASSES (`fill-zinc-800 stroke-zinc-400`,
  * `fill-blue-500/25 stroke-blue-400`, ...) resolve to on screen, as
  * concrete values an SVG viewer understands. The hex values are the sRGB
  * rendering of Tailwind 4's oklch tokens in node_modules/tailwindcss/
@@ -132,8 +134,8 @@ const SIDES: readonly Side[] = ['top', 'right', 'bottom', 'left'];
  * at alpha 0.25.
  */
 export const DIAGRAM_EXPORT_COLORS: Record<DiagramColor, { fill: string; stroke: string }> = {
-  // fill-white/10, stroke-white/50
-  neutral: { fill: 'rgba(255,255,255,0.1)', stroke: 'rgba(255,255,255,0.5)' },
+  // Opaque neutral shapes remain visible over light frames too.
+  neutral: { fill: '#27272a', stroke: '#9f9fa9' },
   // --color-blue-500 oklch(62.3% 0.214 259.815) = #2b7fff; --color-blue-400 oklch(70.7% 0.165 254.624) = #51a2ff
   blue: { fill: 'rgba(43,127,255,0.25)', stroke: '#51a2ff' },
   // --color-green-500 oklch(72.3% 0.219 149.579) = #00c950; --color-green-400 oklch(79.2% 0.209 151.711) = #05df72
@@ -174,7 +176,7 @@ export const SHAPE_FONT_FAMILIES: Record<TextFont, string> = {
 // 'default' and 'black' bracket the six DIAGRAM_EXPORT_COLORS stroke tones
 // (the same *-400 hex already used for a shape's OWN stroke, reused rather
 // than duplicated) - 'neutral' is its own literal gray here rather than
-// DIAGRAM_EXPORT_COLORS.neutral.stroke's translucent white, since shape
+// DIAGRAM_EXPORT_COLORS.neutral.stroke's zinc shade, since shape
 // text needs an actual visible tone regardless of the shape's own fill.
 export const SHAPE_TEXT_COLORS: Record<TextColor, string> = {
   default: TEXT_FILL,
@@ -345,7 +347,53 @@ function shapeText(box: Box, node: DiagramNode, measureText: MeasureText): strin
   );
 }
 
+function renderAnnotation(node: DiagramNode, box: Box, measureText: MeasureText): string {
+  const a = node.annotation!;
+  const color = annotationMeta(a).color;
+  const title = a.format === 'summary' ? 'Annotation Summary' : a.format === 'card' ? `${a.number}  ${a.values.title || annotationMeta(a).label}` : `${stampLabel(a)}${a.showNumber ? `  ${a.number}` : ''}`;
+  const font = {family:'Arial, sans-serif',size:14,weight:400};
+  const text = (value:string,x:number,y:number,fill='#202020',bold=false) => element('text', {x,y,fill,'font-family':font.family,'font-size':14,'font-weight':bold?700:400},escapeXml(value));
+  let output = '';
+  if (a.format === 'card' || a.format === 'summary' || a.format === 'sticky') {
+    output += element('rect',{...box,rx:5,fill:a.format==='sticky'?'#FFF1B8':'#fff',stroke:color});
+    output += element('rect',{x:box.x,y:box.y,width:box.width,height:34,fill:a.library==='designer'?(a.format==='sticky'?'#FFF1B8':'#fff'):color});
+    output += text(title,box.x+12,box.y+22,a.library==='designer'?'#202020':'#fff',true);
+    let y=box.y+56;
+    if(a.format==='card') {output+=text(`Audience: ${a.audience}`,box.x+12,y);y+=24;}
+    for(const field of annotationFields(a)) {
+      if(!a.values[field.key])continue;
+      if(y>box.y+box.height-36)break;
+      output+=text(field.label,box.x+12,y,'#202020',true);y+=18;
+      for(const line of wrapText(a.values[field.key],box.width-24,l=>measureText(l,font))) {
+        if(y>box.y+box.height-36)break;
+        output+=text(line,box.x+12,y);y+=18;
+      }
+      y+=12;
+    }
+    if(a.format==='card')output+=text(a.resolved?'Resolved':'Not resolved',box.x+12,box.y+box.height-12);
+  } else {
+    const horizontal=a.position==='left'||a.position==='right';
+    const reverse=a.position==='right'||a.position==='below';
+    const pillWidth=Math.min(box.width,measureText(title,font)+24);
+    const px=horizontal?(reverse?box.x+box.width-pillWidth:box.x):box.x+(box.width-pillWidth)/2;
+    const py=horizontal||a.position==='center'?box.y+(box.height-32)/2:reverse?box.y+box.height-32:box.y;
+    if(a.position!=='center') {
+      const x1=horizontal?(reverse?px: px+pillWidth):px+pillWidth/2;
+      const y1=horizontal?py+16:reverse?py:py+32;
+      const x2=horizontal?(reverse?box.x:box.x+box.width):x1;
+      const y2=horizontal?y1:reverse?box.y:box.y+box.height;
+      output+=element('line',{x1,y1,x2,y2,stroke:color,'stroke-width':2,opacity:.45});
+      if(a.format==='pin')output+=element('circle',{cx:x2,cy:y2,r:4,fill:color});
+      else output+=element('rect',{x:horizontal?(reverse?box.x:px+pillWidth+16):box.x,y:horizontal?box.y:reverse?box.y:py+48,width:horizontal?Math.max(20,box.width-pillWidth-16):box.width,height:horizontal?box.height:Math.max(20,box.height-48),fill:'none',stroke:color,'stroke-width':2,'stroke-dasharray':a.format==='bracket'?'none':'4 4'});
+    }
+    output+=element('rect',{x:px,y:py,width:pillWidth,height:32,rx:16,fill:color});
+    output+=text(title,px+12,py+21,'#fff',true);
+  }
+  return element('g',{'data-node':node.id,'data-annotation':a.category,opacity:a.resolved?.6:1},output);
+}
+
 function renderNode(node: DiagramNode, box: Box, measureText: MeasureText): string {
+  if (node.annotation) return renderAnnotation(node, box, measureText);
   const colors = DIAGRAM_EXPORT_COLORS[node.color];
   const paint = { fill: colors.fill, stroke: colors.stroke, 'stroke-width': SHAPE_STROKE_WIDTH };
   let shape = '';
@@ -360,6 +408,21 @@ function renderNode(node: DiagramNode, box: Box, measureText: MeasureText): stri
   } else if (node.kind !== 'text') {
     const rx = node.kind === 'terminal' ? box.height / 2 : node.kind === 'rounded' ? 12 : node.kind === 'note' ? 2 : 0;
     shape = element('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx, ...paint });
+  }
+  if (node.kind === 'table') {
+    const cells = tableCells(node);
+    const width = box.width / cells[0].length;
+    const height = box.height / cells.length;
+    let content = '';
+    cells.forEach((row, r) => row.forEach((text, c) => {
+      const cell = { x: box.x + c * width, y: box.y + r * height, width, height };
+      content += element('rect', { ...cell, fill: r === 0 ? 'rgba(255,255,255,0.1)' : 'none', stroke: colors.stroke, 'stroke-width': 1 });
+      const font = shapeFont(node);
+      let label = text.replace(/\s+/g, ' ');
+      while (label.length && measureText(label, font) > width - 16) label = label.slice(0, -1);
+      content += element('text', { x: cell.x + 8, y: cell.y + height / 2, fill: SHAPE_TEXT_COLORS[node.textColor ?? 'default'], 'font-family': font.family, 'font-size': font.size, 'font-weight': r === 0 ? 600 : 400, 'dominant-baseline': 'central' }, escapeXml(label));
+    }));
+    return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + content);
   }
   return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + shapeText(box, node, measureText));
 }

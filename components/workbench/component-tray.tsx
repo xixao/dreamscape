@@ -5,6 +5,7 @@ import { useComponentLibrary } from './component-builder/library-context';
 import { CreateComponentCard, CustomTray } from './component-builder/custom-tray';
 import { useRef, useState } from 'react';
 import { useEditor } from '@craftjs/core';
+import { useSettledEditorState } from './use-settled-editor-state';
 import { Info, Search } from 'lucide-react';
 import { trayItems, type TrayGroup, type TrayItem } from '@/components/blocks/registry';
 import { Input } from '@/components/ui/input';
@@ -28,7 +29,7 @@ export function filterTrayItems(items: TrayItem[], query: string): TrayItem[] {
 // any of the words a designer would still reach for now matches nothing -
 // this is what tells that specific empty state apart from a genuine
 // "no such element" search, so the fallback below can point at the Frames
-// chip instead of the generic "No elements match.". A live, as-you-type
+// chip instead of the generic "No components match.". A live, as-you-type
 // search naturally means the QUERY is a prefix of one of these words while
 // it's still being typed ("dial" while typing "dialog"), not the other
 // direction - matching the same `.includes` shape filterTrayItems itself
@@ -42,7 +43,7 @@ function matchesOverlayHint(query: string): boolean {
   return OVERLAY_HINT_WORDS.some((word) => word.includes(trimmed));
 }
 
-// The Elements tab's content: search field, grouped list, Craft drag
+// The Components tab's content: search field, grouped list, Craft drag
 // sources (`connectors.create`) - Craft blocks only (spec docs/superpowers/
 // specs/2026-09-14-panel-tabs-icons-design.md: the diagram tools that used
 // to sit in a Diagram group at the bottom of this list now have their own
@@ -54,9 +55,11 @@ function matchesOverlayHint(query: string): boolean {
 // design.md section 1).
 export function ComponentTray() {
   const library = useComponentLibrary();
-  const { connectors, query } = useEditor();
+  const { connectors, query, actions } = useEditor();
+  const hasRoot = !!useSettledEditorState().nodes.ROOT;
+  const dragged = useRef(false);
   const [filter, setFilter] = useState('');
-  // One Element documentation dialog for the whole tray. The type outlives
+  // One Component documentation dialog for the whole tray. The type outlives
   // `open` so the dialog's closing animation keeps showing the element it
   // was opened for instead of flashing the fallback doc.
   const [docsType, setDocsType] = useState<string | null>(null);
@@ -65,6 +68,19 @@ export function ComponentTray() {
   // when it closes (see ElementDocsDialog's openerRef).
   const docsOpenerRef = useRef<HTMLElement | null>(null);
   const filteredItems = filterTrayItems(trayItems, filter);
+
+  function add(item: TrayItem): void {
+    if (dragged.current || !query.getNodes().ROOT) return;
+    let parent = [...query.getState().events.selected][0] ?? 'ROOT';
+    while (query.getNodes()[parent] && !query.node(parent).get().data.isCanvas) {
+      const node = query.node(parent).get();
+      parent = node.data.linkedNodes.content ?? node.data.parent ?? 'ROOT';
+    }
+    if (!query.getNodes()[parent]) parent = 'ROOT';
+    const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree();
+    actions.addNodeTree(tree, parent);
+    actions.selectNode(tree.rootNodeId);
+  }
 
   function openDocs(type: string, opener: HTMLElement): void {
     docsOpenerRef.current = opener;
@@ -81,8 +97,8 @@ export function ComponentTray() {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Search elements"
-            aria-label="Search elements"
+            placeholder="Search components"
+            aria-label="Search components"
             className={SEARCH_INPUT}
           />
         </div>
@@ -111,17 +127,23 @@ export function ComponentTray() {
                     an HTML drag starts from the nearest draggable ancestor
                     of the pointer, so a press on the button can never become
                     this item's drag. */}
-                    <div
+                    <button
+                      type="button"
+                      aria-label={`Add ${item.label}`}
+                      disabled={!hasRoot}
                       data-tray-item={item.type}
-                      onDragStart={event => { event.dataTransfer.setData('application/x-dreamscape-element', item.type); }}
+                      onPointerDown={() => { dragged.current = false; }}
+                      onKeyDown={() => { dragged.current = false; }}
+                      onClick={() => add(item)}
+                      onDragStart={event => { dragged.current = true; event.dataTransfer.setData('application/x-dreamscape-element', item.type); }}
                       ref={(element) => {
                         if (element) connectors.create(element, () => createTrayElement(item, query.getOptions().resolver));
                       }}
-                      className="flex min-w-0 flex-1 cursor-grab items-center gap-3 py-2 pr-2 pl-3 active:cursor-grabbing"
+                      className="flex min-w-0 flex-1 cursor-grab items-center gap-3 rounded-lg py-2 pr-2 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-40 active:cursor-grabbing"
                     >
                       <item.icon className="size-4 shrink-0 text-acc2" aria-hidden />
                       <span className="text-[13px] font-medium text-foreground">{item.label}</span>
-                    </div>
+                    </button>
                     {/* The press bubbles like any other: the layer stack
                     menu dismisses on a document click and Radix's non-modal
                     layers detect outside presses the same way, so no
@@ -145,7 +167,7 @@ export function ComponentTray() {
       </div>
       {filteredItems.length === 0 && !library?.components.some(item => item.name.toLowerCase().includes(filter.trim().toLowerCase())) && (
         <p className="px-3 py-4 text-[12.5px] text-muted-foreground">
-          {matchesOverlayHint(filter) ? OVERLAY_HINT_MESSAGE : 'No elements match.'}
+          {matchesOverlayHint(filter) ? OVERLAY_HINT_MESSAGE : 'No components match.'}
         </p>
       )}
       {/* Follow-up (after the grid merge, which owns workbench.tsx): hoist

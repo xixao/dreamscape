@@ -1,4 +1,9 @@
 'use client';
+import { useCanvasNotes } from '../comments/use-canvas-notes';
+import { NotesPanel } from '../comments/notes-panel';
+import { NoteTool } from '../comments/note-tool';
+import { BuilderNotesContext, ElementNotes } from '../comments/element-notes';
+import { FrameSelectionActions } from '../frame-selection-actions';
 import { shiftNumericStep } from '../inspector/numeric-step';
 import { applyImageAspect } from '@/components/blocks/image-size';
 import { createTrayElement } from '../create-tray-element';
@@ -15,6 +20,7 @@ import { CanvasFrame } from '../canvas-frame';
 import { Field } from '../inspector/field';
 import { WidthControl } from './width-control';
 import { FieldLayout } from '../inspector/field-layout';
+import { SchemaSections } from '../inspector/schema-sections';
 import { LayersPanel } from '../layers-panel';
 import { bindCanvasDelete } from './delete-key';
 import { SelectPortalContainer } from '@/components/ui/select';
@@ -33,6 +39,7 @@ import { PanelResize, useLeftPanelWidth } from '../panel-resize';
 import { LeftPanelContext } from '../left-panel-tabs';
 import { ChatPanel } from '../chat/chat-panel';
 import { SaveIndicator } from '../topbar';
+import { RegionZoom } from '../region-zoom';
 import { bindPreviewZoom, type PreviewZoomChange } from './preview-zoom';
 
 const SIZES: { id: Breakpoint; width: number; label: string }[] = [
@@ -70,6 +77,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useLeftPanelWidth();
   const [chatOpen, setChatOpen] = useState(false);
+  const notes = useCanvasNotes(`${fileId}:component:${initial.id}`, initial.id, initial.id);
   const [view, setView] = useState<'all' | 'component'>('component');
   const [widths, setWidths] = useState({ desktop: 1024, tablet: 768, mobile: 320 });
   const [fitHeights, setFitHeights] = useState({ desktop: true, tablet: true, mobile: true });
@@ -108,11 +116,12 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
     onSave(parsed.data);
   }, [existing, initial.id, name, history.layout, onSave]);
   const hasContent = (JSON.parse(history.layout) as Tree).ROOT.nodes.length > 0;
-  return <LeftPanelContext.Provider value={{ chatOpen, setChatOpen, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><SelectPortalContainer.Provider value={menuContainer}><div ref={attachRoot} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Component Builder"
+  return <BuilderNotesContext.Provider value={{ notes, portal: menuContainer }}><LeftPanelContext.Provider value={{ chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><SelectPortalContainer.Provider value={menuContainer}><div ref={attachRoot} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Component Builder"
     className="fixed inset-0 z-[80] bg-canvas outline-none"
     onKeyDown={event => {
       event.stopPropagation();
       const target = event.target as HTMLElement;
+      if (event.key === 'Escape' && notes.commentMode) { event.preventDefault(); notes.cancel(); return; }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !target.matches('input,textarea,[contenteditable=true]')) {
         event.preventDefault(); dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
       }
@@ -120,7 +129,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         event.preventDefault(); window.dispatchEvent(new Event('dreamscape-builder-delete'));
       }
       if (event.key === 'Tab') {
-        const focusable = Array.from(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input,select,iframe,[tabindex="0"]') ?? []).filter(element => !element.closest('[hidden]'));
+        const focusable = Array.from(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,iframe,[tabindex="0"]') ?? []).filter(element => !element.closest('[hidden]'));
         const first = focusable[0], last = focusable.at(-1);
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -133,6 +142,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
       {existing && valid.success && saveState ? <SaveIndicator saveState={saveState} /> : <span className="text-xs text-muted-foreground">{draftError ? 'Draft could not be saved in this browser' : existing && !valid.success ? 'Enter a component name to sync changes' : 'Draft saved on this device'}</span>}
       {existing && <span className="text-xs text-muted-foreground">Used in {instances} {instances === 1 ? 'place' : 'places'}</span>}
       <div className="flex-1" />
+      <NoteTool visible={notes.visible} onToggleVisibility={notes.toggleVisibility} active={notes.commentMode} kind={notes.kind} count={notes.threads.filter(t => !t.resolvedAt).length} onToggle={() => { notes.toggle(); setChatOpen(false); setLeftCollapsed(false); }} onStart={kind => { notes.start(kind); setChatOpen(false); setLeftCollapsed(false); }} onBrowse={() => { notes.setNotesOpen(true); setChatOpen(false); setLeftCollapsed(false); }} />
       <button title="Undo" aria-label="Undo component edit" disabled={!history.past.length} className="disabled:opacity-30" onClick={() => dispatch({ type: 'undo' })}><Undo2 className="size-4" /></button>
       <button title="Redo" aria-label="Redo component edit" disabled={!history.future.length} className="disabled:opacity-30" onClick={() => dispatch({ type: 'redo' })}><Redo2 className="size-4" /></button>
       {!existing && <button className={`${PRIMARY_BUTTON} disabled:opacity-40`} disabled={!valid.success || !hasContent} onClick={() => {
@@ -140,9 +150,10 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         onSave(valid.data); try { localStorage.removeItem(draftKey); } catch { /* Saving the file still succeeds. */ }
       }}>Add to Components</button>}
     </header>
-    {chatOpen && <ChatPanel left={12} width={leftWidth} onWidthChange={setLeftWidth} fileId={fileId} onClose={() => setChatOpen(false)} className="absolute top-[76px] left-3 bottom-3 z-30 w-64" />}
+    {chatOpen && !notes.notesOpen && <ChatPanel left={12} width={leftWidth} onWidthChange={setLeftWidth} fileId={fileId} onClose={() => setChatOpen(false)} className="absolute top-[76px] left-3 bottom-3 z-30 w-64" />}
+    {notes.notesOpen && <NotesPanel allowCanvas={false} notes={notes} width={leftWidth} onWidthChange={setLeftWidth} onOpen={thread => { notes.open(thread); setLeftCollapsed(false); }} targetLabel={thread => thread.anchorLabel ?? 'Component'} />}
     <div className="contents group/layers-shell">
-      <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`}><PanelResize width={leftWidth} onChange={setLeftWidth} /></aside>
+      <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`}><PanelResize width={leftWidth} onChange={setLeftWidth} /></aside>
       <main style={{ '--left-padding': `${leftCollapsed ? 64 : leftWidth + 24}px` } as React.CSSProperties} onClick={event => {
         const target = event.target as HTMLElement;
         // React portal events bubble here from the iframe and side panels.
@@ -169,7 +180,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         <aside aria-label="Builder design" className="min-h-0 flex-1 overflow-auto" ref={setPanel} />
       </div>
     </div>
-  </div></SelectPortalContainer.Provider></LeftPanelContext.Provider>;
+  </div></SelectPortalContainer.Provider></LeftPanelContext.Provider></BuilderNotesContext.Provider>;
 }
 
 function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize, visible, width, onWidthChange, layout, onChange, active, onActivate, selected, onSelect, layers, panel, scope, setScope, zoom, onZoom }: {
@@ -196,7 +207,7 @@ function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize
   return <section hidden={!visible} className={`${visible ? 'flex' : 'hidden'} min-w-[200px] flex-1 flex-col rounded-xl border ${active ? 'border-acc/70' : 'border-line-soft'} bg-card/40`} onPointerDownCapture={activate} onDragEnter={activate}>
     <div className="flex items-center gap-2 px-3 py-3"><button onClick={activate} className="text-xs font-semibold capitalize">{compact ? 'Component' : size.label}</button></div>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><WidthControl label={`${size.label} width`} value={width} onChange={onWidthChange} /><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onKeyDown={event => shiftNumericStep(event, height, height => onResize({ width, height }), 1, 10000)} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
-    <div ref={setHost} className="component-builder-preview min-h-0 flex-1 overflow-auto rounded-b-xl p-3 flex items-center">
+    <div ref={setHost} data-preview-viewport className="relative component-builder-preview min-h-0 flex-1 overflow-auto rounded-b-xl p-3 flex items-center">
       <Editor resolver={resolver} onRender={BuilderIndicator} indicator={{ success: '#8C97DB', error: '#E05D5D' }} onNodesChange={query => {
         const next = query.serialize();
         if (activeRef.current && lastRef.current !== null && canonicalLayout(next) !== canonicalLayout(lastRef.current) && !pendingRef.current) {
@@ -226,6 +237,7 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
   const { setWidth, setZoom, canvasDocument } = useStage();
   const appliedLayoutRef = useRef(layout);
   const [naturalHeight, setNaturalHeight] = useState(400);
+  const [noteFrame, setNoteFrame] = useState<HTMLDivElement | null>(null);
   const effectiveHeight = fitHeight ? naturalHeight : height;
   const [content, setContent] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -301,13 +313,40 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
     doc.addEventListener('dragover', dragOver); doc.addEventListener('drop', drop);
     return () => { doc.removeEventListener('dragover', dragOver); doc.removeEventListener('drop', drop); };
   }, [canvasDocument, add, onActivate]);
+  const previewHost = content?.ownerDocument.defaultView?.frameElement?.closest<HTMLElement>('[data-preview-viewport]');
   return <>
-    <div data-component-frame style={{ width: width * scale, height: effectiveHeight * scale, position: 'relative', flexShrink: 0, margin: 'auto' }}>
+    <RegionZoom active={active} builder host={previewHost} onRegion={(rect, host) => {
+      const frame = host.querySelector<HTMLElement>('[data-component-frame]');
+      if (!frame) return;
+      const frameRect = frame.getBoundingClientRect(), hostRect = host.getBoundingClientRect();
+      const localX = (hostRect.left + rect.x + rect.width / 2 - frameRect.left) / scale;
+      const localY = (hostRect.top + rect.y + rect.height / 2 - frameRect.top) / scale;
+      const factor = Math.min((host.clientWidth - 32) / rect.width, (host.clientHeight - 32) / rect.height);
+      onZoom(current => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current * factor)));
+      requestAnimationFrame(() => {
+        const nextScale = frame.getBoundingClientRect().width / width;
+        host.scrollLeft = frame.offsetLeft + localX * nextScale - host.clientWidth / 2;
+        host.scrollTop = frame.offsetTop + localY * nextScale - host.clientHeight / 2;
+      });
+    }} />
+    <FrameSelectionActions active={active} builder alignmentScope={scope} onZoomSelection={() => {
+      const selected = [...query.getState().events.selected].map(id => query.node(id).get().dom).filter((dom): dom is HTMLElement => !!dom);
+      const host = content?.ownerDocument.defaultView?.frameElement?.closest<HTMLElement>('[data-preview-viewport]');
+      if (!selected.length || !host) return;
+      const rects = selected.map(dom => dom.getBoundingClientRect());
+      const width = Math.max(...rects.map(r => r.right)) - Math.min(...rects.map(r => r.left));
+      const height = Math.max(...rects.map(r => r.bottom)) - Math.min(...rects.map(r => r.top));
+      const factor = Math.min((host.clientWidth - 48) / Math.max(1, width * scale), (host.clientHeight - 48) / Math.max(1, height * scale));
+      onZoom(current => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current * factor)));
+      requestAnimationFrame(() => selected[0].scrollIntoView?.({ block: 'center', inline: 'center' }));
+    }} />
+    <div ref={setNoteFrame} data-component-frame style={{ width: width * scale, height: effectiveHeight * scale, position: 'relative', flexShrink: 0, margin: 'auto' }}>
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
     <CanvasFrame width={width} height={effectiveHeight} zoom={scale} minHeight={0} title={`${title} component preview`}>
       <div ref={setContent} className="component-builder-preview"><Frame data={layout} /></div>
     </CanvasFrame>
     </div>
+    {active && <ElementNotes frame={noteFrame} scale={scale} />}
     <ResizeHandle axis="width" width={width} height={effectiveHeight} zoom={scale} onWidthChange={onWidthChange} />
     <ResizeHandle axis="height" width={width} height={effectiveHeight} zoom={scale} onResize={onResize} />
     <ResizeHandle axis="corner" width={width} height={effectiveHeight} zoom={scale} onResize={onResize} />
@@ -325,7 +364,9 @@ function BuilderFields({ scope, setScope, deselected }: { deselected: boolean; s
   const node = state.nodes[id];
   if (deselected || !node) return <div className="p-4 text-center text-xs text-muted-foreground"><p className="font-semibold">Nothing selected</p><p className="mt-2">Select a layer on the canvas to edit it.</p></div>;
   const props = node.data.props as Record<string, unknown>;
-  const fields = schemaFor(node.data.name)?.fields ?? [];
+  const schema = schemaFor(node.data.name);
+  const fields = schema?.fields ?? [];
+  const Fields = schema?.inspectorSections ? SchemaSections : FieldLayout;
   const layoutBox = node.data.name === 'LayoutBox';
   const sizeStyles = props.sizeStyles as Record<string, Record<string, unknown>> | undefined;
   return <div className="p-4"><h2 className={`${LABEL} mb-4`}>Design</h2>
@@ -334,7 +375,7 @@ function BuilderFields({ scope, setScope, deselected }: { deselected: boolean; s
       <div className="flex gap-1">{(['all', 'size'] as const).map(value => <button key={value} aria-pressed={scope === value} onClick={() => setScope(value)} className={`flex-1 rounded px-2 py-1.5 text-xs ${scope === value ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}>{value === 'all' ? 'All widths' : 'This width range'}</button>)}</div>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{scope === 'all' ? 'Layout changes apply at every component width. You can undo any change.' : `Layout changes apply only when this component is ${WIDTH_RANGES[breakpoint]}. Content stays shared.`}</p>
     </div>
-    <FieldLayout fields={fields.filter(field => !field.showWhen || field.showWhen(props))} renderField={field => {
+    <Fields key={id} schema={schema!} props={props} fields={fields.filter(field => !field.showWhen || field.showWhen(props))} renderField={field => {
       const responsive = field.responsive || (layoutBox && (field.section === 'Layout' || field.section === 'Style'));
       const base = field.kind === 'width-limit' ? props.maxWidth ?? { value: props.maxWidthPx ?? 0, unit: 'px' } : field.kind === 'border' ? props.border ?? { width: props.borderWidth ?? (['Card', 'Textarea'].includes(node.data.name) ? 1 : 0), color: props.borderColor } : props[field.prop];
       const value = sizeStyles?.[breakpoint]?.[field.prop] ?? resolve(base, breakpoint);
@@ -363,12 +404,12 @@ function BuilderFields({ scope, setScope, deselected }: { deselected: boolean; s
       })}>Use shared value</button>}</div>;
     }} />
     {id !== 'ROOT' && <div className="my-5 flex gap-3 border-t border-line-soft pt-3">
-      {([-1, 1] as const).map(direction => <button key={direction} aria-label={direction < 0 ? 'Move element earlier' : 'Move element later'} onClick={() => {
+      {([-1, 1] as const).map(direction => <button key={direction} aria-label={direction < 0 ? 'Move component earlier' : 'Move component later'} onClick={() => {
         const parent = node.data.parent; if (!parent) return;
         const siblings = query.node(parent).get().data.nodes; const index = siblings.indexOf(id); const next = index + direction;
         if (index >= 0 && next >= 0 && next < siblings.length) actions.move(id, parent, direction > 0 ? next + 1 : next);
       }}>{direction < 0 ? <ArrowUp className="size-4" /> : <ArrowDown className="size-4" />}</button>)}
-      <button aria-label="Delete element" className="ml-auto text-bad" onClick={() => { if (query.node(id).isDeletable()) { actions.delete(id); actions.selectNode('ROOT'); } }}><Trash2 className="size-4" /></button>
+      <button aria-label="Delete component" className="ml-auto text-bad" onClick={() => { if (query.node(id).isDeletable()) { actions.delete(id); actions.selectNode('ROOT'); } }}><Trash2 className="size-4" /></button>
     </div>}
   </div>;
 }

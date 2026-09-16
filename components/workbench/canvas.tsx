@@ -18,6 +18,7 @@ import { useEditor } from '@craftjs/core';
 import type { Screen } from '@/lib/files/repository';
 import {
   fitAll,
+  zoomToRect,
   frameRect,
   panBy,
   snapBoxFor,
@@ -41,8 +42,16 @@ import {
 import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
-import type { StageCommentsProps } from './comments/comment-layer';
+import { CommentLayer, type StageCommentsProps } from './comments/comment-layer';
+import { DiagramDropSurface } from './diagram/diagram-drop-surface';
+import { createAnnotation, createDesignerAnnotation } from '@/lib/accessibility/kit';
+import { createDiagramNode } from '@/lib/diagram/insertion';
 import { DiagramLayer, POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
+import { useSections } from './sections/section-context';
+import { SectionLayer, SectionDrawSurface } from './sections/section-layer';
+import type { FramePosition } from '@/lib/canvas/sections';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { RegionZoom } from './region-zoom';
 import { FrameTitle } from './frame-title';
 import { isEditableTarget } from './keyboard';
 import { SnapGuides } from './snap-guides';
@@ -118,9 +127,16 @@ export function useCanvasViewport(): CanvasViewportContextValue {
 // 15, beside the FrameRect shape they return) - imported above, alongside
 // this file's other viewport helpers, rather than defined here.
 
-/** Whether two canvas-space boxes overlap at all - the marquee's own hit test (spec section 3: "selects every frame whose box intersects the marquee"). */
+/** Diagram shapes may be selected by partial overlap. */
 function rectsIntersect(a: FrameRect, b: FrameRect): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** Frames require enclosure so brushing an edge does not select a whole artboard. */
+function rectContains(outer: FrameRect, inner: FrameRect): boolean {
+  return outer.x <= inner.x && outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height;
 }
 
 /**
@@ -393,6 +409,7 @@ export function Canvas({
   onMoveScreen,
   onMoveScreens = noopIds,
   comments,
+  canvasComments,
   rootRef,
   diagram = DEFAULT_DIAGRAM_STATE,
   onDiagramAction = noopDiagramDispatch,
@@ -419,6 +436,7 @@ export function Canvas({
   // patch") - every selected frame's new position, applied together.
   onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   comments: StageCommentsProps;
+  canvasComments?: StageCommentsProps;
   rootRef: RefObject<HTMLDivElement | null>;
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
   // diagrams-design.md): owned by WorkbenchShell, forwarded here purely to
@@ -475,9 +493,13 @@ export function Canvas({
   onMeasuredHeight?: (id: string, height: number) => void;
 }) {
   const { actions } = useEditor();
+  const sections = useSections();
+  const [sectionDiagramPreview, setSectionDiagramPreview] = useState<FramePosition[]>([]);
+  const [sectionPreview, setSectionPreview] = useState<FramePosition[]>([]);
+  const [sectionMenu, setSectionMenu] = useState<{x:number;y:number;frameId?:string}|null>(null);
   const setStageZoom = useStage().setZoom;
   const focusedCanvasDocument = useCanvasDocument();
-  const { viewport, setViewport } = useCanvasViewport();
+  const { viewport, setViewport, viewportSize } = useCanvasViewport();
 
   // The guides/distances a frame's own drag last reported (spec docs/
   // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section
@@ -706,6 +728,12 @@ export function Canvas({
       // both descendants of this element, so by the time a plain click
       // reaches all the way out here nothing under the pointer claimed it.
       if (event.target === event.currentTarget) {
+        if (canvasComments?.commentMode && event.button === 0) {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const point = toCanvasPoint({ x: event.clientX - rect.left, y: event.clientY - rect.top }, viewport);
+          event.preventDefault(); canvasComments.onPlacePin(point.x, point.y, undefined, { canvas: true, screenId: undefined, anchorLabel: 'Canvas' }); return;
+        }
+        sections?.select(null);
         actions.selectNode();
         onDeselectDiagram();
         // Shift held keeps whatever frame selection already exists (this
@@ -718,6 +746,8 @@ export function Canvas({
         // a marquee - a right-click or other button on empty canvas still
         // deselects (above) but must not begin tracking a drag gesture.
         if (event.button === 0) {
+          // The marquee owns this drag; do not start native text/image selection.
+          event.preventDefault();
           capturePointer(event.currentTarget, event.pointerId);
           const rect = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - rect.left;
@@ -822,7 +852,7 @@ export function Canvas({
   // precedent. Below this, handleRootPointerDown's own immediate clear
   // already stands as the final state; at or above it, this replaces (or,
   // Shift held, unions with) the selection using whichever frames the
-  // marquee box actually intersects.
+  // marquee box fully encloses.
   const MARQUEE_CLICK_THRESHOLD = 4;
 
   function endMarquee(event: { pointerId: number }): void {
@@ -850,7 +880,7 @@ export function Canvas({
       height: Math.abs(marquee.currentY - marquee.startY),
     };
     const matchedFrameIds = screens
-      .filter((candidate) => rectsIntersect(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
+      .filter((candidate) => rectContains(marqueeCanvasRect, frameRect(candidate, measuredHeights)))
       .map((candidate) => candidate.id);
 
     // The diagram lives in the very same "empty canvas" space this marquee
@@ -1107,11 +1137,19 @@ export function Canvas({
       ref={rootRef}
       data-testid="canvas-root"
       className={cn(
-        'absolute inset-0 overflow-hidden bg-canvas',
+        'absolute inset-0 isolate overflow-hidden bg-canvas',
         spaceDown && !panning && 'cursor-grab',
         panning && 'cursor-grabbing',
       )}
       style={dotGridStyle(viewport, pixelGridVisible)}
+      onContextMenu={event => {
+        if (!sections) return;
+        const title = (event.target as HTMLElement).closest('[data-frame-title]');
+        if (event.target !== event.currentTarget && !title) return;
+        event.preventDefault(); event.stopPropagation();
+        setSectionMenu({x:event.clientX,y:event.clientY,frameId:title?.getAttribute('data-frame-title') ?? undefined});
+      }}
+      onPointerDownCapture={event => { if ((event.target as HTMLElement).closest('[data-frame]')) sections?.select(null); }}
       onPointerDown={handleRootPointerDown}
       onPointerMove={handleRootPointerMove}
       onPointerUp={(event) => {
@@ -1129,6 +1167,31 @@ export function Canvas({
         endMarquee(event);
       }}
     >
+      <DiagramDropSurface viewport={viewport} onAnnotation={(category, format, point, template) => {
+        actions.selectNode(); sections?.setDrawing(false); sections?.select(null); onClearFrameSelection();
+        const number = Math.max(0, ...diagram.nodes.map(node => node.annotation?.number ?? 0)) + 1;
+        onDiagramAction({type:'add',node:template?createDesignerAnnotation(template,format,point,Math.min(number,9999)):createAnnotation(category,format,point,Math.min(number,9999))});
+      }} onInsert={(kind, point) => {
+        actions.selectNode();
+        sections?.setDrawing(false); sections?.select(null);
+        onClearFrameSelection();
+        onDiagramAction({ type: 'add', node: createDiagramNode(kind, point) });
+        onDiagramToolConsumed();
+      }} />
+      {sections && <><SectionDrawSurface viewport={viewport} panActive={spaceDown || panning} />
+        <DropdownMenu open={!!sectionMenu} onOpenChange={open=>{if(!open)setSectionMenu(null);}} modal={false}>
+          <DropdownMenuTrigger asChild><button aria-hidden tabIndex={-1} style={{position:'fixed',left:sectionMenu?.x??0,top:sectionMenu?.y??0,width:1,height:1,opacity:0,pointerEvents:'none'}}/></DropdownMenuTrigger>
+          <DropdownMenuContent className="w-64" onCloseAutoFocus={event=>event.preventDefault()}>
+            <DropdownMenuItem onSelect={sections.start}>Draw section<span className="ml-auto text-xs text-muted-foreground">⇧S</span></DropdownMenuItem>
+            {sectionMenu?.frameId && <DropdownMenuItem onSelect={()=>sections.wrap(selectedFrameIds.has(sectionMenu.frameId!)?[...selectedFrameIds]:[sectionMenu.frameId!])}>Wrap in new section</DropdownMenuItem>}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </>}
+      {canvasComments && <CommentLayer {...canvasComments} zoom={viewport.zoom} artboardRect={{ left: (rootRef.current?.getBoundingClientRect().left ?? 0) + viewport.x, top: (rootRef.current?.getBoundingClientRect().top ?? 0) + viewport.y, width: viewportSize.width, height: viewportSize.height }} />}
+      <RegionZoom onRegion={rect => {
+        const point = toCanvasPoint({ x: rect.x, y: rect.y }, viewport);
+        setViewport(zoomToRect({ ...point, width: rect.width / viewport.zoom, height: rect.height / viewport.zoom }, viewportSize, 32));
+      }} />
       {marqueeBox && (
         <div
           data-testid="marquee-selection"
@@ -1146,7 +1209,10 @@ export function Canvas({
           transformOrigin: '0 0',
         }}
       >
-        {screens.map((screen) => {
+        <SectionLayer interactive={!comments.commentMode && diagramTool.kind === 'pointer'} zoom={viewport.zoom} onPreview={setSectionPreview} onDiagramPreview={setSectionDiagramPreview} panActive={spaceDown || panning} />
+        {screens.map((savedScreen) => {
+          const moved = sectionPreview.find(position=>position.id===savedScreen.id);
+          const screen = moved ? {...savedScreen,x:moved.x,y:moved.y} : savedScreen;
           const focused = screen.id === focusedScreenId;
           const selected = selectedFrameIds.has(screen.id);
           // Every OTHER frame on this page, to snap against - excludes this
@@ -1250,7 +1316,7 @@ export function Canvas({
           diagram-layer.tsx's own doc comment).
         */}
         <DiagramLayer
-          diagram={diagram}
+          diagram={sectionDiagramPreview.length ? {...diagram,nodes:diagram.nodes.map(node=>({...node,...sectionDiagramPreview.find(p=>p.id===node.id)}))} : diagram}
           dispatch={onDiagramAction}
           frames={diagramFrameBoxes}
           viewport={viewport}

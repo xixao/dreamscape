@@ -1,4 +1,4 @@
-// Placeholder documentation for the Elements tab's "i" dialog (spec docs/
+// Placeholder documentation for the Components tab's "i" dialog (spec docs/
 // superpowers/specs/2026-09-13-element-docs-design.md section 2), keyed by
 // tray item type (components/blocks/registry.tsx). Two plain-language
 // paragraphs per element: what it is, and when a designer reaches for it.
@@ -10,7 +10,7 @@ import type { BlockType } from './schema';
 
 export type ElementDoc = { summary: string; usage: string };
 
-// The Elements tab's Diagram group (spec docs/superpowers/specs/2026-09-13-
+// The Components tab's Diagram group (spec docs/superpowers/specs/2026-09-13-
 // diagrams-design.md section 13) is not made of tray items (no BlockType),
 // so its own seven entries below are keyed by diagramToolDocKey's id
 // instead: a shape's lowercase DiagramNodeKind, or 'connector'. Lowercase on
@@ -21,7 +21,7 @@ type DiagramDocKey = DiagramNodeKind | 'connector';
 // The fallback for a type with no entry (an unknown type, or a stale key):
 // generic on purpose, so the dialog still reads as a whole.
 const FALLBACK_DOC: ElementDoc = {
-  summary: 'No notes have been written for this element yet.',
+  summary: 'No notes have been written for this item yet.',
   usage: 'Drag it onto a frame and open the Design tab to see the properties it offers.',
 };
 
@@ -141,7 +141,7 @@ export const ELEMENT_DOCS: Record<string, ElementDoc> = {
       'Use a Table for records that people compare across the same fields: orders, members, files. Name the columns after the real data and set the row count to the density you want to show.',
   },
   // Diagram tools (spec docs/superpowers/specs/2026-09-13-diagrams-design.md
-  // section 13): the Elements tab's "Diagram" group, keyed by
+  // section 13): the Components tab's "Diagram" group, keyed by
   // diagramToolDocKey's id rather than a tray item type - see DiagramDocKey
   // above.
   rect: {
@@ -173,6 +173,10 @@ export const ELEMENT_DOCS: Record<string, ElementDoc> = {
     summary: 'Note is a small sticky-note shape, square with a folded-corner look, meant for a short comment.',
     usage:
       'Use Note to leave a quick annotation next to a flow, such as a caveat or a question for a teammate, without it looking like a real step.',
+  },
+  table: {
+    summary: 'Table organizes diagram information into editable rows and columns.',
+    usage: 'Click or drag Table onto the diagram canvas. Double-click a cell to edit it, or edit cells and row/column counts in the inspector. The first row is the header. Resize with the corner handles. Tables are canvas documentation and are not included in application code.',
   },
   connector: {
     summary:

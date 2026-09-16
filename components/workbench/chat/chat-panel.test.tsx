@@ -154,3 +154,20 @@ describe('ChatPanel', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+it('recalls sent prompts from an empty composer and stops history browsing once edited', async () => {
+  localStorage.clear();
+  renderPanel();
+  await sendMessage('First request');
+  await sendMessage('Second request');
+  const composer = screen.getByLabelText('Message');
+  await userEvent.keyboard('{ArrowUp}');
+  expect(composer).toHaveValue('Second request');
+  await userEvent.keyboard('{ArrowUp}');
+  expect(composer).toHaveValue('First request');
+  await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+  expect(composer).toHaveValue('');
+  await userEvent.keyboard('{ArrowUp}');
+  await userEvent.type(composer, ' edited');
+  await userEvent.keyboard('{ArrowUp}');
+  expect(composer).toHaveValue('Second request edited');
+});

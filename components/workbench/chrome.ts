@@ -46,7 +46,7 @@ export const SEARCH_INPUT =
 // element-docs-design.md section 1): invisible until the row is hovered or
 // something in it has focus, but always in the tab order, so a keyboard
 // user reaches it with Tab and sees it appear. Shared by every row list
-// that opens ElementDocsDialog - the Elements tab's Craft blocks
+// that opens ElementDocsDialog - the Components tab's Craft blocks
 // (component-tray.tsx) and the Diagrams tab's tools (diagram/diagram-tool-
 // tray.tsx) alike - so the two can never drift apart on this one detail.
 export const INFO_BUTTON =
@@ -93,7 +93,7 @@ export const MENU_SELECTED_CHIP = 'font-mono text-[10px] text-t4';
 // had its own surface was removed on 2026-09-13 in favour of the top bar's
 // ⌘ button.
 // The same footprint for the shadcn DialogContent presentations (the
-// shortcuts dialog and the Element documentation dialog, spec docs/
+// shortcuts dialog and the Component documentation dialog, spec docs/
 // superpowers/specs/2026-09-13-element-docs-design.md section 1): one
 // constant so the two dialogs cannot drift apart in size. shadcn's own
 // DialogContent hardcodes `sm:max-w-sm`, which beats any plain `max-w-*`
@@ -121,7 +121,7 @@ export const OVERLAY_ROW = 'grid min-h-8 grid-cols-[1fr_auto] items-center gap-x
 export const OVERLAY_KEYS = 'flex min-w-0 flex-wrap items-center justify-end gap-1';
 export const OVERLAY_GROUP_TITLE = 'mb-1.5 border-b border-line-soft pb-2 font-mono text-[11.5px] font-semibold tracking-[0.08em] text-muted-foreground uppercase';
 export const OVERLAY_ROW_LABEL = 'text-[15px] leading-5 whitespace-nowrap text-t2';
-// OVERLAY_ROW_LABEL for running text (the Element documentation dialog's
+// OVERLAY_ROW_LABEL for running text (the Component documentation dialog's
 // paragraphs and table cells): the same size and colour, allowed to wrap.
 export const OVERLAY_PARAGRAPH = 'text-[15px] leading-6 text-t2';
 export const OVERLAY_KEY_CAP =

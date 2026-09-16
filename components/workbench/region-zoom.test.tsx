@@ -1,0 +1,21 @@
+import { fireEvent, screen } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import { renderInEditor } from '@/test/craft-harness';
+import { RegionZoom } from './region-zoom';
+it('zooms to a dragged region only while Z is held and cancels with Escape', () => {
+  const onRegion = vi.fn();
+  renderInEditor(<div><RegionZoom onRegion={onRegion} /><input aria-label="Field" /></div>);
+  fireEvent.keyDown(screen.getByLabelText('Field'), { key: 'z' });
+  expect(screen.queryByTestId('region-zoom')).toBeNull();
+  fireEvent.keyDown(document.body, { key: 'z' });
+  const overlay = screen.getByTestId('region-zoom');
+  fireEvent.pointerDown(overlay, { button: 0, pointerId: 1, clientX: 20, clientY: 30 });
+  fireEvent.pointerMove(overlay, { pointerId: 1, clientX: 220, clientY: 130 });
+  fireEvent.pointerUp(overlay, { pointerId: 1, clientX: 220, clientY: 130 });
+  expect(onRegion).toHaveBeenCalledWith({ x: 20, y: 30, width: 200, height: 100 }, expect.any(HTMLElement));
+  fireEvent.keyUp(document.body, { key: 'z' });
+  expect(screen.queryByTestId('region-zoom')).toBeNull();
+  fireEvent.keyDown(document.body, { key: 'z' });
+  fireEvent.keyUp(document.body, { key: 'Escape' });
+  expect(screen.queryByTestId('region-zoom')).toBeNull();
+});

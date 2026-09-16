@@ -147,7 +147,7 @@ export function Field({ field, value, breakpoint, onChange, onJumpToBreakpoint }
   const options = field.options ?? [];
   const selected = String(current);
 
-  if (options.length <= 3) {
+  if (options.length <= 3 && field.control !== 'dropdown') {
     return (
       <div data-field={field.prop} className="flex flex-col gap-1.5">
         {labelRow}

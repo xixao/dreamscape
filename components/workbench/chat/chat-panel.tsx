@@ -113,6 +113,7 @@ export function ChatPanel({
   const [store] = useState(() => createChatStore(fileId, window.localStorage));
   const [messages, setMessages] = useState<ChatMessage[]>(() => store.load());
   const [draft, setDraft] = useState('');
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -139,6 +140,7 @@ export function ChatPanel({
     const history = messages;
     setMessages(store.append(newMessage('user', trimmed)));
     setDraft('');
+    setHistoryIndex(null);
 
     // Superseding a still-pending request keeps replies in order: only the
     // newest send can ever resolve into the log, and its own `controller`
@@ -165,6 +167,17 @@ export function ChatPanel({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.nativeEvent.isComposing) return;
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && (!draft || historyIndex !== null)) {
+      const prompts = messages.filter(message => message.role === 'user').map(message => message.text);
+      if (prompts.length) {
+        event.preventDefault();
+        const index = Math.max(0, Math.min(prompts.length, (historyIndex ?? prompts.length) + (event.key === 'ArrowUp' ? -1 : 1)));
+        setHistoryIndex(index === prompts.length ? null : index);
+        setDraft(prompts[index] ?? '');
+      }
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       send(draft);
@@ -177,6 +190,7 @@ export function ChatPanel({
   }
 
   function fillComposer(prompt: string): void {
+    setHistoryIndex(null);
     setDraft(prompt);
     textareaRef.current?.focus();
   }
@@ -229,10 +243,11 @@ export function ChatPanel({
             ref={textareaRef}
             value={draft}
             aria-label="Message"
+            title="Press Up in an empty message to recall a previous prompt"
             placeholder="Message"
             rows={1}
             className={cn(CHIP_INPUT, 'max-h-36 resize-none overflow-y-auto py-1')}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => { setHistoryIndex(null); setDraft(event.target.value); }}
             onKeyDown={handleComposerKeyDown}
           />
           <Button

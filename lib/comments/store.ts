@@ -1,10 +1,24 @@
 import { nanoid } from 'nanoid';
 
-// Comments placeholder store (docs/superpowers/specs/2026-09-12-folders-and-comments-design.md
-// section 5). Browser-only for now: everything lives in `storage` (localStorage
-// in the app, a fake in tests), keyed per file so each design keeps its own
-// thread list. There is no backend yet - `anchorNodeId` is carried along
-// purely so a real one can use it later (the PRD pins comments to a node id).
+export type NoteKind = 'comment' | 'annotation' | 'accessibility';
+export type AccessibilityKind = 'requirement' | 'question' | 'issue';
+export interface NoteDetails {
+  kind?: NoteKind;
+  title?: string;
+  accessibilityKind?: AccessibilityKind;
+}
+export interface NoteAnchor {
+  screenId?: string;
+  pageId?: string;
+  canvas?: boolean;
+  anchorNodeId?: string;
+  anchorLabel?: string;
+  /** Position within the element, normalized so it follows resizing. */
+  anchorOffset?: { x: number; y: number };
+}
+export function canResolve(thread: NoteDetails): boolean {
+  return thread.kind !== 'annotation' && !(thread.kind === 'accessibility' && (thread.accessibilityKind ?? 'requirement') === 'requirement');
+}
 
 export interface CommentReply {
   id: string;
@@ -13,12 +27,13 @@ export interface CommentReply {
   createdAt: string;
 }
 
-export interface CommentThread {
+export interface CommentThread extends NoteDetails, NoteAnchor {
+  resolvedAt?: string;
+  number?: number;
   id: string;
   fileId: string;
   x: number;
   y: number;
-  anchorNodeId?: string;
   author: string;
   text: string;
   createdAt: string;
@@ -27,9 +42,13 @@ export interface CommentThread {
 
 export interface CommentStore {
   list(): CommentThread[];
-  add(input: { x: number; y: number; anchorNodeId?: string; author: string; text: string }): CommentThread;
+  add(input: NoteDetails & NoteAnchor & { x: number; y: number; author: string; text: string }): CommentThread;
   reply(threadId: string, input: { author: string; text: string }): CommentReply | null;
   resolve(threadId: string): void;
+  reopen(threadId: string): void;
+  update(threadId: string, patch: NoteDetails & { text: string }): void;
+  move(threadId: string, position: { x: number; y: number; anchorOffset?: { x: number; y: number } }): void;
+  remove(threadId: string): void;
   subscribe(fn: () => void): () => void;
 }
 
@@ -41,9 +60,7 @@ function threadsKey(fileId: string): string {
 
 // Every read and write is wrapped in try/catch: `storage` throws in some
 // locked-down browser contexts (private mode, an embedded iframe with
-// storage disabled), and a comments placeholder losing its data there is far
-// better than it crashing the editor - the same tradeoff layer-stack-menu.tsx
-// makes for its own sessionStorage hint counter.
+// storage disabled). Keep the editor usable when storage is unavailable.
 function readThreads(fileId: string, storage: Storage): CommentThread[] {
   try {
     const raw = storage.getItem(threadsKey(fileId));
@@ -61,7 +78,7 @@ function writeThreads(fileId: string, storage: Storage, threads: CommentThread[]
   } catch {
     // Quota exceeded or storage unavailable: the in-memory state (and this
     // session's UI) still reflects the change, it just will not survive a
-    // reload. Nothing useful to surface to the user for a placeholder.
+    // reload.
   }
 }
 
@@ -79,13 +96,15 @@ export function createCommentStore(fileId: string, storage: Storage = localStora
     list() {
       return threads;
     },
-    add({ x, y, anchorNodeId, author, text }) {
+    add({ x, y, author, text, ...details }) {
       const thread: CommentThread = {
         id: nanoid(10),
         fileId,
+        number: Math.max(0, ...threads.map((thread, index) => thread.number ?? index + 1)) + 1,
         x,
         y,
-        ...(anchorNodeId !== undefined ? { anchorNodeId } : {}),
+        ...details,
+        kind: details.kind ?? 'comment',
         author,
         text,
         createdAt: new Date().toISOString(),
@@ -103,7 +122,20 @@ export function createCommentStore(fileId: string, storage: Storage = localStora
       return reply;
     },
     resolve(threadId) {
-      commit(threads.filter((thread) => thread.id !== threadId));
+      commit(threads.map(thread => thread.id === threadId && canResolve(thread) ? { ...thread, resolvedAt: new Date().toISOString() } : thread));
+    },
+    reopen(threadId) {
+      commit(threads.map(thread => thread.id === threadId ? { ...thread, resolvedAt: undefined } : thread));
+    },
+    update(threadId, patch) {
+      commit(threads.map(thread => thread.id === threadId ? { ...thread, ...patch, resolvedAt: canResolve({ ...thread, ...patch }) ? thread.resolvedAt : undefined } : thread));
+    },
+    move(threadId, position) {
+      if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
+      commit(threads.map(thread => thread.id === threadId ? { ...thread, ...position, anchorOffset: position.anchorOffset, ...(!position.anchorOffset ? { anchorNodeId: undefined, anchorLabel: undefined } : {}) } : thread));
+    },
+    remove(threadId) {
+      commit(threads.filter(thread => thread.id !== threadId));
     },
     subscribe(fn) {
       listeners.add(fn);

@@ -69,6 +69,32 @@ That runs `vercel --prod --yes`, which builds on Vercel and switches production 
 4. Run `npm run db:seed` if the database is new.
 5. Click through the production URL: open a file, edit, reload, and confirm the edit persisted.
 
+## Diagram insertion
+
+Click a shape in the right panel's Diagrams tab or the floating palette (Shift+D) to add it in empty space nearest the visible canvas center, clear of floating panels, frames, and other diagram shapes. If no visible space fits, the canvas pans to reveal the nearest clear spot. Drag a shape from either palette to place it at the drop location, including over a frame. Shapes stay on the page canvas, outside the frame's component hierarchy. Connector connects existing shapes or frames; T still supports click/drag placement for diagram text. Diagram changes autosave and support toolbar and keyboard undo/redo.
+
+## Canvas sections
+
+Sections organize root frames on a page without changing their component layout or prototype behavior. Use the top bar's Section tool (Shift+S) to draw a region, or select frame titles and choose **Wrap in new section** from a frame title's right-click menu. The Section dropdown also wraps the selected frames, falling back to the focused frame.
+
+Select a section and choose **Highlight color** in the Design inspector for a solid title label and a matching 10% background tint. **None** restores the neutral appearance. Colors autosave and support undo/redo.
+
+Double-click a section title to rename it. Drag the title or background to move contained frames, diagram objects, annotations, and nested sections together. Resize from any side or corner, or use the Design inspector; resizing never scales contents. A frame joins or leaves a section when its full bounds move inside or outside it. In overlapping regions, the smallest containing section owns a frame. Nested section regions move with their containing section.
+
+The Layers panel lists each section and its frames. Clicking a section focuses its bounds between the floating panels. **Resize to Fit** adds space around all fully contained objects and is disabled for an empty section. **Remove Section (keep objects)** removes only the organizational region; **Delete** removes the section and contained objects. If all root frames are deleted, a fresh empty frame preserves the current file requirement. Delete/Backspace retains the existing region-only removal behavior. Section edits and grouped moves share the editor's Undo/Redo history.
+
+Sections persist in `pages[].sections` through the file autosaver and API, using the existing JSON page column (no database migration). Page and file duplication preserve their geometry with new IDs. They are exclusive to the main editor and do not render in prototypes or the custom component builder.
+
+## Canvas notes
+
+The main editor and Component Builder support Comments, Annotations, and Accessibility notes. Choose a type from the note tool dropdown in the top bar, then click a target. The left Notes tab filters both the list and canvas markers by type and status. Notes can be edited, replied to, and deleted. Comments and accessibility Questions/Issues can be resolved and reopened; annotations and accessibility Requirements remain persistent documentation.
+
+The top-nav note menu can hide/show all note pins and annotation-library objects. Drag a note pin to reposition it; click to open its thread, or press Escape to cancel a drag.
+
+Notes attach to components using their Craft node ID and a normalized position, so markers follow movement and resizing. Main-editor notes belong to a frame or to empty canvas on a page; Component Builder notes belong to that component definition. Opening a main-editor note from the list focuses its page/frame. Legacy comments without frame IDs appear on the first frame.
+
+Storage remains browser-local (`assembly-workbench:comments:<fileId>`); component notes use `<fileId>:component:<componentId>`. Notes are not included in shared prototypes, synchronized to other users, or governed by reviewer permissions yet. Backend persistence and collaboration are separate integration work.
+
 ## Spacing controls
 
 Gap, padding, layout-grid gutter, and layout-grid margin use editable pixel fields. Focus or click a field to choose an 8 px preset, or type a custom value. Enter or leaving the field applies it; Escape cancels the edit. Gap and padding accept nonnegative fractional pixels, including values beyond the preset list. Grid gutter and margin retain their existing whole-pixel limits (200 px and 400 px). Custom spacing persists with the design and works in Component Builder and Play mode.
@@ -81,12 +107,13 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | --- | --- | --- |
 | Panels | D | Design tab |
 | Panels | P | Prototype tab |
-| Panels | E | Elements tab |
+| Panels | E | Components tab |
 | Panels | G | Diagrams tab |
 | Panels | C or ⌘J | Open or close the chat panel |
 | Panels | ⌘. | Minimize or expand the right panel |
 | Panels | ⌘\ | Show or hide all panels |
 | Present | ⌘R | Present the focused screen |
+| Tools | ⇧S | Section tool |
 | Tools | V | Pointer |
 | Tools | ⇧C | Comment tool |
 | Tools | ⇧D | Diagram palette |
@@ -105,13 +132,27 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Screens | ⌘⇧[ | Previous page |
 | Edit | ⌘Z | Undo |
 | Edit | ⇧⌘Z | Redo |
+| Edit | ⌘C | Copy selected components |
+| ⌘X | Cut selected components |
+| ⌘V | Paste into selection or after it |
+| ⌘⇧C | Copy selection as PNG |
+| ⌘⌥K | Create Custom Component |
+| ⌘⌥X | Detach component instance |
+| ⌥H | Center horizontally in layout |
+| ⌥V | Center vertically in layout |
+| Hold Z + drag | Zoom into a region |
+| Enter | Select child layers |
+| ⇧Enter | Select parent layer |
+| Tab | Select next sibling on canvas |
+| ⇧Tab | Select previous sibling on canvas |
+| F | Wrap selection in a frame |
 | Edit | Delete | Delete the selected layer |
-| Edit | ⌘D | Duplicate the diagram selection |
+| Edit | ⌘D | Duplicate the selection |
 | Edit | ⌘A | Select all diagram elements |
 | Edit | ⌘G | Group the selected shapes |
 | Edit | ⇧⌘G | Ungroup |
 | Edit | ⇧F10 | Open the menu for the diagram selection |
-| Canvas | ↑ or ↓ or ← or → | Nudge the selection 1 px |
+| Canvas | ↑ or ↓ or ← or → | Reorder components; nudge frames or diagrams 1 px |
 | Canvas | ⇧↑ or ⇧↓ or ⇧← or ⇧→ | Nudge the selection 8 px |
 | Edit | Escape | Deselect, leave a tool, close a menu |
 | Help | ? | Shortcuts dialog |
@@ -127,10 +168,14 @@ The Chat button in the top bar (or Cmd+J) opens a chat conversation UI docked to
 ## Where things are
 
 - `app/`: routes. `/` and `/folders/[id]` are the Files pages, `/f/[id]` is the editor, `/f/[id]/play` is Play mode, `/api/files` and `/api/folders` are the JSON APIs.
-- `components/workbench/`: the editor chrome (top bar, Elements panel, canvas, layers, Design and Prototype panels, Chat panel). Its styling follows the SF2 design system spec; shared class tables live in `components/workbench/chrome.ts`.
-- `components/blocks/`: the components that can be placed on the frame. They render plain shadcn/ui as a placeholder for the product design systems that will replace it later. `components/blocks/registry.tsx` lists them for the Elements panel.
+- `components/workbench/`: the editor chrome (top bar, Components panel, canvas, layers, Design and Prototype panels, Chat panel). Its styling follows the SF2 design system spec; shared class tables live in `components/workbench/chrome.ts`.
+- `components/blocks/`: the components that can be placed on the frame. They render plain shadcn/ui as a placeholder for the product design systems that will replace it later. `components/blocks/registry.tsx` lists them for the Components panel.
 - `components/ui/`: shadcn/ui primitives. Do not hand-edit them; add new ones with `npx shadcn@latest add <name>`.
 - `components/files/` and `components/play/`: the Files pages and Play mode.
 - `lib/`: files repository and validation, the autosave client, examples, interactions, spacing and class helpers, device presets, the chat placeholder's transport contract and per-file storage (`lib/chat/`, see `docs/chat-integration.md`).
 - `db/` and `drizzle/`: database client, schema and migrations.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/`: the design specs and implementation plans for each sub-project. `docs/research/` holds the research notes (diagram libraries, Figma device presets).
+
+On the canvas, arrow keys along a frame’s layout direction move selected components one position earlier or later. Right-click a component or frame and choose **View Code** for a copyable React preview of its current subtree.
+
+Chat: press Up in an empty composer to recall a sent prompt, then Up/Down to browse. Typing exits history navigation.

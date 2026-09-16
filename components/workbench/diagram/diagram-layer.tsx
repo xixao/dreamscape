@@ -1,4 +1,7 @@
 'use client';
+import { AnnotationContent } from '../accessibility/annotation-content';
+import { TableContent } from './table-content';
+import { tableCells } from '@/lib/diagram/table';
 
 // This file stays one composition root for the fix wave in
 // task-diagram-followups-review.md, but it has outgrown that shape - the
@@ -13,6 +16,7 @@
 // together.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { DEFAULT_DIAGRAM_SIZE } from '@/lib/diagram/insertion';
 import { nanoid } from 'nanoid';
 import { Plus } from 'lucide-react';
 import {
@@ -132,15 +136,6 @@ export interface DiagramLayerProps {
   onExport?: (format: 'png' | 'svg') => void;
 }
 
-const DEFAULT_SIZE: Record<DiagramNodeKind, { width: number; height: number }> = {
-  rect: { width: 160, height: 80 },
-  rounded: { width: 160, height: 80 },
-  decision: { width: 160, height: 100 },
-  terminal: { width: 140, height: 56 },
-  text: { width: 140, height: 40 },
-  note: { width: 140, height: 100 },
-};
-
 // Screen-px, not canvas-px: a placement click that moves less than this
 // counts as a plain click (place at the default size) rather than a
 // drag-to-size, regardless of zoom.
@@ -174,7 +169,7 @@ function isSide(value: string): value is Side {
 }
 
 const COLOR_CLASSES: Record<DiagramNode['color'], { fill: string; stroke: string }> = {
-  neutral: { fill: 'fill-white/10', stroke: 'stroke-white/50' },
+  neutral: { fill: 'fill-zinc-800', stroke: 'stroke-zinc-400' },
   blue: { fill: 'fill-blue-500/25', stroke: 'stroke-blue-400' },
   green: { fill: 'fill-green-500/25', stroke: 'stroke-green-400' },
   amber: { fill: 'fill-amber-500/25', stroke: 'stroke-amber-400' },
@@ -354,6 +349,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   const [endpointDrag, setEndpointDrag] = useState<EndpointDragState>(null);
   const [place, setPlace] = useState<PlaceState>(null);
   const [editing, setEditing] = useState<EditState>(null);
+  const [tableEdit, setTableEdit] = useState<{ id: string; row: number; column: number; revision: number } | null>(null);
   // Option/Alt-drag duplicate's cursor affordance (Build step 2: "the cursor
   // shows copy while Option is held over a shape"): tracked globally via
   // keydown/keyup rather than read off each pointer event, since the key can
@@ -554,6 +550,12 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   const currentGroupId = selectedGroupId(diagram.nodes, diagram.selection);
 
   function renderNodeMenuContent(node: DiagramNode): ReactNode {
+    if (node.annotation) return <>
+      <ContextMenuItem onSelect={() => dispatch({type:'setAnnotation',id:node.id,annotation:{...node.annotation!,resolved:!node.annotation!.resolved}})}>{node.annotation.resolved?'Reopen annotation':'Mark as resolved'}</ContextMenuItem>
+      <ContextMenuItem onSelect={() => duplicateSelection([node.id])}>Duplicate</ContextMenuItem>
+      <ContextMenuItem onSelect={() => dispatch({type:'delete',ids:[node.id]})}>Delete</ContextMenuItem>
+    </>;
+
     return (
       <>
         <ContextMenuSub>
@@ -703,7 +705,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           </span>
         </ContextMenuItem>
 
-        <ContextMenuItem className={MENU_ROW} onSelect={() => queueEditFromMenu(node.id, node.text)}>
+        <ContextMenuItem className={MENU_ROW} disabled={node.kind === 'table'} onSelect={() => queueEditFromMenu(node.id, node.text)}>
           Edit text
         </ContextMenuItem>
         <ContextMenuItem className={MENU_ROW} onSelect={() => duplicateSelection(selectedNodeIds)}>
@@ -1041,7 +1043,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       return;
     }
 
-    capturePointer(event.currentTarget, event.pointerId);
+    // Keep table-cell clicks targeted at the cell; capture only once a drag starts.
+    if (node.kind !== 'table') capturePointer(event.currentTarget, event.pointerId);
     setDrag({ pointerId: event.pointerId, ids, start: clientToCanvas(event.clientX, event.clientY), target: event.currentTarget });
   }
 
@@ -1069,6 +1072,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   function handleDragMove(event: ReactPointerEvent<SVGElement>): void {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const point = clientToCanvas(event.clientX, event.clientY);
+    if (Math.hypot(point.x - drag.start.x, point.y - drag.start.y) * viewport.zoom >= 3) capturePointer(drag.target, event.pointerId);
     setDragOffset({ dx: point.x - drag.start.x, dy: point.y - drag.start.y });
   }
 
@@ -1343,7 +1347,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const dyScreen = (place.current.y - place.start.y) * viewport.zoom;
     const dragged = Math.hypot(dxScreen, dyScreen) >= PLACEMENT_CLICK_THRESHOLD;
     const kind = tool.shape;
-    const defaultSize = DEFAULT_SIZE[kind];
+    const defaultSize = DEFAULT_DIAGRAM_SIZE[kind];
 
     let box: Box;
     if (dragged) {
@@ -1388,6 +1392,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // --- Inline text editing --------------------------------------------------
 
   function beginEditing(node: DiagramNode): void {
+    if (node.annotation) { dispatch({type:'select',selection:[{type:'node',id:node.id}]}); return; }
     if (tool.kind !== 'pointer') return;
     setEditing({ id: node.id, draft: node.text });
   }
@@ -1603,6 +1608,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // handles, connect handles or quick-add circles (a ghost is a preview,
   // never a target for any of those).
   function renderShapeBody(node: DiagramNode, box: Box): ReactNode {
+    if (node.annotation) return <rect x={box.x} y={box.y} width={box.width} height={box.height} fill="transparent" />;
     const colors = COLOR_CLASSES[node.color];
     const strokeWidth = 1.5 / viewport.zoom;
     if (node.kind === 'decision') {
@@ -1768,6 +1774,9 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           <g
             data-testid={`diagram-node-${rawNode.id}`}
             data-diagram-kind={rawNode.kind}
+            data-annotation-category={rawNode.annotation?.category}
+            data-annotation-library={rawNode.annotation?.library ?? (rawNode.annotation ? 'accessibility' : undefined)}
+            data-annotation-template={rawNode.annotation?.template}
             data-selected={selected || undefined}
             className={showCopyCursor ? 'cursor-copy' : undefined}
             style={{
@@ -1778,11 +1787,19 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             onPointerMove={handleDragMove}
             onPointerUp={endDrag}
             onPointerCancel={(event) => cancelDrag(event.pointerId)}
-            onDoubleClick={() => handleNodeDoubleClick(rawNode)}
+            onDoubleClick={event => {
+              if (rawNode.kind !== 'table') { handleNodeDoubleClick(rawNode); return; }
+              if (tool.kind !== 'pointer') return;
+              const point = clientToCanvas(event.clientX, event.clientY);
+              const cells = tableCells(rawNode);
+              const row = Math.max(0, Math.min(cells.length - 1, Math.floor((point.y - box.y) / box.height * cells.length)));
+              const column = Math.max(0, Math.min(cells[0].length - 1, Math.floor((point.x - box.x) / box.width * cells[0].length)));
+              setTableEdit(previous => ({ id: rawNode.id, row, column, revision: (previous?.revision ?? 0) + 1 }));
+            }}
           >
             {shape}
-            <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing ? 'all' : 'none' }}>
-              {isEditing ? (
+            <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing || rawNode.kind === 'table' || rawNode.annotation?.format === 'card' || rawNode.annotation?.format === 'summary' ? 'all' : 'none' }}>
+              {rawNode.annotation ? <AnnotationContent annotation={rawNode.annotation} /> : rawNode.kind === 'table' ? <div className={cn('size-full overflow-hidden', textStyleClasses(rawNode))}><TableContent key={`${rawNode.id}:${tableEdit?.id === rawNode.id ? tableEdit.revision : 0}`} initialCell={tableEdit?.id === rawNode.id ? tableEdit : undefined} node={rawNode} onChange={cells => dispatch({ type: 'setTable', id: rawNode.id, cells })} /></div> : isEditing ? (
                 <textarea
                   // Entering inline edit mode is itself the user's request for
                   // focus here.
@@ -1847,8 +1864,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 })}
               </>
             )}
-            {renderHandles({ type: 'node', id: rawNode.id }, box)}
-            {renderQuickAddCircles(rawNode, box)}
+            {!rawNode.annotation && renderHandles({ type: 'node', id: rawNode.id }, box)}
+            {!rawNode.annotation && renderQuickAddCircles(rawNode, box)}
           </g>
         </ContextMenuTrigger>
         <ContextMenuContent className={MENU_POPOVER} onCloseAutoFocus={onMenuCloseAutoFocus}>
@@ -1995,14 +2012,15 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   }
 
   const placementActive = tool.kind === 'shape';
+  // Keep a nonzero SVG viewport: Chromium suppresses a 0×0 SVG even with visible overflow.
 
   return (
     <svg
       ref={svgRef}
       data-testid="diagram-layer"
       aria-label="Diagram"
-      width={0}
-      height={0}
+      width={1}
+      height={1}
       style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: placementActive ? 'auto' : 'none' }}
     >
       <defs>

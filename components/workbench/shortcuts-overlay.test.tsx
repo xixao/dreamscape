@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { OVERLAY_TITLE, WIDE_DIALOG_CONTENT } from './chrome';
+import { OVERLAY_TITLE } from './chrome';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 
 function mockPlatform(value: string): void {
@@ -85,27 +85,16 @@ describe('ShortcutsOverlay', () => {
       expect(within(dialog).getByText('Middle mouse drag')).toBeInTheDocument();
     });
 
-    it('widens the dialog past the shadcn default max-width at sm and above', () => {
+    it('filters the reference by action and provides a clear empty state', () => {
       renderOverlay(true);
-      const dialog = screen.getByRole('dialog', { name: 'Keyboard shortcuts' });
-
-      // shadcn's own DialogContent hardcodes `sm:max-w-sm`, which wins over
-      // a plain `max-w-[880px]` override at any viewport >= 640px (same
-      // "sm:" variant scope, later in the cascade) - only a same-variant
-      // override actually takes effect. See components/ui/dialog.tsx
-      // (read-only) for the base classes this must out-rank.
-      expect(dialog.className.split(/\s+/)).toContain('sm:max-w-[calc(100vw-48px)]');
-      expect(dialog.className.split(/\s+/)).toContain('xl:max-w-[1800px]');
-      // The width classes come from the one WIDE_DIALOG_CONTENT constant the
-      // Element documentation dialog shares (spec docs/superpowers/specs/
-      // 2026-09-13-element-docs-design.md section 1), so the two dialogs
-      // cannot drift apart in size.
-      for (const widthClass of WIDE_DIALOG_CONTENT.split(' ')) {
-        expect(dialog.className.split(/\s+/)).toContain(widthClass);
-      }
+      fireEvent.change(screen.getByLabelText('Search shortcuts'), { target: { value: 'component' } });
+      expect(screen.getByText('Create Custom Component')).toBeInTheDocument();
+      expect(screen.queryByText('Design tab')).toBeNull();
+      fireEvent.change(screen.getByLabelText('Search shortcuts'), { target: { value: 'no-such-action' } });
+      expect(screen.getByRole('status')).toHaveTextContent('No shortcuts found');
     });
 
-    it('sets its title in OVERLAY_TITLE, the same treatment as the Element documentation dialog', () => {
+    it('sets its title in OVERLAY_TITLE, the same treatment as the Component documentation dialog', () => {
       renderOverlay(true);
       const title = screen.getByRole('heading', { name: 'Keyboard shortcuts' });
       expect(title.className.split(/\s+/)).toEqual(expect.arrayContaining(OVERLAY_TITLE.split(' ')));

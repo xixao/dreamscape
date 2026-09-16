@@ -1,14 +1,15 @@
 'use client';
 
 import { useEditor, type NodeTree } from '@craftjs/core';
+import { SectionsList } from './sections/section-tools';
 import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader } from './left-panel-tabs';
 import { useContext, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, ArrowUp, ArrowDown, Copy, Trash2, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, Copy, Trash2 } from 'lucide-react';
 import { useSettledEditorState } from './use-settled-editor-state';
 import { LABEL } from './chrome';
 
-export function LayersPanel({ onAddElement, onOpenShortcuts }: { onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
+export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = false }: { showSections?: boolean; onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
   const panelMode = useContext(LeftPanelContext);
   const { actions, query } = useEditor();
   const state = useSettledEditorState();
@@ -21,10 +22,6 @@ export function LayersPanel({ onAddElement, onOpenShortcuts }: { onOpenShortcuts
   const [error, setError] = useState('');
   const [dropHint, setDropHint] = useState<{ id: string; placement: string } | null>(null);
   const selected = [...state.events.selected][0];
-  const node = selected ? state.nodes[selected] : undefined;
-  const siblings = node?.data.parent ? state.nodes[node.data.parent]?.data.nodes ?? [] : [];
-  const index = selected ? siblings.indexOf(selected) : -1;
-  const editable = !!node && index >= 0;
   function attempt(operation: () => void) {
     try { operation(); setError(''); } catch { setError('That layer cannot be moved into this location.'); }
   }
@@ -122,14 +119,9 @@ export function LayersPanel({ onAddElement, onOpenShortcuts }: { onOpenShortcuts
   return <div className="flex h-full min-h-0 flex-col" onKeyDown={event => event.stopPropagation()}>
     {panelMode ? <LeftPanelHeader action={<button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button>} /> : <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>}
 
+    {showSections && <SectionsList />}
     <div role="tree" aria-label="Layers" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}
-    <p className="px-3 py-2 text-[10px] text-muted-foreground">Drag between layers to reorder, or onto a frame to nest. Double-click a name to rename.</p>
-    <div className="flex gap-1 border-t border-line-soft p-2">
-      <button title="Move layer up" aria-label="Move layer up" disabled={!editable || index === 0} className="rounded p-2 hover:bg-accent disabled:opacity-30" onClick={() => move(selected, node!.data.parent!, index - 1)}><ArrowUp className="size-4" /></button>
-      <button title="Move layer down" aria-label="Move layer down" disabled={!editable || index === siblings.length - 1} className="rounded p-2 hover:bg-accent disabled:opacity-30" onClick={() => move(selected, node!.data.parent!, index + 2)}><ArrowDown className="size-4" /></button>
-      <button title="Rename layer" aria-label="Rename layer" disabled={!node} className="rounded p-2 hover:bg-accent disabled:opacity-30" onClick={() => { setRenaming(selected); setName(String(node!.data.custom.layerName || node!.data.displayName)); }}><Pencil className="size-4" /></button>
-    </div>
     {utilities}
   </div>;
 }

@@ -38,3 +38,17 @@ describe('builder preview zoom input', () => {
     cleanup();
   });
 });
+it('Command plus/minus changes canvas zoom and cancels browser page zoom', () => {
+  const host = document.createElement('div');
+  let zoom = 1;
+  const cleanup = bindPreviewZoom(host, update => { zoom = update(zoom); });
+  const plus = new KeyboardEvent('keydown', { key: '+', code: 'Equal', metaKey: true, shiftKey: true, cancelable: true });
+  host.dispatchEvent(plus);
+  expect(plus.defaultPrevented).toBe(true);
+  expect(zoom).toBe(1.25);
+  const minus = new KeyboardEvent('keydown', { key: '-', metaKey: true, cancelable: true });
+  host.dispatchEvent(minus);
+  expect(minus.defaultPrevented).toBe(true);
+  expect(zoom).toBe(1);
+  cleanup();
+});

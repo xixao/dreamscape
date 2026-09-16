@@ -496,70 +496,37 @@ describe('Canvas', () => {
       });
     });
 
-    it('a marquee drag on empty canvas selects every frame it intersects', async () => {
+    it.each([
+      { start: [-20, -20], end: [450, 450], expected: [SCREEN_1.id], label: 'enclosed' },
+      { start: [50, 350], end: [450, 290], expected: [], label: 'barely overlapped' },
+      { start: [50, 350], end: [450, 450], expected: [], label: 'entirely outside' },
+      { start: [50, 50], end: [350, 250], expected: [], label: 'inside the frame bounds' },
+    ])('marquee selects only enclosed frames: $label', async ({ start, end, expected }) => {
       saveViewport(window.localStorage, 'marqueetest', 'page1', { x: 0, y: 0, zoom: 1 });
       const onSetFrameSelection = vi.fn();
-      renderCanvas({
-        screens: [SCREEN_1, SCREEN_2],
-        onSetFrameSelection,
-        fileId: 'marqueetest',
-      });
+      renderCanvas({ screens: [SCREEN_1, SCREEN_2], onSetFrameSelection, fileId: 'marqueetest' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
-
       const root = screen.getByTestId('canvas-root');
-      // A box from (50,50) to (450,450): overlaps SCREEN_1 (0,0,400,300) but
-      // not SCREEN_2 (800,0,400,300).
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50 });
-      fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450 });
+      const nativeDefaultAllowed = fireEvent.pointerDown(root, { pointerId: 1, clientX: start[0], clientY: start[1] });
+      expect(nativeDefaultAllowed).toBe(false);
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: end[0], clientY: end[1] });
       expect(screen.getByTestId('marquee-selection')).toBeInTheDocument();
-
-      fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450 });
-
-      expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: end[0], clientY: end[1] });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith(expected);
       expect(screen.queryByTestId('marquee-selection')).toBeNull();
     });
 
-    // Review fix wave item 8: the marquee's own hit test (frameRect, via
-    // rectsIntersect) used to always fall back to the static
-    // ARTBOARD_MIN_HEIGHT (640) for an auto-height frame, regardless of how
-    // tall its content actually is.
-    it('hit-tests an auto-height frame against its fed measured height, not just ARTBOARD_MIN_HEIGHT', async () => {
+    it.each([640, 1000])('uses the measured auto-height (%s) when checking full enclosure', async height => {
       saveViewport(window.localStorage, 'marqueeheight', 'page1', { x: 0, y: 0, zoom: 1 });
       const autoHeightScreen: Screen = { id: 'auto1', name: 'Auto Frame', layout: emptyLayoutJson(), stageWidth: 400, x: 0, y: 0 };
       const onSetFrameSelection = vi.fn();
-      const { rerenderUi } = renderCanvas({
-        screens: [autoHeightScreen],
-        onSetFrameSelection,
-        fileId: 'marqueeheight',
-      });
+      renderCanvas({ screens: [autoHeightScreen], onSetFrameSelection, fileId: 'marqueeheight', measuredHeights: new Map([[autoHeightScreen.id, height]]) });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-
       const root = screen.getByTestId('canvas-root');
-      // A box from (0,700) to (400,900) - below the frame's own unmeasured
-      // ARTBOARD_MIN_HEIGHT (640) bottom edge entirely, but well within its
-      // fed measured height of 1000.
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
-      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
-      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
-      expect(onSetFrameSelection).toHaveBeenLastCalledWith([]);
-
-      onSetFrameSelection.mockClear();
-      rerenderUi(
-        <Harness
-          screens={[autoHeightScreen]}
-          focusedScreenId={autoHeightScreen.id}
-          onFocusScreen={vi.fn()}
-          onRenameScreen={vi.fn()}
-          onMoveScreen={vi.fn()}
-          onSetFrameSelection={onSetFrameSelection}
-          fileId="marqueeheight"
-          measuredHeights={new Map([[autoHeightScreen.id, 1000]])}
-        />,
-      );
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 0, clientY: 700 });
-      fireEvent.pointerMove(root, { pointerId: 1, clientX: 400, clientY: 900 });
-      fireEvent.pointerUp(root, { pointerId: 1, clientX: 400, clientY: 900 });
-      expect(onSetFrameSelection).toHaveBeenLastCalledWith([autoHeightScreen.id]);
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: -20, clientY: -20 });
+      fireEvent.pointerMove(root, { pointerId: 1, clientX: 420, clientY: 900 });
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 420, clientY: 900 });
+      expect(onSetFrameSelection).toHaveBeenLastCalledWith(height <= 900 ? [autoHeightScreen.id] : []);
     });
 
     it('a drag that comes back under the click threshold clears the painted marquee box (review re-review R4)', async () => {
@@ -626,7 +593,7 @@ describe('Canvas', () => {
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(2));
 
       const root = screen.getByTestId('canvas-root');
-      fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, shiftKey: true });
+      fireEvent.pointerDown(root, { pointerId: 1, clientX: -20, clientY: -20, shiftKey: true });
       fireEvent.pointerMove(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
       fireEvent.pointerUp(root, { pointerId: 1, clientX: 450, clientY: 450, shiftKey: true });
 
@@ -1778,7 +1745,7 @@ describe('Canvas marquee keeps one selection model (Shift adds within it only)',
     localStorage.clear();
   });
 
-  it('Shift+marquee that touches only a frame clears an existing diagram selection', async () => {
+  it('Shift+marquee that encloses only a frame clears an existing diagram selection', async () => {
     saveViewport(window.localStorage, 'onemodel1', 'page1', { x: 0, y: 0, zoom: 1 });
     const onDiagramAction = vi.fn();
     const onSetFrameSelection = vi.fn();
@@ -1792,10 +1759,10 @@ describe('Canvas marquee keeps one selection model (Shift adds within it only)',
     await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
 
     const root = screen.getByTestId('canvas-root');
-    // Entirely inside SCREEN_1 (0,0,400,300); nowhere near n1.
-    fireEvent.pointerDown(root, { pointerId: 1, clientX: 50, clientY: 50, shiftKey: true });
-    fireEvent.pointerMove(root, { pointerId: 1, clientX: 350, clientY: 250, shiftKey: true });
-    fireEvent.pointerUp(root, { pointerId: 1, clientX: 350, clientY: 250, shiftKey: true });
+    // Encloses SCREEN_1 (0,0,400,300); nowhere near n1.
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: -20, clientY: -20, shiftKey: true });
+    fireEvent.pointerMove(root, { pointerId: 1, clientX: 420, clientY: 320, shiftKey: true });
+    fireEvent.pointerUp(root, { pointerId: 1, clientX: 420, clientY: 320, shiftKey: true });
 
     expect(onSetFrameSelection).toHaveBeenCalledWith([SCREEN_1.id]);
     expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [] });

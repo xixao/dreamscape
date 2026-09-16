@@ -1,5 +1,7 @@
 'use client';
 
+import { AnnotationFields } from '../accessibility/annotation-fields';
+import { TableFields } from './table-fields';
 import type { FieldSchema } from '@/components/blocks/schema';
 import {
   ARROW_KINDS,
@@ -51,6 +53,7 @@ export const KIND_LABELS: Record<DiagramNodeKind, string> = {
   terminal: 'Terminal',
   text: 'Text',
   note: 'Note',
+  table: 'Table',
 };
 export const COLOR_LABELS: Record<DiagramColor, string> = {
   neutral: 'Neutral',
@@ -240,6 +243,8 @@ export function DiagramFields({
 }) {
   if (selected.type === 'node') {
     const { node } = selected;
+    if (selected.nodes && selected.nodes.length > 1 && selected.nodes.some(item => item.annotation)) return <p className="text-xs text-muted-foreground">Select one annotation to edit its details.</p>;
+    if (node.annotation) return <AnnotationFields node={node} onAction={onAction} />;
     // Spec section 9 / Matt's multi-selection follow-up - see
     // DiagramFieldsSelection's own comment above: `nodes` is every
     // co-selected shape, `multi` gates the single-shape-only fields (Text,
@@ -261,12 +266,12 @@ export function DiagramFields({
           <section className={SECTION}>
             <h3 className={SECTION_TITLE}>Content</h3>
             <div className="flex flex-col gap-3">
-              <Field
+              {node.kind === 'table' ? <TableFields node={node} onChange={cells => onAction({ type: 'setTable', id: node.id, cells })} /> : <Field
                 field={NODE_TEXT_FIELD}
                 value={node.text}
                 breakpoint="mobile"
                 onChange={(next) => onAction({ type: 'setText', id: node.id, text: String(next) })}
-              />
+              />}
             </div>
           </section>
         )}

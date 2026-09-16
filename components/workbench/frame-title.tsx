@@ -161,6 +161,7 @@ export function FrameTitle({
   return (
     <button
       type="button"
+      data-frame-title={screen.id}
       className={cn(
         'absolute bottom-full left-0 mb-1 cursor-grab touch-none rounded-sm px-0.5 font-mono text-[11px] select-none active:cursor-grabbing',
         focused ? 'text-t2' : 'text-t4',

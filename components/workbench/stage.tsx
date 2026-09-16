@@ -452,7 +452,16 @@ function StageImpl({
         ? frameDocument.elementFromPoint(point.x, point.y)
         : (event.target as Node);
     const anchorNodeId = innermostNodeId(query.getState().nodes, inFrame);
-    comments.onPlacePin(point.x, point.y, anchorNodeId);
+    const anchorNode = anchorNodeId ? query.getState().nodes[anchorNodeId] : undefined;
+    const anchorRect = anchorNode?.dom?.getBoundingClientRect();
+    const local = anchorRect && anchorNode?.dom?.ownerDocument === document
+      ? { left: (anchorRect.left - rect.left) / zoom, top: (anchorRect.top - rect.top) / zoom, width: anchorRect.width / zoom, height: anchorRect.height / zoom }
+      : anchorRect;
+    comments.onPlacePin(point.x, point.y, anchorNodeId, {
+      screenId: screen.id,
+      anchorLabel: anchorNode?.data.displayName || anchorNode?.data.name || screen.name,
+      ...(local ? { anchorOffset: { x: Math.max(0, Math.min(1, (point.x - local.left) / (local.width || 1))), y: Math.max(0, Math.min(1, (point.y - local.top) / (local.height || 1))) } } : {}),
+    });
   }
 
   // Memoized as ONE combined value (not two separate ones each interpolated
@@ -567,7 +576,12 @@ function StageImpl({
         />
       </div>
       {/* Draws pins and popovers at fixed screen coordinates from artboardRect and zoom. */}
-      <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} />
+      <CommentLayer {...comments} zoom={zoom} artboardRect={artboardRect} resolveAnchor={thread => {
+        const dom = thread.anchorNodeId ? query.getState().nodes[thread.anchorNodeId]?.dom : null;
+        if (!dom || !artboardRect) return null;
+        const rect = dom.getBoundingClientRect();
+        return dom.ownerDocument === document ? rect : { left: artboardRect.left + rect.left * zoom, top: artboardRect.top + rect.top * zoom, width: rect.width * zoom, height: rect.height * zoom };
+      }} />
     </div>
   );
 }

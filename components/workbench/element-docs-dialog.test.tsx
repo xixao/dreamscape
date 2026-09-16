@@ -175,7 +175,7 @@ describe('ElementDocsDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Mystery' });
     expect(within(dialog).getByText(getElementDoc('Mystery').summary)).toBeInTheDocument();
     expect(within(dialog).queryByRole('table')).toBeNull();
-    expect(within(dialog).getByText('This element has no properties.')).toBeInTheDocument();
+    expect(within(dialog).getByText('This item has no properties.')).toBeInTheDocument();
   });
 
   // Spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 13: a
@@ -189,7 +189,7 @@ describe('ElementDocsDialog', () => {
     expect(within(header(dialog, 'Connector')).getByText('Diagram')).toBeInTheDocument();
     expect(within(dialog).getByText(getElementDoc('connector').summary)).toBeInTheDocument();
     expect(within(dialog).getByText(getElementDoc('connector').usage)).toBeInTheDocument();
-    expect(within(dialog).getByText('This element has no properties.')).toBeInTheDocument();
+    expect(within(dialog).getByText('This item has no properties.')).toBeInTheDocument();
   });
 
   it('renders a dialog for every tray item, with at least one property row each', () => {

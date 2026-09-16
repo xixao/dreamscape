@@ -1,7 +1,8 @@
 'use client';
 
-import { Diamond, Pill, Spline, Square, Squircle, StickyNote, Type, type LucideIcon, X } from 'lucide-react';
+import { Diamond, Pill, Spline, Square, Squircle, StickyNote, Table2, Type, type LucideIcon, X } from 'lucide-react';
 import type { DiagramNodeKind } from '@/lib/diagram/store';
+import { startDiagramDrag, endDiagramDrag } from '@/lib/diagram/insertion';
 import { cn } from '@/lib/utils';
 import { PANEL } from '../chrome';
 import { POINTER_TOOL, type DiagramTool } from './diagram-layer';
@@ -13,6 +14,7 @@ export const SHAPE_ITEMS: { kind: DiagramNodeKind; label: string; icon: LucideIc
   { kind: 'terminal', label: 'Terminal', icon: Pill },
   { kind: 'text', label: 'Text', icon: Type },
   { kind: 'note', label: 'Note', icon: StickyNote },
+  { kind: 'table', label: 'Table', icon: Table2 },
 ];
 
 export function toolsEqual(a: DiagramTool, b: DiagramTool): boolean {
@@ -28,7 +30,7 @@ export interface DiagramToolItem {
 
 // All seven diagram tools the floating palette offers, in the same order it
 // renders them below (the six shapes, then the connector) - shared with the
-// Elements tab's "Diagram" group (component-tray.tsx, spec docs/superpowers/
+// Components tab's "Diagram" group (component-tray.tsx, spec docs/superpowers/
 // specs/2026-09-13-diagrams-design.md section 13) so the two lists can never
 // drift apart: both read the tools, icons and labels from this single
 // source of truth instead of keeping their own copies.
@@ -53,11 +55,13 @@ function PaletteButton({
   icon: Icon,
   active,
   onClick,
+  shape,
 }: {
   label: string;
   icon: LucideIcon;
   active: boolean;
   onClick: () => void;
+  shape?: DiagramNodeKind;
 }) {
   return (
     <button
@@ -65,6 +69,9 @@ function PaletteButton({
       aria-label={label}
       title={label}
       aria-pressed={active}
+      draggable={!!shape}
+      onDragStart={event => { if (shape) startDiagramDrag(event.dataTransfer, shape); }}
+      onDragEnd={endDiagramDrag}
       onClick={onClick}
       className={cn(
         'flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -76,16 +83,7 @@ function PaletteButton({
   );
 }
 
-/**
- * The small floating palette the top bar's Diagram tool button or Shift+D
- * opens (spec docs/superpowers/specs/2026-09-13-diagrams-design.md section
- * 3): Rectangle, Rounded, Decision, Terminal, Text, Note and Connector.
- * Clicking a tool arms it in `tool` (owned by whoever renders both this and
- * DiagramLayer, components/workbench/workbench.tsx) so DiagramLayer's own
- * canvas pointer handling knows what to place or draw next; clicking the
- * already-armed tool again returns to the plain pointer, the same toggle
- * behavior the top bar's own Comment/Chat buttons already use.
- */
+/** Shapes insert on click or drag; Connector arms the connection tool. */
 export function DiagramPalette({
   open,
   tool,
@@ -100,7 +98,7 @@ export function DiagramPalette({
   if (!open) return null;
 
   function toggle(next: DiagramTool): void {
-    onSelectTool(toolsEqual(tool, next) ? POINTER_TOOL : next);
+    onSelectTool(next.kind === 'connector' && toolsEqual(tool, next) ? POINTER_TOOL : next);
   }
 
   return (
@@ -112,6 +110,7 @@ export function DiagramPalette({
       {SHAPE_ITEMS.map(({ kind, label, icon }) => (
         <PaletteButton
           key={kind}
+          shape={kind}
           label={label}
           icon={icon}
           active={tool.kind === 'shape' && tool.shape === kind}

@@ -23,15 +23,15 @@ describe('ComponentTray', () => {
     }
   });
 
-  // The Elements tab now renders this content inside the right panel's own
+  // The Components tab now renders this content inside the right panel's own
   // <aside> (Inspector owns that panel chrome and its header) - see
   // docs/superpowers/specs/2026-09-12-panels-and-zoom-design.md section 1.
   // ComponentTray must not bring a second, nested landmark or panel title of
   // its own.
-  it('renders no panel chrome of its own: no landmark, no "Elements" title', () => {
+  it('renders no panel chrome of its own: no landmark, no "Components" title', () => {
     renderInEditor(<ComponentTray />);
     expect(screen.queryByRole('complementary')).toBeNull();
-    expect(screen.queryByText('Elements')).toBeNull();
+    expect(screen.queryByText('Components')).toBeNull();
   });
 
   it('renders the five group headings in the spec order', () => {
@@ -95,7 +95,7 @@ describe('ComponentTray', () => {
 
   it('hides a group entirely when the search filters out all of its items', async () => {
     const { container } = renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Search elements');
+    const input = screen.getByLabelText('Search components');
 
     await userEvent.type(input, 'table');
     const sections = Array.from(container.querySelectorAll<HTMLElement>('[data-tray-section]'));
@@ -106,7 +106,7 @@ describe('ComponentTray', () => {
 
   it('filters the rendered rows as the user types, and clears back to the full list', async () => {
     const { container } = renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Search elements');
+    const input = screen.getByLabelText('Search components');
 
     await userEvent.type(input, 'avatar');
     const matched = container.querySelectorAll('[data-tray-item]');
@@ -117,11 +117,11 @@ describe('ComponentTray', () => {
     await userEvent.type(input, 'zzz');
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-tray-section]')).toHaveLength(0);
-    expect(screen.getByText('No elements match.')).toBeInTheDocument();
+    expect(screen.getByText('No components match.')).toBeInTheDocument();
 
     await userEvent.clear(input);
     expect(container.querySelectorAll('[data-tray-item]')).toHaveLength(trayItems.length);
-    expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No components match.')).not.toBeInTheDocument();
   });
 });
 
@@ -142,9 +142,9 @@ describe('ComponentTray: modals are overlay frames now', () => {
     'shows a hint pointing at the Frames chip when searching "%s" finds nothing',
     async (query) => {
       renderInEditor(<ComponentTray />);
-      await userEvent.type(screen.getByLabelText('Search elements'), query);
+      await userEvent.type(screen.getByLabelText('Search components'), query);
 
-      expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
+      expect(screen.queryByText('No components match.')).not.toBeInTheDocument();
       expect(
         screen.getByText('Modals are overlay frames: Frames chip → New overlay → Dialog'),
       ).toBeInTheDocument();
@@ -153,22 +153,22 @@ describe('ComponentTray: modals are overlay frames now', () => {
 
   it('matches a partial word too, since the search already filters live as you type', async () => {
     renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'dial');
+    await userEvent.type(screen.getByLabelText('Search components'), 'dial');
 
     expect(screen.getByText('Modals are overlay frames: Frames chip → New overlay → Dialog')).toBeInTheDocument();
   });
 
-  it('shows the plain "No elements match." for an unrelated query with no results', async () => {
+  it('shows the plain "No components match." for an unrelated query with no results', async () => {
     renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'zzz');
+    await userEvent.type(screen.getByLabelText('Search components'), 'zzz');
 
-    expect(screen.getByText('No elements match.')).toBeInTheDocument();
+    expect(screen.getByText('No components match.')).toBeInTheDocument();
     expect(screen.queryByText(/Frames chip/)).not.toBeInTheDocument();
   });
 
   it('shows neither message once a real element matches again', async () => {
     renderInEditor(<ComponentTray />);
-    const input = screen.getByLabelText('Search elements');
+    const input = screen.getByLabelText('Search components');
     await userEvent.type(input, 'dialog');
     expect(screen.getByText(/Frames chip/)).toBeInTheDocument();
 
@@ -176,11 +176,11 @@ describe('ComponentTray: modals are overlay frames now', () => {
     await userEvent.type(input, 'button');
 
     expect(screen.queryByText(/Frames chip/)).not.toBeInTheDocument();
-    expect(screen.queryByText('No elements match.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No components match.')).not.toBeInTheDocument();
   });
 });
 
-// Element documentation (spec docs/superpowers/specs/2026-09-13-element-
+// Component documentation (spec docs/superpowers/specs/2026-09-13-element-
 // docs-design.md section 1): every row carries an "i" button that opens the
 // docs dialog for that element and never touches the row's drag.
 describe('ComponentTray: the "i" (About) button on each row', () => {
@@ -226,7 +226,7 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
 
   it('Tab from the search field reaches the first row\'s "About Frame" button', async () => {
     renderInEditor(<ComponentTray />);
-    screen.getByLabelText('Search elements').focus();
+    screen.getByLabelText('Search components').focus();
 
     await userEvent.tab();
 
@@ -364,7 +364,7 @@ describe('ComponentTray: the "i" (About) button on each row', () => {
 
   it('keeps the button on a filtered row and drops it with the row', async () => {
     renderInEditor(<ComponentTray />);
-    await userEvent.type(screen.getByLabelText('Search elements'), 'table');
+    await userEvent.type(screen.getByLabelText('Search components'), 'table');
     expect(screen.getAllByRole('button', { name: /^About / })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'About Table' })).toBeInTheDocument();
   });

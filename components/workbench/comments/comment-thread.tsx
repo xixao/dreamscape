@@ -1,133 +1,43 @@
 'use client';
-
-import { useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import type { CommentThread as CommentThreadRecord } from '@/lib/comments/store';
+import { canResolve, type CommentThread, type NoteDetails } from '@/lib/comments/store';
 import { relativeTime } from '@/lib/time';
-import { cn } from '@/lib/utils';
-import { SECONDARY_BUTTON } from '../chrome';
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function CommentRow({ author, text, createdAt }: { author: string; text: string; createdAt: string }) {
-  return (
-    <div className="flex items-start gap-2">
-      <div
-        aria-hidden
-        className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad)] text-[11px] font-semibold text-white"
-      >
-        {initials(author)}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-[13px] font-medium">{author}</span>
-          <span className="font-mono text-[10.5px] text-muted-foreground" title={createdAt}>
-            {relativeTime(createdAt)}
-          </span>
-        </div>
-        <p className="text-[13px] text-t2">{text}</p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The popover for an existing thread: the first comment, its replies, a
- * Resolve action (removes the thread outright - there is no separate
- * "resolved" state to keep, per spec section 5) and a reply composer.
- * Opening it never requires comment mode - it is reached by clicking any
- * pin, in any tool.
- */
-export function CommentThreadPopover({
-  thread,
-  number,
-  anchor,
-  authorName,
-  onClose,
-  onResolve,
-  onReply,
-}: {
-  thread: CommentThreadRecord;
-  number: number;
-  anchor: { x: number; y: number };
-  authorName: string | null;
-  onClose: () => void;
-  onResolve: () => void;
-  onReply: (input: { author: string; text: string }) => void;
+import { PANEL, SECONDARY_BUTTON } from '../chrome';
+import { NoteForm, notePopoverStyle } from './comment-composer';
+import { NOTE_META } from './note-meta';
+export function CommentThreadPopover({ thread, number, anchor, authorName, onClose, onResolve, onReply, onEdit, onDelete, onReopen, portalContainer }: {
+  thread: CommentThread; number: number; anchor: { x: number; y: number }; authorName: string | null;
+  onClose: () => void; onResolve: () => void; onReply: (input: { author: string; text: string }) => void;
+  onEdit?: (patch: NoteDetails & { text: string }) => void; onDelete?: () => void; onReopen?: () => void; portalContainer?: HTMLElement | null;
 }) {
-  const [replyText, setReplyText] = useState('');
-
-  function submitReply(): void {
-    const trimmed = replyText.trim();
-    if (!trimmed) return;
-    onReply({ author: authorName ?? 'Anonymous', text: trimmed });
-    setReplyText('');
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLElement>): void {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onClose();
-    }
-  }
-
-  function handleReplyKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault();
-      submitReply();
-    }
-  }
-
+  const [replyText, setReply] = useState('');
+  const [name, setName] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const kind = thread.kind ?? 'comment'; const meta = NOTE_META[kind]; const Icon = meta.icon;
+  function reply() { if (replyText.trim() && (authorName ?? name).trim()) { onReply({ author: (authorName ?? name).trim(), text: replyText.trim() }); setReply(''); } }
   if (typeof document === 'undefined') return null;
-
-  return createPortal(
-    <div
-      role="dialog"
-      aria-label={`Comment ${number}`}
-      data-testid="comment-thread"
-      className="fixed z-50 flex w-80 flex-col gap-3 rounded-md border bg-card p-3 shadow-panel-lg"
-      style={{ left: anchor.x, top: anchor.y }}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[13px] font-semibold">#{number}</span>
-        <div className="flex-1" />
-        <Button type="button" variant="ghost" size="sm" onClick={onResolve}>
-          Resolve
-        </Button>
-        <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
-          <X className="size-4" aria-hidden />
-        </Button>
+  return createPortal(<div role="dialog" aria-label={`${meta.label} ${number}`} data-testid="comment-thread" className={`${PANEL} pointer-events-auto fixed z-[100] flex flex-col gap-3 overflow-y-auto p-3`} style={notePopoverStyle(anchor)} onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}>
+    <div className="flex items-center gap-2"><Icon className={`size-4 ${meta.text}`} /><span className="flex-1 text-xs font-semibold">{meta.label} #{number}</span><Button variant="ghost" size="icon-xs" aria-label="Close" onClick={onClose}><X className="size-4" /></Button></div>
+    {thread.anchorLabel && <p className="text-[10px] text-muted-foreground">Attached to {thread.anchorLabel}</p>}
+    {kind === 'accessibility' && <span className="self-start rounded bg-muted px-2 py-1 text-xs capitalize">{thread.accessibilityKind ?? 'requirement'}</span>}
+    {editing ? <NoteForm kind={kind} authorName={thread.author} initial={thread} onCancel={() => setEditing(false)} onSubmit={input => { onEdit?.({ title: input.title, text: input.text, accessibilityKind: input.accessibilityKind }); setEditing(false); }} /> : <>
+      {thread.title && <h3 className="break-words text-sm font-semibold">{thread.title}</h3>}
+      {[thread, ...thread.replies].map(message => <article key={message.id} className="min-w-0"><div className="flex gap-2 text-xs"><strong>{message.author}</strong><span className="text-muted-foreground" title={message.createdAt}>{relativeTime(message.createdAt)}</span></div><p className="mt-1 whitespace-pre-wrap break-words text-sm">{message.text}</p></article>)}
+      <div className="flex flex-wrap gap-1 border-t border-line-soft pt-2">
+        {onEdit && <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit note</Button>}
+        {canResolve(thread) && <Button variant="ghost" size="sm" onClick={thread.resolvedAt ? onReopen : onResolve}>{thread.resolvedAt ? 'Reopen' : 'Resolve'}</Button>}
+        {onDelete && <Button variant="ghost" size="sm" onClick={() => setDeleting(true)}>Delete note</Button>}
       </div>
-      <div className="flex flex-col gap-3">
-        <CommentRow author={thread.author} text={thread.text} createdAt={thread.createdAt} />
-        {thread.replies.map((reply) => (
-          <CommentRow key={reply.id} author={reply.author} text={reply.text} createdAt={reply.createdAt} />
-        ))}
-      </div>
-      <div className="flex flex-col gap-2 border-t border-line-soft pt-2.5">
-        <Textarea
-          aria-label="Reply"
-          placeholder="Reply"
-          rows={2}
-          value={replyText}
-          onChange={(event) => setReplyText(event.target.value)}
-          onKeyDown={handleReplyKeyDown}
-          className="rounded-md border border-(color:--bevel-line) bg-(--chip) text-[13px] shadow-[var(--bevel-hi),var(--bevel-drop)] focus-visible:border-acc focus-visible:ring-0"
-        />
-        <Button type="button" variant="ghost" className={cn(SECONDARY_BUTTON, 'self-end')} onClick={submitReply}>
-          Reply
-        </Button>
-      </div>
-    </div>,
-    document.body,
-  );
+      {deleting && <div className="rounded border p-2 text-xs"><p>Delete this note and its replies?</p><div className="mt-2 flex gap-2"><Button size="sm" variant="destructive" onClick={onDelete}>Delete permanently</Button><Button size="sm" variant="ghost" onClick={() => setDeleting(false)}>Keep note</Button></div></div>}
+      {!authorName && <Input aria-label="Your name" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} />}
+      <Textarea aria-label="Reply" placeholder="Reply" rows={2} value={replyText} maxLength={10000} onChange={e => setReply(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); reply(); } }} className="bg-(--chip) text-sm" />
+      <button type="button" disabled={!replyText.trim() || !(authorName ?? name).trim()} className={`${SECONDARY_BUTTON} self-end disabled:opacity-40`} onClick={reply}>Reply</button>
+    </>}
+  </div>, portalContainer ?? document.body);
 }

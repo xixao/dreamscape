@@ -685,7 +685,7 @@ describe('Inspector', () => {
 
     expect(within(panel).getByTestId('inspector-type')).toHaveTextContent('Button');
     expect(within(panel).getByText('Frame')).toBeInTheDocument();
-    for (const section of ['Auto layout', 'Content', 'Appearance']) {
+    for (const section of ['Content', 'Appearance', 'State', 'Layout']) {
       expect(within(panel).getByRole('heading', { name: section })).toBeInTheDocument();
     }
     expect(within(panel).queryByRole('heading', { name: 'Editor' })).toBeNull();
@@ -696,13 +696,45 @@ describe('Inspector', () => {
     await userEvent.type(label, 'Checkout');
     await waitFor(() => expect(editor().query.node(buttonId).get().data.props.label).toBe('Checkout'));
 
-    await userEvent.click(within(panel).getByText('Small'));
+    await userEvent.click(within(panel).getByRole('combobox', { name: 'Size' }));
+    await userEvent.click(screen.getByRole('option', { name: 'Small' }));
     await waitFor(() => expect(editor().query.node(buttonId).get().data.props.size).toBe('sm'));
 
     await userEvent.click(within(panel).getByRole('switch', { name: 'Fill container' }));
     await waitFor(() => expect(editor().query.node(buttonId).get().data.props.grow).toBe(true));
 
     expect(within(panel).getByRole('combobox', { name: 'Variant' })).toHaveTextContent('Default');
+  });
+
+  it('conditionally shows icon controls and preserves button edits through undo and reload', async () => {
+    const user = userEvent.setup();
+    const { editor } = mount();
+    await screen.findByText('Billing');
+    const id = await select(editor, 'button');
+    const panel = within(screen.getByRole('complementary', { name: 'Design' }));
+    expect(panel.getAllByRole('heading').map(heading => heading.textContent).filter(name => name !== 'Align')).toEqual(['Content', 'Appearance', 'State', 'Layout']);
+    expect(panel.queryByRole('switch', { name: 'Icon only' })).toBeNull();
+    expect(panel.queryByRole('radiogroup', { name: 'Icon position' })).toBeNull();
+    expect(panel.getByRole('textbox', { name: 'Accessible label' })).not.toBeVisible();
+    await user.click(panel.getByRole('combobox', { name: 'Icon' }));
+    await user.click(screen.getByRole('option', { name: 'Microphone' }));
+    await user.click(panel.getByRole('switch', { name: 'Icon only' }));
+    expect(panel.queryByRole('textbox', { name: 'Label' })).toBeNull();
+    expect(panel.queryByRole('radiogroup', { name: 'Icon position' })).toBeNull();
+    await user.type(panel.getByRole('textbox', { name: 'Accessible label' }), 'Record audio');
+    expect(screen.getByRole('button', { name: 'Record audio' })).toBeVisible();
+    await user.click(panel.getByRole('switch', { name: 'Loading' }));
+    expect(screen.getByRole('button', { name: 'Record audio' })).toHaveAttribute('aria-busy', 'true');
+    act(() => editor().actions.history.undo());
+    expect(screen.getByRole('button', { name: 'Record audio' })).not.toHaveAttribute('aria-busy');
+    act(() => editor().actions.history.redo());
+    const saved = editor().query.serialize();
+    act(() => { editor().actions.selectNode(ROOT_NODE); });
+    act(() => { editor().actions.deserialize(saved); editor().actions.selectNode(id); });
+    expect(panel.getByRole('switch', { name: 'Loading' })).toBeChecked();
+    expect(panel.getByRole('textbox', { name: 'Accessible label' })).toHaveValue('Record audio');
+    await user.click(panel.getByText('Advanced', { exact: true }));
+    expect(panel.getByRole('combobox', { name: 'Min width' })).toBeVisible();
   });
 
   it('edits the current breakpoint of a LayoutBox and jumps to the other one', async () => {
@@ -764,14 +796,14 @@ describe('Inspector', () => {
       const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
       expect(within(seg).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
       expect(within(seg).getByRole('radio', { name: 'Prototype' })).toHaveAttribute('data-state', 'off');
-      expect(within(seg).getByRole('radio', { name: 'Elements' })).toHaveAttribute('data-state', 'off');
+      expect(within(seg).getByRole('radio', { name: 'Components' })).toHaveAttribute('data-state', 'off');
       expect(within(seg).getByRole('radio', { name: 'Diagrams' })).toHaveAttribute('data-state', 'off');
     });
 
     it('renders every tab icon-only: no visible tab text, just each item\'s own accessible name', () => {
       mount();
       const seg = screen.getByRole('radiogroup', { name: 'Panel mode' });
-      for (const label of ['Design', 'Prototype', 'Elements', 'Diagrams']) {
+      for (const label of ['Design', 'Prototype', 'Components', 'Diagrams']) {
         expect(within(seg).getByRole('radio', { name: label })).not.toHaveTextContent(label);
       }
     });
@@ -786,7 +818,7 @@ describe('Inspector', () => {
     it('calls onPanelModeChange when Elements is clicked', async () => {
       const onPanelModeChange = vi.fn();
       mount(1440, { onPanelModeChange });
-      await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
     });
 
@@ -810,12 +842,12 @@ describe('Inspector', () => {
       expect(within(panel).queryByTestId('inspector-type')).toBeNull();
     });
 
-    it('shows the Elements tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
+    it('shows the Components tab content (search field, grouped list, drag sources) when panelMode is components', async () => {
       mount(1440, { panelMode: 'components' });
       await screen.findByText('Billing');
-      const panel = screen.getByRole('complementary', { name: 'Elements' });
+      const panel = screen.getByRole('complementary', { name: 'Components' });
 
-      expect(within(panel).getByLabelText('Search elements')).toBeInTheDocument();
+      expect(within(panel).getByLabelText('Search components')).toBeInTheDocument();
       expect(within(panel).getByText('Layout')).toBeInTheDocument();
       expect(within(panel).getByText('Frame')).toBeInTheDocument();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
@@ -824,7 +856,7 @@ describe('Inspector', () => {
 
     // The Diagrams tab (spec docs/superpowers/specs/2026-09-14-panel-tabs-
     // icons-design.md): the same seven tools the floating palette (Shift+D)
-    // offers, moved here from the Elements tab's now-removed Diagram group.
+    // offers, moved here from the Components tab's now-removed Diagram group.
     describe('the Diagrams tab', () => {
       it('shows the seven diagram tools when panelMode is diagrams', async () => {
         mount(1440, { panelMode: 'diagrams' });
@@ -862,7 +894,7 @@ describe('Inspector', () => {
       mount();
       const design = screen.getByRole('radio', { name: 'Design' });
       const prototype = screen.getByRole('radio', { name: 'Prototype' });
-      const elements = screen.getByRole('radio', { name: 'Elements' });
+      const elements = screen.getByRole('radio', { name: 'Components' });
       const diagrams = screen.getByRole('radio', { name: 'Diagrams' });
 
       design.focus();
@@ -901,7 +933,7 @@ describe('Inspector', () => {
       expect(expandButton).toHaveAttribute('aria-expanded', 'false');
       expect(within(panel).getByRole('button', { name: 'Design' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Prototype' })).toBeInTheDocument();
-      expect(within(panel).getByRole('button', { name: 'Elements' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Components' })).toBeInTheDocument();
       expect(within(panel).getByRole('button', { name: 'Diagrams' })).toBeInTheDocument();
       expect(within(panel).queryByRole('radiogroup', { name: 'Panel mode' })).toBeNull();
       expect(within(panel).queryByText('Nothing selected')).toBeNull();
@@ -924,7 +956,7 @@ describe('Inspector', () => {
       mount(1440, { collapsed: true, onPanelModeChange, onToggleCollapsed });
       const panel = screen.getByRole('complementary', { name: 'Design' });
 
-      await userEvent.click(within(panel).getByRole('button', { name: 'Elements' }));
+      await userEvent.click(within(panel).getByRole('button', { name: 'Components' }));
       expect(onPanelModeChange).toHaveBeenCalledWith('components');
       expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     });
@@ -962,7 +994,7 @@ it('undoes an image aspect preset and its linked size as one inspector edit', as
   const { editor } = renderInEditor(<><Frame><Element is={LayoutBox} canvas><Image size={{ width: 400, height: 400, locked: true }} /></Element></Frame><Inspector screens={ONE_SCREEN} currentScreenId="s1" panelMode="design" onPanelModeChange={() => {}} collapsed={false} onToggleCollapsed={() => {}} /></>);
   const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
   act(() => { editor().actions.selectNode(id); editor().actions.history.clear(); });
-  await userEvent.click(screen.getByRole('combobox', { name: 'Aspect ratio' }));
+  await userEvent.click(await screen.findByRole('combobox', { name: 'Aspect ratio' }));
   await userEvent.click(screen.getByRole('option', { name: 'Video (16:9)' }));
   expect(editor().query.node(id).get().data.props.size.height).toBe(225);
   act(() => editor().actions.history.undo());

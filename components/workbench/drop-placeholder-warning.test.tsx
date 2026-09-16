@@ -100,7 +100,7 @@ describe('drag placeholder and React render warnings', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     render(<Workbench file={makeFile()} />);
-    await userEvent.click(screen.getByRole('radio', { name: 'Elements' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
 
     const trayButton = document.querySelector('[data-tray-item="Button"]');
     if (!trayButton) throw new Error('Button tray item not found');

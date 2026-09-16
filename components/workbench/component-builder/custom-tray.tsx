@@ -8,15 +8,18 @@ import { StageProvider } from '../stage-context';
 import { CustomComponent } from '@/components/blocks/custom-component';
 import { useComponentLibrary } from './library-context';
 import { LABEL } from '../chrome';
+import { useSettledEditorState } from '../use-settled-editor-state';
 export function CreateComponentCard() {
   const library = useComponentLibrary();
-  const { query, selected } = useEditor(state => ({ selected: [...state.events.selected][0] }));
+  const { query } = useEditor();
+  const state = useSettledEditorState();
+  const selected = [...state.events.selected][0];
   if (!library) return null;
   return <><button onClick={() => library.open()} className="group m-2 flex shrink-0 items-center gap-3 rounded-lg border border-acc/30 bg-acc/5 p-3 text-left transition-colors hover:border-acc hover:bg-acc/10 focus-visible:ring-2 focus-visible:ring-ring">
     <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-acc/15 text-acc"><Plus className="size-5" /></span>
     <span><span className="block text-[13px] font-semibold">Create component</span><span className="block text-[11px] text-muted-foreground">Build a reusable component</span></span>
   </button>
-  {selected && query.node(selected).get().data.name === 'LayoutBox' && <button className="mx-3 mb-2 text-left text-xs text-acc" onClick={() => {
+  {selected && state.nodes[selected]?.data.name === 'LayoutBox' && <button className="mx-3 mb-2 text-left text-xs text-acc" onClick={() => {
     const definition = componentFromSelection(query.serialize(), selected);
     if (isComponentLayout(definition.layout)) library.open(definition, selected);
   }}>Create from selected frame</button>}

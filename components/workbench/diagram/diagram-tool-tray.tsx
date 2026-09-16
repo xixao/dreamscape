@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { Info, Search } from 'lucide-react';
+import { startDiagramDrag, endDiagramDrag } from '@/lib/diagram/insertion';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { INFO_BUTTON, SEARCH, SEARCH_INPUT } from '../chrome';
@@ -18,7 +19,7 @@ import { DIAGRAM_TOOL_ITEMS, diagramToolDocKey, toolsEqual, type DiagramToolItem
 // connector actually looks like. Moved here from component-tray.tsx's now-
 // removed Diagram group (spec docs/superpowers/specs/2026-09-13-diagrams-
 // design.md section 13), since this tab is the tools' new home - the
-// Elements tab goes back to Craft blocks only.
+// Components tab goes back to Craft blocks only.
 const DIAGRAM_SHARED_KEYWORDS = ['shape', 'diagram', 'flow'];
 const DIAGRAM_CONNECTOR_KEYWORDS = ['connector', 'arrow', 'line'];
 
@@ -40,24 +41,7 @@ export function filterDiagramToolItems(items: DiagramTrayRow[], query: string): 
   );
 }
 
-/**
- * The Diagrams tab's content (spec docs/superpowers/specs/2026-09-14-panel-
- * tabs-icons-design.md section 1, "instead of using words, let's use
- * icons ... the existing diagramming icon for diagrams"): the same seven
- * tools the floating palette (Shift+D) offers - Rectangle, Rounded,
- * Decision, Terminal, Text, Note, Connector - as this tab's own full body,
- * with comfortable spacing rather than the cramped Craft-block row list the
- * Elements tab uses. Selecting a tool here arms the very same shared
- * `diagramTool` state clicking it in the floating palette would (both stay
- * in sync with each other), through the same `onSelectDiagramTool` callback
- * component-tray.tsx's own now-removed Diagram group used to take -
- * workbench.tsx already wires this straight through Inspector, unchanged.
- *
- * Rendered inside the right panel's own <aside> by Inspector, which already
- * owns that panel's chrome and header (the four tab icons) - this renders
- * no landmark or title of its own, matching ComponentTray's own precedent
- * for the Elements tab.
- */
+/** The right panel shares insertion and connector tools with the floating palette. */
 export function DiagramToolTray({
   diagramTool = POINTER_TOOL,
   onSelectDiagramTool,
@@ -68,13 +52,13 @@ export function DiagramToolTray({
   // caller/test that does not care, the same "keep old callers working"
   // precedent every other optional prop in this panel already follows.
   diagramTool?: DiagramTool;
-  // Arms a diagram tool from the tab, the same as clicking it in the
+  // Inserts a shape or arms the connector, the same as clicking it in the
   // floating palette. Optional/no-op so a caller that never passes it still
   // renders every row without throwing on click.
   onSelectDiagramTool?: (tool: DiagramTool) => void;
 } = {}) {
   const [filter, setFilter] = useState('');
-  // One Element documentation dialog for the whole tab (see
+  // One Component documentation dialog for the whole tab (see
   // component-tray.tsx's own identical precedent for why this outlives
   // `open`: the dialog's closing animation keeps showing the tool it was
   // opened for instead of flashing the fallback doc).
@@ -117,7 +101,10 @@ export function DiagramToolTray({
                   data-diagram-tool-item={docKey}
                   aria-pressed={toolsEqual(diagramTool, item.tool)}
                   aria-label={item.label}
-                  title={item.label}
+                  title={item.tool.kind === 'shape' ? `${item.label} — click to add or drag onto canvas` : 'Connect two shapes or frames'}
+                  draggable={item.tool.kind === 'shape'}
+                  onDragStart={event => { if (item.tool.kind === 'shape') startDiagramDrag(event.dataTransfer, item.tool.shape); }}
+                  onDragEnd={endDiagramDrag}
                   onClick={() => onSelectDiagramTool?.(item.tool)}
                   className="flex w-full items-center justify-center rounded-lg px-2 py-8"
                 >

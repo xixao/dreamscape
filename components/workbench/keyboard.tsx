@@ -78,6 +78,8 @@ export function useWorkbenchKeyboard(
     // tool, no comment mode) clears it via onDeselectDiagram instead of
     // falling through to actions.selectNode().
     diagramSelectionActive?: boolean;
+    // Keep history in the diagram after Undo clears selection, while its palette owns focus.
+    diagramHistoryActive?: boolean;
     onDeselectDiagram?: () => void;
     // Whether one or more frames are selected on the canvas (spec docs/
     // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md
@@ -136,6 +138,7 @@ export function useWorkbenchKeyboard(
     // V: leaves the comment tool (and, once it exists, the diagram tool) -
     // the pointer is the default state, not a tool of its own to enter.
     onPointerTool?: () => void;
+    onSectionTool?: () => void;
     // T (spec docs/superpowers/specs/2026-09-13-diagrams-design.md section 11):
     // opens the diagram palette if closed and arms the Text shape, so the next
     // click places a text block and opens its editor. Escape returns to the
@@ -184,6 +187,7 @@ export function useWorkbenchKeyboard(
     diagramToolActive,
     onExitDiagramTool,
     diagramSelectionActive,
+    diagramHistoryActive,
     onDeselectDiagram,
     frameSelectionActive,
     onClearFrameSelection,
@@ -203,6 +207,7 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onSectionTool,
     onTextTool,
     onPresent,
     onAddScreen,
@@ -284,7 +289,7 @@ export function useWorkbenchKeyboard(
 
         case 'undo':
           event.preventDefault();
-          if (diagramSelectionActive) {
+          if (diagramSelectionActive || diagramHistoryActive) {
             onDiagramUndo?.();
             return;
           }
@@ -293,7 +298,7 @@ export function useWorkbenchKeyboard(
 
         case 'redo':
           event.preventDefault();
-          if (diagramSelectionActive) {
+          if (diagramSelectionActive || diagramHistoryActive) {
             onDiagramRedo?.();
             return;
           }
@@ -372,6 +377,10 @@ export function useWorkbenchKeyboard(
 
         case 'diagram-tab':
           onSelectPanelTab?.('diagrams');
+          return;
+
+        case 'tool-section':
+          onSectionTool?.();
           return;
 
         case 'tool-pointer':
@@ -488,6 +497,7 @@ export function useWorkbenchKeyboard(
     diagramToolActive,
     onExitDiagramTool,
     diagramSelectionActive,
+    diagramHistoryActive,
     onDeselectDiagram,
     frameSelectionActive,
     onClearFrameSelection,
@@ -507,6 +517,7 @@ export function useWorkbenchKeyboard(
     onZoomToSelection,
     onSelectPanelTab,
     onPointerTool,
+    onSectionTool,
     onTextTool,
     onPresent,
     onAddScreen,

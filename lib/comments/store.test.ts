@@ -82,7 +82,7 @@ describe('createCommentStore', () => {
     expect(store.list()[0].replies).toHaveLength(0);
   });
 
-  it('resolve removes the thread entirely, and persists the removal', () => {
+  it('resolve preserves the discussion and persists its resolved status', () => {
     const storage = fakeStorage();
     const store = createCommentStore('file1', storage);
     const thread = store.add({ x: 0, y: 0, author: 'Matt', text: 'First' });
@@ -90,9 +90,23 @@ describe('createCommentStore', () => {
 
     store.resolve(thread.id);
 
+    expect(store.list()).toHaveLength(2);
+    expect(store.list()[0].resolvedAt).toEqual(expect.any(String));
+    expect(createCommentStore('file1', storage).list()[0].resolvedAt).toBeTruthy();
+    store.reopen(thread.id);
+    expect(store.list()[0].resolvedAt).toBeUndefined();
+  });
+
+  it('keeps annotations and accessibility requirements unresolved and supports editing and deletion', () => {
+    const storage = fakeStorage(); const store = createCommentStore('notes', storage);
+    const annotation = store.add({ x: 1, y: 2, kind: 'annotation', title: 'Width', text: '720px', author: 'Designer', screenId: 's1', anchorNodeId: 'button', anchorOffset: { x: 1, y: 0 } });
+    const requirement = store.add({ x: 1, y: 2, kind: 'accessibility', accessibilityKind: 'requirement', text: 'Focus', author: 'Designer' });
+    store.resolve(annotation.id); store.resolve(requirement.id);
+    expect(store.list().every(t => !t.resolvedAt)).toBe(true);
+    store.update(annotation.id, { title: 'Maximum width', text: '680px' });
+    expect(createCommentStore('notes', storage).list()[0]).toMatchObject({ title: 'Maximum width', text: '680px', anchorOffset: { x: 1, y: 0 }, screenId: 's1' });
+    store.remove(annotation.id);
     expect(store.list()).toHaveLength(1);
-    expect(store.list()[0].text).toBe('Second');
-    expect(createCommentStore('file1', storage).list()).toHaveLength(1);
   });
 
   it('tolerates corrupt JSON in storage, starting empty rather than throwing', () => {

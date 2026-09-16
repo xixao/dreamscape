@@ -212,6 +212,19 @@ describe('files repository', () => {
     });
   });
 
+  describe('canvas sections', () => {
+    it('persists page sections and duplicates their geometry with fresh identities', async () => {
+      const section = {id:'section001',name:'Checkout',x:-100,y:40,width:2000,height:1000};
+      const created=await repo.create({pages:[{id:'page000001',name:'Page',sections:[section]}]});
+      expect((await repo.get(created.id))?.pages?.[0].sections).toEqual([section]);
+      const result=await repo.save(created.id,{pages:[{id:'page000001',name:'Page',sections:[{...section,name:'Approved'}]}]});
+      expect(result.ok).toBe(true);
+      const copy=await repo.duplicate(created.id);
+      expect(copy?.pages?.[0].sections?.[0]).toMatchObject({...section,id:expect.any(String),name:'Approved'});
+      expect(copy?.pages?.[0].sections?.[0].id).not.toBe(section.id);
+    });
+  });
+
   describe('diagrams', () => {
     function diagramNode(overrides: Record<string, unknown> = {}) {
       return {

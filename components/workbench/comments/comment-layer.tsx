@@ -1,169 +1,109 @@
 'use client';
-
+import { useEffect, useRef, useState } from 'react';
+import { capturePointer } from '@/lib/dom';
 import { createPortal } from 'react-dom';
-import type { CommentThread } from '@/lib/comments/store';
-import { toScreenPoint, type Rect } from '@/lib/comments/geometry';
-import { cn } from '@/lib/utils';
-import { CommentComposer } from './comment-composer';
+import type { CommentThread, NoteAnchor, NoteDetails, NoteKind } from '@/lib/comments/store';
+import { toArtboardPoint, toScreenPoint, type Rect } from '@/lib/comments/geometry';
+import { CommentComposer, type NoteInput } from './comment-composer';
 import { CommentThreadPopover } from './comment-thread';
-
-// The offset the composer/thread popovers sit at from their anchor pin, the
-// same idea as layer-stack-menu.tsx's own MENU_OFFSET (a small nudge so the
-// popover does not sit flush under the cursor/pin).
-const POPOVER_OFFSET = 10;
-
-export interface PendingPin {
-  x: number;
-  y: number;
-  anchorNodeId?: string;
-}
-
-/**
- * Everything the comments feature needs from whoever owns its state
- * (WorkbenchShell in components/workbench/workbench.tsx). Stage receives
- * this as a single prop and forwards it into CommentLayer alongside the
- * `zoom`/`artboardRect` it measures itself - the same pass-through shape
- * Stage already uses for the screens-strip props.
- */
+import { NOTE_META } from './note-meta';
+export interface PendingPin extends NoteAnchor { x: number; y: number; }
 export interface StageCommentsProps {
-  commentMode: boolean;
-  threads: CommentThread[];
-  pendingPin: PendingPin | null;
-  openThreadId: string | null;
-  authorName: string | null;
-  onPlacePin: (x: number, y: number, anchorNodeId: string | undefined) => void;
-  onCancelPending: () => void;
-  onSubmitComment: (input: { author: string; text: string }) => void;
-  onPinClick: (threadId: string) => void;
-  onCloseThread: () => void;
-  onSubmitReply: (threadId: string, input: { author: string; text: string }) => void;
-  onResolveThread: (threadId: string) => void;
+  visible?: boolean;
+  portalContainer?: HTMLElement | null;
+  commentMode: boolean; noteKind?: NoteKind; threads: CommentThread[]; pendingPin: PendingPin | null;
+  openThreadId: string | null; authorName: string | null;
+  onPlacePin: (x: number, y: number, anchorNodeId: string | undefined, anchor?: NoteAnchor) => void;
+  onCancelPending: () => void; onSubmitComment: (input: NoteInput) => void;
+  onPinClick: (id: string) => void; onCloseThread: () => void;
+  onSubmitReply: (id: string, input: { author: string; text: string }) => void;
+  onResolveThread: (id: string) => void;
+  onReopenThread?: (id: string) => void;
+  onEditThread?: (id: string, patch: NoteDetails & { text: string }) => void;
+  onMovePin?: (id: string, position: { x: number; y: number; anchorOffset?: { x: number; y: number } }) => void;
+  onDeleteThread?: (id: string) => void;
 }
-
-// Stage's own tests (stage.test.tsx) predate comments and never pass a
-// `comments` prop; this default keeps them rendering an inert, empty layer
-// with no behavior change instead of every call site needing an update.
 export const DEFAULT_STAGE_COMMENTS: StageCommentsProps = {
-  commentMode: false,
-  threads: [],
-  pendingPin: null,
-  openThreadId: null,
-  authorName: null,
-  onPlacePin: () => {},
-  onCancelPending: () => {},
-  onSubmitComment: () => {},
-  onPinClick: () => {},
-  onCloseThread: () => {},
-  onSubmitReply: () => {},
-  onResolveThread: () => {},
+  commentMode: false, threads: [], pendingPin: null, openThreadId: null, authorName: null,
+  onPlacePin: () => {}, onCancelPending: () => {}, onSubmitComment: () => {}, onPinClick: () => {}, onCloseThread: () => {}, onSubmitReply: () => {}, onResolveThread: () => {},
 };
-
-function Pin({
-  number,
-  x,
-  y,
-  artboardRect,
-  zoom,
-  pending,
-  onClick,
-}: {
-  number: number | null;
-  x: number;
-  y: number;
-  artboardRect: Rect;
-  zoom: number;
-  pending?: boolean;
-  onClick?: () => void;
+export function CommentLayer(props: StageCommentsProps & {
+  zoom: number; artboardRect: Rect | null; portalContainer?: HTMLElement | null;
+  resolveAnchor?: (thread: NoteAnchor) => Rect | null;
 }) {
-  const point = toScreenPoint(x, y, artboardRect, zoom);
-  return (
-    <button
-      type="button"
-      aria-label={number === null ? 'New comment' : `Comment ${number}`}
-      style={{
-        position: 'fixed',
-        // The circle's bottom-left corner sits at the point (spec: "a small
-        // tail"), so it reads like a pin whose tip touches the exact spot
-        // rather than a dot centered on it.
-        left: point.x,
-        top: point.y - 24,
-        pointerEvents: 'auto',
-      }}
-      className={cn(
-        'flex size-6 items-center justify-center rounded-full rounded-bl-none bg-primary font-mono text-[11px] font-semibold text-white shadow-panel',
-        pending && 'opacity-70',
-      )}
-      onClick={onClick}
-    >
-      {number ?? ''}
-    </button>
-  );
-}
-
-/**
- * The pin overlay plus the composer/thread popovers (spec
- * docs/superpowers/specs/2026-09-12-folders-and-comments-design.md section 5).
- * Rendered by Stage inside the zoom wrapper for colocation, but everything
- * it draws is portaled to `document.body` and positioned in real (fixed)
- * screen coordinates computed from `artboardRect`/`zoom` - not by inheriting
- * the wrapper's CSS `zoom`. That keeps this component correct regardless of
- * where in the DOM it is mounted, which is exactly what lets it move to the
- * parent document unchanged once the artboard becomes an iframe (see
- * docs/superpowers/specs/2026-09-12-responsive-canvas-design.md): only how
- * `artboardRect` is measured will need to change, in Stage, not here.
- */
-export function CommentLayer(props: StageCommentsProps & { zoom: number; artboardRect: Rect | null }) {
-  const { threads, pendingPin, openThreadId, artboardRect, zoom } = props;
-
-  if (!artboardRect || typeof document === 'undefined') return null;
-
-  const openIndex = threads.findIndex((thread) => thread.id === openThreadId);
-  const openThread = openIndex === -1 ? null : threads[openIndex];
-
-  return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-40">
-      {threads.map((thread, index) => (
-        <Pin
-          key={thread.id}
-          number={index + 1}
-          x={thread.x}
-          y={thread.y}
-          artboardRect={artboardRect}
-          zoom={zoom}
-          onClick={() => props.onPinClick(thread.id)}
-        />
-      ))}
-      {pendingPin && (
-        <Pin number={null} pending x={pendingPin.x} y={pendingPin.y} artboardRect={artboardRect} zoom={zoom} />
-      )}
-      {pendingPin &&
-        (() => {
-          const anchor = toScreenPoint(pendingPin.x, pendingPin.y, artboardRect, zoom);
-          return (
-            <CommentComposer
-              anchor={{ x: anchor.x + POPOVER_OFFSET, y: anchor.y + POPOVER_OFFSET }}
-              authorName={props.authorName}
-              onCancel={props.onCancelPending}
-              onSubmit={props.onSubmitComment}
-            />
-          );
-        })()}
-      {openThread &&
-        (() => {
-          const anchor = toScreenPoint(openThread.x, openThread.y, artboardRect, zoom);
-          return (
-            <CommentThreadPopover
-              thread={openThread}
-              number={openIndex + 1}
-              anchor={{ x: anchor.x + POPOVER_OFFSET, y: anchor.y + POPOVER_OFFSET }}
-              authorName={props.authorName}
-              onClose={props.onCloseThread}
-              onResolve={() => props.onResolveThread(openThread.id)}
-              onReply={(input) => props.onSubmitReply(openThread.id, input)}
-            />
-          );
-        })()}
-    </div>,
-    document.body,
-  );
+  const { threads, pendingPin, artboardRect, zoom } = props;
+  const drag = useRef<{ id: string; pointerId: number; startX: number; startY: number; x: number; y: number; moved: boolean } | null>(null);
+  const suppressClick = useRef<string | null>(null);
+  const [preview, setPreview] = useState<{id: string; x: number; y: number} | null>(null);
+  useEffect(() => {
+    const cancel = () => { if (drag.current?.moved) suppressClick.current = drag.current.id; drag.current = null; setPreview(null); };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    window.addEventListener('blur', cancel); window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key); };
+  }, []);
+  const [anchors, setAnchors] = useState<Record<string, Rect>>({});
+  const [hovered, setHovered] = useState<string | null>(null);
+  useEffect(() => {
+    if (!props.resolveAnchor || !threads.some(t => t.anchorNodeId)) { setAnchors({}); return; }
+    let frame = 0; let previous = '';
+    function measure() {
+      const next: Record<string, Rect> = {};
+      for (const thread of threads) {
+        const rect = props.resolveAnchor?.(thread);
+        if (rect) next[thread.id] = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      }
+      const signature = JSON.stringify(next);
+      if (signature !== previous) { previous = signature; setAnchors(next); }
+      frame = requestAnimationFrame(measure);
+    }
+    measure(); return () => cancelAnimationFrame(frame);
+  }, [threads, props.resolveAnchor]);
+  if (props.visible === false || !artboardRect || typeof document === 'undefined') return null;
+  function point(thread: PendingPin | CommentThread) {
+    if ('id' in thread && preview?.id === thread.id) return preview;
+    const rect = 'id' in thread ? anchors[thread.id] : undefined;
+    if (rect && thread.anchorOffset) return { x: rect.left + rect.width * thread.anchorOffset.x, y: rect.top + rect.height * thread.anchorOffset.y };
+    return toScreenPoint(thread.x, thread.y, artboardRect!, zoom);
+  }
+  const open = threads.find(t => t.id === props.openThreadId);
+  const highlight = anchors[hovered ?? props.openThreadId ?? ''];
+  const portalContainer = props.portalContainer ?? document.body;
+  return createPortal(<>
+    {highlight && <div aria-hidden className="pointer-events-none fixed z-[5] rounded-sm border-2 border-violet-400 bg-violet-400/10" style={{ left: highlight.left, top: highlight.top, width: highlight.width, height: highlight.height }} />}
+    <div className="pointer-events-none fixed inset-0 z-[90]" data-note-layer>
+    {threads.map((thread, index) => {
+      const position = point(thread); const meta = NOTE_META[thread.kind ?? 'comment']; const Icon = meta.icon;
+      return <button key={thread.id} type="button" aria-label={`${meta.label} ${thread.number ?? index + 1}`} title={`${meta.label} · ${thread.author}
+${thread.title || thread.text}`} onPointerEnter={() => setHovered(thread.id)} onPointerLeave={() => setHovered(null)} onFocus={() => setHovered(thread.id)} onBlur={() => setHovered(null)} onPointerDown={e => {
+        e.stopPropagation();
+        if (e.button !== 0 || !props.onMovePin) return;
+        e.preventDefault(); suppressClick.current = null;
+        capturePointer(e.currentTarget, e.pointerId);
+        drag.current = {id:thread.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,x:position.x,y:position.y,moved:false};
+      }} onPointerMove={e => {
+        const current = drag.current;
+        if (!current || current.pointerId !== e.pointerId) return;
+        e.stopPropagation();
+        const dx=e.clientX-current.startX,dy=e.clientY-current.startY;
+        if (!current.moved && Math.hypot(dx,dy)<4) return;
+        if (!current.moved) props.onCloseThread();
+        current.moved=true;
+        setPreview({id:thread.id,x:current.x+dx,y:current.y+dy});
+      }} onPointerUp={e => {
+        const current=drag.current;
+        if (!current || current.pointerId !== e.pointerId) return;
+        e.stopPropagation(); drag.current=null;
+        if (current.moved) {
+          suppressClick.current=thread.id;
+          const x=current.x+e.clientX-current.startX,y=current.y+e.clientY-current.startY;
+          const anchor=anchors[thread.id];
+          const inside=anchor && anchor.width>0 && anchor.height>0 && x>=anchor.left && x<=anchor.left+anchor.width && y>=anchor.top && y<=anchor.top+anchor.height;
+          props.onMovePin?.(thread.id,{...toArtboardPoint(x,y,artboardRect,zoom),anchorOffset:inside?{x:(x-anchor.left)/anchor.width,y:(y-anchor.top)/anchor.height}:undefined});
+        }
+        setPreview(null);
+      }} onPointerCancel={() => { if(drag.current?.moved)suppressClick.current=thread.id;drag.current=null;setPreview(null); }} onClick={e => { e.stopPropagation(); if(suppressClick.current===thread.id){suppressClick.current=null;return;} props.onPinClick(thread.id); }} className={`pointer-events-auto touch-none select-none fixed flex h-7 min-w-9 items-center justify-center gap-1 rounded-lg rounded-bl-none px-1.5 text-[10px] font-semibold text-white shadow-md ${meta.pin} ${thread.resolvedAt ? 'opacity-60' : ''}`} style={{ left: position.x, top: position.y - 28, cursor: props.onMovePin ? preview?.id === thread.id ? 'grabbing' : 'grab' : undefined }}><Icon className="size-3.5" aria-hidden /><span>{thread.number ?? index + 1}</span></button>;
+    })}
+    {pendingPin && <CommentComposer key={`${props.noteKind}:${pendingPin.x}:${pendingPin.y}`} kind={props.noteKind} anchor={{ x: point(pendingPin).x + 10, y: point(pendingPin).y + 10 }} authorName={props.authorName} onCancel={props.onCancelPending} onSubmit={props.onSubmitComment} portalContainer={portalContainer} />}
+    {open && <CommentThreadPopover key={open.id} thread={open} number={open.number ?? threads.indexOf(open) + 1} anchor={{ x: point(open).x + 10, y: point(open).y + 10 }} authorName={props.authorName} onClose={props.onCloseThread} onResolve={() => props.onResolveThread(open.id)} onReply={input => props.onSubmitReply(open.id, input)} onReopen={() => props.onReopenThread?.(open.id)} onEdit={props.onEditThread ? patch => props.onEditThread?.(open.id, patch) : undefined} onDelete={props.onDeleteThread ? () => props.onDeleteThread?.(open.id) : undefined} portalContainer={portalContainer} />}
+  </div></>, portalContainer);
 }

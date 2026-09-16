@@ -1,3 +1,6 @@
+import { annotationSchema, type Annotation } from '@/lib/accessibility/kit';
+import { validTable } from '@/lib/diagram/table';
+import { sectionsSchema, type CanvasSection } from '../canvas/sections';
 import { isComponentLayout } from '@/lib/custom-components/model';
 import { snapToSpacing } from '@/lib/classes';
 import {
@@ -294,8 +297,8 @@ function validateLayoutGrid(screenName: string, grid: LayoutGrid): { ok: true } 
 // screens rather than inside any one of them - optional, so a file saved
 // before diagrams existed (or a page nobody has drawn on) keeps working
 // with no migration needed.
-export type Page = { id: string; name: string; diagram?: DiagramData };
-export type PageInput = { id: string; name: string; diagram?: DiagramInput };
+export type Page = { id: string; name: string; diagram?: DiagramData; sections?: CanvasSection[] };
+export type PageInput = { id: string; name: string; diagram?: DiagramInput; sections?: CanvasSection[] };
 export type ValidatePagesResult = { ok: true; pages: Page[] } | { ok: false; reason: string };
 
 const PAGE_NAME_MAX = 80;
@@ -350,7 +353,9 @@ export function validatePages(input: PageInput[]): ValidatePagesResult {
       diagram = validatedDiagram.diagram;
     }
 
-    pages.push({ id: raw.id, name, ...(diagram !== undefined ? { diagram } : {}) });
+    const sections = raw.sections === undefined ? undefined : sectionsSchema.safeParse(raw.sections);
+    if (sections && !sections.success) return { ok: false, reason: `page "${name}" has invalid sections` };
+    pages.push({ id: raw.id, name, ...(diagram !== undefined ? { diagram } : {}), ...(sections?.success ? { sections: sections.data } : {}) });
   }
 
   return { ok: true, pages };
@@ -587,6 +592,8 @@ export type DiagramNodeInput = {
   height: number;
   text: string;
   color: string;
+  annotation?: Annotation;
+  table?: string[][];
   textSize?: string;
   textFont?: string;
   textColor?: string;
@@ -669,6 +676,12 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     }
     if (!(node.width > 0) || !(node.height > 0)) {
       return { ok: false, reason: `diagram node "${node.id}" must have a positive width and height` };
+    }
+    if (node.annotation !== undefined && !annotationSchema.safeParse(node.annotation).success) {
+      return {ok:false, reason:`diagram node "${node.id}" has an invalid accessibility annotation`};
+    }
+    if (node.table !== undefined && !validTable(node.table)) {
+      return { ok: false, reason: `diagram node "${node.id}" has an invalid table` };
     }
     if (node.text.length > DIAGRAM_TEXT_MAX) {
       return { ok: false, reason: `diagram node "${node.id}" text is longer than ${DIAGRAM_TEXT_MAX} characters` };
