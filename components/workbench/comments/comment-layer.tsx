@@ -26,6 +26,7 @@ export interface PendingPin {
  * Stage already uses for the screens-strip props.
  */
 export interface StageCommentsProps {
+  dismissEmptyOnOutsideClick?: boolean;
   commentMode: boolean;
   threads: CommentThread[];
   pendingPin: PendingPin | null;
@@ -143,6 +144,7 @@ export function CommentLayer(props: StageCommentsProps & { zoom: number; artboar
             <CommentComposer
               anchor={{ x: anchor.x + POPOVER_OFFSET, y: anchor.y + POPOVER_OFFSET }}
               authorName={props.authorName}
+              dismissEmptyOnOutsideClick={props.dismissEmptyOnOutsideClick}
               onCancel={props.onCancelPending}
               onSubmit={props.onSubmitComment}
             />

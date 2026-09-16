@@ -2,10 +2,15 @@
 
 import {
   Columns2Icon,
+  BriefcaseBusinessIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  Code2Icon,
   Grid2X2Icon,
   LayoutTemplateIcon,
   Rows3Icon,
-  XIcon,
+  PaletteIcon,
+  type LucideIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -18,6 +23,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { PANEL, PANEL_HEADER } from '@/components/workbench/chrome';
 import type { DevicePresetGroup } from '@/lib/stage/device-presets';
 import { cn } from '@/lib/utils';
 
@@ -29,11 +36,13 @@ export type PresentationScale = 'fit' | `${(typeof PRESENTATION_ZOOM_LEVELS)[num
 
 interface PresentationLayoutPanelProps {
   background: string;
+  collapsed: boolean;
   composition: PresentationComposition;
   deviceGroups: DevicePresetGroup[];
   deviceName: string;
   onBackgroundChange: (value: string) => void;
   onClose: () => void;
+  onExpand: () => void;
   onCompositionChange: (value: PresentationComposition) => void;
   onDeviceChange: (value: string) => void;
   onReset: () => void;
@@ -52,10 +61,10 @@ interface PresentationLayoutPanelProps {
   viewport: PresentationViewport;
 }
 
-const viewOptions: { value: PresentationView; label: string }[] = [
-  { value: 'design', label: 'Design' },
-  { value: 'development', label: 'Developer' },
-  { value: 'business', label: 'Business' },
+const viewOptions: { value: PresentationView; label: string; icon: LucideIcon }[] = [
+  { value: 'design', label: 'Design', icon: PaletteIcon },
+  { value: 'development', label: 'Developer', icon: Code2Icon },
+  { value: 'business', label: 'Business', icon: BriefcaseBusinessIcon },
 ];
 
 const compositionOptions: {
@@ -77,11 +86,13 @@ const viewportOptions: { value: PresentationViewport; label: string }[] = [
 
 export function PresentationLayoutPanel({
   background,
+  collapsed,
   composition,
   deviceGroups,
   deviceName,
   onBackgroundChange,
   onClose,
+  onExpand,
   onCompositionChange,
   onDeviceChange,
   onReset,
@@ -99,30 +110,61 @@ export function PresentationLayoutPanel({
   view,
   viewport,
 }: PresentationLayoutPanelProps) {
+  const viewButtons = viewOptions.map(({ value, label, icon: Icon }) => (
+    <Tooltip key={value}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={view === value}
+          onClick={() => onViewChange(value)}
+          className={cn(
+            'flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            view === value && 'bg-accent text-foreground',
+            !collapsed && 'flex-1',
+          )}
+        >
+          <Icon className="size-4" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left">{label}</TooltipContent>
+    </Tooltip>
+  ));
+
+  if (collapsed) {
+    return (
+      <aside
+        aria-label="Presentation views"
+        className={cn(PANEL, 'fixed bottom-3 right-3 top-20 z-[85] flex w-10 flex-col items-center gap-1 py-2 lg:static lg:my-3 lg:mr-3 lg:shrink-0')}
+      >
+        <Button variant="ghost" size="icon" aria-label="Expand display settings" aria-expanded={false} onClick={onExpand}>
+          <ChevronLeftIcon className="size-3.5" aria-hidden="true" />
+        </Button>
+        <div className="my-1 h-px w-6 bg-border" aria-hidden="true" />
+        {viewButtons}
+      </aside>
+    );
+  }
+
   return (
     <aside
       aria-label="Display and layout"
-      className="fixed inset-x-0 bottom-0 z-[85] max-h-[78dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-[25rem] lg:shrink-0 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none"
+      className={cn(PANEL, 'fixed inset-x-3 bottom-3 z-[85] flex max-h-[78dvh] min-h-0 flex-col lg:static lg:my-3 lg:mr-3 lg:max-h-none lg:w-80 lg:shrink-0')}
     >
-      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-line-soft bg-card pb-4">
-        <div>
-          <h2 className="text-lg font-semibold">Display &amp; layout</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Change how this content appears.</p>
+      <div className={PANEL_HEADER}>
+        <div className="flex flex-1 gap-1" role="group" aria-label="Presentation view">
+          {viewButtons}
         </div>
-        <Button variant="ghost" size="icon" aria-label="Close display settings" onClick={onClose}>
-          <XIcon aria-hidden="true" />
+        <Button variant="ghost" size="icon" aria-label="Close display settings" aria-expanded={true} onClick={onClose}>
+          <ChevronRightIcon className="size-3.5" aria-hidden="true" />
         </Button>
       </div>
 
-      <div className="space-y-6 pt-5">
-        <PanelSection title="View">
-          <SegmentedControl
-            ariaLabel="Presentation view"
-            options={viewOptions}
-            value={view}
-            onChange={onViewChange}
-          />
-        </PanelSection>
+      <div className="space-y-6 overflow-y-auto p-4">
+        <div>
+          <h2 className="text-sm font-semibold">Display &amp; layout</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{viewOptions.find((option) => option.value === view)?.label} view · Change how this content appears.</p>
+        </div>
 
         <PanelSection title="Content">
           <Select value={screenId} onValueChange={onScreenChange}>
@@ -150,23 +192,27 @@ export function PresentationLayoutPanel({
         </PanelSection>
 
         <PanelSection title="Composition">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4" role="group" aria-label="Composition layout">
+          <div className="grid grid-cols-4 gap-2" role="group" aria-label="Composition layout">
             {compositionOptions.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={composition === value}
-                className={cn(
-                  'flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  composition === value
-                    ? 'border-ring bg-accent text-foreground'
-                    : 'border-line-soft bg-(color:--chip) text-muted-foreground hover:border-line-strong hover:text-foreground',
-                )}
-                onClick={() => onCompositionChange(value)}
-              >
-                <Icon className="size-5" aria-hidden="true" />
-                <span>{label}</span>
-              </button>
+              <Tooltip key={value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={composition === value}
+                    className={cn(
+                      'flex h-10 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      composition === value
+                        ? 'border-ring bg-accent text-foreground'
+                        : 'border-line-soft bg-(color:--chip) text-muted-foreground hover:border-line-strong hover:text-foreground',
+                    )}
+                    onClick={() => onCompositionChange(value)}
+                  >
+                    <Icon className="size-5" aria-hidden="true" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{label}</TooltipContent>
+              </Tooltip>
             ))}
           </div>
         </PanelSection>

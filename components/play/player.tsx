@@ -2,7 +2,7 @@
 import { exitPreview } from './exit-preview';
 
 import { Editor, Frame } from '@craftjs/core';
-import { XIcon, MoreHorizontalIcon, PanelRightIcon, ChevronDownIcon, MaximizeIcon, MinimizeIcon, MonitorIcon, SmartphoneIcon, SlidersHorizontalIcon } from 'lucide-react';
+import { XIcon, MoreHorizontalIcon, MessageSquareIcon, PanelRightIcon, ChevronDownIcon, ChevronRightIcon, LayersIcon, MaximizeIcon, MinimizeIcon, MonitorIcon, SmartphoneIcon, SlidersHorizontalIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { resolver } from '@/components/blocks/registry';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { CanvasFrame } from '@/components/workbench/canvas-frame';
 import { StageProvider } from '@/components/workbench/stage-context';
+import { CHIP, PANEL, SEG_GROUP, SEG_ITEM, SECONDARY_BUTTON } from '@/components/workbench/chrome';
 import { CommentLayer, type PendingPin } from '@/components/workbench/comments/comment-layer';
 import { createCommentStore, getAuthorName, setAuthorName } from '@/lib/comments/store';
 import { toArtboardPoint, type Rect } from '@/lib/comments/geometry';
@@ -338,6 +339,9 @@ export function Player({
     (screenId: string) => {
       if (!validScreenIds.has(screenId)) return;
       setActiveArtifactId(null);
+      setPendingPin(null);
+      setOpenThreadId(null);
+      setCommentMode(false);
       dispatch({ type: 'navigate', screenId });
     },
     [validScreenIds],
@@ -575,6 +579,7 @@ export function Player({
   // nothing but overlay frames), which validateScreens never allows in a
   // real saved file. The hook above must remain unconditional.
   if (!currentScreen) return null;
+  const currentPage = file.pages?.find((page) => page.id === currentScreen.pageId);
   const comparisonPreview = composition !== 'side-by-side'
     ? null
     : presentationViewport === 'both'
@@ -605,27 +610,44 @@ export function Player({
     const point = toArtboardPoint(event.clientX, event.clientY, rect, presentationZoom);
     setPendingPin({ x: point.x, y: point.y });
   };
+  const placeContextComment = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (shared || !allowed('comment') || textArtifact || !artboardRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = artboardRef.current.getBoundingClientRect();
+    setArtboardRect({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    setPendingPin(toArtboardPoint(event.clientX, event.clientY, rect, presentationZoom));
+    setOpenThreadId(null);
+    setFocusEnabled(false);
+  };
 
   return (
     <PlayProvider value={play}>
       <TooltipProvider delayDuration={300}>
       <div className="presentation-stage relative flex h-dvh flex-col overflow-hidden bg-canvas font-sans text-foreground">
-        {showReview && !isExpanded && <header className="sticky top-0 z-[80] flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-line-soft bg-card/95 px-4 py-2 shadow-panel backdrop-blur supports-[backdrop-filter]:bg-card/80">
-          <div className="flex min-w-0 items-center gap-3">
+        {showReview && !isExpanded && <header className={cn(PANEL, 'relative z-[80] mx-3 mt-3 flex min-h-[54px] shrink-0 flex-wrap items-center justify-between gap-2 px-3.5 py-2 xl:flex-nowrap')}>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             {shared ? <>
               <span className="hidden shrink-0 rounded-full border border-line-strong bg-(color:--chip) px-2.5 py-1 text-[11px] font-medium sm:inline-flex">{presets[preset].name}</span>
               <span className="min-w-0 truncate text-sm font-semibold tracking-tight">{displayTitle}</span>
               {currentScreen.name !== displayTitle && <span className="hidden truncate text-xs text-muted-foreground md:block">{currentScreen.name}</span>}
             </> : <>
               <span className="sr-only">Preview</span>
-              <span className="min-w-0 truncate text-sm font-semibold tracking-tight">{currentScreen.name}</span>
-              <span className="hidden text-sm text-muted-foreground sm:inline">· Presenting</span>
-              <span className="hidden shrink-0 rounded-md border border-line-strong bg-(color:--chip) px-2 py-1 text-[11px] text-muted-foreground md:inline-flex">Read-only</span>
+              <span className={cn(CHIP, 'hidden max-w-40 lg:flex')}><span className="truncate text-[13px]">{file.name}</span></span>
+              <ChevronRightIcon className="hidden size-3 shrink-0 text-muted-foreground lg:block" aria-hidden="true" />
+              {currentPage && <>
+                <span className={cn(CHIP, 'hidden max-w-32 xl:flex')}><LayersIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="truncate text-[12.5px]">{currentPage.name}</span></span>
+                <ChevronRightIcon className="hidden size-3 shrink-0 text-muted-foreground xl:block" aria-hidden="true" />
+              </>}
+              <span className={cn(CHIP, 'min-w-0 max-w-52')}><LayersIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="truncate text-[12.5px] font-medium">{currentScreen.name}</span></span>
+              <span className="hidden shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground md:inline">Read-only</span>
             </>}
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-1" aria-label="Presentation controls">
-            <Tooltip><TooltipTrigger asChild><Button type="button" variant={presentationViewport === 'desktop' ? 'secondary' : 'ghost'} size="icon" aria-label="Desktop preview" aria-pressed={presentationViewport === 'desktop'} onClick={() => changePresentationViewport('desktop')}><MonitorIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Desktop preview</TooltipContent></Tooltip>
-            <Tooltip><TooltipTrigger asChild><Button type="button" variant={presentationViewport === 'mobile' ? 'secondary' : 'ghost'} size="icon" aria-label="Mobile preview" aria-pressed={presentationViewport === 'mobile'} onClick={() => changePresentationViewport('mobile')}><SmartphoneIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Mobile preview</TooltipContent></Tooltip>
+          <div className="flex flex-wrap items-center justify-end gap-1.5" aria-label="Presentation controls">
+            <div className={cn(SEG_GROUP, 'w-auto shrink-0')} role="group" aria-label="Preview viewport">
+              <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" className={cn(SEG_ITEM, 'h-8 gap-1.5 px-2')} data-state={presentationViewport === 'mobile' ? 'on' : 'off'} aria-label="Mobile preview" aria-pressed={presentationViewport === 'mobile'} onClick={() => changePresentationViewport('mobile')}><SmartphoneIcon aria-hidden="true" className="size-3.5" /><span className="hidden sm:inline">Mobile</span></Button></TooltipTrigger><TooltipContent className="z-[110]">Mobile preview</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" className={cn(SEG_ITEM, 'h-8 gap-1.5 px-2')} data-state={presentationViewport === 'desktop' ? 'on' : 'off'} aria-label="Desktop preview" aria-pressed={presentationViewport === 'desktop'} onClick={() => changePresentationViewport('desktop')}><MonitorIcon aria-hidden="true" className="size-3.5" /><span className="hidden sm:inline">Desktop</span></Button></TooltipTrigger><TooltipContent className="z-[110]">Desktop preview</TooltipContent></Tooltip>
+            </div>
             <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="Scale">{fitView ? 'Fit' : `${Math.round(presentationZoom * 100)}%`} <ChevronDownIcon className="size-3" aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-40" align="end"><DropdownMenuItem onSelect={() => setFitView(true)}>Fit to window</DropdownMenuItem>{PRESENTATION_ZOOM_LEVELS.map((zoom) => <DropdownMenuItem key={zoom} onSelect={() => changeZoom(zoom)}>{zoom * 100}%</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
             <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Presentation options"><MoreHorizontalIcon aria-hidden="true" /></Button></DropdownMenuTrigger><DropdownMenuContent className="z-[100] min-w-52" align="end"><DropdownMenuItem onSelect={resetPresentation}>Restart walkthrough</DropdownMenuItem>
               {allowed('focus') && <DropdownMenuItem onSelect={() => { setFocusEnabled(value => !value); setCommentMode(false); }}>{focusEnabled ? 'Exit Focus' : 'Focus component'}</DropdownMenuItem>}
@@ -636,16 +658,17 @@ export function Player({
             {shared && showNavigation && artifacts.length > 1 && <Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="sm" onClick={() => { setCommentsPanelOpen((value) => !value); }} aria-pressed={commentsPanelOpen}>
               <PanelRightIcon className="size-4" aria-hidden="true" /> Browse
             </Button>}
-            {!shared && <Tooltip><TooltipTrigger asChild><Button type="button" variant={displayPanelOpen ? 'secondary' : 'ghost'} size="icon" aria-label="Display and layout" aria-pressed={displayPanelOpen} onClick={() => setDisplayPanelOpen((value) => !value)}><SlidersHorizontalIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Display &amp; layout</TooltipContent></Tooltip>}
+            {!shared && allowed('comment') && <Tooltip><TooltipTrigger asChild><Button type="button" variant={commentsPanelOpen ? 'secondary' : 'ghost'} size="icon" aria-label="Comments and feedback" aria-pressed={commentsPanelOpen} onClick={() => { setReviewPanelTab('comments'); setCommentsPanelOpen((value) => !value); setDisplayPanelOpen(false); }}><MessageSquareIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Comments &amp; feedback ({visibleThreads.length})</TooltipContent></Tooltip>}
+            {!shared && <Tooltip><TooltipTrigger asChild><Button type="button" variant={displayPanelOpen ? 'secondary' : 'ghost'} size="icon" aria-label="Display and layout" aria-pressed={displayPanelOpen} onClick={() => { setDisplayPanelOpen((value) => !value); setCommentsPanelOpen(false); }}><SlidersHorizontalIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Display &amp; layout</TooltipContent></Tooltip>}
             <Tooltip><TooltipTrigger asChild><Button ref={expandButtonRef} type="button" variant="ghost" size="icon" aria-label="Expand presentation" onClick={() => void toggleExpanded()}><MaximizeIcon aria-hidden="true" /></Button></TooltipTrigger><TooltipContent className="z-[110]">Expand presentation</TooltipContent></Tooltip>
-            {!shared && <a href={closeHref} onClick={event => { event.preventDefault(); exitPreview(closeHref, closeTab); }} className={cn("ml-1 rounded border px-3 py-1.5 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", exitAboveOverlays && "pointer-events-auto")}>Exit</a>}
+            {!shared && <a href={closeHref} onClick={event => { event.preventDefault(); exitPreview(closeHref, closeTab); }} className={cn(SECONDARY_BUTTON, 'ml-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', exitAboveOverlays && 'pointer-events-auto')}>Exit</a>}
           </div>
         </header>}
         {showReview && isExpanded && <Button autoFocus type="button" variant="secondary" size="sm" className="pointer-events-auto absolute right-4 top-4 z-[110] gap-2 border shadow-lg" aria-label="Exit expanded view" onClick={() => void toggleExpanded()}><MinimizeIcon aria-hidden="true" className="size-4" /> Back to presentation</Button>}
         {showReview && !isExpanded && (focusEnabled || comparisonScreen || !prototypeEnabled) && <div className="relative z-[80] flex flex-wrap items-center gap-2 border-b bg-card px-4 py-2 text-xs">{focusEnabled && <Button size="sm" variant="outline" onClick={() => setFocusEnabled(false)}>Exit Focus</Button>}{comparisonScreen && <Button size="sm" variant="outline" onClick={() => setCompareScreenId('__none')}>Close comparison</Button>}{!prototypeEnabled && allowed('prototype') && <Button size="sm" variant="outline" onClick={() => setPrototypeEnabled(true)}>Resume prototype</Button>}</div>}
         {showReview && !isExpanded && saveMessage && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">{saveMessage}</div>}
         <div className="flex min-h-0 flex-1">
-        <main className="relative min-w-0 flex-1 overflow-auto p-4 sm:p-8" style={{ backgroundColor: canvasBackground }} aria-label="Presentation preview">
+        <main className="relative min-w-0 flex-1 overflow-auto p-4 pr-16 sm:p-8 sm:pr-16 lg:pr-8" style={{ backgroundColor: canvasBackground }} aria-label="Presentation preview">
           {composition === 'flow' || composition === 'grid' ? (
             <section className="m-auto w-full max-w-6xl" aria-label={`${composition === 'flow' ? 'Flow' : 'Grid'} layout`}>
               <div className={cn(composition === 'grid' ? 'grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-5' : 'flex items-start gap-5 overflow-x-auto pb-4')}>
@@ -688,6 +711,7 @@ export function Player({
                   if (commentMode && allowed('comment')) { event.preventDefault(); event.stopPropagation(); }
                   placeComment(event);
                 }}
+                onContextMenuCapture={placeContextComment}
               >
                 <Editor resolver={resolver} enabled={false} handlers={store => new PresentationHandlers({ store, removeHoverOnMouseleave: false })}>
                   <Frame key={state.currentScreenId} data={currentScreen.layout} />
@@ -718,6 +742,7 @@ export function Player({
             )}
           </div>
           {!shared && <CommentLayer
+            dismissEmptyOnOutsideClick
             commentMode={commentMode && allowed('comment') && !textArtifact}
             threads={allowed('comment') && !textArtifact ? visibleThreads : []}
             pendingPin={allowed('comment') ? pendingPin : null}
@@ -733,6 +758,9 @@ export function Player({
               commentStore.add({ x: pendingPin.x, y: pendingPin.y, pageId: currentScreen.pageId, screenId: currentScreen.id, author, text });
               setPendingPin(null);
               setCommentMode(false);
+              setReviewPanelTab('comments');
+              setCommentsPanelOpen(true);
+              setDisplayPanelOpen(false);
             }}
             onPinClick={(id) => { setPendingPin(null); setOpenThreadId(id); }}
             onCloseThread={() => setOpenThreadId(null)}
@@ -757,14 +785,16 @@ export function Player({
           ) : null;
         })}
         </main>
-        {!shared && displayPanelOpen && !isExpanded && (
+        {!shared && !isExpanded && (
           <PresentationLayoutPanel
             background={canvasBackground}
+            collapsed={!displayPanelOpen}
             composition={composition}
             deviceGroups={DEVICE_PRESET_GROUPS}
             deviceName={devicePreset?.name ?? 'none'}
             onBackgroundChange={setCanvasBackground}
             onClose={() => setDisplayPanelOpen(false)}
+            onExpand={() => { setDisplayPanelOpen(true); setCommentsPanelOpen(false); }}
             onCompositionChange={changeComposition}
             onDeviceChange={changePresentationDevice}
             onReset={resetPresentation}
@@ -772,7 +802,7 @@ export function Player({
             onScreenChange={navigate}
             onShowDeviceFrameChange={setShowDeviceFrame}
             onShowScreenLabelChange={setShowScreenLabel}
-            onViewChange={setPresentationView}
+            onViewChange={(view) => { setPresentationView(view); setDisplayPanelOpen(true); setCommentsPanelOpen(false); }}
             onViewportChange={changePresentationViewport}
             scale={presentationScale}
             screenId={currentScreen.id}
@@ -783,20 +813,20 @@ export function Player({
             viewport={presentationViewport}
           />
         )}
-        {shared && showReview && commentsPanelOpen && !isExpanded && (
-          <aside className="fixed inset-x-0 bottom-0 z-[85] max-h-[72dvh] overflow-y-auto rounded-t-2xl border border-line-soft bg-card p-5 shadow-xl lg:static lg:z-auto lg:max-h-none lg:w-96 lg:rounded-none lg:border-0 lg:border-l lg:shadow-none" aria-label={shared ? 'Review context' : 'Review'}>
+        {showReview && commentsPanelOpen && !isExpanded && (shared || allowed('comment')) && (
+          <aside className={cn(PANEL, 'fixed inset-x-3 bottom-3 z-[85] max-h-[72dvh] overflow-y-auto p-4 lg:static lg:my-3 lg:mr-3 lg:max-h-none lg:w-80 lg:shrink-0')} aria-label={shared ? 'Review context' : 'Comments and feedback'}>
             <div className="sticky top-0 z-10 mb-4 flex items-start justify-between gap-3 bg-card pb-2">
               <div>
-                <h2 className="whitespace-nowrap text-sm font-semibold">{shared ? 'Context' : 'Review'}</h2>
-                <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">{presets[preset].name}</p>
+                <h2 className="whitespace-nowrap text-sm font-semibold">{shared ? 'Context' : 'Comments & feedback'}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">{shared ? presets[preset].name : `${currentScreen.name} · Saved in this browser`}</p>
               </div>
               {reviewPanelTab === 'comments' && allowed('comment') && <Button type="button" variant={commentMode ? 'secondary' : 'outline'} size="sm" onClick={() => { setCommentMode((value) => !value); setPendingPin(null); }} aria-pressed={commentMode}>
                 {commentMode ? 'Cancel pin' : 'Place comment'}
               </Button>}
-              <Button variant="ghost" size="icon" aria-label="Close review panel" onClick={() => setCommentsPanelOpen(false)}><XIcon /></Button>
+              <Button variant="ghost" size="icon" aria-label={shared ? 'Close review panel' : 'Close comments and feedback'} onClick={() => setCommentsPanelOpen(false)}><XIcon /></Button>
             </div>
             {sharedConfig?.introduction && <p className="mb-4 whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">{sharedConfig.introduction}</p>}
-            {(!shared || showNavigation) && <div className="mb-4 flex flex-wrap gap-1 rounded-md bg-(color:--chip) p-1" role="group" aria-label="Review panel">
+            {shared && showNavigation && <div className="mb-4 flex flex-wrap gap-1 rounded-md bg-(color:--chip) p-1" role="group" aria-label="Review panel">
               {([...(showNavigation ? ['screens' as const] : []), ...(allowed('comment') ? ['comments' as const] : []), ...(allowed('context.read') ? [...(!shared ? ['overview' as const] : []), 'context' as const] : [])] as const).map((tab) => (
                 <button key={tab} type="button" aria-pressed={reviewPanelTab === tab} className={cn('rounded px-2 py-1.5 text-[11px] capitalize', reviewPanelTab === tab ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')} onClick={() => setReviewPanelTab(tab)}>{tab}</button>
               ))}

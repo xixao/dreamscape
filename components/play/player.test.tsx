@@ -154,6 +154,66 @@ function makeFile({ screen1StageHeight }: { screen1StageHeight?: number } = {}):
 }
 
 describe('Player', () => {
+  it('dismisses an empty comment on outside click but preserves a typed draft', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} />);
+    const artboard = await screen.findByTestId('artboard');
+
+    fireEvent.contextMenu(artboard, { clientX: 100, clientY: 80 });
+    expect(screen.getByRole('dialog', { name: 'New comment' })).toBeInTheDocument();
+    fireEvent.pointerDown(artboard);
+    expect(screen.queryByRole('dialog', { name: 'New comment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New comment' })).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(artboard, { clientX: 100, clientY: 80 });
+    const input = screen.getByRole('textbox', { name: 'Add a comment' });
+    await user.type(input, 'Keep this draft');
+    fireEvent.pointerDown(artboard);
+    expect(input).toHaveValue('Keep this draft');
+    expect(screen.getByRole('dialog', { name: 'New comment' })).toBeInTheDocument();
+
+    await user.clear(input);
+    await user.type(input, '   ');
+    fireEvent.pointerDown(artboard);
+    expect(screen.queryByRole('dialog', { name: 'New comment' })).not.toBeInTheDocument();
+  });
+
+  it('opens the existing composer on right-click and saves to the feedback list', async () => {
+    const user = userEvent.setup();
+    const file = { ...makeFile(), id: 'presentation-comment-test' };
+    const storageKey = `assembly-workbench:comments:${file.id}`;
+    const originalAuthor = localStorage.getItem('assembly-workbench:author-name');
+    localStorage.removeItem('assembly-workbench:author-name');
+    try {
+      render(<Player file={file} />);
+      fireEvent.contextMenu(await screen.findByTestId('artboard'), { clientX: 100, clientY: 80 });
+      const composer = screen.getByRole('dialog', { name: 'New comment' });
+      await user.type(within(composer).getByRole('textbox', { name: 'Your name' }), 'Matt');
+      await user.type(within(composer).getByRole('textbox', { name: 'Add a comment' }), 'Make the heading clearer');
+      await user.click(within(composer).getByRole('button', { name: 'Comment' }));
+
+      expect(screen.queryByRole('dialog', { name: 'New comment' })).not.toBeInTheDocument();
+      const feedback = screen.getByRole('complementary', { name: 'Comments and feedback' });
+      expect(within(feedback).getByText('Make the heading clearer')).toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem(storageKey)!)[0]).toMatchObject({
+        fileId: file.id, screenId: 'screen1', author: 'Matt', text: 'Make the heading clearer',
+      });
+      await user.click(within(feedback).getByRole('button', { name: /Matt/ }));
+      expect(screen.getByTestId('comment-thread')).toBeInTheDocument();
+    } finally {
+      localStorage.removeItem(storageKey);
+      if (originalAuthor === null) localStorage.removeItem('assembly-workbench:author-name');
+      else localStorage.setItem('assembly-workbench:author-name', originalAuthor);
+    }
+  });
+
+  it('does not open right-click comments without the comment capability', async () => {
+    render(<Player file={makeFile()} grantedCapabilities={['prototype']} />);
+    fireEvent.contextMenu(await screen.findByTestId('artboard'), { clientX: 100, clientY: 80 });
+    expect(screen.queryByRole('dialog', { name: 'New comment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Comments and feedback' })).not.toBeInTheDocument();
+  });
+
   it('registers read-only component geometry for Focus without enabling editing', async () => {
     const user = userEvent.setup();
     render(<Player file={makeFile()} />);
@@ -203,6 +263,23 @@ describe('Player', () => {
 
     await user.click(screen.getByRole('button', { name: 'Close display settings' }));
     expect(screen.queryByRole('complementary', { name: 'Display and layout' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the presentation view rail visible and expands the selected view', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} />);
+
+    const rail = screen.getByRole('complementary', { name: 'Presentation views' });
+    expect(within(rail).getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(rail).queryByRole('button', { name: 'Testing' })).not.toBeInTheDocument();
+    await user.click(within(rail).getByRole('button', { name: 'Developer' }));
+    expect(screen.getByRole('complementary', { name: 'Display and layout' })).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Code' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Close display settings' }));
+    expect(screen.getByRole('complementary', { name: 'Presentation views' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Expand display settings' }));
+    expect(screen.getByRole('button', { name: 'Developer' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('does not substitute browser-local review content into author preview', async () => {

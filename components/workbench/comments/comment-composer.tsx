@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,14 +22,26 @@ export function CommentComposer({
   authorName,
   onCancel,
   onSubmit,
+  dismissEmptyOnOutsideClick = false,
 }: {
   anchor: { x: number; y: number };
   authorName: string | null;
   onCancel: () => void;
   onSubmit: (input: { author: string; text: string }) => void;
+  dismissEmptyOnOutsideClick?: boolean;
 }) {
   const [name, setName] = useState('');
   const [text, setText] = useState('');
+  const composerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dismissEmptyOnOutsideClick || text.trim()) return;
+    const dismissEmptyDraft = (event: PointerEvent) => {
+      if (event.target instanceof Node && !composerRef.current?.contains(event.target)) onCancel();
+    };
+    document.addEventListener('pointerdown', dismissEmptyDraft, true);
+    return () => document.removeEventListener('pointerdown', dismissEmptyDraft, true);
+  }, [text, onCancel, dismissEmptyOnOutsideClick]);
 
   function submit(): void {
     const trimmedText = text.trim();
@@ -52,6 +64,7 @@ export function CommentComposer({
 
   return createPortal(
     <div
+      ref={composerRef}
       role="dialog"
       aria-label="New comment"
       data-testid="comment-composer"

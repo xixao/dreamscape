@@ -170,15 +170,8 @@
 }
 
 /* Presentation chrome stays separate from the component canvas theme. */
-.presentation-stage > header {
-  min-height: 68px;
-  padding-inline: 24px;
-  background: var(--card);
-  box-shadow: none;
-}
 .presentation-stage main {
   background: var(--canvas);
-  padding: 40px;
 }
 .presentation-stage [data-testid="artboard"] {
   box-shadow: 0 24px 70px #0005, 0 1px 4px #0003;
@@ -193,11 +186,6 @@
 .presentation-stage aside button { transition: background-color 140ms ease, border-color 140ms ease; }
 .presentation-stage aside label > span, .presentation-stage aside dt { color: #aaa5b9; }
 .presentation-stage aside input, .presentation-stage aside textarea { font-size: 13px; line-height: 1.6; }
-@media (min-width: 1024px) { .presentation-stage aside { width: 344px; } }
-@media (max-width: 639px) {
-  .presentation-stage > header { padding-inline: 12px; }
-  .presentation-stage main { padding: 24px; }
-}
 @media (prefers-reduced-motion: reduce) { .presentation-stage aside button { transition: none; } }
 /* Reusable components hug their content rather than inheriting screen height. */
 .custom-component-content [data-block="LayoutBox"] { min-height: var(--component-node-min-height, 0px) !important; }
