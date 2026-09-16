@@ -1084,3 +1084,24 @@ describe('files repository', () => {
     });
   });
 });
+
+describe('saved shared review', () => {
+  it('persists metadata independently of source layouts and preserves it on legacy saves', async () => {
+    const { sharedReviewSchema, screenArtifact } = await import('@/lib/presentation/model');
+    await resetDbForTests();
+    const repo = createFilesRepository(await getDb());
+    const file = await repo.create();
+    const source = file.screens![0];
+    const review = sharedReviewSchema.parse({ version: 1, preset: 'research', start: source.id, navigation: false, capabilities: ['context.read'], artifacts: [screenArtifact(source)], approval: 'off', comments: {}, approvals: {} });
+    expect((await repo.save(file.id, { sharedReview: review, baseUpdatedAt: file.updatedAt })).ok).toBe(true);
+    const recipientFile = await createFilesRepository(await getDb()).get(file.id);
+    expect(recipientFile?.sharedReview).toEqual(review);
+    expect(recipientFile?.screens).toEqual(file.screens);
+    await repo.save(file.id, { name: 'Renamed' });
+    expect((await repo.get(file.id))?.sharedReview).toEqual(review);
+    expect((await repo.duplicate(file.id))?.sharedReview).toBeNull();
+    expect(await repo.save(file.id, { sharedReview: review, baseUpdatedAt: file.updatedAt })).toMatchObject({ conflict: true });
+    await repo.save(file.id, { sharedReview: null });
+    expect((await repo.get(file.id))?.sharedReview).toBeNull();
+  });
+});

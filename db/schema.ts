@@ -33,6 +33,7 @@ export const files = pgTable('files', {
   // convert to and from the `layout: string` shape the API and repository
   // use everywhere else.
   appearance: text('appearance').notNull().default('light'),
+  sharedReview: jsonb('shared_review'),
   components: jsonb('components').notNull().default('[]'),
   screens: jsonb('screens').notNull().default('[]'),
   // Nullable: a file with no folderId lives at the top level. Same

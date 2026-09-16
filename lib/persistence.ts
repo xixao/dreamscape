@@ -1,3 +1,4 @@
+import type { SharedReview } from './presentation/model';
 import type { ComponentDefinition } from './custom-components/model';
 import type { Page, Screen } from './files/repository';
 
@@ -6,6 +7,7 @@ export type SaveState = 'saved' | 'saving' | 'error' | 'conflict';
 export type FlushResult = 'saved' | 'error' | 'conflict';
 
 export type FilePatch = {
+  sharedReview?: SharedReview | null;
   appearance?: 'light' | 'dark';
   components?: ComponentDefinition[];
   screens?: Screen[];

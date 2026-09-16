@@ -154,6 +154,100 @@ function makeFile({ screen1StageHeight }: { screen1StageHeight?: number } = {}):
 }
 
 describe('Player', () => {
+  it('registers read-only component geometry for Focus without enabling editing', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} />);
+    await user.click(await screen.findByRole('button', { name: 'Presentation options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Focus component' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Focus component' }), 'navButton');
+    await waitFor(() => expect(screen.getByTestId('focus-highlight')).toBeInTheDocument());
+    expect(screen.queryByTestId('selection-outline')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Go to second screen' }));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+    await user.click(screen.getByRole('button', { name: 'Exit Focus' }));
+    await user.click(screen.getByRole('button', { name: 'Go to second screen' }));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen2');
+  });
+
+  it('keeps author preview focused on prototype playback', async () => {
+    render(<Player file={makeFile()} />);
+    expect(await screen.findByText('Preview')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Review preset' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Context' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review' })).not.toBeInTheDocument();
+  });
+
+  it('opens display settings on demand and changes the presentation composition', async () => {
+    const user = userEvent.setup();
+    render(<Player file={makeFile()} />);
+
+    expect(screen.queryByRole('complementary', { name: 'Display and layout' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Display and layout' }));
+    expect(screen.getByRole('heading', { name: 'Display & layout' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Developer' }));
+    expect(screen.getByRole('complementary', { name: 'Code' })).toBeInTheDocument();
+    expect(screen.getByText('Saved Dreamscape component structure')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Business' }));
+    expect(screen.getByRole('complementary', { name: 'Business summary' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Side by side' }));
+    expect(screen.getByRole('region', { name: 'Comparison: Second screen' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Both' }));
+    expect(screen.getByRole('region', { name: 'Login mobile preview' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Flow' }));
+    expect(screen.getByRole('region', { name: 'Flow layout' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Close display settings' }));
+    expect(screen.queryByRole('complementary', { name: 'Display and layout' })).not.toBeInTheDocument();
+  });
+
+  it('does not substitute browser-local review content into author preview', async () => {
+    localStorage.setItem('dreamscape:review:file1', JSON.stringify({ version: 1, artifacts: [{
+      id: 'screen:screen1', type: 'requirement', title: 'Private requirement', body: 'Draft review copy', screenIds: ['screen1'], context: {},
+    }] }));
+    try {
+      render(<Player file={makeFile()} />);
+      expect(await screen.findByRole('button', { name: 'Go to second screen' })).toBeInTheDocument();
+      expect(screen.queryByRole('article', { name: 'requirement content' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Draft review copy')).not.toBeInTheDocument();
+    } finally { localStorage.removeItem('dreamscape:review:file1'); }
+  });
+
+  it('hides link, comparison, and screen switching options when they do not apply', async () => {
+    const user = userEvent.setup();
+    const file = makeFile();
+    file.screens = [file.screens![0]];
+    render(<Player file={file} />);
+    await user.click(await screen.findByRole('button', { name: 'Presentation options' }));
+    expect(screen.queryByText('Copy presentation link')).not.toBeInTheDocument();
+    expect(screen.queryByText('Compare with')).not.toBeInTheDocument();
+    expect(screen.queryByText('Go to screen')).not.toBeInTheDocument();
+  });
+
+  it('closes inline dialogs when an interaction navigates to the current screen', async () => {
+    const user = userEvent.setup();
+    const file = makeFile();
+    const tree = structuredClone(SCREEN_1_TREE);
+    tree.dialog1Content.nodes = ['homeButton'] as never[];
+    const layout = { ...tree, homeButton: {
+      ...tree.navButton,
+      parent: 'dialog1Content',
+      props: { label: 'Return home' },
+      custom: { interactions: [{ id: 'home', trigger: 'click', action: 'navigate', targetScreenId: 'screen1' }] },
+    } };
+    file.screens![0].layout = JSON.stringify(layout);
+    render(<Player file={file} initialScreenId="screen1" />);
+    await user.click(await screen.findByRole('button', { name: 'Open confirm' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Return home' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/f/file1#s=screen1');
+  });
+
   it('ignores a screen\'s layoutGrid - Play never shows the layout grid overlay', async () => {
     const file = makeFile();
     file.screens![0].layoutGrid = { columns: 12, gutter: 24, margin: 32, visible: true };
@@ -1174,7 +1268,64 @@ it('keeps shared playback free of editor exit controls and Escape navigation', a
   render(<Player file={makeFile()} initialScreenId="screen1" shared />);
   expect(screen.queryByText('Esc to exit')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Close' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Exit' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Context' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: 'Story navigation' })).not.toBeInTheDocument();
   await userEvent.keyboard('{Escape}');
   expect(assign).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
+});
+
+it('does not substitute browser-local review content into a shared prototype', async () => {
+  localStorage.setItem('dreamscape:review:file1', JSON.stringify({ version: 1, artifacts: [{
+    id: 'screen:screen1', type: 'requirement', title: 'Private review notes',
+    body: 'Unshared rationale', screenIds: ['screen1'], context: {},
+  }] }));
+  try {
+    render(<Player file={makeFile()} initialScreenId="screen1" shared />);
+    expect(screen.queryByText('Unshared rationale')).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Go to second screen' }));
+    expect(await screen.findByText('Hello world')).toBeInTheDocument();
+  } finally {
+    localStorage.removeItem('dreamscape:review:file1');
+  }
+});
+
+describe('recipient review configuration', () => {
+  it('loads published context without browser storage, respects start and hides author controls', async () => {
+    const { screenArtifact, sharedReviewSchema } = await import('@/lib/presentation/model');
+    localStorage.clear();
+    const file = makeFile();
+    const artifact = screenArtifact(file.screens![1]);
+    artifact.context.evidence = 'Five interviews identified confusing labels';
+    file.sharedReview = sharedReviewSchema.parse({ version: 1, title: 'Label clarity review', introduction: 'Check whether the updated labels explain the next action.', preset: 'research', start: 'screen2', navigation: false, capabilities: ['context.read', 'prototype', 'focus', 'search'], artifacts: [artifact], approval: 'off', comments: {}, approvals: {} });
+    const user = userEvent.setup();
+    render(<Player shared file={file} initialScreenId="screen1" />);
+    expect(screen.getByText('Research Review')).toBeInTheDocument();
+    expect(screen.getByText('Label clarity review')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Review preset' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Exit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Story navigation' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Context' }));
+    expect(screen.getByText('Check whether the updated labels explain the next action.')).toBeInTheDocument();
+    expect(screen.getByText(artifact.context.evidence)).toBeInTheDocument();
+    expect(screen.queryByText('Not provided')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Artifact context' })).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save context' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'overview' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Presentation options' }));
+    expect(screen.queryByRole('menuitem', { name: 'Focus component' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Pivot to option')).not.toBeInTheDocument();
+  });
+
+  it('does not expose published context when its capability is excluded', async () => {
+    const { screenArtifact, sharedReviewSchema } = await import('@/lib/presentation/model');
+    const file = makeFile();
+    const artifact = screenArtifact(file.screens![0]);
+    artifact.body = 'Restricted review metadata';
+    file.sharedReview = sharedReviewSchema.parse({ version: 1, preset: 'design', start: 'screen1', navigation: true, capabilities: ['prototype'], artifacts: [artifact], approval: 'off', comments: {}, approvals: {} });
+    render(<Player shared file={file} />);
+    expect(screen.queryByRole('button', { name: 'Context' })).not.toBeInTheDocument();
+    expect(screen.queryByText(artifact.body)).not.toBeInTheDocument();
+  });
 });

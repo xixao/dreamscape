@@ -119,7 +119,13 @@ function CanvasFrameImpl({
   const fileAppearance = useAppearance().appearance;
   const effectiveAppearance = appearance ?? fileAppearance;
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
-  useEffect(() => { if (canvasDoc) { canvasDoc.document.body.dataset.appearance = effectiveAppearance; canvasDoc.document.body.style.colorScheme = effectiveAppearance; } }, [canvasDoc, effectiveAppearance]);
+  useEffect(() => {
+    if (!canvasDoc) return;
+    const body = iframeRef.current?.contentDocument?.body;
+    if (!body) return;
+    body.dataset.appearance = effectiveAppearance;
+    body.style.colorScheme = effectiveAppearance;
+  }, [canvasDoc, effectiveAppearance]);
   const [autoHeight, setAutoHeight] = useState(minHeight);
   const setStageCanvasDocument = useStage().setCanvasDocument;
 

@@ -1062,17 +1062,15 @@ describe('Workbench', () => {
   describe('Present', () => {
     it('opens the play route for the current screen and updates it after switching', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
-      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
-        'href',
-        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`,
-      );
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(`/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`, '_blank', 'noopener,noreferrer'));
 
       await selectFrame('Frame 2');
 
-      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
-        'href',
-        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
-      );
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(`/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`, '_blank', 'noopener,noreferrer'));
+      openSpy.mockRestore();
     });
 
     it('Cmd+R opens the same URL in a new tab, and prevents the browser reload', async () => {
@@ -1080,20 +1078,21 @@ describe('Workbench', () => {
       const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
 
       const notCancelled = fireEvent.keyDown(window, { key: 'r', metaKey: true });
-      expect(openSpy).toHaveBeenCalledWith(
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_1.id}`,
         '_blank',
         'noopener,noreferrer',
-      );
+      ));
       expect(notCancelled).toBe(false);
 
       await selectFrame('Frame 2');
+      openSpy.mockClear();
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
-      expect(openSpy).toHaveBeenCalledWith(
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&screen=${SCREEN_2.id}`,
         '_blank',
         'noopener,noreferrer',
-      );
+      ));
 
       openSpy.mockRestore();
     });
@@ -1116,17 +1115,16 @@ describe('Workbench', () => {
       await user.click(screen.getByRole('button', { name: 'Frames' }));
       await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
 
-      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
-        'href',
-        `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
-      );
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(`/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`, '_blank', 'noopener,noreferrer'));
 
+      openSpy.mockClear();
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
-      expect(openSpy).toHaveBeenCalledWith(
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?page=${PAGE_ID}&overlay=${overlay.id}`,
         '_blank',
         'noopener,noreferrer',
-      );
+      ));
 
       openSpy.mockRestore();
     });
@@ -1158,17 +1156,16 @@ describe('Workbench', () => {
       await user.click(screen.getByRole('button', { name: 'Frames' }));
       await user.click(await screen.findByRole('menuitem', { name: /Dialog 1/ }));
 
-      expect(screen.getByRole('link', { name: 'Present' })).toHaveAttribute(
-        'href',
-        `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
-      );
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(`/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`, '_blank', 'noopener,noreferrer'));
 
+      openSpy.mockClear();
       fireEvent.keyDown(window, { key: 'r', metaKey: true });
-      expect(openSpy).toHaveBeenCalledWith(
+      await waitFor(() => expect(openSpy).toHaveBeenCalledWith(
         `/f/${BASE_FILE.id}/play?screen=${SCREEN_4.id}&overlay=${overlay.id}`,
         '_blank',
         'noopener,noreferrer',
-      );
+      ));
 
       openSpy.mockRestore();
     });

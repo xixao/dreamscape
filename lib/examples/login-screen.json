@@ -26,6 +26,7 @@
     "props": {
       "title": "Sign in",
       "description": "Enter your email and password to continue.",
+      "minWidthPx": 320,
       "grow": false
     },
     "displayName": "Card",

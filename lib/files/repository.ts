@@ -1,3 +1,4 @@
+import { sharedReviewSchema, type SharedReview } from '@/lib/presentation/model';
 import { componentLibrarySchema, type ComponentDefinition } from '@/lib/custom-components/model';
 import { asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -59,6 +60,7 @@ export type FileSummary = {
   screenCount?: number;
 };
 export type FileRecord = FileSummary & {
+  sharedReview?: SharedReview | null;
   appearance?: 'light' | 'dark';
   // Same optionality rationale as folderId/screenCount above: workbench.tsx's
   // BASE_FILE predates screens. Real repository code always populates it.
@@ -77,6 +79,7 @@ export type FileRecord = FileSummary & {
 // validateScreens has said so. A Screen is a ScreenInput, so every caller
 // that already holds validated screens is unaffected.
 export type SaveInput = {
+  sharedReview?: SharedReview | null;
   appearance?: 'light' | 'dark';
   name?: string;
   screens?: ScreenInput[];
@@ -218,6 +221,7 @@ function toSummary(row: FileRow): FileSummary {
 function toRecord(row: FileRow): FileRecord {
   return {
     ...toSummary(row),
+    sharedReview: row.sharedReview ? sharedReviewSchema.parse(row.sharedReview) : null,
     screens: toApiScreens(row.screens),
     pages: row.pages as Page[],
     components: row.components as ComponentDefinition[],
@@ -367,6 +371,11 @@ export function createFilesRepository(db: Db) {
     if (input.appearance !== undefined) {
       if (!['light', 'dark'].includes(input.appearance)) return { ok: false, invalid: 'Invalid appearance' };
       patch.appearance = input.appearance;
+    }
+    if (input.sharedReview !== undefined) {
+      const validated = sharedReviewSchema.nullable().safeParse(input.sharedReview);
+      if (!validated.success) return { ok: false, invalid: validated.error.issues[0].message };
+      patch.sharedReview = validated.data;
     }
     if (input.name !== undefined) patch.name = input.name;
     if (input.components !== undefined) {

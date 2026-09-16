@@ -218,10 +218,10 @@ describe('Topbar', () => {
     expect(screen.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/folders/folder0001');
   });
 
-  describe('Present', () => {
+  describe('Preview', () => {
     it('is a ghost icon link opening the play route for the current screen in a new tab', () => {
       renderTopbar({ fileId: 'file123abc', currentScreenId: 'screen0002' });
-      const present = screen.getByRole('link', { name: 'Present' });
+      const present = screen.getByRole('link', { name: 'Preview' });
       expect(present).toHaveAttribute('href', '/f/file123abc/play?page=page000001&screen=screen0002');
       expect(present).toHaveAttribute('target', '_blank');
       expect(present).toHaveAttribute('rel', expect.stringContaining('noopener'));
@@ -238,7 +238,7 @@ describe('Topbar', () => {
     it('carries ?overlay= instead of ?screen= when the focused frame is an overlay', () => {
       const overlay = createOverlayScreen({ type: 'dialog', id: 'overlay01', name: 'Dialog 1', pageId: 'page000001', x: 0, y: 0 });
       renderTopbar({ fileId: 'file123abc', screens: [overlay], currentScreenId: overlay.id });
-      const present = screen.getByRole('link', { name: 'Present' });
+      const present = screen.getByRole('link', { name: 'Preview' });
       expect(present).toHaveAttribute('href', '/f/file123abc/play?page=page000001&overlay=overlay01');
     });
 
@@ -270,7 +270,7 @@ describe('Topbar', () => {
         currentPageId: 'page000001',
         currentScreenId: overlay.id,
       });
-      const present = screen.getByRole('link', { name: 'Present' });
+      const present = screen.getByRole('link', { name: 'Preview' });
       expect(present).toHaveAttribute('href', '/f/file123abc/play?screen=screen0009&overlay=overlay01');
     });
   });

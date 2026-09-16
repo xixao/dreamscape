@@ -1,5 +1,7 @@
 'use client';
 
+import type { SharedReview, SaveSharedReview } from '@/lib/presentation/model';
+
 import { ComponentLibraryProvider } from './component-builder/library-context';
 import { AppearanceContext } from './appearance-context';
 import { countInstances, updateInstances, replaceSelection, type ComponentDefinition } from '@/lib/custom-components/model';
@@ -296,6 +298,7 @@ export function Workbench({
   // give; useMemo is not guaranteed to preserve identity across renders (React
   // may discard and recreate a memoized value), which could orphan a pending
   // write.
+  const [sharedReview, setSharedReview] = useState(file.sharedReview ?? undefined);
   const [saver] = useState(() =>
     createFileSaver({
       fileId: file.id,
@@ -1044,6 +1047,13 @@ export function Workbench({
             queuePatch({ name });
           }}
           saveState={saveState}
+          sharedReview={sharedReview}
+          onSaveSharedReview={async review => {
+            saver.queue({ sharedReview: review });
+            const result = await saver.flushAndConfirm();
+            if (result !== 'saved') throw new Error(result === 'conflict' ? 'This file changed elsewhere. Reload before sharing.' : 'Could not save review settings. Your draft is still here.');
+            setSharedReview(review);
+          }}
           flushAndConfirm={saver.flushAndConfirm}
           notice={notice}
           pages={pages}
@@ -1084,6 +1094,8 @@ function WorkbenchShell({
   onRename,
   saveState,
   flushAndConfirm,
+  sharedReview,
+  onSaveSharedReview,
   notice,
   pages,
   currentPageId,
@@ -1115,6 +1127,8 @@ function WorkbenchShell({
   onRename: (name: string) => void;
   saveState: SaveState;
   flushAndConfirm: () => Promise<FlushResult>;
+  sharedReview?: SharedReview;
+  onSaveSharedReview?: SaveSharedReview;
   notice?: string;
   pages: Page[];
   currentPageId: string;
@@ -1840,6 +1854,8 @@ function WorkbenchShell({
                 onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}
                 onZoomToSelection={zoomToSelectionOrFocusedFrame}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
+                sharedReview={sharedReview}
+                onSaveSharedReview={onSaveSharedReview}
                 onPresent={presentFocusedScreen}
               />
             )}

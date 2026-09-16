@@ -1,3 +1,4 @@
+import { sharedReviewSchema } from '@/lib/presentation/model';
 import { componentLibrarySchema } from '@/lib/custom-components/model';
 import { z } from 'zod';
 import { getDb } from '@/db/client';
@@ -171,6 +172,7 @@ export const saveBody = z
     name: nameField,
     pages: pagesField.optional(),
     appearance: z.enum(['light', 'dark']).optional(),
+    sharedReview: sharedReviewSchema.nullable().optional(),
     components: componentLibrarySchema.optional(),
     screens: screensField.optional(),
     baseUpdatedAt: z.iso.datetime().optional(),
@@ -178,6 +180,7 @@ export const saveBody = z
   })
   .refine(
     (body) =>
+      body.sharedReview !== undefined ||
       body.name !== undefined ||
       body.pages !== undefined ||
       body.appearance !== undefined ||

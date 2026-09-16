@@ -1,5 +1,7 @@
 'use client';
 
+import type { SharedReview, SaveSharedReview } from '@/lib/presentation/model';
+
 import { SharePrototypeButton } from './prototype-actions';
 import { useAppearance } from './appearance-context';
 import { Popover as PopoverPrimitive } from 'radix-ui';
@@ -406,6 +408,8 @@ export function Topbar({
   onZoomToFit,
   onZoomToSelection,
   onPresent,
+  sharedReview,
+  onSaveSharedReview,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -443,6 +447,8 @@ export function Topbar({
   onZoomToSelection: () => void;
   onOpenShortcuts?: () => void;
   onPresent?: () => void;
+  sharedReview?: SharedReview;
+  onSaveSharedReview?: SaveSharedReview;
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
@@ -570,18 +576,18 @@ export function Topbar({
         <Tooltip>
           <TooltipTrigger asChild>
             {onPresent ? (
-              <button type="button" aria-label="Present" className={buttonVariants({ variant: 'ghost', size: 'icon' })} onClick={onPresent}>
+              <button type="button" aria-label="Preview" className={buttonVariants({ variant: 'ghost', size: 'icon' })} onClick={onPresent}>
                 <Play className="size-4" aria-hidden />
               </button>
             ) : (
-              <a href={presentHref} target="_blank" rel="noopener noreferrer" aria-label="Present" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
+              <a href={presentHref} target="_blank" rel="noopener noreferrer" aria-label="Preview" className={buttonVariants({ variant: 'ghost', size: 'icon' })}>
                 <Play className="size-4" aria-hidden />
               </a>
             )}
           </TooltipTrigger>
-          <TooltipContent>Present</TooltipContent>
+          <TooltipContent>Preview</TooltipContent>
         </Tooltip>
-        <SharePrototypeButton playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
+        <SharePrototypeButton fileId={fileId} sharedReview={sharedReview} onSaveSharedReview={onSaveSharedReview} playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
         <IconAction label="Undo" icon={Undo2} disabled={!canUndo} onClick={() => actions.history.undo()} />
         <IconAction label="Redo" icon={Redo2} disabled={!canRedo} onClick={() => actions.history.redo()} />
       </header>
