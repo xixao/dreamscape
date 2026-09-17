@@ -795,7 +795,7 @@ describe('files API route handlers', () => {
       expect(stored?.screens).toEqual(file.screens);
     });
 
-    it('returns 400 for a screens array with zero screens', async () => {
+    it('persists a file with no screens', async () => {
       const repository = await getRepository();
       const file = await repository.create();
 
@@ -804,7 +804,8 @@ describe('files API route handlers', () => {
         withId(file.id),
       );
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(200);
+      expect((await repository.get(file.id))?.screens).toEqual([]);
     });
 
     it('returns 400 for an empty patch body', async () => {

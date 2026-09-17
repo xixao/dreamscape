@@ -3,7 +3,7 @@
 import { useCanvasPrompts } from './canvas-prompt-controls';
 import { useEditor } from '@craftjs/core';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, X } from 'lucide-react';
 import { createChatStore } from '@/lib/chat/store';
 import { useChatTransport } from './chat-transport-context';
 import { Input } from '@/components/ui/input';
@@ -86,6 +86,7 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
     <form className={`${SEARCH} h-10 flex-nowrap gap-2 py-1 pr-1 pl-3`} onSubmit={event => { event.preventDefault(); send(); }}>
       <Input type="text" key={id} aria-label={`Ask AI about ${name}`} placeholder={`Ask AI to edit ${name}…`} value={text} onChange={event => setText(event.target.value)} className={`${SEARCH_INPUT.replace('placeholder:text-t4', 'placeholder:text-t2')} flex-1 text-[13px] placeholder:opacity-100`} />
       <button type="submit" title="Send to AI conversation" aria-label="Send request" disabled={!text.trim() || sent} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"><ArrowUp aria-hidden className="size-4" /></button>
+      <button type="button" title="Close prompt" aria-label="Close prompt" onClick={onClose} className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X aria-hidden className="size-4" /></button>
     </form>
   </section>;
 }

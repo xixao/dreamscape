@@ -402,6 +402,8 @@ export function Topbar({
   onZoomToFit,
   onZoomToSelection,
   historyOverride,
+  hidePageSelector = false,
+  frameSelected = true, onCreateDeviceFrame,
 }: {
   fileName: string;
   onRename: (name: string) => void;
@@ -441,6 +443,9 @@ export function Topbar({
   onZoomToFit: () => void;
   onZoomToSelection: () => void;
   onOpenShortcuts?: () => void;
+  frameSelected?: boolean;
+  onCreateDeviceFrame?: (device: { name: string; width: number; height: number }) => void;
+  hidePageSelector?: boolean;
   historyOverride?: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void };
 }) {
   const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
@@ -491,7 +496,7 @@ export function Topbar({
         <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
           ›
         </span>
-        <PagesMenu
+        {!hidePageSelector && <PagesMenu
           pages={pages}
           currentPageId={currentPageId}
           screens={screens}
@@ -501,7 +506,7 @@ export function Topbar({
           onDuplicate={onDuplicatePage}
           onDelete={onDeletePage}
           onMove={onMovePage}
-        />
+        />}
         {/*
           onAdd is onAddScreen (same action Shift+N triggers), not onNew:
           onNew opens the "Start a new frame?" dialog that clears the
@@ -549,7 +554,7 @@ export function Topbar({
             );
           })}
         </SegmentedControl>
-        {!focusedIsOverlay && <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />}
+        {(!focusedIsOverlay || !frameSelected) && <DevicePresetMenu deviceName={frameSelected ? deviceName : null} onSelect={device => { if (!frameSelected && onCreateDeviceFrame) onCreateDeviceFrame(device); else setDevice(device); }} />}
         <ZoomMenu
           readoutText={readoutFor({ width, height, deviceName, zoom })}
           onZoomIn={onZoomIn}

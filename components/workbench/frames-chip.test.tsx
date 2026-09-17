@@ -213,16 +213,12 @@ describe('FramesChip', () => {
       expect(props.onDelete).not.toHaveBeenCalled();
     });
 
-    it('is disabled when there is only one frame left', async () => {
+    it('allows deleting the last frame', async () => {
       const props = renderChip({ frames: [makeFrame('a', { name: 'Login' })] });
       await openFrameRowMenu('Login');
-
-      const deleteItem = await screen.findByRole('menuitem', { name: 'Delete' });
-      expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
-
-      await userEvent.click(deleteItem);
-      expect(screen.queryByText('Delete Login?')).toBeNull();
-      expect(props.onDelete).not.toHaveBeenCalled();
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(props.onDelete).toHaveBeenCalledWith('a');
     });
 
     it('deletes a non-focused row without ever switching to it', async () => {

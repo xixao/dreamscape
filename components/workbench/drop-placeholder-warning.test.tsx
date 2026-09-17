@@ -110,7 +110,8 @@ describe('drag placeholder and React render warnings', () => {
     const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
     fireEvent.dragStart(trayButton, { dataTransfer });
     fireEvent.dragOver(root, { clientX: 50, clientY: 50 });
-    expect(frameBody().querySelector('[data-drop-placeholder]')).not.toBeNull();
+    expect(document.querySelector('[data-drop-placeholder]')).not.toBeNull();
+    expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
     fireEvent.drop(root);
 
     const updateWarnings = errorSpy.mock.calls.filter((call) =>

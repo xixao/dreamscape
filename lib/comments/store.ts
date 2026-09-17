@@ -48,6 +48,8 @@ export interface CommentStore {
   reopen(threadId: string): void;
   update(threadId: string, patch: NoteDetails & { text: string }): void;
   move(threadId: string, position: { x: number; y: number; anchorOffset?: { x: number; y: number } }): void;
+  moveToScreen(threadId: string, screenId: string, pageId?: string): void;
+  moveToPage(threadId: string, pageId: string, dx?: number, dy?: number): void;
   remove(threadId: string): void;
   subscribe(fn: () => void): () => void;
 }
@@ -133,6 +135,12 @@ export function createCommentStore(fileId: string, storage: Storage = localStora
     move(threadId, position) {
       if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
       commit(threads.map(thread => thread.id === threadId ? { ...thread, ...position, anchorOffset: position.anchorOffset, ...(!position.anchorOffset ? { anchorNodeId: undefined, anchorLabel: undefined } : {}) } : thread));
+    },
+    moveToScreen(threadId, screenId, pageId) {
+      commit(threads.map(thread => thread.id === threadId ? { ...thread, screenId, pageId, canvas: false } : thread));
+    },
+    moveToPage(threadId, pageId, dx = 0, dy = 0) {
+      commit(threads.map(thread => thread.id === threadId ? { ...thread, pageId, x: thread.x + dx, y: thread.y + dy } : thread));
     },
     remove(threadId) {
       commit(threads.filter(thread => thread.id !== threadId));

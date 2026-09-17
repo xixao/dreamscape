@@ -10,6 +10,8 @@ import { containsRect, fitSection, type CanvasSection, type SectionChange } from
 import type { Screen } from '@/lib/files/repository';
 import type { SectionsController } from './section-context';
 export function useSectionsController(options: {
+  pages?: import('@/lib/files/repository').Page[];
+  moveToPage?: (section: CanvasSection, pageId: string) => void;
   diagramEdges?: import('@/lib/diagram/store').DiagramEdge[];
   diagramNodes?: import('@/lib/diagram/store').DiagramNode[];
   pageId:string; sections:CanvasSection[]; screens:Screen[]; heights:ReadonlyMap<string,number>;

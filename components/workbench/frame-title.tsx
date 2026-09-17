@@ -52,6 +52,7 @@ export function FrameTitle({
   onSnapGuides,
   onDragEnd,
   onShiftSelect,
+  onSelect,
 }: {
   screen: Screen;
   focused: boolean;
@@ -86,6 +87,7 @@ export function FrameTitle({
   // immediately below without starting the usual drag tracking, so a
   // Shift+click never also moves the frame.
   onShiftSelect?: () => void;
+  onSelect?: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -106,10 +108,13 @@ export function FrameTitle({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+    if (event.button !== 0) return;
+    event.stopPropagation();
     if (event.shiftKey) {
       onShiftSelect?.();
       return;
     }
+    onSelect?.();
     capturePointer(event.currentTarget, event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -170,6 +175,7 @@ export function FrameTitle({
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onClick={event => { event.stopPropagation(); if (!event.shiftKey) onSelect?.(); }}
       onDoubleClick={() => setRenaming(true)}
     >
       {screen.name}

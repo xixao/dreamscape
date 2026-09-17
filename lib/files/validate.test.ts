@@ -182,9 +182,8 @@ describe('validateScreens', () => {
     expect(result.screens[0].deviceName).toBe('x'.repeat(80));
   });
 
-  it('rejects zero screens', () => {
-    const result = validateScreens([], knownTypes);
-    expect(result).toEqual({ ok: false, reason: expect.any(String) });
+  it('accepts a frame-free file', () => {
+    expect(validateScreens([], knownTypes)).toEqual({ ok: true, screens: [] });
   });
 
   it('rejects an invalid (unparsable) layout inside a screen', () => {

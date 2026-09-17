@@ -276,9 +276,9 @@ it('opens and closes the existing Chat panel from the builder header', async () 
   expect(screen.queryByRole('complementary', { name: 'Layers panel' })).not.toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument();
   expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('data-state', 'on');
-  await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+  await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' }));
   expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument();
-  expect(screen.getByRole('radio', { name: 'Layers' })).toHaveAttribute('data-state', 'on');
+  expect(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
   expect(screen.getByRole('complementary', { name: 'Layers panel' })).toBeInTheDocument();
 });
 
@@ -287,7 +287,7 @@ it('switches the left panel between Layers and Chat using its tabs', async () =>
   await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
   expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
   expect(screen.queryByRole('complementary', { name: 'Layers panel' })).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+  await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' }));
   expect(screen.getByRole('complementary', { name: 'Layers panel' })).toBeInTheDocument();
   expect(screen.queryByRole('complementary', { name: 'Chat' })).not.toBeInTheDocument();
 });

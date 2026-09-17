@@ -89,6 +89,7 @@ export function useWorkbenchKeyboard(
     // instead of the default deselect" check above already occupies.
     frameSelectionActive?: boolean;
     onClearFrameSelection?: () => void;
+    onFrameDelete?: () => void;
     onDiagramDelete?: () => void;
     onDiagramDuplicate?: () => void;
     onDiagramSelectAll?: () => void;
@@ -191,6 +192,7 @@ export function useWorkbenchKeyboard(
     onDeselectDiagram,
     frameSelectionActive,
     onClearFrameSelection,
+    onFrameDelete,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
@@ -229,6 +231,7 @@ export function useWorkbenchKeyboard(
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       // Which shortcut (if any) this raw event corresponds to lives in
       // lib/shortcuts.ts, shared with the overlay/dialog and the top bar's
       // zoom menu so none of them can drift from what this handler actually
@@ -460,7 +463,12 @@ export function useWorkbenchKeyboard(
           // so a snapshot id can still be the previously selected node when this fires.
           const state = query.getState();
           const selectedId = selectedIdFrom(state);
-          if (!selectedId || selectedId === ROOT_NODE) return;
+          if (frameSelectionActive || selectedId === ROOT_NODE) {
+            if (isSeparatorTarget(event.target)) return;
+            if (onFrameDelete) { event.preventDefault(); onFrameDelete(); }
+            return;
+          }
+          if (!selectedId) return;
           const node = state.nodes[selectedId];
           if (node && ZONE_TYPES.has(node.data.name)) return;
           event.preventDefault();
@@ -478,9 +486,17 @@ export function useWorkbenchKeyboard(
       }
     };
 
+    // Canvas content lives in an iframe: handle deletion before a component
+    // can swallow the bubbling key event. Editable targets still use the
+    // same guard above, and defaultPrevented prevents duplicate processing.
+    const onCanvasDelete = (event: KeyboardEvent) => {
+      if (event.key === 'Delete' || event.key === 'Backspace') onKeyDown(event);
+    };
+    canvasDocument?.window.addEventListener('keydown', onCanvasDelete, true);
     window.addEventListener('keydown', onKeyDown);
     canvasDocument?.window.addEventListener('keydown', onKeyDown);
     return () => {
+      canvasDocument?.window.removeEventListener('keydown', onCanvasDelete, true);
       window.removeEventListener('keydown', onKeyDown);
       canvasDocument?.window.removeEventListener('keydown', onKeyDown);
     };
@@ -501,6 +517,7 @@ export function useWorkbenchKeyboard(
     onDeselectDiagram,
     frameSelectionActive,
     onClearFrameSelection,
+    onFrameDelete,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,

@@ -437,12 +437,11 @@ export function validatePresentation(input: unknown): ValidatePresentationResult
  * characters, widths are clamped to the same [120, 3840] range a lone
  * stageWidth always was, stageHeight (when given) must be a positive
  * integer, deviceName (when given) must be at most 80 characters, ids must
- * be exactly 10 characters and unique within the array, at least one
- * screen must be present, and an overlay frame (kind 'overlay') must carry
+ * be exactly 10 characters and unique within the array, and an overlay frame (kind 'overlay') must carry
  * a presentation matching the OverlayPresentation union exactly while a
  * plain screen must carry none (see validatePresentation above). zod
  * (lib/files/http.ts) only checks the shape (an
- * array of 1..50 objects with the right field types); this is where the
+ * array of 0..50 objects with the right field types); this is where the
  * content rules live, the same split validateLayout already has with the
  * zod `layout: z.string()` check
  * one level up.
@@ -459,9 +458,6 @@ export function validateScreens(
   knownTypes: ReadonlySet<string>,
   pageIds?: ReadonlySet<string>,
 ): ValidateScreensResult {
-  if (input.length < 1) {
-    return { ok: false, reason: 'a file must have at least one screen' };
-  }
 
   const seenIds = new Set<string>();
   const screens: Screen[] = [];

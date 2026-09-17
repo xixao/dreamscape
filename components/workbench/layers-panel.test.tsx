@@ -86,3 +86,37 @@ describe('Layers panel', () => {
     await waitFor(() => expect(within(tree).getAllByRole('treeitem', { name: 'CardContent' })).toHaveLength(2));
   });
 });
+
+it('adds and removes layers with Shift-click and shares canvas selection', async () => {
+  const { selectionHandlers } = await import('./selection');
+  render(<StageProvider><Editor resolver={resolver} handlers={selectionHandlers}><Frame><Element is={LayoutBox} canvas><Button label="First" /><Button label="Second" /><Button label="Third" /></Element></Frame><LayersPanel /></Editor></StageProvider>);
+  const tree = screen.getByRole('tree');
+  const rows = within(tree).getAllByRole('treeitem').slice(1);
+  const labels = rows.map(row => within(row).getByRole('button', {name:'Button'}));
+  fireEvent.click(labels[0]);
+  fireEvent.click(labels[1], {shiftKey:true});
+  await waitFor(()=>expect(rows[0]).toHaveAttribute('aria-selected','true'));
+  await waitFor(()=>expect(rows[1]).toHaveAttribute('aria-selected','true'));
+  fireEvent.click(labels[0], {shiftKey:true});
+  await waitFor(()=>expect(rows[0]).toHaveAttribute('aria-selected','false'));
+  const third = screen.getByRole('button',{name:'Third'});
+  fireEvent.mouseDown(third,{shiftKey:true});fireEvent.click(third,{shiftKey:true});
+  await waitFor(()=>expect(rows[1]).toHaveAttribute('aria-selected','true'));
+  await waitFor(()=>expect(rows[2]).toHaveAttribute('aria-selected','true'));
+  fireEvent.mouseDown(third,{shiftKey:true});fireEvent.click(third,{shiftKey:true});
+  await waitFor(()=>expect(rows[2]).toHaveAttribute('aria-selected','false'));
+  fireEvent.click(labels[0]);
+  await waitFor(()=>expect(rows[0]).toHaveAttribute('aria-selected','true'));
+  await waitFor(()=>expect(rows[1]).toHaveAttribute('aria-selected','false'));
+});
+
+it('opens root frame deletion from the layer keyboard and supports cancellation', async () => {
+  const remove=vi.fn();
+  render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel rootFrame={{name:'Overview',duplicate:vi.fn(),delete:remove,deleteDisabled:false}} /></Editor></StageProvider>);
+  const root=screen.getByRole('button',{name:'Frame'});
+  fireEvent.click(root);
+  fireEvent.keyDown(root,{key:'Delete'});
+  expect(await screen.findByRole('alertdialog')).toHaveTextContent('Delete Overview?');
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  expect(remove).not.toHaveBeenCalled();
+});

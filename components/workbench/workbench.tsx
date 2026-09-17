@@ -1,6 +1,9 @@
 'use client';
+import { CursorMinimap } from './canvas-minimap';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
+import { selectionHandlers } from './selection';
 
-import { ComponentLibraryProvider } from './component-builder/library-context';
+import { ComponentLibraryProvider, useComponentLibrary } from './component-builder/library-context';
 import { createTrayElement } from './create-tray-element';
 import { trayItems } from '@/components/blocks/registry';
 import { AppearanceContext } from './appearance-context';
@@ -45,6 +48,8 @@ import {
   savePanelCollapsed,
   savePanelMode,
 } from '@/lib/workbench/panel-store';
+import { moveSectionToPage } from '@/lib/canvas/move-section';
+import { containsRect, type CanvasSection } from '@/lib/canvas/sections';
 import type { SectionChange } from '@/lib/canvas/sections';
 import { SectionsContext } from './sections/section-context';
 import { useSectionsController } from './sections/use-sections';
@@ -59,12 +64,15 @@ import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP, PANEL } from './chrome';
 import { LayersPanel } from './layers-panel';
+import { PagesMenu } from './pages-menu';
+import { PrototypesPanel } from './prototypes-panel';
 import type { CommentThread } from '@/lib/comments/store';
 import { DiagramPalette } from './diagram/diagram-palette';
 import { POINTER_TOOL, type DiagramTool } from './diagram/diagram-layer';
 import type { DiagramFieldsSelection } from './diagram/diagram-fields';
 import { exportDiagram } from './diagram/export-actions';
 import { useDropPlaceholder } from './drop-placeholder';
+import { transferElements } from './drag-model';
 import type { AlignMode, DiagramAlignmentContext, DistributeAxis } from './inspector/alignment-fields';
 import { Inspector, type PanelMode } from './inspector/inspector';
 import { useWorkbenchKeyboard } from './keyboard';
@@ -116,7 +124,7 @@ function resolveInitialPages(file: FileRecord): Page[] {
 // but no pageId still ends up on the one page resolveInitialPages resolved
 // for it, instead of being invisible on every page's own filtered view.
 function resolveInitialScreens(file: FileRecord, pages: Page[]): Screen[] {
-  const screens: Screen[] = file.screens && file.screens.length > 0 ? file.screens : [defaultScreen()];
+  const screens: Screen[] = file.screens ?? [defaultScreen()];
   const fallbackPageId = pages[0].id;
   return screens.map((screen) => (screen.pageId ? screen : { ...screen, pageId: fallbackPageId }));
 }
@@ -381,6 +389,7 @@ export function Workbench({
   // never goes stale) and calls `saver`/`setScreens`, both stable across
   // every render - so capturing this one closure forever is correct, not
   // just permitted.
+  const appliedTransfer = useRef<string | null>(null);
   const onNodesChange = useCallback((query: MinimalQuery) => {
     const screenId = currentScreenIdRef.current;
     const json = query.serialize();
@@ -413,12 +422,15 @@ export function Workbench({
     }
     const frameSize = JSON.parse(json).ROOT?.custom?.frameSize;
     const inspectorScreens = JSON.parse(json).ROOT?.custom?.inspectorScreens;
+    const transfer = JSON.parse(json).ROOT?.custom?.crossFrameLayouts;
+    const restoreTransfer = transfer?.owner === screenId && transfer.revision !== appliedTransfer.current;
+    if (restoreTransfer) appliedTransfer.current = transfer.revision;
     const sectionScreens = restoreSections && sectionPatch.screens ? [...screensRef.current.filter(s=>s.pageId!==sectionPatch.pageId),...sectionPatch.screens] as Screen[] : screensRef.current;
     const next = sectionScreens.map(screen => {
       const patch = inspectorScreens?.owner === screenId ? inspectorScreens.patches?.[screen.id] : undefined;
       const restored = patch ? Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, value === null ? undefined : value])) : {};
       const position = restoreSections && screen.pageId === sectionPatch.pageId ? sectionPatch.positions.find((p: {id:string}) => p.id === screen.id) : undefined;
-      return { ...screen, ...restored, ...(position ? { x: position.x, y: position.y } : {}), ...(screen.id === screenId ? { ...(frameSize ? { stageWidth: frameSize.width, stageHeight: frameSize.height, deviceName: frameSize.deviceName } : {}), layout: json } : {}) };
+      return { ...screen, ...restored, ...(restoreTransfer && transfer.layouts[screen.id] ? { layout: transfer.layouts[screen.id] } : {}), ...(position ? { x: position.x, y: position.y } : {}), ...(screen.id === screenId ? { ...(frameSize ? { stageWidth: frameSize.width, stageHeight: frameSize.height, deviceName: frameSize.deviceName } : {}), layout: json } : {}) };
     });
     screensRef.current = next;
     // Deferred to a microtask rather than called inline: this firing can
@@ -519,17 +531,9 @@ export function Workbench({
 
   function addPage(): void {
     const newPage: Page = { id: nanoid(10), name: `Page ${pages.length + 1}` };
-    const newScreen: Screen = {
-      id: nanoid(10), name: 'Frame 1', pageId: newPage.id, layout: emptyLayoutJson(),
-      stageWidth: STAGE_PRESETS.desktop, stageHeight: null, deviceName: null, x: 0, y: 0,
-    };
-    const nextPages = [...pages, newPage];
-    const nextScreens = [...screensRef.current, newScreen];
-    lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [newScreen.id]: newScreen.layout };
-    screensRef.current = nextScreens;
-    setScreens(nextScreens);
+    const nextPages = [...pagesRef.current, newPage];
     setPages(nextPages);
-    queuePatch({ pages: nextPages, screens: nextScreens });
+    queuePatch({ pages: nextPages });
     switchPage(newPage.id);
   }
 
@@ -664,10 +668,14 @@ export function Workbench({
     // onNodesChange.
     currentScreenIdRef.current = id;
     setCurrentScreenId(id);
-    window.history.replaceState(null, '', `#s=${id}`);
+    if (!id) {
+      editorActionsRef.current?.selectNode();
+      editorActionsRef.current?.history.ignore().deserialize({});
+      window.history.replaceState(null, '', `#p=${currentPageId}`);
+    } else window.history.replaceState(null, '', `#s=${id}`);
   }
 
-  function addScreen(): void {
+  function addScreen(device?: { name: string; width: number; height: number }): string {
     const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
     // Never templates off a focused OVERLAY (phase 2 review finding 3): an
     // overlay is an ordinary entry in pageScreens, so the focused-screen
@@ -682,6 +690,7 @@ export function Workbench({
     const focused = pageScreens.find((screen) => screen.id === currentScreenId);
     const mostRecentPlainOnPage = [...pageScreens].reverse().find((screen) => !isOverlay(screen));
     const current: Pick<Screen, 'stageWidth' | 'stageHeight' | 'deviceName'> =
+      (device ? { stageWidth: device.width, stageHeight: device.height, deviceName: device.name } : undefined) ??
       (focused && !isOverlay(focused) ? focused : undefined) ??
       mostRecentPlainOnPage ??
       { stageWidth: STAGE_PRESETS.desktop, stageHeight: null, deviceName: null };
@@ -715,6 +724,7 @@ export function Workbench({
     setScreens(next);
     queuePatch({ screens: next });
     switchScreen(newScreen.id);
+    return newScreen.id;
   }
 
   // The Frames chip's "New overlay" menu and Shift+O (spec docs/superpowers/
@@ -763,6 +773,23 @@ export function Workbench({
     switchScreen(newOverlay.id);
   }
 
+  function namePrototype(id: string, name: string): void {
+    const value = name.trim().slice(0, 80);
+    if (!value) return;
+    if (id === currentScreenIdRef.current && editorActionsRef.current) {
+      editorActionsRef.current.setCustom('ROOT', custom => { custom.prototypeName = value; });
+      return;
+    }
+    const next = screensRef.current.map(screen => {
+      if (screen.id !== id) return screen;
+      const nodes = JSON.parse(screen.layout);
+      if (!nodes.ROOT) return screen;
+      nodes.ROOT.custom = { ...nodes.ROOT.custom, prototypeName: value };
+      return { ...screen, layout: JSON.stringify(nodes) };
+    });
+    screensRef.current = next; setScreens(next); queuePatch({ screens: next });
+  }
+
   function renameScreen(id: string, name: string): void {
     const next = screens.map((screen) => (screen.id === id ? { ...screen, name } : screen));
     screensRef.current = next;
@@ -800,11 +827,6 @@ export function Workbench({
     const page = pagesRef.current.find(p => p.id === pageId);
     const actions = editorActionsRef.current;
     if (!page || !actions) return;
-    // Files currently require at least one root frame. If deletion removes the
-    // last one, keep a fresh empty frame rather than retaining deleted content.
-    if (change.screens && !change.screens.length && screensRef.current.every(s=>s.pageId===pageId)) {
-      change = {...change,screens:[{...defaultScreen(),pageId,x:0,y:0}]};
-    }
     const before = { ...(change.screens ? {screens:screensRef.current.filter(s=>s.pageId===pageId)} : {}), ...(change.diagram ? {diagram:page.diagram??{nodes:[],edges:[]}} : {}), diagramPositions: change.diagramPositions?.flatMap(position => { const node=page.diagram?.nodes.find(n=>n.id===position.id);return node?[{id:node.id,x:node.x,y:node.y}]:[]; }), sections: page.sections ?? [], positions: change.positions.flatMap(position => {
       const screen = screensRef.current.find(s => s.id === position.id && s.pageId === pageId);
       return screen ? [{id:screen.id,x:screen.x ?? 0,y:screen.y ?? 0}] : [];
@@ -902,24 +924,12 @@ export function Workbench({
     switchScreen(copy.id);
   }
 
-  // Disabled in the UI (a frame row's own Delete item in the Frames chip,
-  // frames-chip.tsx) once a page is down to one screen, the same way it
-  // always disabled Delete at one screen file-wide
-  // before pages existed - now scoped to the screen's OWN page rather than
-  // the whole file, since a page emptying out entirely is a real, supported
-  // state (reached instead through "Move to page", or a page that started
-  // empty), just not one Delete itself produces. Also refuses the last
-  // PLAIN screen of a page that has an overlay (phase 2 review finding 1:
-  // Present has nowhere sensible to land otherwise) - wouldStrandPage
-  // (lib/files/screens.ts) is the same check the Frames chip's own
-  // disabled-with-tooltip UI already uses, so the two can never disagree;
-  // this is the data-layer backstop for any caller that reaches here some
-  // other way.
+  // A Page can be empty. Keep a plain screen only when remaining overlays
+  // need one for presentation, matching the frame menu's guard.
   function deleteScreen(id: string): void {
     const target = screens.find((screen) => screen.id === id);
     if (!target) return;
     const pageScreens = screens.filter((screen) => screen.pageId === target.pageId);
-    if (pageScreens.length <= 1) return;
     if (wouldStrandPage(target, pageScreens)) return;
     const next = screens.filter((screen) => screen.id !== id);
     delete lastSavedLayoutsRef.current[id];
@@ -954,6 +964,23 @@ export function Workbench({
   // deleteScreen and the Frames chip's own UI use) - moving away the last
   // screen of a page that has NO overlay still empties it, exactly as
   // before; only the overlays-but-no-plain-screen state is new and refused.
+  function moveSection(sourceId: string, sectionId: string, targetId: string, heights: ReadonlyMap<string, number>): (CanvasSection & { pageId: string }) | null {
+    let sourcePages = pagesRef.current;
+    if (targetId === '__new__') {
+      if (sourcePages.length >= 50) return null;
+      const page = { id: nanoid(10), name: `Page ${sourcePages.length + 1}` };
+      sourcePages = [...sourcePages, page]; targetId = page.id;
+    }
+    const result = moveSectionToPage(sourcePages, screensRef.current, sourceId, sectionId, targetId, heights);
+    if (!result) return null;
+    screensRef.current = result.screens;
+    setScreens(result.screens); setPages(result.pages);
+    for (const screen of result.screens) lastSavedLayoutsRef.current[screen.id] = screen.layout;
+    queuePatch({ pages: result.pages, screens: result.screens });
+    switchPage(targetId);
+    return { ...result.section, pageId: targetId };
+  }
+
   function moveScreenToPage(id: string, targetPageId: string): void {
     const target = screens.find((screen) => screen.id === id);
     if (!target || target.pageId === targetPageId) return;
@@ -1030,7 +1057,7 @@ export function Workbench({
     handleSizeChange(device);
   }
 
-  const currentScreen = screens.find((screen) => screen.id === currentScreenId) ?? screens[0];
+  const currentScreen = screens.find((screen) => screen.id === currentScreenId);
   // Only while the current screen's own saved layout failed validation
   // (invalidScreenIds, from the server) and the user hasn't yet made a real
   // edit to it this session (editedScreenIds, from onNodesChange above) -
@@ -1059,6 +1086,7 @@ export function Workbench({
       onSave={(definition, sourceId) => changeComponent(definition, false, sourceId)} onRemove={definition => changeComponent(definition, true)}
       count={id => countInstances(screens.map(screen => screen.layout), id)}>
     <Editor
+      handlers={selectionHandlers}
       resolver={resolver}
       onRender={NodeIndicator}
       // The drag placeholder (components/workbench/drop-placeholder.tsx)
@@ -1082,9 +1110,9 @@ export function Workbench({
         itself (see the effect there) without remounting anything.
       */}
       <StageProvider
-        initialWidth={currentScreen.stageWidth}
-        initialHeight={currentScreen.stageHeight ?? null}
-        initialDeviceName={currentScreen.deviceName ?? null}
+        initialWidth={currentScreen?.stageWidth ?? STAGE_PRESETS.desktop}
+        initialHeight={currentScreen?.stageHeight ?? null}
+        initialDeviceName={currentScreen?.deviceName ?? null}
         onWidthChange={(width) => handleSizeChange({ width, height: null, deviceName: null })}
         onSizeChange={(size) => handleSizeChange({ width: size.width, height: size.height, deviceName: null })}
         onDeviceChange={handleDeviceChange}
@@ -1109,6 +1137,7 @@ export function Workbench({
           onDeletePage={deletePage}
           onMovePage={movePage}
           onDiagramChange={updatePageDiagram}
+          onMoveSection={moveSection}
           onUpdateSections={updateSections}
           screens={screens}
           currentScreenId={currentScreenId}
@@ -1116,6 +1145,7 @@ export function Workbench({
           onAddScreen={addScreen}
           onAddOverlay={addOverlay}
           onRenameScreen={renameScreen}
+          onNamePrototype={namePrototype}
           onMoveScreen={moveScreen}
           onMoveScreens={moveScreens}
           onUpdateLayoutGrid={updateLayoutGrid}
@@ -1148,6 +1178,7 @@ function WorkbenchShell({
   onDeletePage,
   onMovePage,
   onDiagramChange,
+  onMoveSection,
   onUpdateSections,
   screens,
   currentScreenId,
@@ -1155,6 +1186,7 @@ function WorkbenchShell({
   onAddScreen,
   onAddOverlay,
   onRenameScreen,
+  onNamePrototype,
   onMoveScreen,
   onMoveScreens,
   onUpdateLayoutGrid,
@@ -1178,6 +1210,7 @@ function WorkbenchShell({
   onDuplicatePage: (id: string) => void;
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: 'up' | 'down') => void;
+  onMoveSection: (sourceId: string, sectionId: string, targetId: string, heights: ReadonlyMap<string, number>) => (CanvasSection & { pageId: string }) | null;
   onUpdateSections: (pageId: string, change: SectionChange) => void;
   onDiagramChange: (pageId: string, diagram: DiagramData) => void;
   // The whole file's screens, every page's own - WorkbenchShell itself
@@ -1188,9 +1221,10 @@ function WorkbenchShell({
   screens: Screen[];
   currentScreenId: string;
   onSelectScreen: (id: string) => void;
-  onAddScreen: () => void;
+  onAddScreen: (device?: { name: string; width: number; height: number }) => string;
   onAddOverlay: (type: OverlayPresentationType) => void;
   onRenameScreen: (id: string, name: string) => void;
+  onNamePrototype: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
   onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
   onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
@@ -1256,7 +1290,11 @@ function WorkbenchShell({
   // above.
   const [fileSettingsOpen, setFileSettingsOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [prototypesOpen, setPrototypesOpen] = useState(false);
+  const [movedSection, setMovedSection] = useState<{ pageId: string; section: CanvasSection } | null>(null);
+  const [prototypeFocus, setPrototypeFocus] = useState<{ id: string; handoff?: boolean } | null>(null);
   const [chatOpen, setChatOpen] = useState(() => loadChatPanelOpen(window.localStorage));
+  useEffect(() => { if (chatOpen) setPrototypesOpen(false); }, [chatOpen]);
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
   }, [chatOpen]);
@@ -1284,6 +1322,8 @@ function WorkbenchShell({
   // `screens` (the Frames chip lists only the current page's frames; spec:
   // "the canvas... frames of the current page only").
   const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
+  const [deleteFrameId, setDeleteFrameId] = useState<string | null>(null);
+  const deleteFrameTarget = pageScreens.find(screen => screen.id === deleteFrameId);
   const activeLayerScreen = pageScreens.find(screen => screen.id === currentScreenId);
 
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
@@ -1529,6 +1569,30 @@ function WorkbenchShell({
     if (target) animateTo(zoomToRect(frameRect(target, measuredHeights), viewportSize, SELECTION_ZOOM_PADDING));
   }
 
+  useEffect(() => {
+    if (!prototypeFocus) return;
+    const target = screens.find(screen => screen.id === prototypeFocus.id);
+    if (!target) { setPrototypeFocus(null); return; }
+    if (target.pageId && target.pageId !== currentPageId) { onSwitchPage(target.pageId); return; }
+    if (target.id !== currentScreenId) { onSelectScreen(target.id); return; }
+    let pending: number;
+    const focus = () => {
+      if (!query.getState().nodes.ROOT) { pending = requestAnimationFrame(focus); return; }
+      actions.selectNode('ROOT');
+    const left = leftCollapsed ? 64 : leftWidth + 24;
+    const right = panelCollapsed ? 64 : 344;
+    const available = { width: Math.max(240, viewportSize.width - left - right), height: Math.max(200, viewportSize.height - 100) };
+    const fitted = zoomToRect(frameRect(target, measuredHeights), available, 24);
+    animateTo({ ...fitted, x: fitted.x + left, y: fitted.y + 76 });
+    if (prototypeFocus.handoff) setHandoffOpen(true);
+      setPrototypeFocus(null);
+    };
+    pending = requestAnimationFrame(focus);
+    return () => cancelAnimationFrame(pending);
+  // Complete navigation after the target Page and editor have changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prototypeFocus, currentPageId, currentScreenId]);
+
   // Shift+2: zooms to the selected layer's own bounds when something is
   // selected, else the focused frame's bounds - the DOM node's
   // getBoundingClientRect() is already in canvas-space-compatible unscaled
@@ -1608,9 +1672,34 @@ function WorkbenchShell({
   }
 
   const notes = useCanvasNotes(fileId, currentScreenId, screens[0]?.id, currentPageId);
+  useEffect(() => {
+    // Anchored feedback travels with a component, including Undo/Redo.
+    // Only reassign when its old frame no longer contains that node and
+    // there is one unambiguous destination; duplicate screens can share IDs.
+    const trees=screens.map(screen=>({screen,nodes:JSON.parse(screen.layout)}));
+    for(const thread of notes.threads){
+      if(thread.canvas || !thread.anchorNodeId)continue;
+      const current=trees.find(t=>t.screen.id===(thread.screenId??screens[0]?.id));
+      if(current?.nodes[thread.anchorNodeId])continue;
+      const matches=trees.filter(t=>t.nodes[thread.anchorNodeId!]);
+      if(matches.length===1)notes.moveToScreen(thread.id,matches[0].screen.id,matches[0].screen.pageId);
+    }
+  },[screens,notes.threads,notes.moveToScreen]);
   const sectionController = useSectionsController({
     diagramNodes: diagram.nodes, diagramEdges: diagram.edges, pageId: currentPageId, sections: pages.find(page => page.id === currentPageId)?.sections ?? [], screens: pageScreens, heights: measuredHeights,
     selectedFrameIds: pageFrameSelection, focusedScreenId: currentScreenId,
+    pages,
+    moveToPage: (section, pageId) => {
+      const moved = onMoveSection(currentPageId, section.id, pageId, measuredHeights);
+      if (moved) {
+        const members = new Set(pageScreens.filter(s => containsRect(section, frameRect(s, measuredHeights))).map(s => s.id));
+        for (const thread of notes.threads) {
+          if (thread.canvas && thread.pageId === currentPageId && containsRect(section, { x: thread.x, y: thread.y, width: 0, height: 0 })) notes.moveToPage(thread.id, moved.pageId, moved.x - section.x, moved.y - section.y);
+          else if (thread.screenId && members.has(thread.screenId)) notes.moveToPage(thread.id, moved.pageId);
+        }
+        setMovedSection({ pageId: moved.pageId, section: moved });
+      }
+    },
     commit: change => onUpdateSections(currentPageId, change),
     onStart: () => { setPanelMode('design'); notes.cancel(); setDiagramTool(POINTER_TOOL); dispatchDiagram({ type: 'clearSelection' }); setSelectedFrameIds(new Set()); },
     focusFrame: id => { onSelectScreen(id); handleZoomToFrame(id); },
@@ -1621,6 +1710,14 @@ function WorkbenchShell({
       animateTo({...next,x:next.x+left,y:next.y+76});
     },
   });
+  useEffect(() => {
+    if (!movedSection || movedSection.pageId !== currentPageId) return;
+    sectionController.select(movedSection.section.id);
+    sectionController.zoomTo(movedSection.section);
+    setMovedSection(null);
+  // Run once after the destination Page has mounted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movedSection, currentPageId]);
   useEffect(() => { if (diagramTool.kind !== 'pointer' || notes.commentMode) sectionController.setDrawing(false); }, [diagramTool.kind, notes.commentMode]);
   const { commentMode } = notes;
   const [annotationLibraryMode, setAnnotationLibraryMode] = useState<'accessibility' | 'designer' | null>(null);
@@ -1670,7 +1767,7 @@ function WorkbenchShell({
   const cancelPendingAndExitCommentMode = () => { notes.cancel(); setAnnotationLibraryMode(null); };
   const toggleCommentMode = () => { sectionController.setDrawing(false); sectionController.select(null); notes.toggle(); setChatOpen(false); setLeftCollapsed(false); };
   function openNote(thread: CommentThread) {
-    notes.open(thread); setChatOpen(false); setLeftCollapsed(false);
+    notes.open(thread);
     setNoteToFocus(thread);
   }
 
@@ -1718,6 +1815,11 @@ function WorkbenchShell({
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
     frameSelectionActive: pageFrameSelection.size > 0,
     onClearFrameSelection: () => setSelectedFrameIds(new Set()),
+    onFrameDelete: () => {
+      const id = pageFrameSelection.size ? [...pageFrameSelection][0] : currentScreenId;
+      const target = pageScreens.find(screen => screen.id === id);
+      if (target && !wouldStrandPage(target, pageScreens)) setDeleteFrameId(id);
+    },
     onDiagramDelete: () => dispatchDiagram({ type: 'delete', ids: diagram.selection.map((item) => item.id) }),
     onDiagramDuplicate: () => {
       // Also copies a connector whose both endpoints are themselves being
@@ -1814,15 +1916,44 @@ function WorkbenchShell({
     onTogglePixelGrid: () => setPixelGridVisible((visible) => !visible),
   });
 
-  // Make-room drag placeholder (docs/superpowers/specs/2026-09-12-drop-
-  // placeholder-design.md): a bare hook, mounted here alongside
-  // useWorkbenchKeyboard above and LayerStackMenu below - the same
-  // "editor-wide drag/keyboard behaviour, not any one screen's" level
-  // useLayerStack's own reach into the focused frame's document already
-  // relies on. It renders nothing of its own; every DOM change it makes is
-  // imperative (insertBefore/remove on the real artboard), never a Craft
-  // node.
-  useDropPlaceholder();
+  // Shared overlay-only dragging: destination geometry stays stable until
+  // drop. Suspend the main editor's controller while the CC editor is open.
+  const componentLibrary = useComponentLibrary();
+  const [pendingTransfer, setPendingTransfer] = useState<{ targetId: string; sourceId: string; sourceBefore: string; sourceAfter: string; targetAfter: import('@craftjs/core').SerializedNodes; selected: string[] } | null>(null);
+  const dragUI = useDropPlaceholder({ enabled: !componentLibrary?.editing, screenId: currentScreenId, name: screens.find(s => s.id === currentScreenId)?.name, transfer: (targetId, ids, parent, index) => {
+    const target = screens.find(s => s.id === targetId);
+    if (!target) throw new Error('Destination no longer exists');
+    const source = structuredClone(query.getSerializedNodes());
+    const targetNodes = JSON.parse(target.layout);
+    delete source.ROOT.custom.crossFrameLayouts;
+    delete targetNodes.ROOT.custom.crossFrameLayouts;
+    const result = transferElements(source, targetNodes, ids, parent, index);
+    if (!result) throw new Error('Cannot transfer this selection');
+    setPendingTransfer({ targetId, sourceId: currentScreenId, sourceBefore: JSON.stringify(source), sourceAfter: JSON.stringify(result.source), targetAfter: result.target, selected: result.selected });
+    actions.selectNode();
+    onSelectScreen(targetId);
+  } });
+  useEffect(() => {
+    if (!pendingTransfer || currentScreenId !== pendingTransfer.targetId) return;
+    let raf: number;
+    const apply = () => {
+      // Wait for the destination editor to mount inside its persistent
+      // frame before creating the one history entry that owns both trees.
+      const root = query.getState().nodes.ROOT;
+      const host = root?.dom && Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe')).find(frame => frame.contentDocument === root.dom!.ownerDocument);
+      if (!root?.dom || host?.closest('[data-drag-screen]')?.getAttribute('data-drag-screen') !== currentScreenId) { raf = requestAnimationFrame(apply); return; }
+      actions.history.ignore().setCustom('ROOT', custom => {
+        custom.crossFrameLayouts = { owner: currentScreenId, revision: nanoid(), layouts: { [pendingTransfer.sourceId]: pendingTransfer.sourceBefore } };
+      });
+      pendingTransfer.targetAfter.ROOT.custom.crossFrameLayouts = { owner: currentScreenId, revision: nanoid(), layouts: { [pendingTransfer.sourceId]: pendingTransfer.sourceAfter } };
+      actions.deserialize(pendingTransfer.targetAfter);
+      actions.selectNode(pendingTransfer.selected);
+      setPendingTransfer(null);
+    };
+    raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
+  }, [pendingTransfer, currentScreenId]);
+
 
   // StageProvider is intentionally not remounted per screen (see the comment
   // on <StageProvider> in Workbench), so without this its width/height/
@@ -1847,9 +1978,10 @@ function WorkbenchShell({
   const chatPositionClass = 'left-3 w-64';
 
   return (
-    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
+    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ prototypesOpen, setPrototypesOpen, pageSelector: <PagesMenu pages={pages} currentPageId={currentPageId} screens={screens} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} onDuplicate={onDuplicatePage} onDelete={onDeletePage} onMove={onMovePage} />, onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
+          <CursorMinimap enabled={!componentLibrary?.editing} />
           {/*
             No longer a grid (spec section 4): the canvas fills the window
             and every other piece of chrome floats above it, positioned by
@@ -1857,8 +1989,12 @@ function WorkbenchShell({
             positioning context they float relative to.
           */}
           <div data-testid="workbench-shell" className="relative h-screen w-screen overflow-hidden bg-background">
+            {dragUI}
             {!uiHidden && (
               <Topbar
+                frameSelected={selectedNodeId === 'ROOT' || pageFrameSelection.has(currentScreenId)}
+                onCreateDeviceFrame={device => { const id = onAddScreen(device); setPrototypeFocus({ id }); }}
+                hidePageSelector
                 key="topbar"
                 onHandoff={() => setHandoffOpen(true)}
                 fileName={fileName}
@@ -1866,7 +2002,7 @@ function WorkbenchShell({
                 saveState={saveState}
                 notice={notice}
                 onNew={() => setNewOpen(true)}
-                onAddScreen={onAddScreen}
+                onAddScreen={() => onAddScreen()}
                 onAddOverlay={onAddOverlay}
                 fileId={fileId}
                 folderId={folderId}
@@ -1901,7 +2037,7 @@ function WorkbenchShell({
                     dispatchDiagram({ type: 'select', selection: diagram.selection.filter(item => item.type !== 'node' || !diagram.nodes.find(node => node.id === item.id)?.annotation) });
                   }
                 }}
-                onBrowseNotes={() => { notes.setNotesOpen(true); setChatOpen(false); setLeftCollapsed(false); }}
+                onBrowseNotes={() => { notes.setNotesOpen(true); }}
                 onZoomIn={() => setViewport((current) => stepZoom(current, viewportCenter, 'in'))}
                 onZoomOut={() => setViewport((current) => stepZoom(current, viewportCenter, 'out'))}
                 onZoomToFit={() => setViewport(fitAll(zoomToFitTargets(), viewportSize))}
@@ -1979,18 +2115,18 @@ function WorkbenchShell({
                 />
               )}
               {/* Existing pages may still be empty after their frames are moved away. */}
-              {pageScreens.length === 0 && (
+              {pageScreens.length === 0 && diagram.nodes.length === 0 && sectionController.sections.length === 0 && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                   <div className={cn(CHIP, 'px-3')}>
                     <span className="text-[12.5px] text-muted-foreground">This page has no screens yet</span>
-                    <button type="button" className="pointer-events-auto ml-2 rounded border border-line-soft px-2 py-1 text-xs hover:bg-muted" onClick={onAddScreen}>Add frame</button>
+                    <button type="button" className="pointer-events-auto ml-2 rounded border border-line-soft px-2 py-1 text-xs hover:bg-muted" onClick={() => onAddScreen()}>Add frame</button>
                   </div>
                 </div>
               )}
               <LayerStackMenu />
               <FrameSelectionActions />
             </StageErrorBoundary>
-            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections rootFrame={activeLayerScreen ? { name: activeLayerScreen.name, duplicate: () => onDuplicateScreen(currentScreenId), delete: () => onDeleteScreen(currentScreenId), deleteDisabled: pageScreens.length <= 1 || wouldStrandPage(activeLayerScreen, pageScreens) } : undefined} onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || prototypesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections rootFrame={activeLayerScreen ? { name: activeLayerScreen.name, duplicate: () => onDuplicateScreen(currentScreenId), delete: () => onDeleteScreen(currentScreenId), deleteDisabled: wouldStrandPage(activeLayerScreen, pageScreens) } : undefined} onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"
@@ -2015,7 +2151,7 @@ function WorkbenchShell({
                 onSelectDiagramTool={selectDiagramToolFromTray}
               />
             )}
-            {!uiHidden && chatOpen && !notes.notesOpen && (
+            {!uiHidden && chatOpen && !prototypesOpen && (
               <ChatPanel
                 key="chat-panel"
                 left={12}
@@ -2026,6 +2162,7 @@ function WorkbenchShell({
                 className={chatPositionClass}
               />
             )}
+            {!uiHidden && <PrototypesPanel visible={prototypesOpen} fileId={fileId} screens={screens} pages={pages} currentScreenId={currentScreenId} width={leftWidth} onWidthChange={setLeftWidth} onFocus={id => setPrototypeFocus({ id })} onName={onNamePrototype} onHandoff={id => setPrototypeFocus({ id, handoff: true })} />}
             {!uiHidden && notes.notesOpen && <NotesPanel notes={notes} onStart={startNoteOrLibrary} width={leftWidth} onWidthChange={setLeftWidth} onOpen={openNote} targetLabel={thread => thread.canvas ? 'Canvas' : `${screens.find(s => s.id === (thread.screenId ?? screens[0]?.id))?.name ?? 'Frame removed'}${thread.anchorLabel ? ` / ${thread.anchorLabel}` : ''}`} />}
             <NewLayoutDialog
               key="new-dialog"
@@ -2046,6 +2183,12 @@ function WorkbenchShell({
             */}
             <ShortcutsOverlay key="shortcuts-overlay" open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           </div>
+        <AlertDialog open={!!deleteFrameTarget} onOpenChange={open => { if (!open) setDeleteFrameId(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader><AlertDialogTitle>Delete {deleteFrameTarget?.name}?</AlertDialogTitle><AlertDialogDescription>This removes the frame for everyone. Undo will not bring it back.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { if (deleteFrameTarget) onDeleteScreen(deleteFrameTarget.id); setSelectedFrameIds(new Set()); setDeleteFrameId(null); }}>Delete</AlertDialogAction></AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         </CanvasViewportProvider>
       </PrototypeProvider>
     </ChatTransportProvider></LeftPanelContext.Provider></SectionsContext.Provider>

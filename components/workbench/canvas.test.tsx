@@ -299,7 +299,7 @@ describe('Canvas', () => {
       expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_1.id, { x: 24, y: 0 });
     });
 
-    it('dragging a non-focused frame\'s title moves it without focusing it', async () => {
+    it('dragging a non-focused frame\'s title selects it and moves it', async () => {
       saveViewport(window.localStorage, 'dragtest2', 'page1', { x: 0, y: 0, zoom: 1 });
       const onMoveScreen = vi.fn();
       const onFocusScreen = vi.fn();
@@ -317,7 +317,7 @@ describe('Canvas', () => {
       fireEvent.pointerMove(title, { pointerId: 1, clientX: 8, clientY: 0 });
 
       expect(onMoveScreen).toHaveBeenCalledWith(SCREEN_2.id, { x: SCREEN_2.x! + 8, y: SCREEN_2.y! });
-      expect(onFocusScreen).not.toHaveBeenCalled();
+      expect(onFocusScreen).toHaveBeenCalledWith(SCREEN_2.id);
     });
 
     it('double-clicking a title and pressing Enter calls onRenameScreen for that screen', async () => {
@@ -1400,7 +1400,7 @@ describe('Canvas', () => {
   describe('the dot grid', () => {
     it('is visible at 100% zoom, at full opacity', () => {
       renderCanvas();
-      const root = screen.getByTestId('canvas-root');
+      const root = screen.getByTestId('canvas-dot-grid');
       expect(root.style.backgroundImage).toContain('radial-gradient');
       expect(root.style.opacity).toBe('1');
     });
@@ -1409,7 +1409,7 @@ describe('Canvas', () => {
       saveViewport(window.localStorage, 'zoomedout', 'page1', { x: 0, y: 0, zoom: 0.1 });
       renderCanvas({ fileId: 'zoomedout' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-      const root = screen.getByTestId('canvas-root');
+      const root = screen.getByTestId('canvas-dot-grid');
       expect(root.style.backgroundImage).toBeFalsy();
     });
 
@@ -1423,8 +1423,10 @@ describe('Canvas', () => {
       saveViewport(window.localStorage, 'midfade', 'page1', { x: 0, y: 0, zoom: 0.25 });
       renderCanvas({ fileId: 'midfade' });
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-      const root = screen.getByTestId('canvas-root');
+      const root = screen.getByTestId('canvas-dot-grid');
       expect(root.style.backgroundImage).toContain('radial-gradient');
+      expect(screen.getByTestId('canvas-root').style.opacity).toBe('');
+      expect(root).not.toContainElement(screen.getAllByTestId('canvas-frame')[0]);
       const opacity = Number(root.style.opacity);
       expect(opacity).toBeGreaterThan(0);
       expect(opacity).toBeLessThan(1);
@@ -1432,7 +1434,7 @@ describe('Canvas', () => {
 
     it('is hidden when pixelGridVisible is false, regardless of zoom', () => {
       renderCanvas({ pixelGridVisible: false });
-      const root = screen.getByTestId('canvas-root');
+      const root = screen.getByTestId('canvas-dot-grid');
       expect(root.style.backgroundImage).toBeFalsy();
     });
   });

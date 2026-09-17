@@ -9,6 +9,7 @@ import { createOverlayScreen } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { Workbench } from './workbench';
 import loginExampleLayout from '@/lib/examples/login-screen.json';
+import { emptyLayoutJson } from '@/components/blocks/registry';
 
 // The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
 // ToggleGroup is a radiogroup), not `role="button"`; matched by visible text
@@ -290,6 +291,25 @@ describe('Workbench', () => {
     window.location.hash = '';
   });
 
+  it('deletes an empty root from its iframe and selects another frame through its title', async () => {
+    render(<Workbench file={makeFile({screens:[{...SCREEN_1,layout:emptyLayoutJson()},{...SCREEN_2,layout:emptyLayoutJson()}]})} />);
+    await waitFor(()=>expect(frameBody().querySelector('[data-block="LayoutBox"]')).toBeTruthy());
+    const root=frameBody().querySelector('[data-block="LayoutBox"]')!;
+    fireEvent.mouseDown(root);fireEvent.click(root);
+    root.addEventListener('keydown', event => event.stopPropagation());
+    fireEvent.keyDown(root,{key:'Delete'});
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Delete Frame 1?');
+    fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+    const title=screen.getByRole('button',{name:'Frame 2'});
+    fireEvent.pointerDown(title,{button:0,pointerId:1});fireEvent.pointerUp(title,{pointerId:1});fireEvent.click(title);
+    await waitFor(()=>expect(screen.getByTestId('frame-screen0002')).toHaveAttribute('data-selected','true'));
+    fireEvent.keyDown(title,{key:'Delete'});
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Delete Frame 2?');
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Delete'}));
+    await waitFor(()=>expect(screen.queryByTestId('frame-screen0002')).toBeNull());
+    expect(screen.getByTestId('frame-screen0001')).toBeInTheDocument();
+  });
+
   it('opens distinct annotation libraries and undoes deleting a canvas annotation', async () => {
     render(<Workbench file={makeFile()} />);
     await user.click(screen.getByRole('button', {name:'Note tools'}));
@@ -481,6 +501,37 @@ describe('Workbench', () => {
   describe('canvas sections', () => {
     const section = {id:'section001',name:'Checkout',x:-80,y:-80,width:1200,height:800};
     const frames = [{...SCREEN_1,x:0,y:0,stageWidth:320,stageHeight:500},{...SCREEN_2,x:500,y:0,stageWidth:320,stageHeight:500}];
+    it('moves a diagram-only section to New Page without adding a default frame', async () => {
+      const node = { id: 'diagram001', kind: 'rect' as const, x: 2000, y: 100, width: 100, height: 100, text: 'Flow', color: 'neutral' as const };
+      const region = { ...section, x: 1900, y: 0, width: 500, height: 500 };
+      render(<Workbench file={makeFile({ pages: [{ id: PAGE_ID, name: 'Page 1', sections: [region], diagram: { nodes: [node], edges: [] } }] })} />);
+      await user.click(screen.getByRole('button', { name: 'Section options for Checkout' }));
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Move to page' }), { key: 'ArrowRight' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'New Page' }));
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 2');
+      expect(screen.queryByTestId('canvas-frame')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Select section Checkout' })).toBeInTheDocument();
+      await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => {
+        const patch = JSON.parse(init.body); return patch.pages?.length === 2 && patch.pages[1].diagram?.nodes[0].id === node.id && patch.screens?.length === 1 && patch.screens[0].pageId === PAGE_ID;
+      })).toBe(true));
+    });
+    it('moves a section from its menu with both frames and persists both Pages together', async () => {
+      render(<Workbench file={makeFile({ screens: frames, pages: [{ id: PAGE_ID, name: 'Page 1', sections: [section] }, { id: PAGE_2_ID, name: 'Page 2' }] })} />);
+      await user.click(screen.getByRole('button', { name: 'Section options for Checkout' }));
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Move to page' }), { key: 'ArrowRight' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Page 2' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 2'));
+      expect(screen.getByRole('button', { name: 'Select section Checkout' })).toBeInTheDocument();
+      expect(screen.getByTestId('frame-screen0002')).toHaveStyle({ left: '580px', top: '80px' });
+      await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => {
+        const patch = JSON.parse(init.body);
+        return patch.pages?.[0].sections?.length === 0 && patch.pages?.[1].sections?.[0].id === section.id && patch.screens?.every((s: Screen) => s.pageId === PAGE_2_ID);
+      })).toBe(true), { timeout: 2000 });
+      await user.click(screen.getByRole('button', { name: 'Pages' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Page 1' }));
+      expect(screen.queryByRole('button', { name: 'Select section Checkout' })).toBeNull();
+      expect(screen.queryByTestId('frame-screen0001')).toBeNull();
+    });
     it('wraps selected frames, saves sections with the page and supports undo/redo', async () => {
       render(<Workbench file={makeFile({screens:frames})} />);
       fireEvent.pointerDown(screen.getByRole('button',{name:'Frame 1'}),{button:0,shiftKey:true,pointerId:1});
@@ -1246,7 +1297,7 @@ describe('Workbench', () => {
     it('Cmd+\' hides the canvas pixel grid without saving anything, and shows it again', async () => {
       render(<Workbench file={makeFile()} />);
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
-      const root = screen.getByTestId('canvas-root');
+      const root = screen.getByTestId('canvas-dot-grid');
       expect(root.style.backgroundImage).toContain('radial-gradient');
 
       fireEvent.keyDown(window, { key: "'", metaKey: true });
@@ -1259,8 +1310,36 @@ describe('Workbench', () => {
   });
 
   describe('device presets', () => {
+    it('creates a sized frame without resizing an existing unselected frame', async () => {
+      render(<Workbench file={makeFile()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 2 · 2'));
+      await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => {
+        const body = JSON.parse(init.body); return body.screens?.length === 2 && body.screens[0].stageWidth === SCREEN_1.stageWidth && body.screens[1].stageWidth === 402 && body.screens[1].stageHeight === 874;
+      })).toBe(true));
+    });
+    it('loads a frame-free file and creates its first frame from a device preset', async () => {
+      render(<Workbench file={makeFile({ screens: [] })} />);
+      expect(screen.queryByTestId('canvas-frame')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Phone' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
+      expect(await within(frameBody()).findByText('This frame is empty')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 1 · 1');
+    });
+    it('can delete the final frame and save a frame-free file', async () => {
+      render(<Workbench file={makeFile()} />);
+      await deleteFrame('Frame 1');
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(screen.queryByTestId('canvas-frame')).toBeNull();
+      await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => JSON.parse(init.body).screens?.length === 0)).toBe(true));
+    });
+
     it('choosing a device from the top bar queues a save with stageWidth, stageHeight and deviceName', async () => {
       render(<Workbench file={makeFile()} />);
+      fireEvent.mouseDown(frameBody().querySelector('[data-block="LayoutBox"]')!);
 
       await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
@@ -1602,6 +1681,37 @@ describe('Workbench', () => {
     });
   });
 
+  describe('left navigation', () => {
+    it('shows Design, Prototypes and Chat without a Notes tab, and keeps feedback independent', async () => {
+      render(<Workbench file={makeFile()} />);
+      const tabs = within(screen.getByRole('radiogroup', { name: 'Left panel mode' }));
+      expect(tabs.getAllByRole('radio').map(item => item.getAttribute('aria-label'))).toEqual(['Design', 'Prototypes', 'Chat']);
+      expect(within(screen.getByRole('complementary', { name: 'Layers panel' })).getByRole('button', { name: 'Pages' })).toBeInTheDocument();
+      expect(within(screen.getByRole('banner')).queryByRole('button', { name: 'Pages' })).toBeNull();
+      await user.click(tabs.getByRole('radio', { name: 'Chat' }));
+      await user.click(screen.getByRole('button', { name: 'Note tools' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Open Notes panel' }));
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+      expect(screen.getByRole('complementary', { name: 'Notes panel' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Close notes panel' }));
+      expect(screen.queryByRole('complementary', { name: 'Notes panel' })).toBeNull();
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBeInTheDocument();
+    });
+
+    it('opens a prototype screen on another Page without leaving Prototypes', async () => {
+      const layout = JSON.parse(SCREEN_1.layout);
+      layout.ROOT.custom = { ...layout.ROOT.custom, prototypeName: 'Application', interactions: [{ id: 'link', trigger: 'click', action: 'navigate', targetScreenId: SCREEN_2.id }] };
+      render(<Workbench file={makeFile({ pages: [{ id: PAGE_ID, name: 'Page 1' }, { id: 'page000002', name: 'Other Page' }], screens: [{ ...SCREEN_1, layout: JSON.stringify(layout) }, { ...SCREEN_2, pageId: 'page000002' }] })} />);
+      await user.click(screen.getByRole('radio', { name: 'Prototypes' }));
+      await user.click(screen.getByRole('button', { name: 'Application 2 screens' }));
+      await user.click(screen.getByRole('button', { name: `${SCREEN_2.name} Other Page` }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent(SCREEN_2.name));
+      expect(screen.getByRole('radio', { name: 'Prototypes' })).toHaveAttribute('data-state', 'on');
+      await user.click(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' }));
+      expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Other Page');
+    });
+  });
+
   describe('Chat panel', () => {
     beforeEach(() => {
       localStorage.clear();
@@ -1623,7 +1733,7 @@ describe('Workbench', () => {
       // Occupies the left Layers panel footprint.
       expect(chat).toHaveStyle({ left: '12px' });
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+      await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' }));
       expect(screen.getByRole('radio', { name: 'Chat' })).toHaveAttribute('aria-checked', 'false');
       expect(screen.queryByRole('complementary', { name: 'Chat' })).toBeNull();
       expect(screen.getByRole('complementary', { name: 'Design' })).toHaveClass('w-80');
@@ -1698,13 +1808,13 @@ describe('Workbench', () => {
 
       selectRoot();
 
-      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+      await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
     });
 
     it('choosing Elements while a layer is already selected is explicit and does not bounce back to Design', async () => {
       render(<Workbench file={makeFile()} />);
       selectRoot();
-      await waitFor(() => expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
+      await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on'));
 
       await userEvent.click(screen.getByRole('radio', { name: 'Components' }));
 
@@ -1723,7 +1833,7 @@ describe('Workbench', () => {
     it('tolerates a corrupt panel-mode value in localStorage, defaulting to Design', () => {
       localStorage.setItem('assembly-workbench:panel-mode', 'not-a-mode');
       render(<Workbench file={makeFile()} />);
-      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(screen.getByRole('radiogroup', { name: 'Panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
     });
   });
 
@@ -1794,6 +1904,31 @@ describe('Workbench', () => {
   // artboard (spec docs/superpowers/specs/2026-09-12-drop-placeholder-
   // design.md).
   describe('Drag placeholder', () => {
+    it('Move to transfers a component, focuses the destination, and restores both trees with Undo/Redo', async () => {
+      const second = { ...SCREEN_1, id: 'screen0002', name: 'Frame 2', layout: emptyLayoutJson(), x: 900 };
+      render(<Workbench file={makeFile({ screens: [SCREEN_1, second] })} />);
+      const button = within(frameBody()).getByText('Forgot your password?');
+      fireEvent.mouseDown(button, { button: 0 });
+      act(() => window.dispatchEvent(new Event('dreamscape-move-to')));
+      await user.click(await screen.findByRole('button', { name: 'Frame 2 › Frame' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 2'));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled());
+      const frames = screen.getAllByTestId('canvas-frame') as HTMLIFrameElement[];
+      await waitFor(() => expect(frames[1].contentDocument!.body).toHaveTextContent('Forgot your password?'));
+      expect(frames[0].contentDocument!.body).not.toHaveTextContent('Forgot your password?');
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(frames[0].contentDocument!.body).toHaveTextContent('Forgot your password?'));
+      expect(frames[1].contentDocument!.body).not.toHaveTextContent('Forgot your password?');
+      await user.click(screen.getByRole('button', { name: 'Redo' }));
+      await waitFor(() => expect(frames[1].contentDocument!.body).toHaveTextContent('Forgot your password?'));
+      // Move a second time from a frame that already owns a transfer record.
+      fireEvent.mouseDown(within(frames[1].contentDocument!.body).getByText('Forgot your password?'), { button: 0 });
+      act(() => window.dispatchEvent(new Event('dreamscape-move-to')));
+      await user.click(await screen.findByRole('button', { name: 'Frame 1 › Frame' }));
+      await waitFor(() => expect(frames[0].contentDocument!.body).toHaveTextContent('Forgot your password?'));
+      expect(frames[1].contentDocument!.body).not.toHaveTextContent('Forgot your password?');
+    });
+
     it('opens a drop slot in the artboard when a tray component is dragged over it, and removes it on drop', async () => {
       // The "Cannot update a component while rendering" regression check
       // lives in drop-placeholder-warning.test.tsx: React dedupes that
@@ -1817,7 +1952,8 @@ describe('Workbench', () => {
       const dataTransfer = { setDragImage: () => {}, setData: () => {}, effectAllowed: '', dropEffect: '' };
       fireEvent.dragStart(trayButton, { dataTransfer });
       fireEvent.dragOver(root, { clientX: 50, clientY: 50 });
-      expect(frameBody().querySelector('[data-drop-placeholder]')).not.toBeNull();
+      expect(document.querySelector<HTMLElement>('[data-drop-placeholder]')!.style.display).toBe('block');
+      expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
 
       fireEvent.drop(root);
       expect(frameBody().querySelector('[data-drop-placeholder]')).toBeNull();
@@ -1836,7 +1972,7 @@ describe('Workbench', () => {
     // fireEvent.dragStart on a node inside frameBody() exercises the exact
     // review-flagged path ("the controller's browser run showed the
     // original did not collapse after dragstart at all").
-    it('collapses an existing layer\'s own box one frame after it starts dragging inside the artboard, and restores it on dragend', () => {
+    it('keeps the original visible throughout a drag inside the artboard', () => {
       const pendingRaf: FrameRequestCallback[] = [];
       vi.stubGlobal(
         'requestAnimationFrame',
@@ -1862,7 +1998,7 @@ describe('Workbench', () => {
       act(() => {
         pendingRaf.splice(0).forEach((cb) => cb(0));
       });
-      expect(forgotButton.style.visibility).toBe('hidden');
+      expect(forgotButton.style.visibility).not.toBe('hidden');
 
       fireEvent.dragEnd(document);
       expect(forgotButton.style.visibility).not.toBe('hidden');
@@ -1892,7 +2028,7 @@ describe('Workbench', () => {
       act(() => {
         pendingRaf.splice(0).forEach((cb) => cb(0));
       });
-      expect(forgotButton.style.visibility).toBe('hidden');
+      expect(forgotButton.style.visibility).not.toBe('hidden');
 
       fireEvent.drop(cardContent, { clientX: 10, clientY: 10 });
       fireEvent.dragEnd(forgotButton);
@@ -1977,7 +2113,7 @@ describe('Workbench', () => {
       expect(screen.getByRole('radio', { name: 'Diagrams' })).toHaveAttribute('data-state', 'on');
 
       fireEvent.keyDown(window, { key: 'd' });
-      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(screen.getByRole('radiogroup', { name: 'Panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
     });
 
     it('expand the panel when it is minimized', async () => {
@@ -1997,7 +2133,7 @@ describe('Workbench', () => {
       fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: 'e' });
       fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: 'g' });
       await userEvent.keyboard('{Escape}');
-      expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
+      expect(within(screen.getByRole('radiogroup', { name: 'Panel mode' })).getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
     });
   });
 
@@ -2059,7 +2195,7 @@ describe('Workbench', () => {
       await userEvent.click(screen.getByRole('radio', { name: 'Chat' }));
       expect(transform()).toBe(before);
 
-      await userEvent.click(screen.getByRole('radio', { name: 'Layers' }));
+      await userEvent.click(within(screen.getByRole('radiogroup', { name: 'Left panel mode' })).getByRole('radio', { name: 'Design' }));
       expect(transform()).toBe(before);
     });
 
@@ -2209,12 +2345,14 @@ describe('Workbench', () => {
       expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
     });
 
-    it('New page opens a blank frame with its own layers and supports inserting and undoing elements', async () => {
+    it('New page starts empty and supports creating a frame before inserting elements', async () => {
       render(<Workbench file={twoPageFile()} />);
       await openPagesMenu();
       await userEvent.click(await screen.findByRole('menuitem', { name: 'New page' }));
 
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('Page 3');
+      expect(screen.queryByTestId('canvas-frame')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: 'Add frame' }));
       expect(screen.getByRole('button', { name: 'Frames' })).toHaveTextContent('Frame 1 · 1');
       expect(within(frameBody()).queryByRole('button', { name: 'Sign in' })).toBeNull();
       await waitFor(() => expect(within(screen.getByRole('tree', { name: 'Layers' })).getAllByRole('treeitem')).toHaveLength(1));

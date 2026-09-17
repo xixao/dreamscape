@@ -1,15 +1,15 @@
 'use client';
 import { createContext, useContext, type ReactNode } from 'react';
-import { Layers, Sparkles, MessageCircle, Settings2 } from 'lucide-react';
+import { Layers, Sparkles, Workflow, Settings2 } from 'lucide-react';
 import { SegmentedControl, SegmentedItem } from './segmented-control';
-export const LeftPanelContext = createContext<{ onOpenFileSettings?: () => void; chatOpen: boolean; setChatOpen: (open: boolean) => void; notesOpen?: boolean; setNotesOpen?: (open: boolean) => void; collapsed?: boolean; setCollapsed?: (collapsed: boolean) => void } | null>(null);
+export const LeftPanelContext = createContext<{ pageSelector?: ReactNode; prototypesOpen?: boolean; setPrototypesOpen?: (open: boolean) => void; onOpenFileSettings?: () => void; chatOpen: boolean; setChatOpen: (open: boolean) => void; notesOpen?: boolean; setNotesOpen?: (open: boolean) => void; collapsed?: boolean; setCollapsed?: (collapsed: boolean) => void } | null>(null);
 export function LeftPanelTabs({ compact = false }: { compact?: boolean }) {
   const context = useContext(LeftPanelContext);
   if (!context) return null;
-  return <SegmentedControl continuityKey={context.setChatOpen} orientation={compact ? 'vertical' : 'horizontal'} aria-label="Left panel mode" value={context.notesOpen ? 'notes' : context.chatOpen ? 'chat' : 'layers'} onValueChange={value => { if (value) { context.setChatOpen(value === 'chat'); context.setNotesOpen?.(value === 'notes'); context.setCollapsed?.(false); } }} className={compact ? 'flex-col' : 'flex-1'}>
-    <SegmentedItem value="layers" aria-label="Layers" title="Layers" ><Layers className="size-4" aria-hidden /></SegmentedItem>
-    <SegmentedItem value="chat" aria-label="Chat" title="Chat" ><Sparkles className="size-4" aria-hidden /></SegmentedItem>
-    {context.setNotesOpen && <SegmentedItem value="notes" aria-label="Notes" title="Notes" ><MessageCircle className="size-4" aria-hidden /></SegmentedItem>}
+  return <SegmentedControl continuityKey={context.setChatOpen} orientation={compact ? 'vertical' : 'horizontal'} aria-label="Left panel mode" value={context.prototypesOpen ? 'prototypes' : context.chatOpen ? 'chat' : 'design'} onValueChange={value => { if (value) { context.setChatOpen(value === 'chat'); context.setPrototypesOpen?.(value === 'prototypes'); context.setCollapsed?.(false); } }} className={compact ? 'flex-col' : 'flex-1'}>
+    <SegmentedItem value="design" aria-label="Design" title="Design" >{compact && <Layers className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Design</span>}</SegmentedItem>
+    {context.setPrototypesOpen && <SegmentedItem value="prototypes" aria-label="Prototypes" title="Prototypes">{compact && <Workflow className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Prototypes</span>}</SegmentedItem>}
+    <SegmentedItem value="chat" aria-label="Chat" title="Chat" >{compact && <Sparkles className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Chat</span>}</SegmentedItem>
   </SegmentedControl>;
 }
 

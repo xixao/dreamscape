@@ -1,4 +1,5 @@
 'use client';
+import { DRAG_MOVE_TO } from './drag-surfaces';
 import { startAreaPrompt } from './chat/canvas-prompt-controls';
 import { useEditor } from '@craftjs/core';
 import { useEffect, useState } from 'react';
@@ -207,6 +208,7 @@ export function FrameSelectionActions({ active = true, builder = false, alignmen
       const nodes = query.getSerializedNodes();
       if (id && nodes[id]) { setComponentCode(nodes[id].type && typeof nodes[id].type === 'object' && nodes[id].type.resolvedName === 'CustomComponent' ? nodes[id].props.layout : null); setCode({ name: nodes[id].custom.layerName || nodes[id].displayName, text: selectionCode(nodes, id) }); setCopyStatus('Copy code'); }
     }}>View Code</DropdownMenuItem><DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={copyPng}>Copy as PNG<kbd className={SELECTION_MENU_KEY}>⌘⇧C</kbd></DropdownMenuItem>
+    <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={() => window.dispatchEvent(new Event(DRAG_MOVE_TO))}>Move to…</DropdownMenuItem>
     <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={startAreaPrompt}>Ask AI about an area</DropdownMenuItem>
     {library?.create && <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={createComponent}>Create Custom Component</DropdownMenuItem>}
     {[...query.getState().events.selected].some(id => query.node(id).get().data.name === 'CustomComponent') && <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={detach}>Detach instance</DropdownMenuItem>}{menu?.docsName && <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={() => setDreamDocs(menu.docsName)}>View Dream Docs</DropdownMenuItem>}</DropdownMenuContent>

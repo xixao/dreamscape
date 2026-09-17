@@ -22,6 +22,7 @@ type KeysOptions = {
   onDeselectDiagram?: () => void;
   frameSelectionActive?: boolean;
   onClearFrameSelection?: () => void;
+  onFrameDelete?: () => void;
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
   onDiagramSelectAll?: () => void;
@@ -59,6 +60,7 @@ function Keys({
   onDeselectDiagram,
   frameSelectionActive,
   onClearFrameSelection,
+  onFrameDelete,
   onDiagramDelete,
   onDiagramDuplicate,
   onDiagramSelectAll,
@@ -95,6 +97,7 @@ function Keys({
     onDeselectDiagram,
     frameSelectionActive,
     onClearFrameSelection,
+  onFrameDelete,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
@@ -1328,4 +1331,15 @@ describe('useWorkbenchKeyboard layout grid / pixel grid toggles', () => {
     fireEvent.keyDown(screen.getByLabelText('typing'), { key: "'", ctrlKey: true });
     expect(onTogglePixelGrid).toHaveBeenCalledTimes(2);
   });
+});
+
+it('routes root Delete and Backspace to frame deletion without deleting Craft ROOT', async () => {
+  const onFrameDelete=vi.fn();
+  const {editor}=mount({onFrameDelete});
+  await screen.findByRole('button',{name:'Doomed'});
+  act(()=>editor().actions.selectNode(ROOT_NODE));
+  fireEvent.keyDown(window,{key:'Delete'});
+  fireEvent.keyDown(window,{key:'Backspace'});
+  expect(onFrameDelete).toHaveBeenCalledTimes(2);
+  expect(editor().query.node(ROOT_NODE).get()).toBeTruthy();
 });

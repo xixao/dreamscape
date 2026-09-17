@@ -1,9 +1,11 @@
 'use client';
 
 import { useEditor, type NodeTree } from '@craftjs/core';
+import { CanvasMinimap } from './canvas-minimap';
 import { SectionsList } from './sections/section-tools';
 import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader, LeftPanelFooter } from './left-panel-tabs';
-import { useContext, useState } from 'react';
+import { DRAG_TARGET } from './drag-surfaces';
+import { useContext, useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, Copy, Trash2 } from 'lucide-react';
 import { useSettledEditorState } from './use-settled-editor-state';
@@ -23,7 +25,50 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dropHint, setDropHint] = useState<{ id: string; placement: string } | null>(null);
+  const temporaryExpanded = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let currentParent: string | null = null;
+    const target = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.complete) { clearTimeout(timer); currentParent=null; temporaryExpanded.current.clear(); setDropHint(null); return; }
+      if (!detail) {
+        clearTimeout(timer); currentParent=null;
+        setDropHint(null);
+        const restore=[...temporaryExpanded.current];
+        setCollapsed(previous => new Set([...previous, ...restore]));
+        temporaryExpanded.current.clear();
+        return;
+      }
+      if (!detail.parent) return;
+      const children = query.getState().nodes[detail.parent]?.data.nodes ?? [];
+      const child = children[detail.index] ?? children.at(-1);
+      setDropHint({ id: detail.inside || !child ? detail.parent : child, placement: detail.inside || !child ? 'inside' : detail.index >= children.length ? 'after' : 'before' });
+      if (currentParent === detail.parent) return;
+      currentParent=detail.parent;clearTimeout(timer);
+      timer = setTimeout(() => setCollapsed(previous => {
+        if (!previous.has(detail.parent)) return previous;
+        temporaryExpanded.current.add(detail.parent);
+        const next = new Set(previous); next.delete(detail.parent); return next;
+      }), 450);
+    };
+    window.addEventListener(DRAG_TARGET, target);
+    return () => { clearTimeout(timer); window.removeEventListener(DRAG_TARGET, target); };
+  }, []);
   const selected = [...state.events.selected][0];
+  useEffect(() => {
+    if (!selected) return;
+    const ancestors: string[] = [];
+    let parent=query.getState().nodes[selected]?.data.parent;
+    while(parent){ancestors.push(parent);parent=query.getState().nodes[parent]?.data.parent;}
+    setCollapsed(previous=>new Set([...previous].filter(id=>!ancestors.includes(id))));
+    const raf=requestAnimationFrame(()=>{
+      const row=Array.from(document.querySelectorAll<HTMLElement>('[data-drag-layer]')).find(el=>el.dataset.dragLayer===selected);
+      const tree=row?.closest('[role=tree]');
+      if(row && tree){const r=row.getBoundingClientRect(),t=tree.getBoundingClientRect();if(r.top<t.top||r.bottom>t.bottom)tree.scrollTop+=r.top-t.top;}
+    });
+    return()=>cancelAnimationFrame(raf);
+  },[selected]);
   function attempt(operation: () => void) {
     try { operation(); setError(''); } catch { setError('That layer cannot be moved into this location.'); }
   }
@@ -59,8 +104,9 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     const children = [...Object.values(item.data.linkedNodes), ...item.data.nodes];
     const label = String(item.data.custom.layerName || (id === 'ROOT' ? 'Frame' : item.data.displayName));
     const movable = !!item.data.parent && state.nodes[item.data.parent]?.data.nodes.includes(id);
-    return <div key={id} role="treeitem" aria-label={label} aria-selected={selected === id} aria-expanded={children.length ? !collapsed.has(id) : undefined}>
-      <div className={`group/layer flex items-center gap-1 rounded-md py-1.5 pr-2 text-xs ${selected === id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'}`}
+    return <div key={id} role="treeitem" aria-label={label} aria-selected={state.events.selected.has(id)} aria-expanded={children.length ? !collapsed.has(id) : undefined}>
+      <div className={`group/layer flex items-center gap-1 rounded-md py-1.5 pr-2 text-xs ${state.events.selected.has(id) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'}`}
+        data-drag-layer={id}
         draggable={movable && renaming !== id}
         onDragStart={event => { event.stopPropagation(); event.dataTransfer.setData('application/x-dreamscape-layer', id); event.dataTransfer.effectAllowed = 'move'; }}
         data-drop-placement={dropHint?.id === id ? dropHint.placement : undefined}
@@ -98,7 +144,12 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
         </button>
         {renaming === id ? <input autoFocus aria-label="Layer name" className="min-w-0 flex-1 rounded border bg-background px-1 text-xs" value={name} onChange={event => setName(event.target.value)} onBlur={commitName}
           onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') commitName(); if (event.key === 'Escape') setRenaming(null); }} /> :
-          <button className="min-w-0 flex-1 truncate text-left" onClick={() => actions.selectNode(id)} onDoubleClick={() => { setRenaming(id); setName(label); }}>{label}</button>}
+          <button className="min-w-0 flex-1 truncate text-left" onClick={event => {
+            const current = query.getEvent('selected').all();
+            actions.selectNode(event.shiftKey || event.metaKey || event.ctrlKey
+              ? current.includes(id) ? current.filter(value => value !== id) : [...current, id]
+              : id);
+          }} onDoubleClick={() => { setRenaming(id); setName(label); }}>{label}</button>}
         {(movable || (id === 'ROOT' && rootFrame)) && <div className="flex shrink-0 opacity-0 group-hover/layer:opacity-100 group-focus-within/layer:opacity-100">
           <button title={id === 'ROOT' ? 'Duplicate frame' : 'Duplicate layer'} aria-label={id === 'ROOT' ? 'Duplicate frame' : 'Duplicate layer'} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => id === 'ROOT' ? rootFrame?.duplicate() : duplicate(id)}><Copy className="size-3.5" /></button>
           <button title={id === 'ROOT' ? rootFrame?.deleteDisabled ? 'Keep at least one screen on this page' : 'Delete frame' : 'Delete layer'} aria-label={id === 'ROOT' ? 'Delete frame' : 'Delete layer'} disabled={id === 'ROOT' && rootFrame?.deleteDisabled} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => id === 'ROOT' ? setConfirmDelete(true) : attempt(() => { actions.delete(id); actions.selectNode(item.data.parent!); })}><Trash2 className="size-3.5" /></button>
@@ -119,11 +170,17 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     {utilities}
     <LeftPanelFooter />
   </div>;
-  return <div className="flex h-full min-h-0 flex-col" onKeyDown={event => event.stopPropagation()}>
+  return <div className="flex h-full min-h-0 flex-col" onKeyDown={event => {
+      event.stopPropagation();
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !event.ctrlKey && !event.metaKey && !event.altKey && !(event.target as HTMLElement).closest('input, textarea, [contenteditable="true"]') && query.getEvent('selected').contains('ROOT') && rootFrame && !rootFrame.deleteDisabled) {
+        event.preventDefault(); setConfirmDelete(true);
+      }
+    }}>
     {panelMode ? <LeftPanelHeader action={<button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button>} /> : <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>}
 
+    {panelMode?.pageSelector && (showSections ? <CanvasMinimap>{panelMode.pageSelector}</CanvasMinimap> : <div className="border-b border-line-soft p-3">{panelMode.pageSelector}</div>)}
     {showSections && <SectionsList />}
-    <div role="tree" aria-label="Layers" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
+    <div role="tree" aria-label="Layers" aria-multiselectable="true" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}
     {utilities}
     <LeftPanelFooter />

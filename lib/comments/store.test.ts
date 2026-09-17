@@ -158,3 +158,25 @@ describe('author name', () => {
     expect(getAuthorName(fakeStorage())).toBeNull();
   });
 });
+
+it('transfers a pin to another Page without losing its anchor or replies', () => {
+  const storage = fakeStorage(); const store = createCommentStore('file', storage);
+  const pin = store.add({ x: 20, y: 30, pageId: 'one', screenId: 'frame', anchorNodeId: 'node', anchorLabel: 'Title', anchorOffset: { x: 2, y: 3 }, author: 'Matt', text: 'Review' });
+  store.reply(pin.id, { author: 'Dev', text: 'Done' });
+  const before = store.list()[0]; const listener = vi.fn(); store.subscribe(listener);
+  store.moveToPage(pin.id, 'two', 100, 50);
+  expect(store.list()[0]).toEqual({ ...before, pageId: 'two', x: 120, y: 80 });
+  expect(listener).toHaveBeenCalledOnce();
+  expect(createCommentStore('file', storage).list()[0]).toEqual(store.list()[0]);
+});
+
+it('moves anchored feedback between frames and back without losing replies or offsets', () => {
+  const storage=fakeStorage(),store=createCommentStore('file',storage);
+  const pin=store.add({x:20,y:30,screenId:'source',pageId:'page',anchorNodeId:'card',anchorOffset:{x:.5,y:.5},author:'Matt',text:'Review'});
+  store.reply(pin.id,{author:'Dev',text:'Noted'});const before=store.list()[0];
+  store.moveToScreen(pin.id,'target','page');
+  expect(store.list()[0]).toEqual({...before,screenId:'target',canvas:false});
+  store.moveToScreen(pin.id,'source','page');
+  expect(store.list()[0]).toEqual({...before,canvas:false});
+  expect(createCommentStore('file',storage).list()[0]).toEqual(store.list()[0]);
+});

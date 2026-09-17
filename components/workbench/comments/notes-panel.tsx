@@ -1,26 +1,27 @@
 'use client';
-import { useContext } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { CommentThread } from '@/lib/comments/store';
 import { PANEL, EMPTY, EMPTY_TITLE } from '../chrome';
-import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs, LeftPanelFooter } from '../left-panel-tabs';
-import { PanelResize } from '../panel-resize';
 import type { CanvasNotes, NoteFilter, NoteStatus } from './use-canvas-notes';
 import { NOTE_META, NOTE_KINDS } from './note-meta';
 import { NoteTool } from './note-tool';
-export function NotesPanel({ notes, width, onWidthChange, onOpen, targetLabel, onStart, allowCanvas = true }: {
+export function NotesPanel({ notes, onOpen, targetLabel, onStart, allowCanvas = true }: {
   onStart?: (kind: import('@/lib/comments/store').NoteKind) => void;
   allowCanvas?: boolean; notes: CanvasNotes; width: number; onWidthChange: (width: number) => void;
   onOpen: (thread: CommentThread) => void; targetLabel: (thread: CommentThread) => string;
 }) {
-  const context = useContext(LeftPanelContext);
-  const collapsed = context?.collapsed;
-  return <aside aria-label="Notes panel" style={{ width: collapsed ? 40 : width }} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-30 flex min-h-0 flex-col overflow-hidden`}>
-    {collapsed ? <><LeftPanelTabs compact /><button aria-label="Expand notes panel" onClick={() => context?.setCollapsed?.(false)} className="p-2"><ChevronRight className="size-4" /></button></> : <>
-      <PanelResize width={width} onChange={onWidthChange} />
-      <LeftPanelHeader action={<button aria-label="Minimize notes panel" onClick={() => context?.setCollapsed?.(true)}><ChevronLeft className="size-4" /></button>} />
+  const [position, setPosition] = useState({ x: 0, y: 88 });
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  return <aside aria-label="Notes panel" style={{ width: 340, height: 520, maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 100px)', left: position.x || Math.max(12, window.innerWidth / 2 - 170), top: position.y, resize: 'both' }} className={`${PANEL} absolute z-30 flex min-h-[260px] min-w-[260px] flex-col overflow-hidden`}>
+      <div className="flex h-[50px] shrink-0 touch-none items-center justify-between border-b border-line-soft px-3 cursor-move"
+        onPointerDown={event => { if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return; const rect = event.currentTarget.parentElement!.getBoundingClientRect(); drag.current = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={event => { if (drag.current) { const rect = event.currentTarget.parentElement!.getBoundingClientRect(); setPosition({ x: Math.max(12, Math.min(window.innerWidth - rect.width - 12, drag.current.left + event.clientX - drag.current.x)), y: Math.max(76, Math.min(window.innerHeight - 100, drag.current.top + event.clientY - drag.current.y)) }); } }}
+        onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onLostPointerCapture={() => { drag.current = null; }}>
+        <h2 className="text-sm font-medium">Notes</h2><button aria-label="Close notes panel" className="rounded p-1 hover:bg-accent" onClick={() => { notes.setNotesOpen(false); notes.cancel(); notes.commentsProps.onCloseThread(); }}><X className="size-4" /></button>
+      </div>
       <div className="space-y-3 border-b border-line-soft p-3">
-        <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Notes</h2><NoteTool libraries={!!onStart} label="Place a note" menuLabel="Add note options" active={notes.commentMode} kind={notes.kind} onToggle={notes.toggle} onStart={onStart ?? notes.start} /></div>
+        <div className="flex items-center justify-between"><span className="text-xs text-muted-foreground">Feedback and annotations</span><NoteTool libraries={!!onStart} label="Place a note" menuLabel="Add note options" active={notes.commentMode} kind={notes.kind} onToggle={notes.toggle} onStart={onStart ?? notes.start} /></div>
         <div role="group" aria-label="Note type filters" className="grid grid-cols-2 gap-1">{(['all', ...NOTE_KINDS] as NoteFilter[]).map(type => {
           const label = type === 'all' ? 'All' : NOTE_META[type].plural;
           const count = notes.threads.filter(t => (type === 'all' || (t.kind ?? 'comment') === type) && (notes.status === 'all' || Boolean(t.resolvedAt) === (notes.status === 'resolved'))).length;
@@ -36,7 +37,5 @@ export function NotesPanel({ notes, width, onWidthChange, onOpen, targetLabel, o
         </button>;
       }) : <div className={EMPTY}><p className={EMPTY_TITLE}>No notes here</p><p>Add a note or change the filters.</p></div>}</div>
       <p className="border-t border-line-soft p-3 text-[10px] text-muted-foreground">Saved in this browser. Notes aren’t shared with other viewers yet.</p>
-    </>}
-    <LeftPanelFooter />
   </aside>;
 }

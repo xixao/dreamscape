@@ -140,6 +140,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | ⌘⌥X | Detach component instance |
 | ⌥H | Center horizontally in layout |
 | ⌥V | Center vertically in layout |
+| ⌘M | Open minimap at cursor |
 | Hold Z + drag | Zoom into a region |
 | Enter | Select child layers |
 | ⇧Enter | Select parent layer |

@@ -22,6 +22,15 @@ function Probe() {
 }
 
 describe('useSelectedNode and useZoneRedirect', () => {
+  it('keeps the other selected components when redirecting a card content zone', async () => {
+    const { editor } = renderInEditor(<><Frame><Element is={LayoutBox} canvas><Card /><Card /></Element></Frame><Probe /></>);
+    await screen.findAllByText('Card title');
+    const [first, second] = editor().query.node(ROOT_NODE).get().data.nodes;
+    const zone = editor().query.node(second).get().data.linkedNodes.content;
+    editor().actions.selectNode([first, zone]);
+    await waitFor(() => expect(editor().query.getEvent('selected').all()).toEqual([first, second]));
+  });
+
   it('reports nothing selected, then the root, then a child', async () => {
     const { editor } = renderInEditor(
       <>

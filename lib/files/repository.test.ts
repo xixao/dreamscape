@@ -136,9 +136,10 @@ describe('files repository', () => {
       expect(await repo.list()).toHaveLength(0);
     });
 
-    it('refuses to create a file with zero screens', async () => {
-      await expect(repo.create({ screens: [] })).rejects.toThrow();
-      expect(await repo.list()).toHaveLength(0);
+    it('creates and reloads a file with zero screens', async () => {
+      const created = await repo.create({ screens: [] });
+      expect((await repo.get(created.id))?.screens).toEqual([]);
+      expect((await repo.get(created.id))?.screenCount).toBe(0);
     });
 
     it('refuses to create a file with duplicate screen ids', async () => {
@@ -589,12 +590,14 @@ describe('files repository', () => {
       expect(after?.updatedAt).toBe(created.updatedAt);
     });
 
-    it('rejects a screens patch with zero screens, changing nothing', async () => {
+    it('persists removal of the last screen', async () => {
       const created = await repo.create();
 
       const result = await repo.save(created.id, { screens: [] });
-      expect(result).toEqual({ ok: false, invalid: expect.any(String) });
-      expect((await repo.get(created.id))?.screenCount).toBe(1);
+      expect(result.ok).toBe(true);
+      const after = await repo.get(created.id);
+      expect(after?.screenCount).toBe(0);
+      expect(after?.screens).toEqual([]);
     });
 
     it('rejects a screens patch with duplicate screen ids, changing nothing', async () => {

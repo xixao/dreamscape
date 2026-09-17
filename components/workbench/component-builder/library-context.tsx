@@ -6,6 +6,7 @@ import { componentDefinitionSchema, newComponent } from '@/lib/custom-components
 import { ComponentBuilder } from './component-builder';
 
 export interface LibraryValue {
+  editing?: boolean;
   create?: (definition: ComponentDefinition) => void;
   components: ComponentDefinition[];
   open: (definition?: ComponentDefinition, sourceId?: string) => void;
@@ -31,7 +32,7 @@ export function ComponentLibraryProvider({ fileId, components, onSave, onRemove,
     } catch { /* An unavailable browser store does not block creation. */ }
     setEditing(initial);
   }
-  return <Library.Provider value={{ components, create: definition => onSave(definition), open, remove: setDeleting, count,
+  return <Library.Provider value={{ editing: editing !== null, components, create: definition => onSave(definition), open, remove: setDeleting, count,
     duplicate: definition => onSave({ ...definition, id: newComponent().id, name: `${definition.name} copy`.slice(0, 120) }),
   }}>
     <div inert={editing !== null || deleting !== null}>{children}</div>

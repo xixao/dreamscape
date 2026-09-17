@@ -1,545 +1,378 @@
 'use client';
-
-import { useEditor, useEventHandler, type Indicator } from '@craftjs/core';
-import { useEffect, useRef } from 'react';
-import { trayItems } from '@/components/blocks/registry';
-import { invalidateDropCache, type CraftEventHandlerLike } from '@/lib/craft-positioner';
-import { isElementLike } from '@/lib/dom';
-import {
-  TRANSITION_MS,
-  flipDeltas,
-  insertionIndex,
-  placeholderSize,
-  reducedMotion,
-  type ContainerDirection,
-  type FlipRect,
-  type PlaceholderKind,
-  type SizeHint,
-} from '@/lib/drop-placeholder';
+import { useEditor, type Indicator } from '@craftjs/core';
+import { useEffect, useRef, useState } from 'react';
 import { useCanvasDocument } from './canvas-frame';
-
-// Marks the plain DOM element this hook inserts - never a Craft node. Also
-// what tests query for.
-//
-// Verified against the vendored 0.2.12 bundle (node_modules/@craftjs/core/
-// dist/esm/index.js) that this placeholder cannot confuse Craft's own
-// dragover/dragend placement maths, so no fallback (sizing the slot from a
-// neighbouring child's margins instead of its own box, as the task brief
-// allows for) is needed:
-// - `Positioner.getChildDimensions(parent)` - what `dragover`'s
-//   `computeIndicator` measures against on every pointer move - builds its
-//   list by reducing over `parent.data.nodes` (Craft's OWN ordered child-id
-//   array) and looking up each id's `dom` via `store.query.node(id).get()`.
-//   It never reads `parentDom.children`/`childNodes`, so a plain DOM node
-//   with no Craft id - this placeholder - is structurally invisible to it,
-//   regardless of where in the DOM it actually sits.
-// - The `drag`/`create` connectors' own `dragend` handlers
-//   (`dropElement`) call `actions.move(nodes, placement.parent.id,
-//   placement.index + (where === "after" ? 1 : 0))` /
-//   `actions.addNodeTree(tree, placement.parent.id, ...)` - again indexing
-//   into `parent.data.nodes`, never the real DOM child count. Removing this
-//   placeholder before that handler runs (the capture-phase dragend/drop
-//   listeners below) is still correct to do - React does not know this
-//   manually inserted node exists and would never clean it up itself -
-//   just not required for Craft's OWN index math to stay correct.
-// - `getChildDimensions` also caches its result per `currentTargetId`,
-//   cleared only by a real scroll or lib/craft-positioner.ts's
-//   invalidateDropCache - this hook calls the latter itself on every DOM
-//   change it makes (open, move, close, collapse, and once more when a
-//   FLIP settles), so Craft never keeps serving a stale or mid-animation
-//   measurement of the hovered container's children (review finding 2).
-const PLACEHOLDER_ATTR = 'data-drop-placeholder';
-
-// component-tray.tsx stamps this on the exact element (each row's drag
-// surface) its connectors.create ref lives on, so a raw dragstart on it (or
-// a descendant) identifies which TrayItem is being dragged - the only way to
-// learn that, since a "new" DragTarget's tree/component is private to
-// Craft's own DefaultEventHandlers instance and never reaches `state` at
-// all (unlike an "existing" drag, which state.events.dragged exposes
-// directly).
-const TRAY_ITEM_ATTR = 'data-tray-item';
-
-/** `getComputedStyle`'s `display`/`flexDirection` of a container, reduced to what placeholderSize needs. Exported for a focused, DOM-free test. */
-export function containerDirection(style: Pick<CSSStyleDeclaration, 'display' | 'flexDirection'>): ContainerDirection {
-  if (style.display.includes('grid')) return 'grid';
-  return style.flexDirection?.startsWith('column') ? 'column' : 'row';
+import { dragSurfaces, DRAG_MOVE_TO, DRAG_TARGET, type DragSurface } from './drag-surfaces';
+import { canMoveInto, insertionAt, movableRoots } from './drag-model';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+export function containerDirection(style: Pick<CSSStyleDeclaration, 'display' | 'flexDirection'>): 'grid' | 'column' | 'row' {
+    return style.display.includes('grid') ? 'grid' : style.flexDirection?.startsWith('column') ? 'column' : 'row';
 }
-
-interface ActiveSlot {
-  parentDom: HTMLElement;
-  element: HTMLElement;
-  signature: string;
-  growAnimation: Animation | null;
+type Options = {
+    enabled?: boolean;
+    screenId?: string;
+    name?: string;
+    transfer?: (target: string, ids: string[], parent: string, index: number) => void;
+};
+type Destination = {
+    surface: DragSurface;
+    parent: string;
+    index: number;
+};
+const label = (surface: DragSurface, id: string) => {
+    const n = surface.nodes()[id];
+    return String(n?.data.custom.layerName || n?.data.displayName || 'Frame');
+};
+function outerRect(element: HTMLElement) {
+    const r = element.getBoundingClientRect();
+    const frame = element.ownerDocument.defaultView?.frameElement as HTMLElement | null;
+    if (!frame)
+        return r;
+    const f = frame.getBoundingClientRect(), scale = f.width / (frame.offsetWidth || f.width || 1);
+    return { left: f.left + r.left * scale, top: f.top + r.top * scale, width: r.width * scale, height: r.height * scale };
 }
-
-interface ClosingSlot {
-  element: HTMLElement;
-  animation: Animation | null;
-}
-
-interface FlipAnimationEntry {
-  element: HTMLElement;
-  animation: Animation;
-}
-
-interface CollapsedOriginal {
-  element: HTMLElement;
-  // The WHOLE pre-collapse inline `style` attribute, restored verbatim
-  // (setAttribute, or removeAttribute if it was empty) rather than tracked
-  // property-by-property: robust to exactly which properties collapsing
-  // touches (see the requestAnimationFrame callback below) without needing
-  // to keep a restore list in sync with it.
-  originalStyle: string;
-}
-
-function suppressUnhandledRejection(animation: Animation): void {
-  animation.finished.catch(() => {});
-}
-
-// Every real, current browser this app targets implements the Web
-// Animations API - this guard exists for the same reason lib/dom.ts's
-// capturePointer/releasePointer check `typeof element.setPointerCapture ===
-// 'function'` before calling it: jsdom (this repo's test environment) has
-// no `Element.prototype.animate` at all unless a test stubs it onto the
-// specific document it renders into, so a test exercising this hook through
-// a real Editor it does not itself control (workbench.test.tsx's own,
-// end-to-end drag test, rather than this file's own component test, which
-// stubs it) would otherwise throw. Falls back to the same treatment as
-// `prefers-reduced-motion` - the final state is already set synchronously
-// wherever this is checked; skipping `.animate()` just means it appears
-// immediately instead of transitioning in.
-function canAnimate(element: Element): boolean {
-  return typeof element.animate === 'function';
-}
-
-/**
- * `useDropPlaceholder()` (docs/superpowers/specs/2026-09-12-drop-placeholder-
- * design.md): while a Craft drag is in progress, keeps a plain
- * `div[data-drop-placeholder]` open at the exact slot `state.indicator`
- * reports, sized like the dragged element, with siblings sliding apart
- * (FLIP) to make room. Mounted as a bare hook (no rendered output of its
- * own - every DOM change here is imperative `insertBefore`/`remove`, not
- * React-rendered) directly in WorkbenchShell, the same level `LayerStackMenu`
- * (whose own `useLayerStack` this mirrors: the focused frame's document
- * through `useCanvasDocument`, capture-phase listeners doubled onto both
- * documents) is mounted at.
- *
- * Three effects, deliberately kept separate:
- * - The first attaches raw, capture-phase DOM listeners once (re-attached
- *   only when the focused frame's document changes): a `dragstart` sniff
- *   for the tray-item-type case, and `dragend`/`drop` cleanup - all three
- *   doubled onto both the parent document and the focused frame's, since a
- *   moved layer's own dragstart (like its dragend/drop) fires inside the
- *   iframe, never bubbling out to the parent document. Capture phase so
- *   they run before Craft's OWN `dragend` handler (bound directly to the
- *   dragged element, which only ever sees the target/bubble phases), which
- *   is what guarantees a manually-inserted, non-Craft placeholder is
- *   already gone before Craft (and the React re-render that follows its
- *   move/insert action) ever has to reconcile around it.
- * - The second reacts to Craft's own drag state (`state.indicator`,
- *   `state.events.dragged`, `state.nodes`) through a PLAIN
- *   `store.subscribe(collector, onChange)` call, not `useEditor`'s own
- *   collector (`useEditor(state => ...)`, which is `useCollector` underneath
- *   - see @craftjs/utils' `useCollector.d.ts`): that mechanism forces a React
- *   re-render (a `useState` setter) of whichever component calls it, and
- *   Craft's own actions can fire from deep inside another component's
- *   render/commit (e.g. a ref callback), which is exactly what produced
- *   React's dev-only "Cannot update a component (WorkbenchShell) while
- *   rendering a different component" warning on every drag (review finding
- *   4). `store.subscribe` is the SAME underlying mechanism `useCollector`
- *   calls (confirmed against the vendored 0.2.12 bundle's `he()`/`fe`
- *   classes) MINUS the `useState` wrapping - its `onChange` callback runs
- *   as a plain function, outside any component's render entirely, so there
- *   is no React state update for that warning to fire about. All the DOM
- *   work (open/move/close the slot, the FLIP) lives directly in that
- *   callback, matching where it always ran.
- * - The third is a mount-once cleanup for an unmount mid-drag.
- */
-export function useDropPlaceholder(): void {
-  const { store } = useEditor();
-  const canvasDocument = useCanvasDocument();
-
-  // Craft's live event-handler instance (see lib/craft-positioner.ts for why
-  // this - not useEditor()'s `store` - is what actually owns the Positioner
-  // whose cache invalidateDropCache clears), mirrored into a ref the same
-  // way canvas-frame.tsx does its own reach-through: `null` outside of a
-  // Craft `<Editor>`, or once a future Craft version renames/removes it -
-  // invalidateDropCache degrades to a silent no-op either way.
-  const eventHandler = useEventHandler() as unknown as CraftEventHandlerLike;
-  const eventHandlerRef = useRef(eventHandler);
-  useEffect(() => {
-    eventHandlerRef.current = eventHandler;
-  }, [eventHandler]);
-
-  function invalidateNow(): void {
-    invalidateDropCache(eventHandlerRef.current);
-  }
-
-  const activeRef = useRef<ActiveSlot | null>(null);
-  const closingRef = useRef<ClosingSlot[]>([]);
-  const flipAnimationsRef = useRef<FlipAnimationEntry[]>([]);
-  const collapsedRef = useRef<CollapsedOriginal | null>(null);
-  const draggedSizeRef = useRef<SizeHint | null>(null);
-  const pendingNewTypeRef = useRef<string | null>(null);
-  // Invalidates a scheduled-but-not-yet-run collapse rAF from a drag that
-  // has since ended (see the "one frame after dragstart" scheduling below).
-  const dragSessionRef = useRef(0);
-
-  // Cancels every in-flight FLIP animation and synchronously clears the
-  // manual `transform` it set, rather than leaving that to `finished`: a
-  // cancelled Animation's `finished` promise only REJECTS (asynchronously),
-  // and the reset used to live solely in the FULFILLED branch of that
-  // promise - so a close, replace, dragend, drop, unmount or frame change
-  // landing mid-FLIP used to cancel the animation but leave that sibling
-  // permanently translated (review finding 1). Called from every one of
-  // those teardown paths below.
-  function cancelFlipAnimations(): void {
-    for (const { element, animation } of flipAnimationsRef.current) {
-      animation.cancel();
-      element.style.transform = '';
-    }
-    flipAnimationsRef.current = [];
-  }
-
-  // Closes the open slot: removes the active placeholder (if any) and every
-  // still-shrinking one, cancelling their animations - but leaves a
-  // collapsed original layer and the tray-type/measured-size bookkeeping
-  // alone, since this alone does not mean the drag itself has ended (an
-  // indicator with an error, or none yet, still leaves the drag in
-  // progress - spec: "invalid placements... insert nothing").
-  function closeSlot(): void {
-    if (activeRef.current) {
-      activeRef.current.growAnimation?.cancel();
-      activeRef.current.element.remove();
-      activeRef.current = null;
-    }
-    for (const closing of closingRef.current) {
-      closing.animation?.cancel();
-      closing.element.remove();
-    }
-    closingRef.current = [];
-    cancelFlipAnimations();
-    invalidateNow();
-  }
-
-  // Ends the whole drag session: closes the slot, restores a collapsed
-  // original layer (spec: "reappears on dragend if the drop is cancelled" -
-  // applied unconditionally, on every dragend/drop, since restoring a node
-  // that Craft's own move already relocated elsewhere is harmless), and
-  // invalidates a pending collapse. Called from the capture-phase
-  // dragend/drop listeners (must run synchronously, before Craft's own
-  // handler) and on unmount.
-  function endDragSession(): void {
-    dragSessionRef.current += 1;
-    closeSlot();
-    if (collapsedRef.current) {
-      const { element, originalStyle } = collapsedRef.current;
-      if (originalStyle) element.setAttribute('style', originalStyle);
-      else element.removeAttribute('style');
-      collapsedRef.current = null;
-    }
-    draggedSizeRef.current = null;
-    pendingNewTypeRef.current = null;
-  }
-
-  // Raw listeners: attached once per focused-frame-document identity (the
-  // same "mount once except for canvasDocument" precedent useLayerStack's
-  // own effect documents and relies on for the same reason - re-attaching
-  // on every unrelated re-render would tear down mid-gesture).
-  useEffect(() => {
-    function onDragStart(event: DragEvent): void {
-      const target = event.target;
-      // isElementLike, not `instanceof Element` (lib/dom.ts): this listener
-      // is doubled onto the focused frame's own document below, and an
-      // element created there has THAT document's own Element constructor -
-      // `instanceof Element` checked against the parent window's Element
-      // silently returns false for it even though it plainly is one.
-      pendingNewTypeRef.current = isElementLike(target)
-        ? (target.closest(`[${TRAY_ITEM_ATTR}]`)?.getAttribute(TRAY_ITEM_ATTR) ?? null)
-        : null;
-    }
-
-    const frameDocument = canvasDocument?.document;
-    document.addEventListener('dragstart', onDragStart, true);
-    frameDocument?.addEventListener('dragstart', onDragStart, true);
-    document.addEventListener('dragend', endDragSession, true);
-    document.addEventListener('drop', endDragSession, true);
-    frameDocument?.addEventListener('dragend', endDragSession, true);
-    frameDocument?.addEventListener('drop', endDragSession, true);
-
-    return () => {
-      document.removeEventListener('dragstart', onDragStart, true);
-      frameDocument?.removeEventListener('dragstart', onDragStart, true);
-      document.removeEventListener('dragend', endDragSession, true);
-      document.removeEventListener('drop', endDragSession, true);
-      frameDocument?.removeEventListener('dragend', endDragSession, true);
-      frameDocument?.removeEventListener('drop', endDragSession, true);
-      endDragSession();
-    };
-    // canvasDocument is the one deliberate dependency (matching
-    // useLayerStack's identical effect and its own comment on this): every
-    // function referenced above is a plain, freshly-defined-per-render
-    // closure over refs only, so re-running this on every unrelated
-    // re-render would tear down and reattach these listeners mid-gesture
-    // for no benefit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasDocument]);
-
-  // Reactive: opens, moves or closes the slot whenever Craft's own drag
-  // state changes, through a plain store subscription rather than
-  // useEditor's own collector (see this function's own doc comment above
-  // for why - review finding 4). Imperatively mutates the `.style` of live
-  // DOM elements reached through `nodes[id].dom` (a placeholder this hook
-  // creates itself, and - for the FLIP transform, below - the real sibling
-  // elements) - a DOM element is a mutable, imperative handle, not
-  // React/Craft-owned state, and every such mutation here is either this
-  // hook's own new node or a transform this hook itself clears once its
-  // animation ends (or cancels it), never a Craft `data`/`props` value.
-  useEffect(() => {
-    return store.subscribe(
-      (state) => ({
-        nodes: state.nodes,
-        // Craft's own type (`Indicator`, non-nullable) does not admit the
-        // runtime reality: the live store's initial value - and the value
-        // after every dragend - is a real `null` (confirmed against the
-        // vendored 0.2.12 bundle's `editorInitialState` and `dropElement`'s
-        // own `actions.setIndicator(null)`), not an all-optional
-        // `Indicator`. This hook depends on that null case as much as on a
-        // populated one, so it is retyped here rather than trusted at face
-        // value.
-        indicator: state.indicator as Indicator | null,
-        draggedIds: state.events.dragged,
-      }),
-      ({ nodes, indicator, draggedIds }) => {
-        if (!indicator || indicator.error) {
-          closeSlot();
-          return;
-        }
-
-        const { placement } = indicator;
-        const parentDom = placement.parent.dom;
-        // Defensive, matching Craft's own `setIndicator` guard (the
-        // vendored bundle never even stores an indicator whose
-        // parent/currentNode dom is missing) - a valid `indicator` should
-        // always have one by construction.
-        if (!parentDom) {
-          closeSlot();
-          return;
-        }
-
-        const childIds = placement.parent.data.nodes;
-        // Filtered the same way Positioner.getChildDimensions filters its
-        // own dimensions array (only children with a live `dom`) -
-        // `placement.index` is already an index into that filtered list,
-        // not the raw id array.
-        const childDoms = childIds
-          .map((id) => nodes[id]?.dom ?? null)
-          .filter((dom): dom is HTMLElement => dom !== null);
-
-        const slotIndex = insertionIndex(placement);
-        const direction = containerDirection(getComputedStyle(parentDom));
-        const signature = `${placement.parent.id}|${slotIndex}`;
-
-        if (
-          activeRef.current &&
-          activeRef.current.signature === signature &&
-          activeRef.current.parentDom === parentDom
-        ) {
-          return; // already open at the right spot
-        }
-
-        // Neutralize any FLIP still running from the PREVIOUS slot before
-        // measuring "before" rects for this one: a leftover transform would
-        // make getBoundingClientRect reflect a mid-animation position
-        // instead of the settled layout, corrupting the deltas computed
-        // below for the new move (review finding 1's "replace" teardown
-        // path - close/dragend/drop/unmount/frame-change all already funnel
-        // through closeSlot, which does the same).
-        cancelFlipAnimations();
-
-        const reduced = reducedMotion();
-
-        const beforeRects: Record<string, FlipRect> = {};
-        for (const id of childIds) {
-          const dom = nodes[id]?.dom;
-          if (dom) beforeRects[id] = dom.getBoundingClientRect();
-        }
-
-        if (activeRef.current) {
-          const closing = activeRef.current;
-          closing.growAnimation?.cancel();
-          if (reduced || !canAnimate(closing.element)) {
-            closing.element.remove();
-          } else {
-            const rect = closing.element.getBoundingClientRect();
-            const animation = closing.element.animate(
-              [
-                { width: `${rect.width}px`, height: `${rect.height}px` },
-                { width: '0px', height: '0px' },
-              ],
-              { duration: TRANSITION_MS, easing: 'ease-out' },
-            );
-            suppressUnhandledRejection(animation);
-            closingRef.current.push({ element: closing.element, animation });
-            animation.finished.then(
-              () => {
-                closing.element.remove();
-                closingRef.current = closingRef.current.filter((slot) => slot.element !== closing.element);
-              },
-              () => {}, // cancelled from closeSlot/endDragSession - already removed there
-            );
-          }
-          activeRef.current = null;
-        }
-
-        const kind: PlaceholderKind = draggedIds.size > 0 ? 'existing' : 'new';
-        let hint: SizeHint | null;
-        if (kind === 'existing') {
-          if (draggedSizeRef.current === null) {
-            const draggedId = [...draggedIds][0];
-            const draggedDom = nodes[draggedId]?.dom ?? null;
-            if (draggedDom) {
-              const rect = draggedDom.getBoundingClientRect();
-              draggedSizeRef.current = { width: rect.width, height: rect.height };
-              const originalStyle = draggedDom.getAttribute('style') ?? '';
-              const sessionAtSchedule = dragSessionRef.current;
-              // "Hidden one frame after dragstart, so the browser keeps its
-              // drag image" (spec section 2) - collapsing synchronously
-              // here, before the browser has snapshotted the drag ghost,
-              // can make that ghost blank in some browsers.
-              requestAnimationFrame(() => {
-                if (dragSessionRef.current !== sessionAtSchedule || collapsedRef.current) return;
-                // visibility:hidden plus a zeroed box, not display:none
-                // (review finding 3): the element stays in Craft's own
-                // child list (`parent.data.nodes`) either way, but
-                // display:none collapses its getBoundingClientRect to
-                // (0,0) at the document origin - a discontinuity next to
-                // its real siblings' positions that can shift Craft's own
-                // computed insertion index by one (getChildDimensions/
-                // Je in the vendored bundle walk EVERY id in data.nodes
-                // regardless of visibility, and Je's own in-flow placement
-                // math keys off top/outerHeight, so a well-formed
-                // zero-height, zero-margin box at its OWN natural flow
-                // position never corrupts it the way a box collapsed to
-                // the origin can). Zeroing width too keeps the same true
-                // for a row-direction container's own gap, since Je does
-                // not use width for in-flow comparisons but this hook's
-                // OWN "does the slot visually close" requirement (spec)
-                // still needs it collapsed on whichever axis is the
-                // container's main one.
-                draggedDom.style.visibility = 'hidden';
-                draggedDom.style.width = '0px';
-                draggedDom.style.height = '0px';
-                draggedDom.style.marginTop = '0px';
-                draggedDom.style.marginRight = '0px';
-                draggedDom.style.marginBottom = '0px';
-                draggedDom.style.marginLeft = '0px';
-                collapsedRef.current = { element: draggedDom, originalStyle };
-                invalidateNow();
-              });
+/** Overlay-only previews: no placeholder nodes, hidden originals or layout writes. */
+export function useDropPlaceholder(options: Options = {}) {
+    const { actions, query, store } = useEditor();
+    const canvas = useCanvasDocument();
+    const latest = useRef(options);
+    useEffect(() => { latest.current = options; });
+    const [moveOpen, setMoveOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [message, setMessage] = useState('');
+    const commitRef = useRef<(dest: Destination, ids: string[]) => void>(() => { });
+    const sourceId = options.screenId ?? 'component-builder';
+    useEffect(() => {
+        if (options.enabled === false)
+            return;
+        const source: DragSurface = { id: sourceId, name: latest.current.name ?? 'Component', document: canvas?.document ?? document, nodes: () => query.getState().nodes, serialized: () => query.getSerializedNodes() };
+        dragSurfaces.set(sourceId, source);
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-drop-placeholder', '');
+        Object.assign(overlay.style, { position: 'fixed', pointerEvents: 'none', zIndex: '10000', border: '2px solid var(--acc)', borderRadius: '3px', display: 'none' });
+        const caption = document.createElement('div');
+        Object.assign(caption.style, { position: 'absolute', bottom: '100%', left: '0', padding: '5px 8px', background: 'var(--card)', color: 'var(--foreground)', font: '12px system-ui', whiteSpace: 'nowrap', maxWidth: 'min(560px, calc(100vw - 32px))', overflow: 'hidden', textOverflow: 'ellipsis', borderRadius: '5px', marginBottom: '6px' });
+        overlay.append(caption);
+        document.body.append(overlay);
+        const parentOutline = document.createElement('div');
+        Object.assign(parentOutline.style, { position: 'fixed', pointerEvents: 'none', zIndex: '9998', border: '1px solid color-mix(in srgb, var(--acc) 50%, transparent)', display: 'none' });
+        document.body.append(parentOutline);
+        const footprint = document.createElement('div');
+        Object.assign(footprint.style, { position: 'fixed', pointerEvents: 'none', zIndex: '9999', border: '1px dashed var(--acc)', background: 'color-mix(in srgb, var(--acc) 8%, transparent)', display: 'none' });
+        document.body.append(footprint);
+        let ids: string[] = [], destination: Destination | null = null, ended = false;
+        let hovered = '', hoverSince = 0, ancestorOffset = 0, lastPoint = { x: 0, y: 0 }, candidateKey = '', candidateSince = 0;
+        let lastOver: {
+            surface: DragSurface;
+            x: number;
+            y: number;
+            target: Element | null;
+        } | null = null;
+        let ghost: HTMLElement | null = null;
+        const animations = new Set<Animation>();
+        const hide = (complete = false) => { parentOutline.style.display = 'none'; overlay.style.display = 'none'; footprint.style.display = 'none'; queueMicrotask(() => window.dispatchEvent(new CustomEvent(DRAG_TARGET, { detail: complete ? { complete: true } : null }))); };
+        const finish = (complete: boolean | Event = false) => { if (ids.length)
+            store.actions.setNodeEvent('dragged', []); ids = []; destination = null; ended = true; hide(complete === true); ghost?.remove(); ghost = null; };
+        function allowed(surface: DragSurface, parent: string) {
+            if (surface.id !== sourceId)
+                return !!latest.current.transfer && !!surface.nodes()[parent]?.data.isCanvas && (surface.accept?.(parent, ids.map(id => source.nodes()[id])) ?? true);
+            if (!canMoveInto(query.getSerializedNodes(), ids, parent))
+                return false;
+            try {
+                return query.node(parent).isDroppable(ids);
             }
-          }
-          hint = draggedSizeRef.current;
-        } else {
-          hint = trayItems.find((item) => item.type === pendingNewTypeRef.current)?.previewSize ?? null;
+            catch {
+                return false;
+            }
         }
-
-        const size = placeholderSize(kind, hint, direction);
-        const doc = parentDom.ownerDocument;
-        const placeholder = doc.createElement('div');
-        placeholder.setAttribute(PLACEHOLDER_ATTR, '');
-        placeholder.setAttribute('aria-hidden', 'true');
-        placeholder.className = 'pointer-events-none';
-        placeholder.style.flex = '0 0 auto';
-        placeholder.style.width = size.width !== null ? `${size.width}px` : direction === 'grid' ? '' : '100%';
-        placeholder.style.height = size.height !== null ? `${size.height}px` : direction === 'grid' ? '' : '100%';
-
-        parentDom.insertBefore(placeholder, childDoms[slotIndex] ?? null);
-        invalidateNow();
-
-        let growAnimation: Animation | null = null;
-        if (!reduced && canAnimate(placeholder)) {
-          const from: Keyframe = {};
-          const to: Keyframe = {};
-          if (size.width !== null) {
-            from.width = '0px';
-            to.width = `${size.width}px`;
-          }
-          if (size.height !== null) {
-            from.height = '0px';
-            to.height = `${size.height}px`;
-          }
-          if (Object.keys(to).length > 0) {
-            growAnimation = placeholder.animate([from, to], { duration: TRANSITION_MS, easing: 'ease-out' });
-            suppressUnhandledRejection(growAnimation);
-          }
+        function show(dest: Destination, inside = false) {
+            const nodes = dest.surface.nodes(), parent = nodes[dest.parent]?.dom;
+            if (!parent)
+                return;
+            const pr = outerRect(parent), children = nodes[dest.parent].data.nodes.map(id => nodes[id]?.dom).filter((el): el is HTMLElement => !!el);
+            Object.assign(parentOutline.style, { display: 'block', left: `${pr.left}px`, top: `${pr.top}px`, width: `${pr.width}px`, height: `${pr.height}px` });
+            const direction = containerDirection(parent.ownerDocument.defaultView!.getComputedStyle(parent));
+            const adjacent = children[dest.index] ?? children.at(-1);
+            const r = adjacent ? outerRect(adjacent) : pr;
+            const atEnd = dest.index >= children.length;
+            Object.assign(overlay.style, { display: 'block', left: `${inside ? pr.left : direction === 'row' || direction === 'grid' ? r.left + (atEnd ? r.width : 0) : pr.left}px`, top: `${inside ? pr.top : direction === 'row' || direction === 'grid' ? r.top : r.top + (atEnd ? r.height : 0)}px`, width: `${inside ? pr.width : direction === 'row' || direction === 'grid' ? 2 : pr.width}px`, height: `${inside ? pr.height : direction === 'row' || direction === 'grid' ? r.height : 2}px` });
+            const path: string[] = [];
+            let cursor: string | null | undefined = dest.parent;
+            while (cursor) {
+                path.unshift(label(dest.surface, cursor));
+                cursor = nodes[cursor]?.data.parent;
+            }
+            caption.textContent = `${ids.length > 1 ? `${ids.length} components · ` : ''}${dest.surface.name} › ${path.join(' › ')} · ${inside ? 'Move into' : `Position ${dest.index + 1}`} · Alt: parent`;
+            // Outline is an estimate of the existing fill/percent sizing, never a
+            // temporary change to the actual component or receiving frame.
+            const first = source.nodes()[ids[0]];
+            if (first?.dom && first.data.parent !== dest.parent) {
+                const old = outerRect(first.dom), props = first.data.props;
+                const css = parent.ownerDocument.defaultView!.getComputedStyle(parent);
+                const scale = pr.width / (parent.getBoundingClientRect().width || 1);
+                const available = Math.max(0, pr.width - (parseFloat(css.paddingLeft || '0') + parseFloat(css.paddingRight || '0')) * scale);
+                const width = props.widthMode === 'fill' ? available : props.widthMode === 'percent' ? available * Number(props.widthPercent ?? 100) / 100 : old.width;
+                caption.textContent += ' · Approx. size';
+                Object.assign(footprint.style, { display: 'block', left: `${pr.left}px`, top: overlay.style.top, width: `${width}px`, height: `${old.height}px` });
+            }
+            else
+                footprint.style.display = 'none';
+            window.dispatchEvent(new CustomEvent(DRAG_TARGET, { detail: { parent: dest.surface.id === sourceId ? dest.parent : null, index: dest.index, inside, active: true } }));
         }
-        activeRef.current = { parentDom, element: placeholder, signature, growAnimation };
-
-        if (!reduced) {
-          for (const id of childIds) {
-            const dom = nodes[id]?.dom;
-            if (dom) beforeRects[id] ??= dom.getBoundingClientRect(); // a child added mid-drag has no "before" - FLIP skips it
-          }
-          const afterRects: Record<string, FlipRect> = {};
-          for (const id of childIds) {
-            const dom = nodes[id]?.dom;
-            if (dom) afterRects[id] = dom.getBoundingClientRect();
-          }
-          const deltas = flipDeltas(beforeRects, afterRects);
-          const cycleFlipAnimations: Animation[] = [];
-          for (const [id, delta] of Object.entries(deltas)) {
-            if (delta.dx === 0 && delta.dy === 0) continue;
-            const dom = nodes[id]?.dom;
-            if (!dom || !canAnimate(dom)) continue;
-            // The inverse FLIP transform, cleared once the animation below
-            // ends OR is cancelled (cancelFlipAnimations, above).
-            dom.style.transform = `translate(${delta.dx}px, ${delta.dy}px)`;
-            const flipAnimation = dom.animate(
-              [{ transform: `translate(${delta.dx}px, ${delta.dy}px)` }, { transform: 'translate(0px, 0px)' }],
-              { duration: TRANSITION_MS, easing: 'ease-out' },
-            );
-            suppressUnhandledRejection(flipAnimation);
-            flipAnimationsRef.current.push({ element: dom, animation: flipAnimation });
-            cycleFlipAnimations.push(flipAnimation);
-            flipAnimation.finished.then(
-              () => {
-                dom.style.transform = '';
-                flipAnimationsRef.current = flipAnimationsRef.current.filter(
-                  (entry) => entry.animation !== flipAnimation,
-                );
-              },
-              () => {}, // cancelled - cancelFlipAnimations() already reset the transform and cleared the array synchronously
-            );
-          }
-          // Craft may re-measure the hovered container's children while
-          // this FLIP is still settling (a quick re-entry); invalidate
-          // once more when every animation from THIS cycle has finished so
-          // that re-measurement never catches a mid-animation transform
-          // (review finding 2).
-          if (cycleFlipAnimations.length > 0) {
-            Promise.allSettled(cycleFlipAnimations.map((animation) => animation.finished)).then(() => {
-              invalidateNow();
-            });
-          }
+        function commit(dest: Destination, moving: string[]) {
+            try {
+                if (dest.surface.id !== sourceId) {
+                    const incoming = moving.map(id => source.nodes()[id]);
+                    if (!incoming.length || incoming.some(n => !n) || dest.surface.accept?.(dest.parent, incoming) === false)
+                        throw new Error('Invalid destination');
+                    for (const parent of new Set(incoming.map(n => n.data.parent!))) {
+                        const node = source.nodes()[parent];
+                        if (!node.rules.canMoveOut(incoming.filter(n => n.data.parent === parent), node, query.node))
+                            throw new Error('Cannot leave container');
+                    }
+                    latest.current.transfer?.(dest.surface.id, moving, dest.parent, dest.index);
+                    setMessage(`Moved to ${dest.surface.name}. Undo restores both frames.`);
+                }
+                else {
+                    if (!canMoveInto(query.getSerializedNodes(), moving, dest.parent) || !query.node(dest.parent).isDroppable(moving))
+                        throw new Error('invalid');
+                    const before = new Map(Object.entries(source.nodes()).flatMap(([id, n]) => n.dom ? [[id, { dom: n.dom, rect: outerRect(n.dom) }] as const] : []));
+                    const changedParent = moving.some(id => source.nodes()[id].data.parent !== dest.parent);
+                    actions.move(moving, dest.parent, dest.index);
+                    actions.selectNode(moving);
+                    requestAnimationFrame(() => {
+                        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+                            return;
+                        for (const [id, old] of before) {
+                            const el = source.nodes()[id]?.dom;
+                            if (!el || el !== old.dom || !el.animate)
+                                continue;
+                            const r = outerRect(el), scale = el.getBoundingClientRect().width ? r.width / el.getBoundingClientRect().width : 1;
+                            const dx = (old.rect.left - r.left) / scale, dy = (old.rect.top - r.top) / scale;
+                            if (Math.abs(dx) + Math.abs(dy) < 1)
+                                continue;
+                            const a = el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: 'translate(0,0)' }], { duration: 180, easing: 'ease-out' });
+                            animations.add(a);
+                            a.finished.then(() => animations.delete(a), () => animations.delete(a));
+                        }
+                    });
+                    if (changedParent)
+                        setMessage(`Moved to ${label(source, dest.parent)}. ⌘Z / Ctrl+Z to undo.`);
+                }
+            }
+            catch {
+                setMessage('That container cannot accept this selection. Nothing moved.');
+            }
         }
-      },
-      true, // collectOnCreate: process the current drag state immediately, the same as useEditor's own collector did on first render
-    );
-    // store is the one deliberate dependency: closeSlot, cancelFlipAnimations
-    // and invalidateNow (called inside the collector's onChange above) are
-    // plain, freshly-defined-per-render closures over refs (and the stable
-    // eventHandlerRef/store) only - the same "mount once except for the one
-    // thing that can actually change identity" precedent this file's other
-    // two effects already document. Re-subscribing on every unrelated
-    // re-render would drop and recreate the subscription for no benefit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store]);
-
-  // Mount-once cleanup for an unmount mid-drag; endDragSession is a plain,
-  // freshly-defined-per-render closure over refs only (same rationale as
-  // the listener effect above), so it is deliberately excluded rather than
-  // making this effect's cleanup re-run on every render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => () => endDragSession(), []);
+        commitRef.current = commit;
+        function start(event: DragEvent) {
+            ended = false;
+            const target = event.target as Element | null;
+            if (!target?.closest || target.closest('[data-tray-item], input, textarea, [contenteditable=true]'))
+                return;
+            const layer = target.closest('[data-drag-layer]')?.getAttribute('data-drag-layer');
+            const handle = target.closest('[data-drag-handle]')?.getAttribute('data-drag-handle');
+            const hit = layer || handle || Object.entries(source.nodes()).filter(([, n]) => n.dom && (n.dom === target || n.dom.contains(target))).sort((a, b) => a[1].dom!.contains(b[1].dom!) ? 1 : -1)[0]?.[0];
+            if (!hit)
+                return;
+            const selected = [...query.getState().events.selected];
+            ids = movableRoots(query.getSerializedNodes(), selected.includes(hit) ? selected : [hit]);
+            if (!ids.length)
+                return;
+            event.stopImmediatePropagation();
+            ended = false;
+            ancestorOffset = 0;
+            hovered = '';
+            candidateKey = '';
+            actions.selectNode(ids);
+            store.actions.setNodeEvent('dragged', ids);
+            event.dataTransfer?.setData('application/x-dreamscape-layer', ids[0]);
+            if (event.dataTransfer)
+                event.dataTransfer.effectAllowed = 'move';
+            ghost = document.createElement('div');
+            ghost.textContent = ids.length > 1 ? `${ids.length} components` : label(source, ids[0]);
+            Object.assign(ghost.style, { position: 'fixed', left: '-1000px', padding: '10px 16px', background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--acc)', borderRadius: '8px', font: '13px system-ui' });
+            document.body.append(ghost);
+            event.dataTransfer?.setDragImage(ghost, 20, 20);
+            window.dispatchEvent(new CustomEvent(DRAG_TARGET, { detail: { active: true } }));
+        }
+        function resolveTarget(surface: DragSurface, x: number, y: number, target: Element | null) {
+            const nodes = surface.nodes();
+            const layer = target?.closest('[data-drag-layer]')?.getAttribute('data-drag-layer');
+            let hit = layer || Object.entries(nodes).filter(([, n]) => n.dom && (() => { const r = outerRect(n.dom); return x >= r.left - 8 && x <= r.left + r.width + 8 && y >= r.top - 8 && y <= r.top + r.height + 8; })()).sort((a, b) => a[1].dom!.contains(b[1].dom!) ? 1 : -1)[0]?.[0];
+            if (!hit)
+                return null;
+            if (!layer && surface.id === sourceId) {
+                const origin = source.nodes()[ids[0]]?.data.parent;
+                const originDom = origin ? nodes[origin]?.dom : null;
+                if (origin && originDom) {
+                    const r = outerRect(originDom);
+                    if (x >= r.left - 10 && x <= r.left + r.width + 10 && y >= r.top - 10 && y <= r.top + r.height + 10) {
+                        let child = hit;
+                        while (nodes[child]?.data.parent && nodes[child].data.parent !== origin)
+                            child = nodes[child].data.parent!;
+                        if (nodes[child]?.data.parent === origin)
+                            hit = child;
+                    }
+                }
+            }
+            const key = surface.id + hit;
+            if (hovered !== key) {
+                hovered = key;
+                hoverSince = performance.now();
+            }
+            const node = nodes[hit], box = node.dom ? outerRect(node.dom) : null;
+            const inCenter = !!box && x > box.left + Math.min(24, box.width * .2) && x < box.left + box.width - Math.min(24, box.width * .2) && y > box.top + Math.min(20, box.height * .25) && y < box.top + box.height - Math.min(20, box.height * .25);
+            const ownContainer = node.data.isCanvas ? hit : node.data.linkedNodes.content;
+            const row = layer ? target?.closest('[data-drag-layer]')?.getBoundingClientRect() : null;
+            const center = layer ? !!row && y > row.top + row.height * .25 && y < row.top + row.height * .75 : inCenter;
+            const nest = ownContainer && (hit === 'ROOT' || (center && performance.now() - hoverSince > 450));
+            let parent = nest ? ownContainer : node.data.parent;
+            if (!parent && node.data.isCanvas)
+                parent = hit;
+            if (!parent)
+                return null;
+            for (let i = 0; i < ancestorOffset; i++)
+                parent = nodes[parent]?.data.parent ?? parent;
+            while (parent && !allowed(surface, parent))
+                parent = nodes[parent]?.data.parent;
+            if (!parent)
+                return null;
+            const dom = nodes[parent].dom;
+            if (!dom)
+                return null;
+            const children = nodes[parent].data.nodes;
+            const direction = containerDirection(dom.ownerDocument.defaultView!.getComputedStyle(dom));
+            const boxes = children.map(id => nodes[id]?.dom ? outerRect(nodes[id].dom!) : { left: 0, top: 0, width: 0, height: 0 });
+            let index = insertionAt(boxes, x, y, direction);
+            if (layer) {
+                const i = children.indexOf(hit);
+                if (i >= 0) {
+                    const row = target!.closest('[data-drag-layer]')!.getBoundingClientRect();
+                    index = i + (y > row.top + row.height / 2 ? 1 : 0);
+                }
+                else
+                    index = children.length;
+            }
+            return { dest: { surface, parent, index }, inside: !!nest && parent === ownContainer };
+        }
+        function over(event: DragEvent) {
+            if (!ids.length || ended)
+                return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (event.dataTransfer)
+                event.dataTransfer.dropEffect = 'move';
+            const doc = (event.target as Node)?.ownerDocument ?? document;
+            const surface = [...dragSurfaces.values()].find(s => s.document === doc) ?? source;
+            const frame = doc.defaultView?.frameElement as HTMLElement | null;
+            const fr = frame?.getBoundingClientRect(), scale = fr ? fr.width / (frame!.offsetWidth || fr.width || 1) : 1;
+            const x = (fr?.left ?? 0) + event.clientX * scale, y = (fr?.top ?? 0) + event.clientY * scale;
+            const travel = Math.hypot(x - lastPoint.x, y - lastPoint.y);
+            lastOver = { surface, x, y, target: event.target as Element };
+            lastPoint = { x, y };
+            if (doc === document && !(event.target as Element)?.closest?.('[data-drag-layer]') && source.document !== document) {
+                destination = null;
+                hide();
+                return;
+            }
+            ancestorOffset = event.altKey ? (event.shiftKey ? 2 : 1) : 0;
+            const result = resolveTarget(surface, x, y, event.target as Element);
+            if (!result) {
+                destination = null;
+                hide();
+                return;
+            }
+            const key = `${surface.id}:${result.dest.parent}:${result.dest.index}`;
+            if (key !== candidateKey) {
+                candidateKey = key;
+                candidateSince = performance.now();
+            }
+            // Stable target must persist briefly before replacing an existing one.
+            if (destination && !result.inside && travel < 12 && performance.now() - candidateSince < 65)
+                return;
+            destination = result.dest;
+            show(destination, result.inside);
+        }
+        function drop(event: DragEvent) {
+            if (!ids.length) {
+                ended = true;
+                hide();
+                return;
+            }
+            if (ended)
+                return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const moving = [...ids], dest = destination;
+            finish(!!dest);
+            if (dest)
+                commit(dest, moving);
+        }
+        function key(event: KeyboardEvent) {
+            if (!ids.length)
+                return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                finish();
+            }
+            if (event.key === 'Tab' && lastOver) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                ancestorOffset += event.shiftKey ? -1 : 1;
+                ancestorOffset = Math.max(0, ancestorOffset);
+                const r = resolveTarget(lastOver.surface, lastPoint.x, lastPoint.y, lastOver.target);
+                if (r) {
+                    destination = r.dest;
+                    show(r.dest, r.inside);
+                }
+            }
+        }
+        const docs = new Map<Document, () => void>();
+        function bind(doc: Document) { if (docs.has(doc))
+            return; doc.addEventListener('dragstart', start, true); doc.addEventListener('dragover', over, true); doc.addEventListener('drop', drop, true); doc.addEventListener('dragend', finish, true); doc.addEventListener('keydown', key, true); docs.set(doc, () => { doc.removeEventListener('dragstart', start, true); doc.removeEventListener('dragover', over, true); doc.removeEventListener('drop', drop, true); doc.removeEventListener('dragend', finish, true); doc.removeEventListener('keydown', key, true); }); }
+        bind(document);
+        bind(source.document);
+        const discover = setInterval(() => { for (const surface of dragSurfaces.values())
+            bind(surface.document); }, 150);
+        // New components still use Craft's creation connector. Its indicator is
+        // visualized without inserting anything into the destination's layout.
+        const unsubscribe = store.subscribe(s => ({ indicator: s.indicator }), ({ indicator }) => {
+            if (ids.length || ended)
+                return;
+            const value = indicator as Indicator | null;
+            if (!value || value.error) {
+                hide();
+                return;
+            }
+            const p = value.placement;
+            show({ surface: source, parent: p.parent.id, index: p.index + (p.where === 'after' ? 1 : 0) });
+        });
+        const preview = (event: Event) => {
+            const d = (event as CustomEvent).detail;
+            if (!d) {
+                hide();
+                return;
+            }
+            const surface = dragSurfaces.get(d.screen);
+            if (surface)
+                show({ surface, parent: d.parent, index: surface.nodes()[d.parent].data.nodes.length }, true);
+        };
+        window.addEventListener('dreamscape-move-preview', preview);
+        const open = () => { setSearch(''); setMoveOpen(true); };
+        window.addEventListener(DRAG_MOVE_TO, open);
+        return () => { finish(); for (const stop of docs.values())
+            stop(); clearInterval(discover); unsubscribe(); window.removeEventListener(DRAG_MOVE_TO, open); window.removeEventListener('dreamscape-move-preview', preview); overlay.remove(); footprint.remove(); parentOutline.remove(); animations.forEach(a => a.cancel()); if (dragSurfaces.get(sourceId) === source)
+            dragSurfaces.delete(sourceId); };
+        // Craft returns fresh action/query wrappers on selection updates. Their
+        // methods access the same store; resubscribing would end an active drag.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sourceId, canvas?.document, options.enabled]);
+    useEffect(() => { if (!message)
+        return; const timer = setTimeout(() => setMessage(''), 4000); return () => clearTimeout(timer); }, [message]);
+    const selected = movableRoots(query.getSerializedNodes(), [...query.getState().events.selected]);
+    const destinations = moveOpen ? [...dragSurfaces.values()].flatMap(surface => Object.entries(surface.nodes()).filter(([id, n]) => n.data.isCanvas && (surface.id === sourceId ? canMoveInto(query.getSerializedNodes(), selected, id) : !!options.transfer)).map(([id]) => ({ surface, parent: id, index: surface.nodes()[id].data.nodes.length }))).filter(d => `${d.surface.name} ${label(d.surface, d.parent)}`.toLowerCase().includes(search.toLowerCase())) : [];
+    return <><Dialog open={moveOpen} onOpenChange={open => { setMoveOpen(open); if (!open)
+        window.dispatchEvent(new CustomEvent('dreamscape-move-preview', { detail: null })); }}><DialogContent className="bg-card sm:max-w-lg"><DialogTitle>Move to…</DialogTitle><DialogDescription>Choose a frame or container for the selected components.</DialogDescription><input autoFocus aria-label="Find destination" placeholder="Search frames and containers…" className="rounded-md border bg-background p-2 text-sm" value={search} onChange={e => setSearch(e.target.value)}/><div className="max-h-80 overflow-auto">{destinations.map(d => <button key={`${d.surface.id}:${d.parent}`} className="block w-full rounded p-2 text-left text-sm hover:bg-accent focus:bg-accent" onMouseEnter={() => window.dispatchEvent(new CustomEvent('dreamscape-move-preview', { detail: { screen: d.surface.id, parent: d.parent } }))} onFocus={() => window.dispatchEvent(new CustomEvent('dreamscape-move-preview', { detail: { screen: d.surface.id, parent: d.parent } }))} onClick={() => { commitRef.current(d, selected); setMoveOpen(false); window.dispatchEvent(new CustomEvent('dreamscape-move-preview', { detail: null })); }}>{d.surface.name} › {label(d.surface, d.parent)}</button>)}{!destinations.length && <p className="p-2 text-sm text-muted-foreground">No available containers.</p>}</div></DialogContent></Dialog>{message && <div role="status" className="fixed bottom-6 left-1/2 z-[110] -translate-x-1/2 rounded-lg border bg-card px-4 py-3 text-sm text-foreground shadow-lg">{message}<button aria-label="Undo move" className="ml-3 font-medium underline underline-offset-2 disabled:opacity-40" disabled={!query.history.canUndo()} onClick={() => { actions.history.undo(); setMessage(''); }}>Undo</button></div>}</>;
 }

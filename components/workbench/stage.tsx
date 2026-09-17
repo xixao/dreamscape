@@ -1,7 +1,8 @@
 "use client";
 
+import { dragSurfaces } from './drag-surfaces';
 import { useAppearance } from './appearance-context';
-import { Editor, Frame, useEditor, type EditorState } from "@craftjs/core";
+import { Editor, Frame, useEditor, useNode, type EditorState } from "@craftjs/core";
 import {
   memo,
   useEffect,
@@ -632,10 +633,30 @@ export const Stage = memo(StageImpl);
  * one of them would defeat this the same way an unstable object prop would.
  */
 /** Refresh preview data without remounting its frame DOM on serialization changes. */
+function PreviewDragNode({ render }: { render: React.ReactElement }) {
+  const { id } = useNode();
+  return <div style={{ display: 'contents' }} data-preview-drag-node={id}>{render}</div>;
+}
 function PreviewContent({ screen }: { screen: Screen }) {
   const { actions, query } = useEditor();
   const { syncSize } = useStage();
+  const previewHost = useRef<HTMLDivElement>(null);
   const previousLayout = useRef(screen.layout);
+  useEffect(() => {
+    let raf: number;
+    let registered: import('./drag-surfaces').DragSurface | undefined;
+    const register = () => {
+      const dom = previewHost.current;
+      if (!dom) { raf = requestAnimationFrame(register); return; }
+      registered = { id: screen.id, name: screen.name, document: dom.ownerDocument, nodes: () => {
+        const elements = new Map(Array.from(dom.querySelectorAll<HTMLElement>('[data-preview-drag-node]')).map(el => [el.dataset.previewDragNode, el.firstElementChild as HTMLElement | null]));
+        return Object.fromEntries(Object.entries(query.getState().nodes).map(([id, node]) => [id, { ...node, dom: elements.get(id) ?? null }]));
+      }, accept: (parent, moving) => { const node=query.node(parent).get(); return node.rules.canMoveIn(moving,node,query.node); }, serialized: () => query.getSerializedNodes() };
+      dragSurfaces.set(screen.id, registered);
+    };
+    register();
+    return () => { cancelAnimationFrame(raf); if (dragSurfaces.get(screen.id) === registered) dragSurfaces.delete(screen.id); };
+  }, [screen.id, screen.name, query]);
   useLayoutEffect(() => {
     syncSize({ width: screen.stageWidth, height: screen.stageHeight ?? null, deviceName: screen.deviceName ?? null });
     if (previousLayout.current !== screen.layout) {
@@ -653,7 +674,7 @@ function PreviewContent({ screen }: { screen: Screen }) {
       } else actions.history.ignore().deserialize(screen.layout);
     }
   }, [screen.layout, screen.stageWidth, screen.stageHeight, screen.deviceName, actions, query, syncSize]);
-  return <Frame data={screen.layout} />;
+  return <div ref={previewHost} style={{ display: 'contents' }}><Frame data={screen.layout} /></div>;
 }
 
 function FramePreviewImpl({
@@ -813,7 +834,7 @@ function FramePreviewImpl({
           initialHeight={screen.stageHeight ?? null}
           initialDeviceName={screen.deviceName ?? null}
         >
-          <Editor resolver={resolver} enabled={false}>
+          <Editor resolver={resolver} enabled={false} onRender={PreviewDragNode}>
             <PreviewContent screen={screen} />
           </Editor>
         </StageProvider>
@@ -826,6 +847,7 @@ function FramePreviewImpl({
   return (
     <div
       data-testid={editing ? "artboard-surface" : "artboard-preview"}
+      data-drag-screen={screen.id}
       data-appearance={effectiveAppearance}
       className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
       style={{ width: screen.stageWidth, height: effectiveHeight }}

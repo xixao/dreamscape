@@ -47,7 +47,7 @@ export function useCanvasNotes(fileId: string, screenId?: string, legacyScreenId
     if (visible) { cancel(); setOpenThreadId(null); }
     setVisible(!visible);
   }
-  return { visible, setVisible, toggleVisibility, threads, filtered, filter, setFilter, status, setStatus, notesOpen, setNotesOpen, commentMode, kind, start, cancel, open,
+  return { moveToScreen: store.moveToScreen, moveToPage: store.moveToPage, visible, setVisible, toggleVisibility, threads, filtered, filter, setFilter, status, setStatus, notesOpen, setNotesOpen, commentMode, kind, start, cancel, open,
     toggle: () => { if (commentMode) cancel(); else start(kind); },
     commentsProps,
     canvasComments: { ...commentsProps, threads: filtered.filter(t => t.canvas && t.pageId === pageId), pendingPin: pendingPin?.canvas ? pendingPin : null },

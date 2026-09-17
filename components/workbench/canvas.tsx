@@ -1138,11 +1138,11 @@ export function Canvas({
       ref={rootRef}
       data-testid="canvas-root"
       className={cn(
-        'absolute inset-0 isolate overflow-hidden bg-canvas',
+        // Clip without a native scroll offset; canvas navigation uses its transform.
+        'absolute inset-0 isolate overflow-clip bg-canvas',
         spaceDown && !panning && 'cursor-grab',
         panning && 'cursor-grabbing',
       )}
-      style={dotGridStyle(viewport, pixelGridVisible)}
       onContextMenu={event => {
         if (!sections) return;
         const title = (event.target as HTMLElement).closest('[data-frame-title]');
@@ -1168,6 +1168,8 @@ export function Canvas({
         endMarquee(event);
       }}
     >
+      {/* Only the grid fades with zoom; never fade frames or other canvas content. */}
+      <div aria-hidden="true" data-testid="canvas-dot-grid" className="pointer-events-none absolute inset-0 -z-10" style={dotGridStyle(viewport, pixelGridVisible)} />
       <DiagramDropSurface viewport={viewport} onAnnotation={(category, format, point, template) => {
         actions.selectNode(); sections?.setDrawing(false); sections?.select(null); onClearFrameSelection();
         const number = Math.max(0, ...diagram.nodes.map(node => node.annotation?.number ?? 0)) + 1;
@@ -1260,6 +1262,12 @@ export function Canvas({
                 height={frameRect(screen, measuredHeights).height}
                 onRename={(name) => onRenameScreen(screen.id, name)}
                 onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
+                onSelect={() => {
+                  onDeselectDiagram();
+                  actions.selectNode();
+                  onFocusScreen(screen.id);
+                  if (!selected) onSetFrameSelection([screen.id]);
+                }}
                 onShiftSelect={() => {
                   // One selection model at a time (review re-review R9): a
                   // frame joining the selection drops any diagram selection,

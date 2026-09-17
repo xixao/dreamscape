@@ -199,8 +199,8 @@ export function FramesChip({
                   )}
                   <DropdownMenuItem
                     variant="destructive"
-                    disabled={frames.length <= 1 || wouldStrandPage(frame, frames)}
-                    title={frames.length <= 1 || wouldStrandPage(frame, frames) ? NEEDS_SCREEN_TOOLTIP : undefined}
+                    disabled={wouldStrandPage(frame, frames)}
+                    title={wouldStrandPage(frame, frames) ? NEEDS_SCREEN_TOOLTIP : undefined}
                     onSelect={() => setDeleteTarget(frame)}
                   >
                     Delete

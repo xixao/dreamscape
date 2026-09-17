@@ -1,4 +1,5 @@
 'use client';
+import { selectionHandlers } from '../selection';
 import { useCanvasNotes } from '../comments/use-canvas-notes';
 import { NotesPanel } from '../comments/notes-panel';
 import { NoteTool } from '../comments/note-tool';
@@ -142,7 +143,7 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
       {existing && valid.success && saveState ? <SaveIndicator saveState={saveState} /> : <span className="text-xs text-muted-foreground">{draftError ? 'Draft could not be saved in this browser' : existing && !valid.success ? 'Enter a component name to sync changes' : 'Draft saved on this device'}</span>}
       {existing && <span className="text-xs text-muted-foreground">Used in {instances} {instances === 1 ? 'place' : 'places'}</span>}
       <div className="flex-1" />
-      <NoteTool visible={notes.visible} onToggleVisibility={notes.toggleVisibility} active={notes.commentMode} kind={notes.kind} count={notes.threads.filter(t => !t.resolvedAt).length} onToggle={() => { notes.toggle(); setChatOpen(false); setLeftCollapsed(false); }} onStart={kind => { notes.start(kind); setChatOpen(false); setLeftCollapsed(false); }} onBrowse={() => { notes.setNotesOpen(true); setChatOpen(false); setLeftCollapsed(false); }} />
+      <NoteTool visible={notes.visible} onToggleVisibility={notes.toggleVisibility} active={notes.commentMode} kind={notes.kind} count={notes.threads.filter(t => !t.resolvedAt).length} onToggle={() => { notes.toggle(); setChatOpen(false); setLeftCollapsed(false); }} onStart={kind => { notes.start(kind); setChatOpen(false); setLeftCollapsed(false); }} onBrowse={() => { notes.setNotesOpen(true); }} />
       <button title="Undo" aria-label="Undo component edit" disabled={!history.past.length} className="disabled:opacity-30" onClick={() => dispatch({ type: 'undo' })}><Undo2 className="size-4" /></button>
       <button title="Redo" aria-label="Redo component edit" disabled={!history.future.length} className="disabled:opacity-30" onClick={() => dispatch({ type: 'redo' })}><Redo2 className="size-4" /></button>
       {!existing && <button className={`${PRIMARY_BUTTON} disabled:opacity-40`} disabled={!valid.success || !hasContent} onClick={() => {
@@ -150,10 +151,10 @@ export function ComponentBuilder({ fileId, initial, existing, instances, onClose
         onSave(valid.data); try { localStorage.removeItem(draftKey); } catch { /* Saving the file still succeeds. */ }
       }}>Add to Components</button>}
     </header>
-    {chatOpen && !notes.notesOpen && <ChatPanel left={12} width={leftWidth} onWidthChange={setLeftWidth} fileId={fileId} onClose={() => setChatOpen(false)} className="absolute top-[76px] left-3 bottom-3 z-30 w-64" />}
+    {chatOpen && <ChatPanel left={12} width={leftWidth} onWidthChange={setLeftWidth} fileId={fileId} onClose={() => setChatOpen(false)} className="absolute top-[76px] left-3 bottom-3 z-30 w-64" />}
     {notes.notesOpen && <NotesPanel allowCanvas={false} notes={notes} width={leftWidth} onWidthChange={setLeftWidth} onOpen={thread => { notes.open(thread); setLeftCollapsed(false); }} targetLabel={thread => thread.anchorLabel ?? 'Component'} />}
     <div className="contents group/layers-shell">
-      <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`}><PanelResize width={leftWidth} onChange={setLeftWidth} /></aside>
+      <aside aria-label="Layers panel" style={{ display: chatOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} ref={setLayers} className={`${PANEL} absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10 min-h-0 overflow-hidden`}><PanelResize width={leftWidth} onChange={setLeftWidth} /></aside>
       <main style={{ '--left-padding': `${leftCollapsed ? 64 : leftWidth + 24}px` } as React.CSSProperties} onClick={event => {
         const target = event.target as HTMLElement;
         // React portal events bubble here from the iframe and side panels.
@@ -208,7 +209,7 @@ function Preview({ size, fitHeight, onFitHeightChange, compact, height, onResize
     <div className="flex items-center gap-2 px-3 py-3"><button onClick={activate} className="text-xs font-semibold capitalize">{compact ? 'Component' : size.label}</button></div>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3 text-xs"><WidthControl label={`${size.label} width`} value={width} onChange={onWidthChange} /><div className="flex items-center gap-1"><label>Height <select aria-label={`${size.label} height mode`} value={fitHeight ? 'fit' : 'fixed'} onChange={event => onFitHeightChange(event.target.value === 'fit')} className="rounded border bg-background p-1"><option value="fit">Fit content</option><option value="fixed">Fixed</option></select></label>{!fitHeight && <input aria-label={`${size.label} height`} type="number" value={height} onKeyDown={event => shiftNumericStep(event, height, height => onResize({ width, height }), 1, 10000)} onChange={event => { if (event.target.value) onResize({ width, height: Number(event.target.value) }); }} className="w-16 rounded border bg-background px-1" />}</div></div>
     <div ref={setHost} data-preview-viewport className="relative component-builder-preview min-h-0 flex-1 overflow-auto rounded-b-xl p-3 flex items-center">
-      <Editor resolver={resolver} onRender={BuilderIndicator} indicator={{ success: '#8C97DB', error: '#E05D5D' }} onNodesChange={query => {
+      <Editor handlers={selectionHandlers} resolver={resolver} onRender={BuilderIndicator} indicator={{ success: '#8C97DB', error: '#E05D5D' }} onNodesChange={query => {
         const next = query.serialize();
         if (activeRef.current && lastRef.current !== null && canonicalLayout(next) !== canonicalLayout(lastRef.current) && !pendingRef.current) {
           // Linked content zones are created during Craft's render. Wait for the
@@ -232,7 +233,7 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
   layout: string; lastRef: { current: string | null }; width: number; scale: number; title: string; active: boolean; onActivate: () => void;
   selected: string; onSelect: (id: string) => void; layers: HTMLElement | null; panel: HTMLElement | null; scope: 'all' | 'size'; setScope: (scope: 'all' | 'size') => void;
 }) {
-  useDropPlaceholder();
+  const dragUI = useDropPlaceholder({ enabled: active });
   const { actions, query, selectedId } = useEditor(state => ({ selectedId: [...state.events.selected][0] }));
   const { setWidth, setZoom, canvasDocument } = useStage();
   const appliedLayoutRef = useRef(layout);
@@ -315,6 +316,7 @@ function PreviewBody({ layout, lastRef, width, height, fitHeight, onResize, onWi
   }, [canvasDocument, add, onActivate]);
   const previewHost = content?.ownerDocument.defaultView?.frameElement?.closest<HTMLElement>('[data-preview-viewport]');
   return <>
+    {dragUI}
     <RegionZoom active={active} builder host={previewHost} onRegion={(rect, host) => {
       const frame = host.querySelector<HTMLElement>('[data-component-frame]');
       if (!frame) return;

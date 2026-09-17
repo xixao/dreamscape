@@ -116,6 +116,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'select-next-sibling', area: 'Edit', keys: ['Tab'], label: 'Select next sibling on canvas' },
   { id: 'select-prev-sibling', area: 'Edit', keys: ['Shift', 'Tab'], label: 'Select previous sibling on canvas' },
   { id: 'wrap-in-frame', area: 'Edit', keys: ['F'], label: 'Wrap selection in a frame' },
+  { id: 'cursor-minimap', area: 'Canvas', keys: ['Mod', 'M'], label: 'Open minimap at cursor' },
   { id: 'delete-layer', area: 'Edit', keys: ['Delete'], label: 'Delete the selected layer' },
   // Diagram-selection-only (spec docs/superpowers/specs/2026-09-13-diagrams-
   // design.md section 3): keyboard.tsx only acts on these when a diagram
@@ -272,6 +273,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   const mod = event.metaKey || event.ctrlKey;
   const shift = event.shiftKey;
   const key = event.key.toLowerCase();
+  if (mod && !shift && !event.altKey && key === 'm') return 'cursor-minimap';
 
   if (event.altKey && !shift) {
     if (mod && (event.code === 'KeyK' || key === 'k')) return 'create-custom-component';

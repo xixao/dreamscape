@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react';
 import type { CanvasSection, SectionChange } from '@/lib/canvas/sections';
 import type { Screen } from '@/lib/files/repository';
 export type SectionsController = {
+  pages?: import('@/lib/files/repository').Page[]; pageId?: string;
+  moveToPage?: (section: CanvasSection, pageId: string) => void;
   diagramNodes?: import('@/lib/diagram/store').DiagramNode[];
   sections: CanvasSection[]; screens: Screen[]; heights: ReadonlyMap<string,number>;
   selected: string|null; select: (id:string|null)=>void;

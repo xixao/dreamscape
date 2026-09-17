@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { nanoid } from 'nanoid';
 import { MoreHorizontal } from 'lucide-react';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { capturePointer } from '@/lib/dom';
 import { toCanvasPoint, type Viewport } from '@/lib/canvas/viewport';
 import { containsRect, SECTION_COLORS, fitSectionObjects, sectionFrames, translateSection, type CanvasSection, type FramePosition } from '@/lib/canvas/sections';
@@ -47,6 +47,11 @@ export function SectionLayer({zoom,onPreview,onDiagramPreview,panActive,interact
         <DropdownMenu><DropdownMenuTrigger asChild><button aria-label={`Section options for ${section.name}`} className="rounded p-1 hover:bg-black/10" onPointerDown={e=>e.stopPropagation()}><MoreHorizontal className="size-3.5"/></button></DropdownMenuTrigger><DropdownMenuContent className="w-64" align="start">
           <DropdownMenuItem onSelect={()=>{setName(section.name);setRenaming(section.id);}}>Rename</DropdownMenuItem>
           <DropdownMenuItem disabled={!fitBounds} onSelect={()=>{const bounds=fitBounds;if(bounds)context.commit({sections:context.sections.map(s=>s.id===section.id?{...s,...bounds}:s),positions:[]});}}>Resize to Fit</DropdownMenuItem>
+          {context.moveToPage && <DropdownMenuSub><DropdownMenuSubTrigger>Move to page</DropdownMenuSubTrigger><DropdownMenuSubContent>
+            {context.pages?.filter(page => page.id !== context.pageId).map(page => <DropdownMenuItem key={page.id} onSelect={() => context.moveToPage?.(original, page.id)}>{page.name}</DropdownMenuItem>)}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={(context.pages?.length ?? 0) >= 50} onSelect={() => context.moveToPage?.(original, '__new__')}>New Page</DropdownMenuItem>
+          </DropdownMenuSubContent></DropdownMenuSub>}
           <DropdownMenuItem onSelect={()=>{context.remove(original);}}>Remove Section (keep objects)</DropdownMenuItem>
           <DropdownMenuItem className="text-destructive" onSelect={()=>context.remove(original,true)}>Delete</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>

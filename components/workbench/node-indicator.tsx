@@ -19,11 +19,13 @@ export function SelectionOutline({
   color,
   label,
   weight,
+  dragId,
 }: {
   rect: Pick<DOMRect, 'top' | 'left' | 'width' | 'height'>;
   color: string;
   label: string;
   weight: OutlineWeight;
+  dragId?: string;
 }) {
   return (
     <div
@@ -44,10 +46,15 @@ export function SelectionOutline({
         outlineOffset: weight === 'selected' ? -2 : -1,
       }}
     >
-      {weight === 'selected' && (
+      {(weight === 'selected' || dragId) && (
         <span
-          className={cn('absolute top-0 left-0 bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white uppercase', rect.top >= 24 && '-translate-y-full')}
-          style={{ top: Math.max(0, -rect.top), backgroundColor: color === 'var(--acc)' ? 'var(--primary)' : color }}
+          onPointerDown={event => event.stopPropagation()}
+          onMouseDown={event => event.stopPropagation()}
+          draggable={!!dragId}
+          data-drag-handle={dragId}
+          title={dragId ? `Drag ${label}` : undefined}
+          className={cn(dragId && 'pointer-events-auto cursor-grab active:cursor-grabbing', 'absolute top-0 left-0 bg-black px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white uppercase', rect.top >= 24 && '-translate-y-full')}
+          style={{ top: Math.max(0, -rect.top), backgroundColor: '#000000', color: '#ffffff' }}
         >
           {label}
         </span>
@@ -138,6 +145,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
           <>
             {showOutline && (
               <SelectionOutline
+                dragId={!isRoot && !isZone ? id : undefined}
                 rect={rect}
                 color="var(--acc)"
                 label={String(custom.layerName || displayName || name)}

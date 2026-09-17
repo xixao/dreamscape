@@ -155,7 +155,7 @@ const screenField = z.object({
     .optional(),
 });
 
-const screensField = z.array(screenField).min(1).max(50);
+const screensField = z.array(screenField).max(50);
 
 export const createBody = z.object({
   name: nameField,
