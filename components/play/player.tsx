@@ -1,4 +1,6 @@
 'use client';
+import { ReadOnlyEvents } from '@/components/workbench/develop/read-only-events';
+import { DevelopInspector } from '@/components/workbench/develop/inspector';
 import { exitPreview } from './exit-preview';
 
 import { Editor, Frame } from '@craftjs/core';
@@ -190,6 +192,7 @@ function assertNever(value: never): never {
  * ignored unless it names an overlay frame of this file.
  */
 export function Player({
+  developer = false,
   shared = false,
   closeTab = false,
   file,
@@ -197,6 +200,7 @@ export function Player({
   initialPageId,
   initialOverlayId,
 }: {
+  developer?: boolean;
   shared?: boolean;
   closeTab?: boolean;
   file: FileRecord;
@@ -343,11 +347,11 @@ export function Player({
       }
 
       if (event.defaultPrevented || openDialogIdsRef.current.size > 0) return;
-      if (!shared) exitPreview(closeHref, closeTab);
+      if (!shared && !developer) exitPreview(closeHref, closeTab);
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeHref, overlaysById, shared, closeTab]);
+  }, [closeHref, overlaysById, shared, closeTab, developer]);
 
   // Only reachable for a file whose screens array is empty (or holds
   // nothing but overlay frames), which validateScreens (lib/files/
@@ -357,7 +361,7 @@ export function Player({
 
   return (
     <PlayProvider value={play}>
-      <div data-appearance={currentScreen.appearance ?? file.appearance ?? 'light'} className="theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground">
+      <div data-appearance={currentScreen.appearance ?? file.appearance ?? 'light'} className={cn("theme-basic flex min-h-screen items-center justify-center overflow-auto bg-background p-8 text-foreground", developer && "pt-24")}>
         <StageProvider key={state.currentScreenId} initialWidth={currentScreen.stageWidth}>
           <div
             data-testid="artboard"
@@ -371,8 +375,9 @@ export function Player({
                 : { width: currentScreen.stageWidth, minHeight: ARTBOARD_MIN_HEIGHT }
             }
           >
-            <Editor resolver={resolver} enabled={false}>
+            <Editor resolver={resolver} enabled={developer} {...(developer ? { handlers: store => new ReadOnlyEvents({ store, removeHoverOnMouseleave: true }) } : {})}>
               <Frame key={state.currentScreenId} data={currentScreen.layout} />
+              {developer && <DevelopInspector file={file} screen={currentScreen} />}
             </Editor>
           </div>
         </StageProvider>
@@ -392,7 +397,7 @@ export function Player({
             />
           ) : null;
         })}
-        {!shared && <div
+        {!shared && !developer && <div
           className={cn(
             'fixed top-3 right-3 flex items-center gap-3 rounded-md border border-(color:--bevel-line) bg-card px-3 py-1.5 shadow-panel-lg',
             chipAboveOverlays ? 'pointer-events-auto z-[70]' : 'z-50',

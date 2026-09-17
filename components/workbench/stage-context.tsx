@@ -39,6 +39,7 @@ export interface StageContextValue {
   preset: StagePreset | null;
   zoom: number;
   canvasDocument: CanvasDocument | null;
+  syncSize: (size: { width: number; height: number | null; deviceName: string | null }) => void;
   setWidth: (width: number) => void;
   // A manual, deviceless size: the height handle (width unchanged) and the
   // corner handle (both). Always clears deviceName, same as setWidth.
@@ -120,6 +121,13 @@ export function StageProvider({
     [onDeviceChange],
   );
 
+  // Loading a different screen is not a resize and must never write history or save.
+  const syncSize = useCallback((size: { width: number; height: number | null; deviceName: string | null }) => {
+    setWidthState(size.width);
+    setHeightState(size.height);
+    setDeviceNameState(size.deviceName);
+  }, []);
+
   const value = useMemo<StageContextValue>(
     () => ({
       width,
@@ -133,6 +141,7 @@ export function StageProvider({
       preset: deviceName ? breakpointForDevice(deviceName) : presetForWidth(width),
       zoom,
       canvasDocument,
+      syncSize,
       setWidth,
       setSize,
       setDevice,
@@ -140,7 +149,7 @@ export function StageProvider({
       setZoom,
       setCanvasDocument,
     }),
-    [width, height, deviceName, zoom, canvasDocument, setWidth, setSize, setDevice, setPreset],
+    [width, height, deviceName, zoom, canvasDocument, setWidth, setSize, setDevice, setPreset, syncSize],
   );
 
   return <StageContext.Provider value={value}>{children}</StageContext.Provider>;

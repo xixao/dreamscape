@@ -573,3 +573,33 @@ it('updates appearance without recreating the iframe or its content', async () =
   expect(document.querySelector('iframe')).toBe(iframe);
   expect(iframe.contentDocument!.querySelector('button')).toBe(button);
 });
+
+
+it('preserves the last measured auto height when mounting a replacement frame', async () => {
+  installFakeResizeObserver();
+  const report = vi.fn();
+  render(<StageProvider><CanvasFrame width={800} height={null} initialHeight={1120} zoom={1} onCanvasDocument={canvas => {
+    // jsdom has no layout; a late iframe load would otherwise report zero.
+    if (canvas) Object.defineProperty(canvas.document.body, "scrollHeight", { configurable: true, value: 1120 });
+  }} onContentHeightChange={report}><div>Screen content</div></CanvasFrame></StageProvider>);
+  const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+  expect(iframe.style.height).toBe('1120px');
+  await waitFor(() => expect(report).toHaveBeenCalledWith(1120));
+  expect(report).not.toHaveBeenCalledWith(640);
+});
+
+
+it('ignores oversized unstyled measurements until iframe CSS has loaded', async () => {
+  const observer = installFakeResizeObserver();
+  render(<StageProvider><CanvasFrame width={800} height={null} initialHeight={1120} zoom={1}><div>Content</div></CanvasFrame></StageProvider>);
+  const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;
+  const doc = iframe.contentDocument!;
+  const link = doc.createElement('link'); link.rel = 'stylesheet'; doc.head.appendChild(link);
+  Object.defineProperty(doc.body, 'scrollHeight', { configurable: true, value: 2400 });
+  observer.trigger();
+  expect(iframe.style.height).toBe('1120px');
+  Object.defineProperty(link, 'sheet', { value: {} });
+  Object.defineProperty(doc.body, 'scrollHeight', { configurable: true, value: 1120 });
+  fireEvent.load(link);
+  await waitFor(() => expect(iframe.style.height).toBe('1120px'));
+});

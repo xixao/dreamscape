@@ -1,4 +1,5 @@
-import { useNode, type UserComponent } from '@craftjs/core';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { useEditor, useNode, type UserComponent } from '@craftjs/core';
 import { usePlay } from '@/components/play/play-context';
 import { type GrowProps, blockClasses } from '@/lib/classes';
 import { getInteraction, interactionHandler } from '@/lib/interactions';
@@ -51,20 +52,84 @@ export const Text: UserComponent<Partial<TextBlockProps>> = (props) => {
   const merged: TextBlockProps = { ...TEXT_DEFAULTS, ...props };
   const { breakpoint } = useStage();
   const play = usePlay();
+  const { enabled } = useEditor(state => ({ enabled: state.options.enabled }));
+  const [editing, setEditing] = useState(false);
+  const elementRef = useRef<HTMLElement | null>(null);
+  const activeEdit = useRef(false);
+  const canEdit = enabled && play.mode === 'design';
   const {
     connectors: { connect, drag },
     custom,
+    actions: { setProp },
   } = useNode((node) => ({ custom: node.data.custom }));
   const Tag = ROLE_TAG[merged.role];
   const align = resolve<TextAlign>(merged.align, breakpoint as Breakpoint);
   const onClick = play.mode === 'play' ? interactionHandler(getInteraction({ data: { custom } }), play) : undefined;
 
+  useLayoutEffect(() => {
+    if (!editing || !elementRef.current) return;
+    const element = elementRef.current;
+    element.focus();
+    const range = element.ownerDocument.createRange();
+    range.selectNodeContents(element);
+    const selection = element.ownerDocument.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }, [editing]);
+
+  function finish(cancel = false) {
+    if (!activeEdit.current) return;
+    activeEdit.current = false;
+    const element = elementRef.current;
+    const text = element?.innerText ?? element?.textContent ?? '';
+    if (cancel && element) element.textContent = merged.text;
+    else if (text !== merged.text) setProp((props: TextBlockProps) => { props.text = text; });
+    setEditing(false);
+  }
+
+  function insertPlainText(text: string) {
+    const element = elementRef.current;
+    const selection = element?.ownerDocument.getSelection();
+    if (!element || !selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.commonAncestorContainer)) return;
+    range.deleteContents();
+    const node = element.ownerDocument.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
   return (
     <Tag
       ref={(element) => {
+        elementRef.current = element;
         if (element) connect(drag(element));
       }}
       data-block="Text"
+      contentEditable={editing}
+      suppressContentEditableWarning
+      title={canEdit ? 'Double-click to edit text' : undefined}
+      aria-label={editing ? 'Edit text' : undefined}
+      role={editing ? 'textbox' : undefined}
+      aria-multiline={editing ? true : undefined}
+      style={{ whiteSpace: 'pre-wrap', minHeight: '1lh', minWidth: '1ch', ...(editing ? { cursor: 'text', outline: '2px solid var(--ring)', minWidth: '1ch' } : {}) }}
+      onDoubleClick={canEdit ? event => { event.stopPropagation(); activeEdit.current = true; setEditing(true); } : undefined}
+      onPointerDown={event => { if (editing) event.stopPropagation(); }}
+      onMouseDown={event => { if (editing) event.stopPropagation(); }}
+      onDragStartCapture={event => { if (editing) { event.preventDefault(); event.stopPropagation(); } }}
+      onDrop={event => { if (editing) { event.preventDefault(); event.stopPropagation(); } }}
+      onBlur={() => finish()}
+      onKeyDown={event => {
+        if (!editing) return;
+        event.stopPropagation();
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === 'Escape') { event.preventDefault(); finish(true); event.currentTarget.blur(); }
+        else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finish(); event.currentTarget.blur(); }
+      }}
+      onPaste={event => { if (editing) { event.preventDefault(); insertPlainText(event.clipboardData.getData('text/plain')); } }}
       className={cn(
         ROLE_CLASSES[merged.role],
         ALIGN_CLASSES[align],

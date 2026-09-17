@@ -341,6 +341,9 @@ function StageImpl({
   viewport,
   comments = DEFAULT_STAGE_COMMENTS,
   onMeasuredHeight,
+  initialHeight,
+  onReady,
+  existingDocument,
   diagramFrameSelect,
 }: {
   screen: Screen;
@@ -364,6 +367,9 @@ function StageImpl({
   // snapping, the frame alignment row, distribute and the marquee's hit
   // test. Optional so callers written before this existed keep working.
   onMeasuredHeight?: (id: string, height: number) => void;
+  initialHeight?: number;
+  onReady?: () => void;
+  existingDocument?: CanvasDocument;
 }) {
   const fileAppearance = useAppearance().appearance;
   const effectiveAppearance = screen.appearance ?? fileAppearance;
@@ -376,8 +382,8 @@ function StageImpl({
   // manual/device height or - when height is "auto" - from CanvasFrame's own
   // content measurement. Always a concrete number so the height/corner
   // handles and the wrapper's own reserved layout space never need to guess.
-  const [contentHeight, setContentHeight] = useState(() => initialContentHeight(screen));
-  const effectiveHeight = height ?? contentHeight;
+  const [contentHeight, setContentHeight] = useState(() => initialHeight ?? initialContentHeight(screen));
+  const effectiveHeight = height ?? (existingDocument ? initialHeight ?? contentHeight : contentHeight);
 
   // Review fix wave item 8: relays this frame's real, current height up to
   // canvas.tsx's measuredHeights map - a SEPARATE effect from the
@@ -501,10 +507,11 @@ function StageImpl({
         ref={artboardRef}
         data-testid="artboard"
         data-appearance={effectiveAppearance}
-        className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
+        className={cn("theme-basic relative overflow-hidden", !existingDocument && "bg-background", !existingDocument && overlayFrameChromeClass(screen))}
         style={{ width, height: effectiveHeight }}
       >
         <CanvasFrame
+          existingDocument={existingDocument}
           appearance={screen.appearance}
           width={width}
           height={height}
@@ -516,6 +523,8 @@ function StageImpl({
           // useStage() (kept in sync with the viewport by canvas.tsx).
           zoom={1}
           minHeight={initialContentHeight(screen)}
+          initialHeight={initialHeight}
+          onReady={onReady}
           onContentHeightChange={setContentHeight}
         >
           {frameChildren}
@@ -622,8 +631,35 @@ export const Stage = memo(StageImpl);
  * are each wrapped in `useStableCallback` there - a fresh closure for any
  * one of them would defeat this the same way an unstable object prop would.
  */
+/** Refresh preview data without remounting its frame DOM on serialization changes. */
+function PreviewContent({ screen }: { screen: Screen }) {
+  const { actions, query } = useEditor();
+  const { syncSize } = useStage();
+  const previousLayout = useRef(screen.layout);
+  useLayoutEffect(() => {
+    syncSize({ width: screen.stageWidth, height: screen.stageHeight ?? null, deviceName: screen.deviceName ?? null });
+    if (previousLayout.current !== screen.layout) {
+      const prior = JSON.parse(previousLayout.current);
+      previousLayout.current = screen.layout;
+      const next = JSON.parse(screen.layout);
+      const current = query.getSerializedNodes();
+      const structure = (node: Record<string, unknown>) => JSON.stringify([node.type, node.parent ?? null, node.nodes ?? [], Object.entries((node.linkedNodes ?? {}) as Record<string, string>).sort(), !!node.isCanvas, !!node.hidden, node.displayName ?? null]);
+      const sameStructure = Object.keys(current).length === Object.keys(next).length && Object.keys(current).every(id => next[id] && prior[id] && structure(prior[id]) === structure(next[id]));
+      if (sameStructure) {
+        for (const id of Object.keys(next)) {
+          if (JSON.stringify(current[id].props) !== JSON.stringify(next[id].props)) actions.history.ignore().setProp(id, props => { for (const key of Object.keys(props)) delete props[key]; Object.assign(props, next[id].props); });
+          if (JSON.stringify(current[id].custom) !== JSON.stringify(next[id].custom)) actions.history.ignore().setCustom(id, custom => { for (const key of Object.keys(custom)) delete custom[key]; Object.assign(custom, next[id].custom); });
+        }
+      } else actions.history.ignore().deserialize(screen.layout);
+    }
+  }, [screen.layout, screen.stageWidth, screen.stageHeight, screen.deviceName, actions, query, syncSize]);
+  return <Frame data={screen.layout} />;
+}
+
 function FramePreviewImpl({
   screen,
+  editing = false,
+  onDocument,
   onFocusScreen,
   shouldStartPan,
   onPanPointerDown,
@@ -631,9 +667,12 @@ function FramePreviewImpl({
   onPanPointerUp,
   onFrameWheel,
   onMeasuredHeight,
+  initialHeight,
   diagramFrameSelect,
 }: {
   screen: Screen;
+  editing?: boolean;
+  onDocument?: (canvas: CanvasDocument | null) => void;
   // Takes the screen id (rather than a plain, no-argument `onFocus`) so
   // canvas.tsx can pass its own onFocusScreen prop straight through
   // unchanged - already stable across a pure viewport re-render, since it
@@ -670,6 +709,7 @@ function FramePreviewImpl({
   // ARTBOARD_MIN_HEIGHT), so other frames could never snap to, align
   // against, or marquee-select it by its real bottom edge.
   onMeasuredHeight?: (id: string, height: number) => void;
+  initialHeight?: number;
   // While active, a press anywhere in this preview selects this frame
   // (spec section 5) instead of focusing it - see the doc comment on
   // Stage's identical prop above.
@@ -681,7 +721,7 @@ function FramePreviewImpl({
   // Mirrors Stage's own contentHeight/effectiveHeight above: CanvasFrame's
   // ResizeObserver-backed measurement when this frame has no fixed height
   // of its own, otherwise the fixed height itself.
-  const [contentHeight, setContentHeight] = useState(() => initialContentHeight(screen));
+  const [contentHeight, setContentHeight] = useState(() => initialHeight ?? initialContentHeight(screen));
   const effectiveHeight = screen.stageHeight ?? contentHeight;
 
   useEffect(() => {
@@ -692,8 +732,10 @@ function FramePreviewImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.id, effectiveHeight]);
 
+  useEffect(() => { onDocument?.(frameDocument); }, [frameDocument, onDocument]);
+
   useEffect(() => {
-    if (!frameDocument) return;
+    if (!frameDocument || editing) return;
     function onPointerDown(event: PointerEvent) {
       if (shouldStartPan(event.button)) {
         onPanPointerDown(event);
@@ -735,6 +777,7 @@ function FramePreviewImpl({
     };
   }, [
     frameDocument,
+    editing,
     screen.id,
     onFocusScreen,
     shouldStartPan,
@@ -766,13 +809,12 @@ function FramePreviewImpl({
             reportDocument stays false so the shared canvasDocument slot is
             still the focused frame's alone. */}
         <StageProvider
-          key={`${screen.stageWidth}x${screen.stageHeight ?? 'auto'}`}
           initialWidth={screen.stageWidth}
           initialHeight={screen.stageHeight ?? null}
           initialDeviceName={screen.deviceName ?? null}
         >
           <Editor resolver={resolver} enabled={false}>
-            <Frame data={screen.layout} />
+            <PreviewContent screen={screen} />
           </Editor>
         </StageProvider>
         <LayoutGridOverlay grid={resolveLayoutGrid(screen.layoutGrid)} />
@@ -783,11 +825,12 @@ function FramePreviewImpl({
 
   return (
     <div
-      data-testid="artboard-preview"
+      data-testid={editing ? "artboard-surface" : "artboard-preview"}
       data-appearance={effectiveAppearance}
       className={cn("theme-basic relative overflow-hidden bg-background", overlayFrameChromeClass(screen))}
       style={{ width: screen.stageWidth, height: effectiveHeight }}
       onPointerDown={(event) => {
+        if (editing) return;
         event.preventDefault();
         if (diagramFrameSelect?.active) {
           diagramFrameSelect.onSelect(event.shiftKey);
@@ -802,11 +845,12 @@ function FramePreviewImpl({
         height={screen.stageHeight ?? null}
         zoom={1}
         minHeight={initialContentHeight(screen)}
+          initialHeight={initialHeight}
         reportDocument={false}
         onCanvasDocument={setFrameDocument}
         onContentHeightChange={setContentHeight}
       >
-        {previewChildren}
+        {!editing && previewChildren}
       </CanvasFrame>
     </div>
   );

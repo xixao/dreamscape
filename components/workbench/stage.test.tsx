@@ -1,3 +1,4 @@
+import { PersistentScreenSurface } from './canvas';
 import { useEffect, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -534,6 +535,34 @@ describe('Stage', () => {
 });
 
 describe('FramePreview', () => {
+  it('keeps the same iframe and document while toggling editing', async () => {
+    const props = { screen: SCREEN_1, viewport: IDENTITY_VIEWPORT, comments: undefined, onFocusScreen: vi.fn(), ...noPanProps() };
+    const { rerenderUi } = renderInEditor(<PersistentScreenSurface {...props} focused={false} />);
+    const body = await previewFrameBody();
+    const iframe = screen.getByTestId('canvas-frame');
+    rerenderUi(<PersistentScreenSurface {...props} focused />);
+    await waitFor(() => expect(screen.getByTestId('artboard')).toBeInTheDocument());
+    expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1);
+    expect(screen.getByTestId('canvas-frame')).toBe(iframe);
+    expect((iframe as HTMLIFrameElement).contentDocument?.body).toBe(body);
+    rerenderUi(<PersistentScreenSurface {...props} focused={false} />);
+    expect(screen.getByTestId('canvas-frame')).toBe(iframe);
+    expect((iframe as HTMLIFrameElement).contentDocument?.body).toBe(body);
+  });
+
+  it('preserves the rendered root when saved layout or dimensions refresh', async () => {
+    const props = { onFocusScreen: vi.fn(), ...noPanProps() };
+    const { rerenderUi } = renderInEditor(<FramePreview screen={SCREEN_1} {...props} />);
+    const body = await previewFrameBody();
+    await waitFor(() => expect(body.querySelector('[data-block="LayoutBox"]')).not.toBeNull());
+    const root = body.querySelector('[data-block="LayoutBox"]');
+    const layout = JSON.parse(SCREEN_1.layout);
+    layout.ROOT.custom = { ...layout.ROOT.custom, layerName: 'Updated root name' };
+    rerenderUi(<FramePreview screen={{ ...SCREEN_1, stageWidth: 900, layout: JSON.stringify(layout) }} {...props} />);
+    await waitFor(() => expect(screen.getByTestId('canvas-frame')).toHaveStyle({ width: '900px' }));
+    expect(body.querySelector('[data-block="LayoutBox"]')).toBe(root);
+  });
+
   async function previewFrameBody(): Promise<HTMLElement> {
     return waitFor(() => {
       const iframe = screen.getByTestId('canvas-frame') as HTMLIFrameElement;

@@ -1,0 +1,20 @@
+import { expect, it, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { HandoffWorkspace } from './handoff';
+const layout=JSON.stringify({ROOT:{type:{resolvedName:'LayoutBox'},isCanvas:true,props:{},displayName:'Frame',custom:{},nodes:[],linkedNodes:{},parent:null,hidden:false}});
+vi.mock('@craftjs/core',()=>({useEditor:()=>({query:{serialize:()=>layout}})}));
+vi.mock('../component-builder/library-context',()=>({useComponentLibrary:()=>({components:[]})}));
+it('requires review, resets it when scope changes, and never enables unconnected GitHub delivery',()=>{
+  render(<HandoffWorkspace fileId="test" fileName="Test file" pages={[{id:'p',name:'Page'}]} screens={[{id:'s',name:'Screen',pageId:'p',layout,stageWidth:800}]} currentScreenId="s" notes={[]} onClose={()=>{}} onAddDiagram={()=>{}} />);
+  fireEvent.click(screen.getByRole('radio',{name:'4. Deliver'}));
+  expect(screen.getByRole('button',{name:'Download handoff ZIP'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:/Create GitHub pull request/})).toBeDisabled();
+  fireEvent.click(screen.getByRole('radio',{name:'3. Review'}));
+  fireEvent.click(screen.getByRole('checkbox',{name:/I reviewed this package/}));
+  fireEvent.click(screen.getByRole('radio',{name:'4. Deliver'}));
+  expect(screen.getByRole('button',{name:'Download handoff ZIP'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('radio',{name:'1. Scope'}));
+  fireEvent.change(screen.getByLabelText('Handoff scope'),{target:{value:'all'}});
+  fireEvent.click(screen.getByRole('radio',{name:'4. Deliver'}));
+  expect(screen.getByRole('button',{name:'Download handoff ZIP'})).toBeDisabled();
+});

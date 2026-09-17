@@ -150,7 +150,7 @@ async function moveFrameToPage(frameName: string, pageName: string): Promise<voi
 // live-editing Stage), never a `[data-testid="artboard-preview"]` (a
 // non-focused, read-only FramePreview).
 function frameBody(): HTMLElement {
-  const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+  const iframe = document.querySelector('[data-testid="artboard-surface"] [data-testid="canvas-frame"]') as
     | HTMLIFrameElement
     | null;
   const body = iframe?.contentDocument?.body;
@@ -406,7 +406,7 @@ describe('Workbench', () => {
     render(<Workbench file={makeFile({ name: 'Untitled' })} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
-    const field = screen.getByTestId('file-name');
+    const field = screen.getByRole('textbox', { name: 'File name in settings' });
     await userEvent.clear(field);
     await userEvent.type(field, 'My design{Enter}');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
@@ -489,7 +489,7 @@ describe('Workbench', () => {
       await user.click(screen.getByRole('menuitem',{name:'Wrap selected frames in section'}));
       expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
       await user.click(screen.getByRole('button',{name:'Undo'}));
-      expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument());
       await user.click(screen.getByRole('button',{name:'Redo'}));
       expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
       await waitFor(()=>expect(fetchMock).toHaveBeenCalled(),{timeout:2000});
@@ -624,7 +624,7 @@ describe('Workbench', () => {
       expect(patch.pages.find((p:{id:string})=>p.id===PAGE_2_ID).sections).toHaveLength(1);
       expect(patch.screens.filter((s:Screen)=>s.pageId===PAGE_2_ID)).toHaveLength(0);
       await user.click(screen.getByRole('button',{name:'Undo'}));
-      expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument());
     });
     it('selecting a layer clears the section selection and shows the layer inspector', async () => {
       render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
@@ -1238,7 +1238,7 @@ describe('Workbench', () => {
       await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
 
       await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
-      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name' }), { key: 'g', shiftKey: true });
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: 'g', shiftKey: true });
 
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -1994,8 +1994,9 @@ describe('Workbench', () => {
     it('are ignored while typing, such as renaming the file', async () => {
       render(<Workbench file={makeFile()} />);
       await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
-      fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'e' });
-      fireEvent.keyDown(screen.getByTestId('file-name'), { key: 'g' });
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: 'e' });
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: 'g' });
+      await userEvent.keyboard('{Escape}');
       expect(screen.getByRole('radio', { name: 'Design' })).toHaveAttribute('data-state', 'on');
     });
   });
@@ -2442,8 +2443,9 @@ describe('Workbench', () => {
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
 
       await userEvent.click(screen.getByRole('button', { name: 'File settings' }));
-      await userEvent.click(screen.getByTestId('file-name'));
-      fireEvent.keyDown(screen.getByTestId('file-name'), { key: ']', metaKey: true, shiftKey: true });
+      await userEvent.click(screen.getByRole('textbox', { name: 'File name in settings' }));
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'File name in settings' }), { key: ']', metaKey: true, shiftKey: true });
+      await userEvent.keyboard('{Escape}');
       expect(screen.getByRole('button', { name: 'Pages' })).toHaveTextContent('v2');
     });
 

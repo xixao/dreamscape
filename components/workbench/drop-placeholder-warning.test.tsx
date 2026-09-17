@@ -14,7 +14,7 @@ import { Workbench } from './workbench';
 // inside Craft's render) fails here for real.
 
 function frameBody(): HTMLElement {
-  const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+  const iframe = document.querySelector('[data-testid="artboard-surface"] [data-testid="canvas-frame"]') as
     | HTMLIFrameElement
     | null;
   const body = iframe?.contentDocument?.body;

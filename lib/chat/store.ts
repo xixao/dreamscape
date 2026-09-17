@@ -68,6 +68,7 @@ export function createChatStore(fileId: string, storage: ChatStorageLike): ChatS
     append(message) {
       const next = [...load(), message];
       persist(next);
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('dreamscape:chat-updated', { detail: { fileId } }));
       return next;
     },
     clear() {

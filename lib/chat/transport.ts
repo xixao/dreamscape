@@ -11,6 +11,7 @@ export interface ChatMessage {
   role: ChatRole;
   text: string;
   createdAt: string;
+  targets?: { id: string; name: string; props?: Record<string, unknown> }[];
 }
 
 export interface ChatTransport {

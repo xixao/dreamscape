@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { SegmentedControl, SegmentedItem } from '../segmented-control';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { schemaFor } from '@/components/blocks/registry';
 import type { FieldSchema, SectionName } from '@/components/blocks/schema';
@@ -54,8 +54,6 @@ import {
   PANEL_HEADER,
   SECTION,
   SECTION_TITLE,
-  SEG_GROUP,
-  SEG_ITEM,
 } from '../chrome';
 import { ComponentTray } from '../component-tray';
 import { DiagramFields, type DiagramFieldsSelection } from '../diagram/diagram-fields';
@@ -643,14 +641,13 @@ export function Inspector({
         className={cn(PANEL, 'absolute top-[76px] right-3 bottom-3 z-10 flex w-80 min-h-0 flex-col')}
       >
         <div className={PANEL_HEADER}>
-          <ToggleGroup
-            type="single"
+          <SegmentedControl
             aria-label="Panel mode"
             value={panelMode}
             onValueChange={(value) => {
               if (value) onPanelModeChange(value as PanelMode);
             }}
-            className={cn(SEG_GROUP, 'flex-1')}
+            className="flex-1"
           >
             {/* Icon-only (spec docs/superpowers/specs/2026-09-14-panel-tabs-
             icons-design.md section 1): each item's aria-label is its real
@@ -672,15 +669,15 @@ export function Inspector({
               <Tooltip key={mode}>
                 <TooltipTrigger asChild>
                   <span className="flex flex-1">
-                    <ToggleGroupItem value={mode} aria-label={label} className={SEG_ITEM}>
+                    <SegmentedItem value={mode} aria-label={label}>
                       <Icon className="size-4" aria-hidden />
-                    </ToggleGroupItem>
+                    </SegmentedItem>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>{label}</TooltipContent>
               </Tooltip>
             ))}
-          </ToggleGroup>
+          </SegmentedControl>
           <MinimizeButton collapsed={false} onClick={onToggleCollapsed} />
         </div>
         {panelMode === 'components' ? (

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import { emptyLayoutJson } from '@/components/blocks/registry';
@@ -39,7 +39,8 @@ vi.mock('./canvas-frame', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./canvas-frame')>();
   return {
     ...actual,
-    CanvasFrame: memo(function FakeCanvasFrame(props: { reportDocument?: boolean }) {
+    CanvasFrame: memo(function FakeCanvasFrame(props: { reportDocument?: boolean; onCanvasDocument?: (canvas: { document: Document; window: Window } | null) => void }) {
+      useEffect(() => { props.onCanvasDocument?.({ document, window }); return () => props.onCanvasDocument?.(null); }, [props.onCanvasDocument]);
       canvasFrameRenderCount(props.reportDocument === false ? 'preview' : 'focused');
       return null;
     }),

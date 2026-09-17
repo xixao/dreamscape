@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { chatStorageKey } from '@/lib/chat/store';
 import type { ChatTransport } from '@/lib/chat/transport';
 import { PLACEHOLDER_REPLY_TEXT } from '@/lib/chat/transport';
 import { ChatTransportProvider } from './chat-transport-context';
+import { setChatSelection } from './selection-chip';
 import { ChatPanel } from './chat-panel';
 
 function renderPanel(
@@ -170,4 +171,30 @@ it('recalls sent prompts from an empty composer and stops history browsing once 
   await userEvent.type(composer, ' edited');
   await userEvent.keyboard('{ArrowUp}');
   expect(composer).toHaveValue('Second request edited');
+});
+
+it('shows one area chip, reveals its components, and preserves it on the sent message', async () => {
+  setChatSelection('chip-test', [{id:'a',name:'Card'}, {id:'b',name:'Button'}]);
+  const view = renderPanel({fileId:'chip-test'});
+  const chip = screen.getByRole('button', {name:'Selected area · 2 components'});
+  const highlight = vi.fn(); window.addEventListener('dreamscape:highlight-chat-selection', highlight);
+  fireEvent.mouseEnter(chip);
+  expect(highlight.mock.calls[0][0].detail).toEqual(['a','b']);
+  fireEvent.click(chip);
+  expect(screen.getByRole('list', {name:'Components in selected area'})).toHaveTextContent('Card');
+  await sendMessage('Align these');
+  await waitFor(() => expect(screen.getByRole('log')).toHaveTextContent(PLACEHOLDER_REPLY_TEXT));
+  expect(within(screen.getByRole('log')).getByRole('button', {name:'Selected area · 2 components'})).toBeInTheDocument();
+  expect(screen.queryByRole('button', {name:'Remove selected area'})).not.toBeInTheDocument();
+  view.unmount(); renderPanel({fileId:'chip-test'});
+  expect(within(screen.getByRole('log')).getByRole('button', {name:'Selected area · 2 components'})).toBeInTheDocument();
+  window.removeEventListener('dreamscape:highlight-chat-selection', highlight);
+});
+it('removes only the draft selection while keeping the typed prompt', async () => {
+  setChatSelection('remove-test', [{id:'a',name:'Card'}]);
+  renderPanel({fileId:'remove-test'});
+  await userEvent.type(screen.getByLabelText('Message'), 'Keep this draft');
+  await userEvent.click(screen.getByRole('button', {name:'Remove selected area'}));
+  expect(screen.queryByText('Selected area · 1 component')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Message')).toHaveValue('Keep this draft');
 });

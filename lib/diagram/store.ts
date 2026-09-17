@@ -177,6 +177,7 @@ export function createInitialDiagramState(data: DiagramData = createEmptyDiagram
 
 export type DiagramAction =
   | { type: 'add'; node: DiagramNode }
+  | { type: 'insertDiagram'; data: DiagramData }
   | { type: 'sectionPositions'; positions: {id:string;x:number;y:number}[] }
   | { type: 'move'; ids: string[]; dx: number; dy: number }
   // `x`/`y`, when given, reposition the node in the SAME action - a corner
@@ -396,6 +397,10 @@ function dropSingletonGroups(nodes: DiagramNode[]): DiagramNode[] {
 
 export function diagramReducer(state: DiagramState, action: DiagramAction): DiagramState {
   switch (action.type) {
+    case 'insertDiagram': {
+      if (!action.data.nodes.length || action.data.nodes.some(n => state.nodes.some(old => old.id === n.id)) || action.data.edges.some(e => state.edges.some(old => old.id === e.id))) return state;
+      return commit(state, { nodes: [...state.nodes, ...action.data.nodes], edges: [...state.edges, ...action.data.edges] }, action.data.nodes.map(n => ({ type: 'node', id: n.id })));
+    }
     case 'add': {
       if (state.nodes.some((n) => n.id === action.node.id)) return state;
       return commit(state, { nodes: [...state.nodes, action.node], edges: state.edges }, [

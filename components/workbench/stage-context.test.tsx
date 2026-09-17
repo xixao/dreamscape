@@ -16,6 +16,7 @@ function Probe() {
       <output data-testid="breakpoint">{stage.breakpoint}</output>
       <output data-testid="preset">{stage.preset ?? 'none'}</output>
       <output data-testid="zoom">{stage.zoom}</output>
+      <button onClick={() => stage.syncSize({ width: 900, height: 1120, deviceName: null })}>activate screen</button>
       <button onClick={() => stage.setWidth(700)}>seven hundred</button>
       <button onClick={() => stage.setWidth(50)}>too small</button>
       <button onClick={() => stage.setPreset('mobile')}>mobile</button>
@@ -193,4 +194,16 @@ describe('StageProvider', () => {
       expect(screen.getByTestId('canvas-doc')).toHaveTextContent('none');
     });
   });
+});
+
+
+it('activates saved screen dimensions without firing resize persistence callbacks', async () => {
+  const onWidthChange = vi.fn(), onSizeChange = vi.fn(), onDeviceChange = vi.fn();
+  render(<StageProvider onWidthChange={onWidthChange} onSizeChange={onSizeChange} onDeviceChange={onDeviceChange}><Probe /></StageProvider>);
+  await userEvent.click(screen.getByText('activate screen'));
+  expect(screen.getByTestId('width')).toHaveTextContent('900');
+  expect(screen.getByTestId('height')).toHaveTextContent('1120');
+  expect(onWidthChange).not.toHaveBeenCalled();
+  expect(onSizeChange).not.toHaveBeenCalled();
+  expect(onDeviceChange).not.toHaveBeenCalled();
 });

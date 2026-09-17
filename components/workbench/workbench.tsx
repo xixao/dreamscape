@@ -51,6 +51,10 @@ import { useSectionsController } from './sections/use-sections';
 import { Canvas, CanvasViewportProvider, useCanvasViewportController } from './canvas';
 import { PanelResize, useLeftPanelWidth } from './panel-resize';
 import { LeftPanelContext } from './left-panel-tabs';
+import { HandoffWorkspace } from './handoff/handoff';
+import { FileSettings } from './file-settings';
+import { AreaPrompt } from './chat/area-prompt';
+import { ElementPrompt } from './chat/element-prompt';
 import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP, PANEL } from './chrome';
@@ -1250,6 +1254,8 @@ function WorkbenchShell({
   // lib/chat/store.ts. Lazy useState so this reads localStorage exactly
   // once, the same pattern as currentScreenId's hash-derived initial value
   // above.
+  const [fileSettingsOpen, setFileSettingsOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => loadChatPanelOpen(window.localStorage));
   useEffect(() => {
     saveChatPanelOpen(window.localStorage, chatOpen);
@@ -1262,7 +1268,7 @@ function WorkbenchShell({
     savePixelGridVisible(window.localStorage, pixelGridVisible);
   }, [pixelGridVisible]);
   const { actions, query, sectionMove } = useEditor(state=>({sectionMove:state.nodes.ROOT?.data.custom?.canvasSections}));
-  const { setWidth, setSize, setDevice } = useStage();
+  const { syncSize } = useStage();
   const [newOpen, setNewOpen] = useState(false);
   // "?", the top bar's ⌘ button and its overflow menu item all open the
   // shortcuts dialog (spec section 3) through this one piece of state.
@@ -1278,6 +1284,7 @@ function WorkbenchShell({
   // `screens` (the Frames chip lists only the current page's frames; spec:
   // "the canvas... frames of the current page only").
   const pageScreens = screens.filter((screen) => screen.pageId === currentPageId);
+  const activeLayerScreen = pageScreens.find(screen => screen.id === currentScreenId);
 
   // The current page's diagram (spec docs/superpowers/specs/2026-09-13-
   // diagrams-design.md): a fresh reducer instance for the whole file's
@@ -1825,25 +1832,12 @@ function WorkbenchShell({
   // itself). Re-initialises only on an actual screen change, not on every
   // resize (handleSizeChange's/handleDeviceChange's own no-op guards also
   // keep this from queuing a spurious save). Three cases, the same ones a
-  // user's own action reaches this context through: setDevice when the
-  // screen has one (stageHeight is always set alongside deviceName - see
-  // addScreen, duplicateScreen and validateScreens, which all keep the two
-  // together; the stageHeight check here is defensive, not an expected
-  // case); setSize when it has a manual fixed height with no device (the
-  // height or corner handle, without ever touching a device preset) -
-  // setWidth alone would silently drop that height back to auto, since
-  // setWidth always clears it; setWidth otherwise. A layout effect so the
-  // artboard never paints the new screen at the old width or height.
+  // saved dimensions without invoking the resize callbacks or adding history.
+  // A layout effect keeps the new screen from painting at the old size.
   useLayoutEffect(() => {
     const screen = screens.find((candidate) => candidate.id === currentScreenId);
     if (!screen) return;
-    if (screen.deviceName && screen.stageHeight != null) {
-      setDevice({ name: screen.deviceName, width: screen.stageWidth, height: screen.stageHeight });
-    } else if (screen.stageHeight != null) {
-      setSize({ width: screen.stageWidth, height: screen.stageHeight });
-    } else {
-      setWidth(screen.stageWidth);
-    }
+    syncSize({ width: screen.stageWidth, height: screen.stageHeight ?? null, deviceName: screen.deviceName ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScreenId, screens.find(screen => screen.id === currentScreenId)?.stageWidth, screens.find(screen => screen.id === currentScreenId)?.stageHeight, screens.find(screen => screen.id === currentScreenId)?.deviceName]);
 
@@ -1853,7 +1847,7 @@ function WorkbenchShell({
   const chatPositionClass = 'left-3 w-64';
 
   return (
-    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
+    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           {/*
@@ -1866,6 +1860,7 @@ function WorkbenchShell({
             {!uiHidden && (
               <Topbar
                 key="topbar"
+                onHandoff={() => setHandoffOpen(true)}
                 fileName={fileName}
                 onRename={onRename}
                 saveState={saveState}
@@ -1918,6 +1913,14 @@ function WorkbenchShell({
                 onOpenShortcuts={() => setShortcutsOpen(true)}
               />
             )}
+            {handoffOpen && <HandoffWorkspace fileId={fileId} fileName={fileName} pages={pages} screens={screens} currentScreenId={currentScreenId} notes={notes.threads} onClose={() => setHandoffOpen(false)} onAddDiagram={flow => {
+              const prefix = `handoff-${Date.now()}-`;
+              const offset = Math.max(0, ...pageScreens.map(s => (s.x ?? 0) + s.stageWidth), ...diagram.nodes.map(n => n.x + n.width)) + 120;
+              dispatchDiagram({ type: 'insertDiagram', data: { nodes: flow.nodes.map(n => ({ ...n, id: prefix + n.id, x: n.x + offset })), edges: flow.edges.map(e => ({ ...e, id: prefix + e.id, source: { ...e.source, nodeId: prefix + e.source.nodeId }, target: { ...e.target, nodeId: prefix + e.target.nodeId } })) } });
+            }} />}
+            <FileSettings open={fileSettingsOpen} onOpenChange={setFileSettingsOpen} fileName={fileName} onRename={onRename} />
+            {!uiHidden && <AreaPrompt fileId={fileId} onCapture={() => { setChatOpen(true); notes.setNotesOpen(false); setLeftCollapsed(false); }} />}
+            {!uiHidden && <ElementPrompt fileId={fileId} onClose={() => actions.selectNode()} />}
             <StageErrorBoundary key="stage" fileId={fileId} screens={screens} currentScreenId={currentScreenId}>
               <Canvas
                 screens={pageScreens}
@@ -1987,7 +1990,7 @@ function WorkbenchShell({
               <LayerStackMenu />
               <FrameSelectionActions />
             </StageErrorBoundary>
-            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || notes.notesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections rootFrame={activeLayerScreen ? { name: activeLayerScreen.name, duplicate: () => onDuplicateScreen(currentScreenId), delete: () => onDeleteScreen(currentScreenId), deleteDisabled: pageScreens.length <= 1 || wouldStrandPage(activeLayerScreen, pageScreens) } : undefined} onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"

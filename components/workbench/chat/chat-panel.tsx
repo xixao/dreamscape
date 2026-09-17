@@ -1,6 +1,8 @@
 'use client';
 
-import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs } from '../left-panel-tabs';
+import { SelectionChip, useChatSelection, setChatSelection, beginSelectionRequest } from './selection-chip';
+import { CanvasPromptControls } from './canvas-prompt-controls';
+import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs, LeftPanelFooter } from '../left-panel-tabs';
 import { useContext } from 'react';
 import { PanelResize } from '../panel-resize';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -56,6 +58,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         isUser ? 'self-end items-end' : 'self-start items-start',
       )}
     >
+      {message.targets?.length ? <SelectionChip targets={message.targets} /> : null}
       <div className={cn('flex items-start gap-2', isUser && 'flex-row-reverse')}>
         {!isUser && <AssistantAvatar />}
         <div
@@ -106,12 +109,18 @@ export function ChatPanel({
   left?: number;
   onWidthChange?: (width: number) => void;
 }) {
+  const selection = useChatSelection(fileId);
   const panelMode = useContext(LeftPanelContext);
   const transport = useChatTransport();
   // Lazy useState, not useMemo, so the store is created exactly once per
   // mount - the same reasoning as the file saver in workbench.tsx.
   const [store] = useState(() => createChatStore(fileId, window.localStorage));
   const [messages, setMessages] = useState<ChatMessage[]>(() => store.load());
+  useEffect(() => {
+    const refresh = () => setMessages(store.load());
+    window.addEventListener('dreamscape:chat-updated', refresh);
+    return () => window.removeEventListener('dreamscape:chat-updated', refresh);
+  }, [store]);
   const [draft, setDraft] = useState('');
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
@@ -137,8 +146,10 @@ export function ChatPanel({
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    const history = messages;
-    setMessages(store.append(newMessage('user', trimmed)));
+    const history = store.load();
+    setMessages(store.append({ ...newMessage('user', trimmed), ...(selection.length ? { targets: selection.map(({id, name}) => ({id, name})) } : {}) }));
+    const clearOutline = beginSelectionRequest(fileId);
+    setChatSelection(fileId, []);
     setDraft('');
     setHistoryIndex(null);
 
@@ -148,6 +159,7 @@ export function ChatPanel({
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
+    controller.signal.addEventListener('abort', clearOutline, { once: true });
     setPending(true);
 
     transport
@@ -162,6 +174,7 @@ export function ChatPanel({
         setMessages(store.append(newMessage('assistant', ERROR_REPLY_TEXT)));
       })
       .finally(() => {
+        clearOutline();
         if (!controller.signal.aborted) setPending(false);
       });
   }
@@ -199,6 +212,7 @@ export function ChatPanel({
     <button type="button" aria-label="Expand chat panel" aria-expanded={false} title="Expand chat panel" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => panelMode.setCollapsed?.(false)}><ChevronRight className="size-4" /></button>
     <div className="my-1 h-px w-6 bg-border" />
     <LeftPanelTabs compact />
+    <LeftPanelFooter />
   </aside>;
   return (
     <aside style={{ width, left }} aria-label="Chat" className={cn(PANEL, 'absolute top-[76px] bottom-3 z-10 flex w-[360px] min-h-0 flex-col', className)}>
@@ -211,6 +225,7 @@ export function ChatPanel({
       </div>}
 
 
+      <CanvasPromptControls />
       {messages.length === 0 ? (
         <div className={cn(EMPTY, 'm-3 flex flex-1 flex-col items-center justify-center gap-3')}>
           <b className={EMPTY_TITLE}>Ask about this design</b>
@@ -238,6 +253,7 @@ export function ChatPanel({
       )}
 
       <div className="border-t border-line-soft p-2.5">
+        <SelectionChip targets={selection} onRemove={() => setChatSelection(fileId, [])} />
         <div className={cn(CHIP, 'items-end gap-1.5 py-1.5')}>
           <Textarea
             ref={textareaRef}
@@ -263,6 +279,7 @@ export function ChatPanel({
           </Button>
         </div>
       </div>
+      <LeftPanelFooter />
     </aside>
   );
 }

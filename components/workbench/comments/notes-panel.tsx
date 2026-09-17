@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CommentThread } from '@/lib/comments/store';
 import { PANEL, EMPTY, EMPTY_TITLE } from '../chrome';
-import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs } from '../left-panel-tabs';
+import { LeftPanelContext, LeftPanelHeader, LeftPanelTabs, LeftPanelFooter } from '../left-panel-tabs';
 import { PanelResize } from '../panel-resize';
 import type { CanvasNotes, NoteFilter, NoteStatus } from './use-canvas-notes';
 import { NOTE_META, NOTE_KINDS } from './note-meta';
@@ -37,5 +37,6 @@ export function NotesPanel({ notes, width, onWidthChange, onOpen, targetLabel, o
       }) : <div className={EMPTY}><p className={EMPTY_TITLE}>No notes here</p><p>Add a note or change the filters.</p></div>}</div>
       <p className="border-t border-line-soft p-3 text-[10px] text-muted-foreground">Saved in this browser. Notes aren’t shared with other viewers yet.</p>
     </>}
+    <LeftPanelFooter />
   </aside>;
 }

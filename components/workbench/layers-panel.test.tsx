@@ -10,6 +10,22 @@ import { StageProvider } from './stage-context';
 import { LayersPanel } from './layers-panel';
 
 describe('Layers panel', () => {
+  it('routes root actions to whole-screen operations and confirms deletion', async () => {
+    const duplicate = vi.fn(); const remove = vi.fn();
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas><Button /></Element></Frame><LayersPanel rootFrame={{ name: 'Loan dashboard', duplicate, delete: remove, deleteDisabled: false }} /></Editor></StageProvider>);
+    await userEvent.click(screen.getByRole('button', { name: 'Duplicate frame' }));
+    expect(duplicate).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Delete frame' }));
+    expect(remove).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Delete Loan dashboard?');
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /^Delete$/ }));
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  it('keeps duplication available when deleting the last screen is disabled', async () => {
+    render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel rootFrame={{ name: 'Loan dashboard', duplicate: vi.fn(), delete: vi.fn(), deleteDisabled: true }} /></Editor></StageProvider>);
+    expect(screen.getByRole('button', { name: 'Duplicate frame' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete frame' })).toBeDisabled();
+  });
   it('exposes separate utility actions in expanded and collapsed panels', async () => {
     const open = vi.fn();
     render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel onOpenShortcuts={open} /></Editor></StageProvider>);

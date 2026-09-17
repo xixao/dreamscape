@@ -4,8 +4,6 @@ import { SectionTool } from './sections/section-tools';
 import { NoteTool } from './comments/note-tool';
 import type { NoteKind } from '@/lib/comments/store';
 import { SharePrototypeButton } from './prototype-actions';
-import { useAppearance, APPEARANCE_OPTIONS } from './appearance-context';
-import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import Link from 'next/link';
@@ -33,7 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { SegmentedControl, SegmentedItem } from './segmented-control';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
 import { isOverlay } from '@/lib/files/screens';
@@ -45,7 +43,7 @@ import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
 import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
 import { useCanvasViewport } from './canvas';
-import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL, SEG_GROUP, SEG_ITEM } from './chrome';
+import { CHIP, CHIP_INPUT, LABEL, MENU_POPOVER, MENU_ROW, PANEL } from './chrome';
 import { FramesChip } from './frames-chip';
 import { PagesMenu } from './pages-menu';
 import { useStage } from './stage-context';
@@ -148,11 +146,6 @@ function IconAction({
   );
 }
 
-function FileNameField(props: { fileName: string; onRename: (name: string) => void }) {
-  const { appearance, setAppearance } = useAppearance();
-  if (!setAppearance) return <RenameFileField {...props} />;
-  return <PopoverPrimitive.Root><PopoverPrimitive.Trigger asChild><button type="button" aria-label="File settings" className={cn(CHIP, 'w-56 justify-between')}><span className="truncate">{props.fileName}</span><ChevronDown className="size-3 shrink-0" /></button></PopoverPrimitive.Trigger><PopoverPrimitive.Portal><PopoverPrimitive.Content align="start" className={`${MENU_POPOVER} z-50 w-64 space-y-3 p-3`}><h2 className="text-sm font-semibold">File settings</h2><RenameFileField {...props} /><label className="flex flex-col gap-2 text-xs">Appearance<select aria-label="File appearance" className="rounded-md border bg-background p-2" value={appearance} onChange={event => setAppearance(event.target.value as 'light' | 'dark' | 'internal-light' | 'internal-dark')}>{APPEARANCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><p className="text-xs text-muted-foreground">Default for frames in this file. Frames can override it.</p></PopoverPrimitive.Content></PopoverPrimitive.Portal></PopoverPrimitive.Root>;
-}
 
 function RenameFileField({
   fileName,
@@ -184,7 +177,7 @@ function RenameFileField({
   }
 
   return (
-    <div className={cn(CHIP, 'w-56')}>
+    <div className={cn(CHIP, 'w-32 shrink min-w-20 xl:w-44')}>
       <Input
         value={value}
         aria-label="File name"
@@ -400,6 +393,7 @@ export function Topbar({
   onDeleteScreen,
   onMoveScreenToPage,
   onZoomToFrame,
+  onHandoff,
   commentMode = false,
   onToggleCommentMode,
   commentCount = 0,
@@ -435,6 +429,7 @@ export function Topbar({
   onDeleteScreen: (id: string) => void;
   onMoveScreenToPage?: (id: string, pageId: string) => void;
   onZoomToFrame: (id: string) => void;
+  onHandoff?: () => void;
   commentMode?: boolean;
   onToggleCommentMode?: () => void;
   commentCount?: number;
@@ -493,7 +488,7 @@ export function Topbar({
         <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
           ›
         </span>
-        <FileNameField fileName={fileName} onRename={onRename} />
+        <RenameFileField fileName={fileName} onRename={onRename} />
         <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
           ›
         </span>
@@ -531,30 +526,30 @@ export function Topbar({
           onZoomToFrame={onZoomToFrame}
         />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
-        <ToggleGroup
-          type="single"
+        <SegmentedControl
           aria-label="Frame width"
           value={preset ?? ''}
           onValueChange={(value) => {
             if (value) setPreset(value as StagePreset);
           }}
-          className={cn(SEG_GROUP, 'w-auto')}
+          className="w-auto"
         >
           {STAGE_PRESET_ORDER.map((key) => {
             const { label, icon: Icon } = PRESET_META[key];
             return (
-              <ToggleGroupItem
+              <SegmentedItem
                 key={key}
                 value={key}
+                aria-label={label}
                 title={`${STAGE_PRESETS[key]} px`}
-                className={cn(SEG_ITEM, 'gap-1.5 px-3')}
+                className="gap-1.5 px-3"
               >
                 <Icon className="size-3.5" aria-hidden />
-                {label}
-              </ToggleGroupItem>
+                <span className="hidden 2xl:inline">{label}</span>
+              </SegmentedItem>
             );
           })}
-        </ToggleGroup>
+        </SegmentedControl>
         {!focusedIsOverlay && <DevicePresetMenu deviceName={deviceName} onSelect={setDevice} />}
         <ZoomMenu
           readoutText={readoutFor({ width, height, deviceName, zoom })}
@@ -581,7 +576,9 @@ export function Topbar({
           </TooltipTrigger>
           <TooltipContent>Present</TooltipContent>
         </Tooltip>
+        <a href={`/f/${fileId}/develop?screen=${encodeURIComponent(currentScreenId ?? '')}`} target="_blank" rel="noopener noreferrer" aria-label="Develop" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Develop</a>
         <SharePrototypeButton playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
+        {onHandoff && <Button size="sm" onClick={onHandoff}>Handoff</Button>}
         <IconAction label="Undo" icon={Undo2} disabled={!(historyOverride?.canUndo ?? canUndo)} onClick={historyOverride?.undo ?? (() => actions.history.undo())} />
         <IconAction label="Redo" icon={Redo2} disabled={!(historyOverride?.canRedo ?? canRedo)} onClick={historyOverride?.redo ?? (() => actions.history.redo())} />
       </header>

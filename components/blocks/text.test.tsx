@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Element, ROOT_NODE } from '@craftjs/core';
 import { LayoutBox } from './layout-box';
@@ -7,6 +7,45 @@ import { Text } from './text';
 import { makePlayValue, renderPlayTree, renderTree } from '@/test/craft-harness';
 
 describe('Text block', () => {
+  it('edits on double click and saves only text as an undoable change', async () => {
+    const { editor } = renderTree(<Element is={LayoutBox} canvas><Text text="Original" role="heading2" align={{ mobile: 'center' }} /></Element>);
+    const node = await screen.findByText('Original');
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    const before = { ...editor().query.node(id).get().data.props };
+    await userEvent.dblClick(node);
+    expect(node).toHaveAttribute('contenteditable', 'true');
+    node.textContent = 'Updated copy';
+    fireEvent.input(node);
+    fireEvent.keyDown(node, { key: 'Enter' });
+    expect(editor().query.node(id).get().data.props).toEqual({ ...before, text: 'Updated copy' });
+    act(() => editor().actions.history.undo());
+    await waitFor(() => expect(node).toHaveTextContent('Original'));
+    act(() => editor().actions.history.redo());
+    await waitFor(() => expect(node).toHaveTextContent('Updated copy'));
+  });
+
+  it('cancels with Escape and commits on blur', async () => {
+    const { editor } = renderTree(<Element is={LayoutBox} canvas><Text text="Original" /></Element>);
+    const node = await screen.findByText('Original');
+    const id = editor().query.node(ROOT_NODE).get().data.nodes[0];
+    await userEvent.dblClick(node);
+    node.textContent = 'Discard';
+    fireEvent.keyDown(node, { key: 'Escape' });
+    expect(node).toHaveTextContent('Original');
+    expect(editor().query.node(id).get().data.props.text).toBe('Original');
+    await userEvent.dblClick(node);
+    node.textContent = 'Saved on blur';
+    fireEvent.blur(node);
+    expect(editor().query.node(id).get().data.props.text).toBe('Saved on blur');
+  });
+
+  it('does not enable editing in a prototype', async () => {
+    renderPlayTree(<Element is={LayoutBox} canvas><Text text="Read only" /></Element>);
+    const node = await screen.findByText('Read only');
+    await userEvent.dblClick(node);
+    expect(node).toHaveAttribute('contenteditable', 'false');
+  });
+
   it('renders a paragraph with the default text when no props are given', async () => {
     renderTree(
       <Element is={LayoutBox} canvas>

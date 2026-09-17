@@ -1,7 +1,7 @@
 'use client';
 
 import { useAppearance } from './appearance-context';
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEventHandler } from '@craftjs/core';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -71,6 +71,8 @@ function CanvasFrameImpl({
   title = 'Frame',
   appearance,
   minHeight = ARTBOARD_MIN_HEIGHT,
+  initialHeight,
+  onReady,
   reportDocument = true,
   onCanvasDocument,
   onContentHeightChange,
@@ -91,6 +93,9 @@ function CanvasFrameImpl({
   // effect below), same as every other value the resize-observer closure
   // captures once and for this instance's whole life.
   minHeight?: number;
+  /** Last measured height survives switching between preview and editing. */
+  initialHeight?: number;
+  onReady?: () => void;
   // Whether this instance publishes its document/window into the shared
   // StageContext (useStage().canvasDocument / useCanvasDocument()) - true by
   // default, matching every use of CanvasFrame before the infinite canvas.
@@ -120,7 +125,7 @@ function CanvasFrameImpl({
   const effectiveAppearance = appearance ?? fileAppearance;
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null);
   useEffect(() => { if (canvasDoc) { canvasDoc.document.body.dataset.appearance = effectiveAppearance; canvasDoc.document.body.style.colorScheme = effectiveAppearance.endsWith('dark') ? 'dark' : 'light'; } }, [canvasDoc, effectiveAppearance]);
-  const [autoHeight, setAutoHeight] = useState(minHeight);
+  const [autoHeight, setAutoHeight] = useState(initialHeight ?? minHeight);
   const setStageCanvasDocument = useStage().setCanvasDocument;
 
   // Craft's live event-handler instance (see lib/craft-positioner.ts for
@@ -162,7 +167,7 @@ function CanvasFrameImpl({
     };
   }, [canvasDoc, reportDocument, setStageCanvasDocument, onCanvasDocument]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
@@ -224,11 +229,18 @@ function CanvasFrameImpl({
         attributeFilter: ['href', 'media'],
         characterData: true,
       });
-      stopStyleSync = () => styleObserver.disconnect();
+      stopStyleSync = () => { styleObserver.disconnect(); iframeDoc.removeEventListener('load', measure, true); };
 
-      resizeObserver = new ResizeObserver(() => {
+      // A freshly mounted iframe may lay out before its linked CSS loads.
+      // Never persist that unstyled height: it becomes the iframe viewport
+      // minimum and can keep a frame permanently taller after selection.
+      const measure = () => {
+        const links = Array.from(iframeDoc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+        if (links.some(link => !link.sheet)) return;
         setAutoHeight(Math.max(minHeight, iframeDoc.body.scrollHeight));
-      });
+      };
+      iframeDoc.addEventListener('load', measure, true);
+      resizeObserver = new ResizeObserver(measure);
       resizeObserver.observe(iframeDoc.body);
 
       // Craft's vendored Positioner (@craftjs/core 0.2.12 - drag-and-drop
@@ -282,6 +294,24 @@ function CanvasFrameImpl({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!canvasDoc || !onReady) return;
+    let cancelled = false;
+    const doc = canvasDoc.document;
+    const links = Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+    const pending = links.filter(link => !link.sheet);
+    const ready = () => {
+      if (cancelled || pending.some(link => !link.sheet)) return;
+      void (doc.fonts?.ready ?? Promise.resolve()).then(() => {
+        if (cancelled) return;
+        requestAnimationFrame(() => requestAnimationFrame(() => { if (!cancelled) onReady(); }));
+      });
+    };
+    pending.forEach(link => link.addEventListener('load', ready));
+    ready();
+    return () => { cancelled = true; pending.forEach(link => link.removeEventListener('load', ready)); };
+  }, [canvasDoc, onReady]);
+
   const appliedHeight = height ?? autoHeight;
 
   useEffect(() => {
@@ -324,7 +354,18 @@ function CanvasFrameImpl({
   );
 }
 
-export const CanvasFrame = memo(CanvasFrameImpl);
+function SharedCanvasContent({ canvas, children }: { canvas: CanvasDocument; children: ReactNode }) {
+  const { setCanvasDocument } = useStage();
+  useLayoutEffect(() => {
+    setCanvasDocument(canvas);
+    return () => setCanvasDocument(null);
+  }, [canvas, setCanvasDocument]);
+  return createPortal(children, canvas.document.body);
+}
+
+export const CanvasFrame = memo(function CanvasFrame(props: Parameters<typeof CanvasFrameImpl>[0] & { existingDocument?: CanvasDocument }) {
+  return props.existingDocument ? <SharedCanvasContent canvas={props.existingDocument}>{props.children}</SharedCanvasContent> : <CanvasFrameImpl {...props} />;
+});
 
 /**
  * `{ document, window }` of the iframe CanvasFrame renders into, once it is

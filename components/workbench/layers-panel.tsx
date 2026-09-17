@@ -2,14 +2,15 @@
 
 import { useEditor, type NodeTree } from '@craftjs/core';
 import { SectionsList } from './sections/section-tools';
-import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader } from './left-panel-tabs';
+import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader, LeftPanelFooter } from './left-panel-tabs';
 import { useContext, useState } from 'react';
 import { nanoid } from 'nanoid';
 import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, Copy, Trash2 } from 'lucide-react';
 import { useSettledEditorState } from './use-settled-editor-state';
 import { LABEL } from './chrome';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
-export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = false }: { showSections?: boolean; onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
+export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = false, rootFrame }: { rootFrame?: { name: string; duplicate: () => void; delete: () => void; deleteDisabled: boolean }; showSections?: boolean; onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
   const panelMode = useContext(LeftPanelContext);
   const { actions, query } = useEditor();
   const state = useSettledEditorState();
@@ -20,6 +21,7 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [dropHint, setDropHint] = useState<{ id: string; placement: string } | null>(null);
   const selected = [...state.events.selected][0];
   function attempt(operation: () => void) {
@@ -97,9 +99,9 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
         {renaming === id ? <input autoFocus aria-label="Layer name" className="min-w-0 flex-1 rounded border bg-background px-1 text-xs" value={name} onChange={event => setName(event.target.value)} onBlur={commitName}
           onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') commitName(); if (event.key === 'Escape') setRenaming(null); }} /> :
           <button className="min-w-0 flex-1 truncate text-left" onClick={() => actions.selectNode(id)} onDoubleClick={() => { setRenaming(id); setName(label); }}>{label}</button>}
-        {movable && <div className="flex shrink-0 opacity-0 group-hover/layer:opacity-100 group-focus-within/layer:opacity-100">
-          <button title="Duplicate layer" aria-label="Duplicate layer" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => duplicate(id)}><Copy className="size-3.5" /></button>
-          <button title="Delete layer" aria-label="Delete layer" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive" onClick={() => attempt(() => { actions.delete(id); actions.selectNode(item.data.parent!); })}><Trash2 className="size-3.5" /></button>
+        {(movable || (id === 'ROOT' && rootFrame)) && <div className="flex shrink-0 opacity-0 group-hover/layer:opacity-100 group-focus-within/layer:opacity-100">
+          <button title={id === 'ROOT' ? 'Duplicate frame' : 'Duplicate layer'} aria-label={id === 'ROOT' ? 'Duplicate frame' : 'Duplicate layer'} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => id === 'ROOT' ? rootFrame?.duplicate() : duplicate(id)}><Copy className="size-3.5" /></button>
+          <button title={id === 'ROOT' ? rootFrame?.deleteDisabled ? 'Keep at least one screen on this page' : 'Delete frame' : 'Delete layer'} aria-label={id === 'ROOT' ? 'Delete frame' : 'Delete layer'} disabled={id === 'ROOT' && rootFrame?.deleteDisabled} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => id === 'ROOT' ? setConfirmDelete(true) : attempt(() => { actions.delete(id); actions.selectNode(item.data.parent!); })}><Trash2 className="size-3.5" /></button>
         </div>}
       </div>
       {children.length > 0 && !collapsed.has(id) && <div role="group">{children.map(child => rows(child, depth + 1))}</div>}
@@ -115,6 +117,7 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     {panelMode && <LeftPanelTabs compact />}
     <button aria-label="Show layers" title="Layers" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(false)}><Layers className="size-4" /></button>
     {utilities}
+    <LeftPanelFooter />
   </div>;
   return <div className="flex h-full min-h-0 flex-col" onKeyDown={event => event.stopPropagation()}>
     {panelMode ? <LeftPanelHeader action={<button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button>} /> : <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>}
@@ -123,5 +126,12 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     <div role="tree" aria-label="Layers" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}
     {utilities}
+    <LeftPanelFooter />
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>Delete {rootFrame?.name}?</AlertDialogTitle><AlertDialogDescription>This removes the frame for everyone. Undo will not bring it back.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { rootFrame?.delete(); setConfirmDelete(false); }}>Delete</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>;
 }

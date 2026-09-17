@@ -1068,7 +1068,7 @@ describe('Canvas', () => {
     // while the pointer is over the frame being edited, not only over the
     // empty canvas around it.
     function focusedFrameBody(): HTMLElement {
-      const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+      const iframe = document.querySelector('[data-testid="artboard-surface"] [data-testid="canvas-frame"]') as
         | HTMLIFrameElement
         | null;
       const body = iframe?.contentDocument?.body;
@@ -1167,7 +1167,7 @@ describe('Canvas', () => {
     // startFramePan/moveFramePan (canvas.tsx), same as "wheel over the
     // focused frame..." above.
     function frameIframe(): HTMLIFrameElement {
-      const iframe = document.querySelector('[data-testid="artboard"] [data-testid="canvas-frame"]') as
+      const iframe = document.querySelector('[data-testid="artboard-surface"] [data-testid="canvas-frame"]') as
         | HTMLIFrameElement
         | null;
       if (!iframe) throw new Error('focused frame iframe not ready');

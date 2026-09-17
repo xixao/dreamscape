@@ -78,3 +78,25 @@ describe('Table block in play mode', () => {
     expect(play.back).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Table record filters', () => {
+  it('combines status chips and search and shows an empty result state', async () => {
+    renderPlayTree(<Element is={LayoutBox} canvas><Table columns="Borrower, Status" recordData="Avery|In review;Jordan|Ready;Morgan|Ready" filterColumn="Status" searchable /></Element>, makePlayValue());
+    expect(await screen.findByText('Avery')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Ready 2' }));
+    expect(screen.queryByText('Avery')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search table' }), 'Morgan');
+    expect(screen.queryByText('Jordan')).not.toBeInTheDocument();
+    expect(screen.getByText('Morgan')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1 of 3 records')).toBeInTheDocument();
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Search table' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search table' }), 'no match');
+    expect(screen.getByText(/No matching records/)).toBeInTheDocument();
+  });
+  it('keeps design-mode table content unchanged when clicking filters', async () => {
+    renderTree(<Element is={LayoutBox} canvas><Table columns="Name, Status" recordData="Avery|New;Jordan|Ready" filterColumn="Status" searchable /></Element>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ready 1' }));
+    expect(screen.getByText('Avery')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Search table' })).toHaveAttribute('readonly');
+  });
+});

@@ -1,4 +1,5 @@
 'use client';
+import { startAreaPrompt } from './chat/canvas-prompt-controls';
 
 import {
   createContext,
@@ -1183,6 +1184,7 @@ export function Canvas({
           <DropdownMenuTrigger asChild><button aria-hidden tabIndex={-1} style={{position:'fixed',left:sectionMenu?.x??0,top:sectionMenu?.y??0,width:1,height:1,opacity:0,pointerEvents:'none'}}/></DropdownMenuTrigger>
           <DropdownMenuContent className="w-64" onCloseAutoFocus={event=>event.preventDefault()}>
             <DropdownMenuItem onSelect={sections.start}>Draw section<span className="ml-auto text-xs text-muted-foreground">⇧S</span></DropdownMenuItem>
+            <DropdownMenuItem onSelect={startAreaPrompt}>Ask AI about an area</DropdownMenuItem>
             {sectionMenu?.frameId && <DropdownMenuItem onSelect={()=>sections.wrap(selectedFrameIds.has(sectionMenu.frameId!)?[...selectedFrameIds]:[sectionMenu.frameId!])}>Wrap in new section</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1271,38 +1273,11 @@ export function Canvas({
                   multiDragStartRef.current = null;
                 }}
               />
-              {focused ? (
-                <Stage
-                  screen={screen}
-                  viewport={viewport}
-                  comments={comments}
-                  onMeasuredHeight={stableOnMeasuredHeight}
-                  diagramFrameSelect={diagramFrameSelect}
-                />
-              ) : (
-                <FramePreview
-                  screen={screen}
-                  diagramFrameSelect={diagramFrameSelect}
-                  // onFocusScreen is the prop this component itself
-                  // received, passed straight through: already stable
-                  // across a pure viewport re-render (it comes from
-                  // WorkbenchShell/Workbench, neither of which re-renders
-                  // just because THIS component's viewport context does),
-                  // so no per-screen wrapping is needed here - FramePreview
-                  // calls it with its own screen.id itself. onMeasuredHeight
-                  // (review fix wave item 8) is the same shape and gets the
-                  // same treatment, just wrapped in useStableCallback below
-                  // since it originates as a plain prop THIS component
-                  // received, not necessarily already stable itself.
-                  onFocusScreen={onFocusScreen}
-                  shouldStartPan={stableShouldStartPan}
-                  onPanPointerDown={stableStartFramePan}
-                  onPanPointerMove={stableMoveFramePan}
-                  onPanPointerUp={stableEndFramePan}
-                  onFrameWheel={stableFrameWheel}
-                  onMeasuredHeight={stableOnMeasuredHeight}
-                />
-              )}
+              <PersistentScreenSurface screen={screen} focused={focused} viewport={viewport} comments={comments}
+                diagramFrameSelect={diagramFrameSelect} onMeasuredHeight={stableOnMeasuredHeight}
+                initialHeight={measuredHeights.get(screen.id)} onFocusScreen={onFocusScreen}
+                shouldStartPan={stableShouldStartPan} onPanPointerDown={stableStartFramePan}
+                onPanPointerMove={stableMoveFramePan} onPanPointerUp={stableEndFramePan} onFrameWheel={stableFrameWheel} />
             </div>
           );
         })}
@@ -1333,4 +1308,21 @@ export function Canvas({
       </div>
     </div>
   );
+}
+
+
+export function PersistentScreenSurface(props: React.ComponentProps<typeof FramePreview> & {
+  focused: boolean;
+  viewport: Viewport;
+  comments: React.ComponentProps<typeof Stage>['comments'];
+}) {
+  const [canvas, setCanvas] = useState<import('./stage-context').CanvasDocument | null>(null);
+  const editing = props.focused && !!canvas;
+  return <div className="relative">
+    <FramePreview {...props} editing={editing} onDocument={setCanvas} />
+    {editing && <div className="pointer-events-none absolute left-0 top-0 [&_[role=separator]]:pointer-events-auto [&_[data-testid=comment-cover]]:pointer-events-auto [&_[data-testid=diagram-frame-cover]]:pointer-events-auto">
+      <Stage screen={props.screen} viewport={props.viewport} comments={props.comments}
+        initialHeight={props.initialHeight} diagramFrameSelect={props.diagramFrameSelect} existingDocument={canvas} />
+    </div>}
+  </div>;
 }
