@@ -1,20 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { SquareDashed, ChevronDown, ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useSections } from './section-context';
 import { sectionFrames } from '@/lib/canvas/sections';
-export function SectionTool() {
-  const context=useSections();if(!context)return null;
-  return <div className="flex items-center rounded-md border border-line-soft">
-    <Button variant="ghost" size="icon" aria-label="Section tool" title="Section (⇧S)" aria-pressed={context.drawing} onClick={()=>context.drawing?context.setDrawing(false):context.start()}><SquareDashed className="size-4" /></Button>
-    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-xs" aria-label="Section options"><ChevronDown className="size-3" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-64">
-      <DropdownMenuItem onSelect={context.start}>Draw section<span className="ml-auto text-xs text-muted-foreground">⇧S</span></DropdownMenuItem>
-      <DropdownMenuItem disabled={!context.screens.length} onSelect={()=>context.wrap()}>Wrap selected frames in section</DropdownMenuItem>
-    </DropdownMenuContent></DropdownMenu>
-  </div>;
-}
 export function SectionsList() {
   const context=useSections();
   const [collapsed,setCollapsed]=useState<Set<string>>(new Set());

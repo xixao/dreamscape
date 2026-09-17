@@ -2,7 +2,7 @@
 
 import { useCanvasPrompts } from './canvas-prompt-controls';
 import { useEditor } from '@craftjs/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { createChatStore } from '@/lib/chat/store';
 import { useChatTransport } from './chat-transport-context';
@@ -19,7 +19,8 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
   const transport = useChatTransport();
   const [text, setText] = useState('');
   const [sent, setSent] = useState(false);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const promptRef = useRef<HTMLElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   useEffect(() => { setText(''); setSent(false); }, [id]);
   useEffect(() => {
     if (!id) return;
@@ -41,8 +42,26 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
           const scale = bounds.width / (frame.offsetWidth || bounds.width);
           left = bounds.left + left * scale; bottom = bounds.top + bottom * scale; top = bounds.top + top * scale;
         }
-        const next = { left: Math.max(12, Math.min(left, window.innerWidth - 332)), top: Math.max(80, Math.min(bottom + 10, window.innerHeight - 64, bottom + 64 > window.innerHeight ? top - 64 : bottom + 10)) };
-        setPosition(old => old?.left === next.left && old.top === next.top ? old : next);
+        // Chrome lives in the outer document; component asides inside the
+        // artboard iframe are deliberately excluded from these obstacles.
+        let safeLeft = 12;
+        let safeRight = window.innerWidth - 12;
+        for (const panel of document.querySelectorAll('aside')) {
+          const bounds = panel.getBoundingClientRect();
+          if (!bounds.width || !bounds.height || bounds.right <= 0 || bounds.left >= window.innerWidth) continue;
+          const style = getComputedStyle(panel);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+          if ((bounds.left + bounds.right) / 2 < window.innerWidth / 2) safeLeft = Math.max(safeLeft, bounds.right + 12);
+          else safeRight = Math.min(safeRight, bounds.left - 12);
+        }
+        const width = Math.min(320, safeRight - safeLeft);
+        const height = promptRef.current?.getBoundingClientRect().height || 56;
+        const next = width < 120 ? null : {
+          left: Math.max(safeLeft, Math.min(left, safeRight - width)),
+          top: Math.max(80, Math.min(bottom + 10 + height <= window.innerHeight - 12 ? bottom + 10 : top - height - 10, window.innerHeight - height - 12)),
+          width,
+        };
+        setPosition(old => old?.left === next?.left && old?.top === next?.top && old?.width === next?.width ? old : next);
       }
       raf = requestAnimationFrame(update);
     };
@@ -63,7 +82,7 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
     // Finish the reply even if the user selects another component meanwhile.
     transport.send(history, request).then(reply => append('assistant', reply)).catch(() => append('assistant', 'Something went wrong. Try again.')).finally(() => setSent(false));
   }
-  return <section aria-label={`AI edit ${name}`} style={position} className={`${PANEL} fixed z-50 w-80 max-w-[calc(100vw-24px)] p-1.5`} onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+  return <section ref={promptRef} aria-label={`AI edit ${name}`} style={position} className={`${PANEL} fixed z-50 w-80 max-w-[calc(100vw-24px)] p-1.5`} onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
     <form className={`${SEARCH} h-10 flex-nowrap gap-2 py-1 pr-1 pl-3`} onSubmit={event => { event.preventDefault(); send(); }}>
       <Input type="text" key={id} aria-label={`Ask AI about ${name}`} placeholder={`Ask AI to edit ${name}…`} value={text} onChange={event => setText(event.target.value)} className={`${SEARCH_INPUT.replace('placeholder:text-t4', 'placeholder:text-t2')} flex-1 text-[13px] placeholder:opacity-100`} />
       <button type="submit" title="Send to AI conversation" aria-label="Send request" disabled={!text.trim() || sent} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"><ArrowUp aria-hidden className="size-4" /></button>

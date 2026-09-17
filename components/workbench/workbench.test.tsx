@@ -485,8 +485,8 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile({screens:frames})} />);
       fireEvent.pointerDown(screen.getByRole('button',{name:'Frame 1'}),{button:0,shiftKey:true,pointerId:1});
       fireEvent.pointerDown(screen.getByRole('button',{name:'Frame 2'}),{button:0,shiftKey:true,pointerId:1});
-      await user.click(screen.getByRole('button',{name:'Section options'}));
-      await user.click(screen.getByRole('menuitem',{name:'Wrap selected frames in section'}));
+      fireEvent.contextMenu(screen.getByRole('button',{name:'Frame 1'}));
+      await user.click(screen.getByRole('menuitem',{name:'Wrap in Section'}));
       expect(await screen.findByRole('button',{name:'Select section Section 1'})).toBeInTheDocument();
       await user.click(screen.getByRole('button',{name:'Undo'}));
       await waitFor(() => expect(screen.queryByRole('button',{name:'Select section Section 1'})).not.toBeInTheDocument());
@@ -613,7 +613,7 @@ describe('Workbench', () => {
     it('can create and undo a section on an empty page without adding a frame', async () => {
       window.location.hash = `#p=${PAGE_2_ID}`;
       render(<Workbench file={makeFile({pages:[{id:PAGE_ID,name:'Page 1'},{id:PAGE_2_ID,name:'Empty'}]})} />);
-      await user.click(screen.getByRole('button',{name:'Section tool'}));
+      fireEvent.keyDown(window, { key: 'S', shiftKey: true });
       const surface=screen.getByTestId('section-draw-surface');
       fireEvent.pointerDown(surface,{button:0,pointerId:17,clientX:100,clientY:120});
       fireEvent.pointerMove(surface,{pointerId:17,clientX:500,clientY:400});

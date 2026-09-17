@@ -1,5 +1,4 @@
 'use client';
-import { SectionTool } from './sections/section-tools';
 
 import { NoteTool } from './comments/note-tool';
 import type { NoteKind } from '@/lib/comments/store';
@@ -560,7 +559,6 @@ export function Topbar({
         />
         <SaveIndicator saveState={saveState} notice={notice} />
         <div className="flex-1" />
-        <SectionTool />
         <NoteTool visible={notesVisible} onToggleVisibility={onToggleNotesVisibility} libraries active={commentMode} kind={noteKind} count={commentCount} onToggle={() => onToggleCommentMode?.()} onStart={kind => onStartNote?.(kind)} onBrowse={onBrowseNotes} />
         <Tooltip>
           <TooltipTrigger asChild>
