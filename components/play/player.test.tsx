@@ -906,7 +906,7 @@ describe('Player overlays', () => {
 
   it("applies a toast's edge offset on the sides it sits against and sizes the overlay root to its content", async () => {
     const file = makeOverlayFile();
-    file.screens = file.screens.map((s) =>
+    file.screens = file.screens?.map((s) =>
       s.id === 'noticeOverlay' ? { ...s, presentation: { type: 'toast' as const, position: 'bottom-right' as const, offset: 32 } } : s,
     );
     const user = await renderOnLogin(file);
