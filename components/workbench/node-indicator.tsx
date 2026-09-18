@@ -4,11 +4,11 @@ import { ROOT_NODE, useNode } from '@craftjs/core';
 import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { ZONE_TYPES } from '@/components/blocks/registry';
-import { describeInteraction, getInteraction } from '@/lib/interactions';
+import { getInteraction } from '@/lib/interactions';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import { useSettledEditorState } from './use-settled-editor-state';
-import { InteractionTag } from './interaction-tag';
+import { PrototypeConnector } from './prototype-connector';
 import { usePrototypeContext } from './prototype-context';
 import { useStage } from './stage-context';
 
@@ -79,7 +79,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
   // to force the effect below to re-measure when either changes; see the
   // adaptation note where they're added to its dependency array.
   const { zoom, width } = useStage();
-  const { panelMode, screens } = usePrototypeContext();
+  const { panelMode, showAllConnections } = usePrototypeContext();
   const [rect, setRect] = useState<DOMRect | null>(null);
   // The iframe's own document/window once Stage has one (canvas-frame.tsx);
   // null in Play mode and in any test that renders a block tree without a
@@ -134,11 +134,12 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
     // re-measure on every such structural change.
   }, [dom, active, zoom, width, nodes, targetWindow]);
 
-  const tagText = showTag ? describeInteraction(interaction, screens, nodes) : null;
+
 
   return (
     <>
       {render}
+      {dom && panelMode === 'prototype' && !isRoot && !isZone && (isSelected || (showAllConnections && interaction)) && <PrototypeConnector id={id} dom={dom} selected={isSelected} />}
       {rect &&
         active &&
         createPortal(
@@ -152,7 +153,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
                 weight={isSelected ? 'selected' : 'hover'}
               />
             )}
-            {tagText && <InteractionTag rect={rect} text={tagText} />}
+
           </>,
           targetDocument.body,
         )}

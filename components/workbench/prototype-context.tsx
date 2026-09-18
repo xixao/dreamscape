@@ -1,12 +1,14 @@
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { Screen } from '@/lib/files/repository';
 import type { PanelMode } from '@/lib/workbench/panel-store';
 
 export type { PanelMode };
 
 export interface PrototypeContextValue {
+  showAllConnections?: boolean;
+  setShowAllConnections?: (show: boolean) => void;
   panelMode: PanelMode;
   screens: Screen[];
 }
@@ -33,7 +35,8 @@ export function PrototypeProvider({
   value: PrototypeContextValue;
   children: ReactNode;
 }) {
-  return <PrototypeContext.Provider value={value}>{children}</PrototypeContext.Provider>;
+  const [showAllConnections, setShowAllConnections] = useState(false);
+  return <PrototypeContext.Provider value={{...value,showAllConnections,setShowAllConnections}}>{children}</PrototypeContext.Provider>;
 }
 
 export function usePrototypeContext(): PrototypeContextValue {

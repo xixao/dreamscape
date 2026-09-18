@@ -1246,6 +1246,7 @@ export function Canvas({
             <div
               key={screen.id}
               data-frame
+              data-frame-id={screen.id}
               data-testid={`frame-${screen.id}`}
               data-selected={selected || undefined}
               className={cn(selected && 'outline-2 outline-acc outline-offset-2')}

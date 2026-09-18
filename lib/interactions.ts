@@ -1,6 +1,3 @@
-import type { Screen } from './files/repository';
-import { isOverlay } from './files/screens';
-
 // v1 supports exactly one click interaction per layer (spec
 // docs/superpowers/specs/2026-09-12-screens-prototype-play-design.md #2), but
 // it is still stored as an array on the node's Craft `custom` data so a later
@@ -43,12 +40,12 @@ export type CloseOverlayInteraction = {
   action: 'closeOverlay';
 };
 
-export type Interaction =
+export type Interaction = { intendedCondition?: string } & (
   | NavigateInteraction
   | OpenDialogInteraction
   | BackInteraction
   | OpenOverlayInteraction
-  | CloseOverlayInteraction;
+  | CloseOverlayInteraction);
 
 export type InteractionActionType = Interaction['action'];
 
@@ -86,16 +83,6 @@ export function setInteraction(actions: SetCustomActions, id: string, interactio
     }
   });
 }
-
-// Loose structural shape of Craft's `EditorState['nodes']`, just enough for
-// describeInteraction to look up a target Dialog's title. Matches
-// `state.nodes` directly, so callers can pass it with no reshaping.
-export type DescribeNodes = Record<
-  string,
-  { data: { name: string; displayName?: string; props?: Record<string, unknown> } }
->;
-
-const DEFAULT_DIALOG_TITLE = 'Dialog';
 
 export interface InteractionRunner {
   navigate: (screenId: string) => void;
@@ -147,45 +134,4 @@ export function interactionHandler(
     return () => runner.closeOverlay();
   }
   return () => runner.back();
-}
-
-/**
- * Builds the canvas tag text (spec #4: "→ <target name>", "→ Dialog:
- * <title>", "← Back"; overlay frames spec section 3: "→ Overlay: <name>",
- * "× Close overlay") for a node's interaction. `screens` and `nodes` are
- * used only to resolve a target's current display name, since interactions
- * only ever store an id.
- */
-export function describeInteraction(
-  interaction: Interaction | null,
-  screens: Pick<Screen, 'id' | 'name' | 'kind' | 'presentation'>[],
-  nodes: DescribeNodes,
-): string | null {
-  if (!interaction) return null;
-
-  if (interaction.action === 'back') return '← Back';
-
-  if (interaction.action === 'closeOverlay') return '× Close overlay';
-
-  if (interaction.action === 'navigate') {
-    const target = screens.find((screen) => screen.id === interaction.targetScreenId);
-    return `→ ${target ? target.name : 'Unknown screen'}`;
-  }
-
-  if (interaction.action === 'openOverlay') {
-    // isOverlay, not a plain id lookup (overlay frames spec docs/
-    // superpowers/specs/2026-09-13-overlay-frames-design.md section 5): an
-    // id that now names a plain screen - the overlay was deleted and the
-    // id reused, in practice unreachable through the UI, which never
-    // reuses ids, but not through this stored interaction alone - is
-    // "unknown" too, exactly like a missing id, rather than mislabeling a
-    // plain screen as an overlay.
-    const target = screens.find((screen) => screen.id === interaction.targetScreenId);
-    return target && isOverlay(target) ? `→ Overlay: ${target.name}` : '→ Unknown overlay';
-  }
-
-  const node = nodes[interaction.targetNodeId];
-  if (!node) return '→ Unknown dialog';
-  const title = node.data.props?.title;
-  return `→ Dialog: ${typeof title === 'string' && title.trim() !== '' ? title : DEFAULT_DIALOG_TITLE}`;
 }

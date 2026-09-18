@@ -23,6 +23,7 @@ import type { Page, Screen } from '@/lib/files/repository';
 import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
 import { cn } from '@/lib/utils';
 import { CHIP, DANGER_GHOST, EMPTY, LABEL, MENU_HINT, SECTION, SECTION_TITLE } from './chrome';
+import { usePrototypeContext } from './prototype-context';
 import { useSelectedNode } from './selection';
 
 type OnClickValue = InteractionActionType | 'none';
@@ -61,6 +62,8 @@ export function PrototypePanel({
   // with an ungrouped select if it happens to also have overlay frames.
   pages?: Page[];
 }) {
+  const {showAllConnections,setShowAllConnections} = usePrototypeContext();
+  const connectionsToggle = <label className="mb-3 flex items-center gap-2 text-xs"><input type="checkbox" checked={!!showAllConnections} onChange={e=>setShowAllConnections?.(e.target.checked)} />Show all connections in this frame</label>;
   const { id } = useSelectedNode();
   const { actions, interaction, dialogOptions } = useEditor((state) => {
     const node = id ? state.nodes[id] : undefined;
@@ -77,7 +80,7 @@ export function PrototypePanel({
   });
 
   if (!id) {
-    return <div className={EMPTY}>Select a layer to add an interaction.</div>;
+    return <div>{connectionsToggle}<div className={EMPTY}>Select a layer to add an interaction.</div></div>;
   }
 
   const otherScreens = screens.filter((screen) => screen.id !== currentScreenId);
@@ -127,6 +130,7 @@ export function PrototypePanel({
 
   return (
     <section className={SECTION}>
+      {connectionsToggle}
       <h3 className={SECTION_TITLE}>Interactions</h3>
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">

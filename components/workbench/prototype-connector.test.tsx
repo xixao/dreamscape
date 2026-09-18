@@ -1,0 +1,22 @@
+import {it,expect,vi} from 'vitest';
+import {render,screen,waitFor,fireEvent} from '@testing-library/react';
+import {PrototypeConnector} from './prototype-connector';
+const state=vi.hoisted(()=>({node:{data:{custom:{interactions:[{id:'link',trigger:'click',action:'navigate',targetScreenId:'target'}]}}},select:vi.fn(),custom:vi.fn()}));
+vi.mock('@craftjs/core',()=>({useEditor:()=>({actions:{selectNode:state.select,setCustom:state.custom},query:{getState:()=>({nodes:{source:state.node}})}})}));
+vi.mock('./prototype-context',()=>({usePrototypeContext:()=>({screens:[{id:'target',name:'Destination'}],showAllConnections:false})}));
+it('draws a selectable connection and connects a dragged handle to a frame',async()=>{
+ const dom=document.createElement('button');document.body.append(dom);
+ dom.getBoundingClientRect=()=>({left:20,right:100,top:40,height:40}) as DOMRect;
+ const target=document.createElement('div');target.dataset.frameId='target';document.body.append(target);
+ target.getBoundingClientRect=()=>({left:300,right:500,top:20,bottom:220,height:200}) as DOMRect;
+ render(<PrototypeConnector id="source" dom={dom} selected />);
+ const line=await screen.findByRole('button',{name:'Edit connection to Destination'});
+ fireEvent.click(line);expect(state.select).toHaveBeenCalledWith('source');
+ const handle=screen.getByRole('button',{name:'Destination'});
+ handle.setPointerCapture=vi.fn();
+ fireEvent.pointerDown(handle,{pointerId:1,clientX:100,clientY:60});
+ fireEvent.pointerMove(handle,{pointerId:1,clientX:350,clientY:100});
+ fireEvent.pointerUp(handle,{pointerId:1,clientX:350,clientY:100});
+ await waitFor(()=>expect(state.custom).toHaveBeenCalled());
+ dom.remove();target.remove();
+});

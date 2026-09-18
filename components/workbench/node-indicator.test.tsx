@@ -7,7 +7,7 @@ import { LayoutBox } from '@/components/blocks/layout-box';
 import { resolver } from '@/components/blocks/registry';
 import type { Screen } from '@/lib/files/repository';
 import { CanvasFrame } from './canvas-frame';
-import { PrototypeProvider } from './prototype-context';
+import { PrototypeProvider, usePrototypeContext } from './prototype-context';
 import { StageProvider } from './stage-context';
 import { NodeIndicator, SelectionOutline } from './node-indicator';
 
@@ -200,7 +200,7 @@ describe('NodeIndicator re-measurement', () => {
   });
 });
 
-describe('NodeIndicator interaction tag', () => {
+describe('NodeIndicator prototype connector', () => {
   const SCREENS: Screen[] = [
     { id: 's1', name: 'Login', layout: '{}', stageWidth: 1440 },
     { id: 's2', name: 'Hello world', layout: '{}', stageWidth: 1440 },
@@ -214,10 +214,21 @@ describe('NodeIndicator interaction tag', () => {
     return null;
   }
 
-  function mount(panelMode: 'design' | 'prototype') {
+  // Flips the provider's own "Show all connections in this frame" switch,
+  // the same thing the Prototype panel's checkbox does.
+  function ShowAll() {
+    const { setShowAllConnections } = usePrototypeContext();
+    useEffect(() => {
+      setShowAllConnections?.(true);
+    }, [setShowAllConnections]);
+    return null;
+  }
+
+  function mount(panelMode: 'design' | 'prototype', showAll = false) {
     let handle: EditorHandle | null = null;
     const utils = render(
       <PrototypeProvider value={{ panelMode, screens: SCREENS }}>
+        {showAll && <ShowAll />}
         <Editor resolver={resolver} onRender={NodeIndicator}>
           <StageProvider>
             <Frame>
@@ -237,6 +248,15 @@ describe('NodeIndicator interaction tag', () => {
     return { ...utils, editor };
   }
 
+  // The connector finds its destination frame through the canvas's own
+  // `data-frame-id` wrappers (canvas.tsx); a bare one stands in for it here.
+  function targetFrame(id: string): () => void {
+    const target = document.createElement('div');
+    target.dataset.frameId = id;
+    document.body.append(target);
+    return () => target.remove();
+  }
+
   async function wireNavigateToHelloWorld(editor: () => EditorHandle): Promise<string> {
     const buttonId = editor().query.node(ROOT_NODE).get().data.nodes[0];
     act(() => {
@@ -250,48 +270,78 @@ describe('NodeIndicator interaction tag', () => {
     return buttonId;
   }
 
-  it('shows the tag reading the target screen name while in prototype mode, even unselected', async () => {
-    const { editor } = mount('prototype');
-    await screen.findByRole('button', { name: 'Sign in' });
-    await wireNavigateToHelloWorld(editor);
+  async function selectNode(editor: () => EditorHandle, id: string): Promise<void> {
+    act(() => editor().actions.selectNode(id));
+    await waitFor(() => expect(editor().query.getEvent('selected').contains(id)).toBe(true));
+  }
 
-    const tag = await screen.findByTestId('interaction-tag');
-    expect(tag).toHaveTextContent('→ Hello world');
-    expect(screen.queryByTestId('selection-outline')).toBeNull();
+  it('draws the connection to the target frame once the wired node is selected, with the outline', async () => {
+    const removeTarget = targetFrame('s2');
+    try {
+      const { editor } = mount('prototype');
+      await screen.findByRole('button', { name: 'Sign in' });
+      const buttonId = await wireNavigateToHelloWorld(editor);
+      expect(screen.queryByLabelText('Prototype connection')).toBeNull();
+
+      await selectNode(editor, buttonId);
+
+      expect(await screen.findByRole('button', { name: 'Edit connection to Hello world' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hello world' })).toBeInTheDocument();
+      expect(await screen.findByTestId('selection-outline')).toHaveAttribute('data-weight', 'selected');
+    } finally {
+      removeTarget();
+    }
   });
 
-  it('shows no tag in design mode even though the node has an interaction', async () => {
-    const { editor } = mount('design');
-    await screen.findByRole('button', { name: 'Sign in' });
-    await wireNavigateToHelloWorld(editor);
+  it('draws nothing in design mode even for a selected, wired node', async () => {
+    const removeTarget = targetFrame('s2');
+    try {
+      const { editor } = mount('design');
+      await screen.findByRole('button', { name: 'Sign in' });
+      const buttonId = await wireNavigateToHelloWorld(editor);
+      await selectNode(editor, buttonId);
 
-    expect(screen.queryByTestId('interaction-tag')).toBeNull();
+      expect(await screen.findByTestId('selection-outline')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Prototype connection')).toBeNull();
+    } finally {
+      removeTarget();
+    }
   });
 
-  it('shows the outline together with the tag when the wired node is also selected', async () => {
-    const { editor } = mount('prototype');
-    await screen.findByRole('button', { name: 'Sign in' });
-    const buttonId = await wireNavigateToHelloWorld(editor);
+  it('shows every wired connection in the frame, unselected, when Show all connections is on', async () => {
+    const removeTarget = targetFrame('s2');
+    try {
+      const { editor } = mount('prototype', true);
+      await screen.findByRole('button', { name: 'Sign in' });
+      await wireNavigateToHelloWorld(editor);
 
-    act(() => editor().actions.selectNode(buttonId));
-    await waitFor(() => expect(editor().query.getEvent('selected').contains(buttonId)).toBe(true));
-
-    expect(await screen.findByTestId('interaction-tag')).toHaveTextContent('→ Hello world');
-    expect(await screen.findByTestId('selection-outline')).toHaveAttribute('data-weight', 'selected');
+      expect(await screen.findByRole('button', { name: 'Edit connection to Hello world' })).toBeInTheDocument();
+      // Only a selected node gets the drag handle.
+      expect(screen.queryByRole('button', { name: 'Hello world' })).toBeNull();
+    } finally {
+      removeTarget();
+    }
   });
 
-  it('removes the tag once the interaction is cleared', async () => {
-    const { editor } = mount('prototype');
-    await screen.findByRole('button', { name: 'Sign in' });
-    const buttonId = await wireNavigateToHelloWorld(editor);
-    await screen.findByTestId('interaction-tag');
+  it('drops the connection once the interaction is cleared, leaving the handle to drag a new one', async () => {
+    const removeTarget = targetFrame('s2');
+    try {
+      const { editor } = mount('prototype');
+      await screen.findByRole('button', { name: 'Sign in' });
+      const buttonId = await wireNavigateToHelloWorld(editor);
+      await selectNode(editor, buttonId);
+      await screen.findByRole('button', { name: 'Edit connection to Hello world' });
 
-    act(() => {
-      editor().actions.setCustom(buttonId, (custom: Record<string, unknown>) => {
-        delete custom.interactions;
+      act(() => {
+        editor().actions.setCustom(buttonId, (custom: Record<string, unknown>) => {
+          delete custom.interactions;
+        });
       });
-    });
 
-    await waitFor(() => expect(screen.queryByTestId('interaction-tag')).toBeNull());
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit connection to Hello world' })).toBeNull());
+      expect(screen.getByRole('button', { name: 'Drag to connect' })).toBeInTheDocument();
+    } finally {
+      removeTarget();
+    }
   });
 });

@@ -10,6 +10,7 @@ import type { Page, Screen } from '@/lib/files/repository';
 import { createOverlayScreen } from '@/lib/files/screens';
 import { renderInEditor } from '@/test/craft-harness';
 import { PrototypePanel } from './prototype-panel';
+import { PrototypeProvider, usePrototypeContext } from './prototype-context';
 
 const SCREENS: Screen[] = [
   { id: 's1', name: 'Login', layout: '{}', stageWidth: 1440 },
@@ -216,4 +217,28 @@ describe('PrototypePanel', () => {
       expect(screen.queryByRole('combobox', { name: 'Screen' })).toBeNull();
     });
   });
+});
+
+it('Show all connections toggles the shared prototype setting for the whole frame', async () => {
+  let shown: boolean | undefined;
+  function Probe() {
+    shown = usePrototypeContext().showAllConnections;
+    return null;
+  }
+  renderInEditor(
+    <PrototypeProvider value={{ panelMode: 'prototype', screens: SCREENS }}>
+      <Frame>
+        <Element is={LayoutBox} canvas>
+          <Button label="Sign in" />
+        </Element>
+      </Frame>
+      <PrototypePanel screens={SCREENS} currentScreenId="s1" />
+      <Probe />
+    </PrototypeProvider>,
+  );
+  const toggle = screen.getByRole('checkbox', { name: 'Show all connections in this frame' });
+  expect(toggle).not.toBeChecked();
+  await userEvent.click(toggle);
+  expect(toggle).toBeChecked();
+  expect(shown).toBe(true);
 });
