@@ -304,7 +304,7 @@ export function ResizeHandle({
       {dragging && (
         <span
           data-testid="resize-readout"
-          className="pointer-events-none absolute top-full left-1/2 mt-1.5 -translate-x-1/2 rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold whitespace-nowrap text-white"
+          className="pointer-events-none absolute top-full left-1/2 mt-1.5 -translate-x-1/2 rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold whitespace-nowrap text-primary-foreground"
         >
           {Math.round(width)} × {Math.round(height)}
         </span>

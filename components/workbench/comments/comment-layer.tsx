@@ -41,11 +41,15 @@ export function CommentLayer(props: StageCommentsProps & {
     window.addEventListener('blur', cancel); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key); };
   }, []);
-  const [anchors, setAnchors] = useState<Record<string, Rect>>({});
+  const [measuredAnchors, setAnchors] = useState<Record<string, Rect>>({});
+  const hasAnchors = !!props.resolveAnchor && threads.some(thread => thread.anchorNodeId);
+  const anchors = hasAnchors ? measuredAnchors : {};
   const [hovered, setHovered] = useState<string | null>(null);
   useEffect(() => {
-    if (!props.resolveAnchor || !threads.some(t => t.anchorNodeId)) { setAnchors({}); return; }
-    let frame = 0; let previous = '';
+    // An empty layer derives an empty map in render. Never schedule a state
+    // update from an effect just to clear already-unused measurements.
+    if (!hasAnchors) return;
+    let frame = 0;
     function measure() {
       const next: Record<string, Rect> = {};
       for (const thread of threads) {
@@ -53,11 +57,16 @@ export function CommentLayer(props: StageCommentsProps & {
         if (rect) next[thread.id] = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
       }
       const signature = JSON.stringify(next);
-      if (signature !== previous) { previous = signature; setAnchors(next); }
+      // Compare against committed geometry, including across effect restarts.
+      setAnchors(previous => JSON.stringify(previous) === signature ? previous : next);
       frame = requestAnimationFrame(measure);
     }
-    measure(); return () => cancelAnimationFrame(frame);
-  }, [threads, props.resolveAnchor]);
+    // Panning changes the resolver/threads frequently. Measuring synchronously
+    // here creates a nested effect -> state -> commit chain during navigation.
+    // Sample once per animation frame instead, and cancel stale measurements.
+    frame = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(frame);
+  }, [hasAnchors, threads, props.resolveAnchor]);
   if (props.visible === false || !artboardRect || typeof document === 'undefined') return null;
   function point(thread: PendingPin | CommentThread) {
     if ('id' in thread && preview?.id === thread.id) return preview;

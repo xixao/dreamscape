@@ -43,6 +43,21 @@ describe('StageErrorBoundary', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows the actual error and retries without changing saved screen data', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    let broken = true;
+    function Canvas() { if (broken) throw new Error('Navigation failed'); return <p>Canvas recovered</p>; }
+    renderBoundary(<Canvas/>);
+    expect(screen.getByText(/Error: Navigation failed/)).toBeInTheDocument();
+    broken = false;
+    await userEvent.click(screen.getByRole('button',{name:'Try again'}));
+    expect(screen.getByText('Canvas recovered')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals(); vi.restoreAllMocks();
+  });
+
   it('Reset file PATCHes screens with only the current screen cleared, no baseUpdatedAt, and then reloads', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});

@@ -16,6 +16,7 @@ interface StageErrorBoundaryProps {
 
 interface StageErrorBoundaryState {
   hasError: boolean;
+  error: Error | null;
 }
 
 // Clears only the screen that failed to load, leaving every other screen in
@@ -40,14 +41,14 @@ function resetScreen(fileId: string, screens: Screen[], currentScreenId: string)
 // no longer this boundary's business: it shows an explicit recovery action
 // instead of silently discarding anything.
 export class StageErrorBoundary extends Component<StageErrorBoundaryProps, StageErrorBoundaryState> {
-  state: StageErrorBoundaryState = { hasError: false };
+  state: StageErrorBoundaryState = { hasError: false, error: null };
 
-  static getDerivedStateFromError(): StageErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): StageErrorBoundaryState {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error): void {
-    console.warn('Saved layout could not be loaded.', error);
+    console.warn('Canvas rendering failed.', error);
   }
 
   render(): ReactNode {
@@ -57,7 +58,13 @@ export class StageErrorBoundary extends Component<StageErrorBoundaryProps, Stage
       <div className="flex min-w-0 items-center justify-center rounded-xl bg-canvas p-6">
         <div className={EMPTY}>
           <b className={EMPTY_TITLE}>This file could not be opened.</b>
+          <p className="mt-2 text-sm text-muted-foreground">The canvas encountered an error. Try again without clearing your design.</p>
+          <details className="mt-3 max-w-xl text-left text-xs">
+            <summary className="cursor-pointer">Error details</summary>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words">{this.state.error?.stack || this.state.error?.message || 'Unknown canvas error'}</pre>
+          </details>
           <div className="mt-3 flex items-center justify-center gap-4">
+            <Button onClick={() => this.setState({hasError:false,error:null})}>Try again</Button>
             <Link href="/" className="text-[13px] font-medium text-acc hover:underline">
               Back to files
             </Link>

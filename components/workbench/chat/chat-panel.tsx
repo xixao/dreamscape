@@ -42,7 +42,7 @@ function AssistantAvatar() {
   return (
     <div
       aria-hidden
-      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad)] text-white"
+      className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[image:var(--grad)] text-primary-foreground"
     >
       <Bot className="size-3.5" />
     </div>

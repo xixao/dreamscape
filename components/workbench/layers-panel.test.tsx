@@ -31,11 +31,11 @@ describe('Layers panel', () => {
     render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas /></Frame><LayersPanel onOpenShortcuts={open} /></Editor></StageProvider>);
     await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
     expect(open).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('href', '/dreamscape-source.zip');
+    expect(screen.queryByRole('link', { name: 'Download source' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Minimize layers panel' }));
     await userEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
     expect(open).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('link', { name: 'Download source' })).toHaveAttribute('download');
+    expect(screen.queryByRole('link', { name: 'Download source' })).not.toBeInTheDocument();
   });
   it('nests a dragged button inside a frame without losing it', async () => {
     const user = userEvent.setup();

@@ -7,9 +7,9 @@ export function LeftPanelTabs({ compact = false }: { compact?: boolean }) {
   const context = useContext(LeftPanelContext);
   if (!context) return null;
   return <SegmentedControl continuityKey={context.setChatOpen} orientation={compact ? 'vertical' : 'horizontal'} aria-label="Left panel mode" value={context.prototypesOpen ? 'prototypes' : context.chatOpen ? 'chat' : 'design'} onValueChange={value => { if (value) { context.setChatOpen(value === 'chat'); context.setPrototypesOpen?.(value === 'prototypes'); context.setCollapsed?.(false); } }} className={compact ? 'flex-col' : 'flex-1'}>
-    <SegmentedItem value="design" aria-label="Design" title="Design" >{compact && <Layers className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Design</span>}</SegmentedItem>
-    {context.setPrototypesOpen && <SegmentedItem value="prototypes" aria-label="Prototypes" title="Prototypes">{compact && <Workflow className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Prototypes</span>}</SegmentedItem>}
-    <SegmentedItem value="chat" aria-label="Chat" title="Chat" >{compact && <Sparkles className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Chat</span>}</SegmentedItem>
+    <SegmentedItem className={compact ? undefined : 'flex-auto px-2'} value="design" aria-label="Design" title="Design" >{compact && <Layers className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Design</span>}</SegmentedItem>
+    {context.setPrototypesOpen && <SegmentedItem className={compact ? undefined : 'flex-auto px-2'} value="prototypes" aria-label="Prototypes" title="Prototypes">{compact && <Workflow className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Prototypes</span>}</SegmentedItem>}
+    <SegmentedItem className={compact ? undefined : 'flex-auto px-2'} value="chat" aria-label="Chat" title="Chat" >{compact && <Sparkles className="size-4" aria-hidden />}{!compact && <span className="text-[11px]">Chat</span>}</SegmentedItem>
   </SegmentedControl>;
 }
 

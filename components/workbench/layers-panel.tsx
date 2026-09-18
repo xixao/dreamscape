@@ -7,7 +7,7 @@ import { LeftPanelContext, LeftPanelTabs, LeftPanelHeader, LeftPanelFooter } fro
 import { DRAG_TARGET } from './drag-surfaces';
 import { useContext, useState, useEffect, useRef } from 'react';
 import { nanoid } from 'nanoid';
-import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Download, Copy, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronLeft, Layers, Command, Copy, Trash2 } from 'lucide-react';
 import { useSettledEditorState } from './use-settled-editor-state';
 import { LABEL } from './chrome';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
@@ -160,7 +160,6 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
   }
   const utilities = onOpenShortcuts && <div className={`border-t border-line-soft p-2 ${panelCollapsed ? 'mt-auto flex flex-col items-center' : 'flex flex-col gap-1'}`}>
     <button type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" className="flex items-center gap-2 rounded p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onOpenShortcuts}><Command className="size-4 shrink-0" />{!panelCollapsed && 'Keyboard shortcuts'}</button>
-    <a href="/dreamscape-source.zip" download title="Download source" aria-label="Download source" className="flex items-center gap-2 rounded p-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"><Download className="size-4 shrink-0" />{!panelCollapsed && 'Download source'}</a>
   </div>;
   if (panelCollapsed) return <div data-layers-collapsed="true" className="flex h-full flex-col items-center gap-1 py-2">
     <button aria-label="Expand layers panel" aria-expanded={false} title="Expand layers panel" className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(false)}><ChevronRight className="size-4" /></button>
