@@ -51,3 +51,6 @@ next-env.d.ts
 .agents/
 .claude/skills/
 skills-lock.json
+
+# cursor master artwork lives outside the repo (~/Documents/dreamscape-cursor-originals)
+/public/cursors/*-original.png

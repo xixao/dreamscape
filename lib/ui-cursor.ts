@@ -8,7 +8,9 @@ export const CURSORS = [
 export function parseCursor(value:string|null) { return CURSORS.some(cursor=>cursor.id===value)?value!:'default'; }
 export const CURSOR_SIZE_STORAGE_KEY = 'dreamscape.ui-cursor-size.v1';
 // Every cursor ships as /cursors/<id>-<size>.png for each size below, made
-// from <id>-original.png with `sips -z <size> <size>`. The hotspots in
+// with `sips -z <size> <size>` from the full-resolution masters, which live
+// outside the repo on Matt's Mac in ~/Documents/dreamscape-cursor-originals
+// (see the README there). The hotspots in
 // ui-cursor-hotspots.json are measured on the 48 px image and scale with it.
 // Browsers ignore cursor images larger than 128 px, so sizes stay under that.
 export const DEFAULT_CURSOR_SIZE = 48;
