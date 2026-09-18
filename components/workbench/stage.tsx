@@ -784,6 +784,7 @@ function FramePreviewImpl({
     frameDocument.window.addEventListener("pointermove", onPanPointerMove);
     frameDocument.window.addEventListener("pointerup", onPanPointerUp);
     frameDocument.window.addEventListener("pointercancel", onPanPointerUp);
+    frameDocument.window.addEventListener("lostpointercapture", onPanPointerUp);
     // Attached to the document, not the window (matching canvas.tsx's
     // identical choice for the focused frame) - wheel bubbles from the
     // target up through the document to the window, so listening on both
@@ -794,6 +795,7 @@ function FramePreviewImpl({
       frameDocument.window.removeEventListener("pointermove", onPanPointerMove);
       frameDocument.window.removeEventListener("pointerup", onPanPointerUp);
       frameDocument.window.removeEventListener("pointercancel", onPanPointerUp);
+      frameDocument.window.removeEventListener("lostpointercapture", onPanPointerUp);
       frameDocument.document.removeEventListener("wheel", onWheel);
     };
   }, [

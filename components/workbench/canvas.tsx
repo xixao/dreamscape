@@ -1,4 +1,5 @@
 'use client';
+import { panMomentum, type PanSample } from '@/lib/canvas/pan-momentum';
 import { startAreaPrompt } from './chat/canvas-prompt-controls';
 
 import {
@@ -40,7 +41,7 @@ import {
   type DiagramSelection,
   type DiagramState,
 } from '@/lib/diagram/store';
-import { canScrollInDirection, capturePointer, isElementLike } from '@/lib/dom';
+import { canScrollInDirection, capturePointer, releasePointer, isElementLike } from '@/lib/dom';
 import { cn } from '@/lib/utils';
 import { useCanvasDocument } from './canvas-frame';
 import { CommentLayer, type StageCommentsProps } from './comments/comment-layer';
@@ -250,10 +251,17 @@ export function useCanvasViewportController({
 
   const setViewport = useCallback((update: Viewport | ((current: Viewport) => Viewport)) => {
     if (animationRef.current) animationRef.current.cancelled = true;
-    setViewportState(update);
+    setViewportState(current => {
+      const next = typeof update === 'function' ? update(current) : update;
+      // All navigation paths (including the minimap) share this boundary.
+      // Never let an invalid transform reach the frame tree or persistence.
+      if (![next.x, next.y, next.zoom].every(Number.isFinite) || next.zoom <= 0) return current;
+      return next.x === current.x && next.y === current.y && next.zoom === current.zoom ? current : next;
+    });
   }, []);
 
   const animateTo = useCallback((target: Viewport, durationMs: number = TAB_FOCUS_ANIMATION_MS) => {
+    if (animationRef.current) animationRef.current.cancelled = true;
     const token = { cancelled: false };
     animationRef.current = token;
     const from = viewportRef.current;
@@ -277,6 +285,13 @@ export function useCanvasViewportController({
       }
     }
     requestAnimationFrame(tick);
+  }, []);
+
+  useEffect(() => {
+    const stop = () => { if (animationRef.current) animationRef.current.cancelled = true; };
+    window.addEventListener('pointerdown', stop, true);
+    window.addEventListener('blur', stop);
+    return () => { stop(); window.removeEventListener('pointerdown', stop, true); window.removeEventListener('blur', stop); };
   }, []);
 
   // Measures the root's own size once (and on every resize); the very first
@@ -500,7 +515,7 @@ export function Canvas({
   const [sectionMenu, setSectionMenu] = useState<{x:number;y:number;frameId?:string}|null>(null);
   const setStageZoom = useStage().setZoom;
   const focusedCanvasDocument = useCanvasDocument();
-  const { viewport, setViewport, viewportSize } = useCanvasViewport();
+  const { viewport, setViewport, viewportSize, animateTo } = useCanvasViewport();
 
   // The guides/distances a frame's own drag last reported (spec docs/
   // superpowers/specs/2026-09-13-grid-snapping-alignment-design.md section
@@ -597,6 +612,8 @@ export function Canvas({
     lastScreenX: number;
     lastScreenY: number;
     inFrame: boolean;
+    captureTarget: Element | null;
+    samples: PanSample[];
     viaSpace: boolean;
   } | null>(null);
   const [panning, setPanning] = useState(false);
@@ -661,9 +678,16 @@ export function Canvas({
     setViewport((current) => panBy(current, dx, dy));
   }
 
-  function endPan(): void {
+  function endPan(coast = false): void {
+    const pan = panRef.current;
     panRef.current = null;
+    if (pan?.captureTarget) releasePointer(pan.captureTarget, pan.pointerId);
     setPanning(false);
+    // Keep the release gesture available while the error boundary exposes diagnostics.
+    const momentum = coast && pan ? panMomentum(pan.samples, performance.now()) : null;
+    if (momentum && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      animateTo({...viewport, x: viewport.x + momentum.x, y: viewport.y + momentum.y}, momentum.duration);
+    } else setViewport(current => current);
   }
 
   // Review fix wave nit 12: Escape cancels an in-progress marquee (a plain
@@ -680,7 +704,7 @@ export function Canvas({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code === 'Space' && !isEditableTarget(event.target)) setSpaceDown(true);
-      if (event.key === 'Escape') cancelMarquee();
+      if (event.key === 'Escape') { endPan(); cancelMarquee(); }
     }
     function onKeyUp(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
@@ -713,8 +737,8 @@ export function Canvas({
   // selection, the same as Escape above.
   useEffect(() => {
     function onBlur() {
-      panRef.current = null;
-      setPanning(false);
+      endPan();
+      setSpaceDown(false);
       cancelMarquee();
     }
     window.addEventListener('blur', onBlur);
@@ -784,12 +808,15 @@ export function Canvas({
     // control of panRef until it ends; a second pointer must never hijack
     // it out from under the first.
     if (panRef.current) return;
+    setViewport(current => current);
     capturePointer(event.currentTarget, event.pointerId);
     panRef.current = {
       pointerId: event.pointerId,
       lastScreenX: event.screenX,
       lastScreenY: event.screenY,
+      samples: [{x:event.screenX,y:event.screenY,time:performance.now()}],
       inFrame: false,
+      captureTarget: event.currentTarget,
       viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
     };
     setPanning(true);
@@ -844,6 +871,8 @@ export function Canvas({
     // is exactly as valid coming from here as from moveFramePan, so the
     // gesture keeps tracking the pointer with no jump at the handoff.
     applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
+    const time = performance.now();
+    pan.samples = [...pan.samples.filter(sample => time - sample.time <= 100), {x:event.screenX,y:event.screenY,time}];
     pan.lastScreenX = event.screenX;
     pan.lastScreenY = event.screenY;
   }
@@ -964,6 +993,7 @@ export function Canvas({
     // One gesture has one owner - see handleRootPointerDown's identical
     // guard above.
     if (panRef.current) return;
+    setViewport(current => current);
     // Captures on the pressed element itself (duck-typed via isElementLike,
     // since it lives in the frame's own realm) rather than some fixed
     // ancestor: keeps pointermove/pointerup arriving at this frame's own
@@ -976,7 +1006,9 @@ export function Canvas({
       pointerId: event.pointerId,
       lastScreenX: event.screenX,
       lastScreenY: event.screenY,
+      samples: [{x:event.screenX,y:event.screenY,time:performance.now()}],
       inFrame: true,
+      captureTarget: isElementLike(event.target) ? event.target : null,
       viaSpace: event.button !== MIDDLE_MOUSE_BUTTON,
     };
     setPanning(true);
@@ -991,12 +1023,14 @@ export function Canvas({
     // frame events for its duration").
     if (!pan || pan.pointerId !== event.pointerId || !pan.inFrame) return;
     applyPanDelta(event.screenX - pan.lastScreenX, event.screenY - pan.lastScreenY);
+    const time = performance.now();
+    pan.samples = [...pan.samples.filter(sample => time - sample.time <= 100), {x:event.screenX,y:event.screenY,time}];
     pan.lastScreenX = event.screenX;
     pan.lastScreenY = event.screenY;
   }
 
   function endFramePan(event: PointerEvent): void {
-    if (panRef.current?.pointerId === event.pointerId) endPan();
+    if (panRef.current?.pointerId === event.pointerId) endPan(event.type === 'pointerup');
   }
 
   // The wheel bridge shared by every frame document, focused or previewed
@@ -1081,6 +1115,7 @@ export function Canvas({
     frameWindow.addEventListener('pointermove', stableMoveFramePan);
     frameWindow.addEventListener('pointerup', stableEndFramePan);
     frameWindow.addEventListener('pointercancel', stableEndFramePan);
+    frameWindow.addEventListener('lostpointercapture', stableEndFramePan);
     // Attached to the document, not the window (also true for every
     // preview's identical wiring in FramePreview) - so a gesture is only
     // ever handled once: `wheel` bubbles from the target up through the
@@ -1092,6 +1127,7 @@ export function Canvas({
       frameWindow.removeEventListener('pointermove', stableMoveFramePan);
       frameWindow.removeEventListener('pointerup', stableEndFramePan);
       frameWindow.removeEventListener('pointercancel', stableEndFramePan);
+      frameWindow.removeEventListener('lostpointercapture', stableEndFramePan);
       frameDocument.removeEventListener('wheel', onWheel);
     };
     // stableFrameWheel is listed below even though it is stable, matching
@@ -1153,9 +1189,10 @@ export function Canvas({
       onPointerDownCapture={event => { if ((event.target as HTMLElement).closest('[data-frame]')) sections?.select(null); }}
       onPointerDown={handleRootPointerDown}
       onPointerMove={handleRootPointerMove}
+      onLostPointerCapture={event => { if (panRef.current?.pointerId === event.pointerId) endPan(); }}
       onPointerUp={(event) => {
         if (panRef.current?.pointerId === event.pointerId) {
-          endPan();
+          endPan(true);
           return;
         }
         endMarquee(event);

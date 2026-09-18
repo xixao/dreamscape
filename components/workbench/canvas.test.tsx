@@ -931,6 +931,39 @@ describe('Canvas', () => {
       return renderCanvas({ ...overrides, extra: <Readout /> });
     }
 
+    it('ends an out-of-bounds pan when capture is lost and accepts a fresh gesture', async () => {
+      renderWithReadout();
+      const root=screen.getByTestId('canvas-root');
+      const frame=screen.getByTestId('frame-s1');
+      fireEvent.keyDown(window,{code:'Space'});
+      fireEvent.pointerDown(root,{pointerId:81,button:0,screenX:100,screenY:100});
+      fireEvent.pointerMove(root,{pointerId:81,screenX:-5000,screenY:5000});
+      const moved=screen.getByTestId('viewport-readout').textContent;
+      fireEvent.lostPointerCapture(root,{pointerId:81});
+      expect(root).not.toHaveClass('cursor-grabbing');
+      fireEvent.pointerMove(root,{pointerId:81,screenX:9000,screenY:9000});
+      expect(screen.getByTestId('viewport-readout').textContent).toBe(moved);
+      expect(screen.getByTestId('frame-s1')).toBe(frame);
+      fireEvent.pointerDown(root,{pointerId:82,button:0,screenX:100,screenY:100});
+      fireEvent.pointerMove(root,{pointerId:82,screenX:140,screenY:120});
+      expect(screen.getByTestId('viewport-readout').textContent).not.toBe(moved);
+      fireEvent.keyDown(window,{key:'Escape'});
+      expect(root).not.toHaveClass('cursor-grabbing');
+    });
+
+    it('rejects invalid shared viewport updates without losing the frame tree', () => {
+      function InvalidNavigation() {
+        const {setViewport}=useCanvasViewport();
+        return <button onClick={()=>setViewport({x:NaN,y:Infinity,zoom:0})}>Invalid pan</button>;
+      }
+      renderCanvas({extra:<><Readout/><InvalidNavigation/></>});
+      const before=screen.getByTestId('viewport-readout').textContent;
+      const frame=screen.getByTestId('frame-s1');
+      fireEvent.click(screen.getByRole('button',{name:'Invalid pan'}));
+      expect(screen.getByTestId('viewport-readout').textContent).toBe(before);
+      expect(screen.getByTestId('frame-s1')).toBe(frame);
+    });
+
     it('plain wheel pans the canvas and prevents the default (page) scroll', async () => {
       renderWithReadout();
       const root = screen.getByTestId('canvas-root');
@@ -1497,6 +1530,30 @@ describe('useCanvasViewportController animateTo', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('coasts after a quick canvas throw and stops immediately on a new grab', () => {
+    const raf = mockRaf();
+    let now = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      renderCanvas();
+      const root = screen.getByTestId('canvas-root');
+      const layer = screen.getByTestId('canvas-layer');
+      fireEvent.keyDown(window, {code:'Space'});
+      fireEvent.pointerDown(root, {button:0,pointerId:71,screenX:0,screenY:0});
+      now = 50;
+      fireEvent.pointerMove(root, {pointerId:71,screenX:50,screenY:0});
+      fireEvent.pointerUp(root, {pointerId:71});
+      const released = layer.style.transform;
+      raf.flush(50); raf.flush(150);
+      expect(layer.style.transform).not.toBe(released);
+      fireEvent.pointerDown(root, {button:0,pointerId:72,screenX:50,screenY:0});
+      const grabbed = layer.style.transform;
+      raf.flush(350); raf.flush(700);
+      expect(layer.style.transform).toBe(grabbed);
+      fireEvent.pointerCancel(root, {pointerId:72});
+    } finally { clock.mockRestore(); }
   });
 
   it('eases from the current viewport to the exact target over the given duration', () => {
