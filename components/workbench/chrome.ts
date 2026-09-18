@@ -23,9 +23,9 @@ export const CHIP_INPUT =
 
 // SF2 §10.4 segmented control: recessed track, raised active item.
 export const SEG_GROUP =
-  'flex w-full gap-0.5 rounded-md p-0.5 bg-black/25 border border-white/5 shadow-[inset_0_1px_2px_rgba(0,0,0,.4)]';
+  'flex w-full gap-0.5 rounded-md p-0.5 bg-(--segment-track) border border-(color:--segment-border) shadow-[var(--segment-shadow)]';
 export const SEG_ITEM =
-  'flex-1 h-auto min-w-0 rounded-sm border-0 bg-transparent px-0 py-[5px] text-[11.5px] font-medium text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground data-[state=on]:bg-white/[.13] data-[state=on]:text-foreground data-[state=on]:shadow-[inset_0_1px_0_rgba(255,255,255,.09),0_1px_2px_rgba(0,0,0,.35)]';
+  'flex-1 h-auto min-w-0 rounded-sm border-0 bg-transparent px-0 py-[5px] text-[11.5px] font-medium text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground data-[state=on]:bg-(--segment-active) data-[state=on]:text-foreground data-[state=on]:shadow-[var(--segment-active-shadow)]';
 
 // SF2 §10.4 grouped section: hairline runs the full panel width.
 export const SECTION = 'border-t border-line-soft -mx-4 px-4 pt-3 mb-3.5';
@@ -63,7 +63,7 @@ export const INFO_BUTTON =
 export const SECONDARY_BUTTON =
   'h-auto bg-muted border border-border rounded-[9px] px-3.5 py-2 text-[13px] font-medium text-foreground hover:bg-accent';
 export const PRIMARY_BUTTON =
-  'h-auto text-[13px] bg-[image:var(--grad)] text-white font-semibold border-0 rounded-[9px] px-[15px] py-[9px] hover:brightness-[1.08] hover:text-white';
+  'h-auto text-[13px] bg-[image:var(--grad)] text-primary-foreground font-semibold border-0 rounded-[9px] px-[15px] py-[9px] hover:brightness-[1.08] hover:text-primary-foreground';
 
 // SF2 §5 .btn.danger: red text at rest, 12% wash on hover. The trailing `!`
 // forces these to win even when a consumer mixes this into a Radix `Slot`

@@ -55,7 +55,7 @@ export function SegmentedControl({ children, className, value, orientation = 'ho
     return () => { observer.disconnect(); };
   }, [value, orientation, continuityKey]);
   return <ToggleGroup {...props} ref={group} type="single" value={value} orientation={orientation} className={cn(SEG_GROUP, 'relative isolate', className)}>
-    <span ref={highlight} aria-hidden="true" data-segment-highlight className="pointer-events-none absolute left-0 top-0 rounded-sm bg-white/[.13] opacity-0 shadow-[inset_0_1px_0_rgba(255,255,255,.09),0_1px_2px_rgba(0,0,0,.35)]" />
+    <span ref={highlight} aria-hidden="true" data-segment-highlight className="pointer-events-none absolute left-0 top-0 rounded-sm bg-(--segment-active) opacity-0 shadow-[var(--segment-active-shadow)]" />
     {children}
   </ToggleGroup>;
 }

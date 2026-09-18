@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import Link from 'next/link';
-import { Download } from 'lucide-react';
+import { Download, Settings } from 'lucide-react';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -75,6 +75,7 @@ export function FilesPage({
             <TooltipContent>Download Dreamscape source</TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        <Link href="/settings" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'ml-auto gap-2')}><Settings className="size-4" aria-hidden />Settings</Link>
       </header>
       <div className="pt-[26px] px-1 pb-10">
         {/* Only rendered with real ancestors to show (spec: a folder's page

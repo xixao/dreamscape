@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { Archivo, Geist, Geist_Mono, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
+import { CursorProvider } from '@/components/settings/cursor-provider';
+import { ThemeProvider } from '@/components/settings/theme-provider';
 
 const archivo = Archivo({ subsets: ['latin'], variable: '--font-archivo' });
 const plexMono = IBM_Plex_Mono({
@@ -23,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${archivo.variable} ${plexMono.variable} ${geist.variable} ${geistMono.variable}`}
     >
-      <body className="font-sans">{children}</body>
+      <body className="font-sans"><ThemeProvider><CursorProvider>{children}</CursorProvider></ThemeProvider></body>
     </html>
   );
 }
