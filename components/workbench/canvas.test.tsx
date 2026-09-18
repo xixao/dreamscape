@@ -1909,3 +1909,19 @@ describe('Canvas marquee keeps one selection model (Shift adds within it only)',
     expect(onDiagramAction).toHaveBeenCalledWith({ type: 'select', selection: [] });
   });
 });
+
+it('marquee that fully encloses a frame selects the frame even when a diagram shape overlaps the box', async () => {
+  saveViewport(window.localStorage, 'frame-over-diagram', 'page1', { x: 0, y: 0, zoom: 1 });
+  const onSetFrameSelection = vi.fn();
+  const onDiagramAction = vi.fn();
+  const diagram: DiagramState = { nodes: [diagramNode({ id: 'inside', x: 150, y: 150 })], edges: [], selection: [], history: { past: [], future: [] } };
+  const frame: Screen = { id: 'enclosed', name: 'Enclosed', layout: emptyLayoutJson(), stageWidth: 400, stageHeight: 400, x: 100, y: 100 };
+  renderCanvas({ screens: [frame], diagram, onSetFrameSelection, onDiagramAction, fileId: 'frame-over-diagram' });
+  await waitFor(() => expect(screen.getAllByTestId('canvas-frame')).toHaveLength(1));
+  const root = screen.getByTestId('canvas-root');
+  fireEvent.pointerDown(root, { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
+  fireEvent.pointerMove(root, { pointerId: 1, clientX: 550, clientY: 550 });
+  fireEvent.pointerUp(root, { pointerId: 1 });
+  expect(onSetFrameSelection).toHaveBeenLastCalledWith(['enclosed']);
+  expect(onDiagramAction).toHaveBeenLastCalledWith({ type: 'select', selection: [] });
+});

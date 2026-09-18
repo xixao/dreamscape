@@ -948,18 +948,13 @@ export function Canvas({
         .map((id) => ({ type: 'edge' as const, id })),
     ];
 
-    // Review finding C: frames and the diagram are one selection model at a
-    // time, even under Shift (the same rule FrameTitle's own Shift+click
-    // handler already enforces unconditionally elsewhere in this file) -
-    // Shift only adds within whichever model THIS marquee actually picked
-    // something up in, never across the two. Picking a diagram element
-    // wins when a box happens to touch both (matching the marquee's own
-    // node/group priority above) and unconditionally clears the frame
-    // selection; picking only frames does the reverse. A box that touches
-    // neither is a plain "empty" marquee: with no Shift it clears both
-    // (matching a plain click), but WITH Shift it is a true no-op - Shift
-    // adding nothing must never still switch away from, or clear, whichever
-    // model is already active.
+    // A fully enclosed frame is the selection target, even when diagram
+    // edges cross the box. Partial diagram overlap must not steal it.
+    if (matchedFrameIds.length > 0) {
+      onSetFrameSelection(marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedFrameIds])) : matchedFrameIds);
+      onDiagramAction({ type: 'select', selection: [] });
+      return;
+    }
     if (matchedDiagramItems.length > 0) {
       const nextDiagramSelection = marquee.shiftKey
         ? [
@@ -971,11 +966,6 @@ export function Canvas({
         : matchedDiagramItems;
       onDiagramAction({ type: 'select', selection: nextDiagramSelection });
       onSetFrameSelection([]);
-    } else if (matchedFrameIds.length > 0) {
-      onSetFrameSelection(
-        marquee.shiftKey ? Array.from(new Set([...selectedFrameIds, ...matchedFrameIds])) : matchedFrameIds,
-      );
-      onDiagramAction({ type: 'select', selection: [] });
     } else if (!marquee.shiftKey) {
       onSetFrameSelection([]);
       onDiagramAction({ type: 'select', selection: [] });
