@@ -902,7 +902,8 @@ export function Workbench({
   }
 
   function duplicateScreen(id: string): void {
-    const index = screens.findIndex((screen) => screen.id === id);
+    const sourceScreens = screensRef.current;
+    const index = sourceScreens.findIndex((screen) => screen.id === id);
     if (index === -1) return;
     // x/y explicitly cleared, not inherited from the plain spread: the copy
     // must not land exactly on top of its source. Placed right after the
@@ -915,9 +916,9 @@ export function Workbench({
     // already the rightmost frame on its page must not have its copy land
     // on whatever frame comes after it. pageId comes along with the plain
     // spread, same page as its source.
-    const copy: Screen = { ...screens[index], id: nanoid(10), name: `${screens[index].name} copy`, x: null, y: null };
+    const copy: Screen = { ...sourceScreens[index], id: nanoid(10), name: `${sourceScreens[index].name} copy`, x: null, y: null };
     lastSavedLayoutsRef.current = { ...lastSavedLayoutsRef.current, [copy.id]: copy.layout };
-    const next = layoutMissingPositions([...screens.slice(0, index + 1), copy, ...screens.slice(index + 1)]);
+    const next = layoutMissingPositions([...sourceScreens.slice(0, index + 1), copy, ...sourceScreens.slice(index + 1)]);
     screensRef.current = next;
     setScreens(next);
     queuePatch({ screens: next });
@@ -1815,6 +1816,11 @@ function WorkbenchShell({
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
     frameSelectionActive: pageFrameSelection.size > 0,
     onClearFrameSelection: () => setSelectedFrameIds(new Set()),
+    onFrameDuplicate: () => {
+      const ids = pageFrameSelection.size ? [...pageFrameSelection] : [currentScreenId];
+      ids.forEach(id => onDuplicateScreen(id));
+      setSelectedFrameIds(new Set());
+    },
     onFrameDelete: () => {
       const id = pageFrameSelection.size ? [...pageFrameSelection][0] : currentScreenId;
       const target = pageScreens.find(screen => screen.id === id);

@@ -53,7 +53,11 @@ export function FrameTitle({
   onDragEnd,
   onShiftSelect,
   onSelect,
+  surface = false,
+  onEnterContents,
 }: {
+  surface?: boolean;
+  onEnterContents?: () => void;
   screen: Screen;
   focused: boolean;
   zoom: number;
@@ -154,6 +158,13 @@ export function FrameTitle({
     onSnapGuides?.(NO_SNAP_RESULT);
     onDragEnd?.();
   }
+
+  if (surface) return <button type="button" aria-label={`Move selected frame ${screen.name}`}
+    className="absolute inset-0 z-10 cursor-grab touch-none bg-transparent active:cursor-grabbing"
+    onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+    onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+    onDoubleClick={event => { event.stopPropagation(); onEnterContents?.(); }}
+  />;
 
   if (renaming) {
     return (

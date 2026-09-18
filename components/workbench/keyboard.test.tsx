@@ -23,6 +23,7 @@ type KeysOptions = {
   frameSelectionActive?: boolean;
   onClearFrameSelection?: () => void;
   onFrameDelete?: () => void;
+  onFrameDuplicate?: () => void;
   onDiagramDelete?: () => void;
   onDiagramDuplicate?: () => void;
   onDiagramSelectAll?: () => void;
@@ -61,6 +62,7 @@ function Keys({
   frameSelectionActive,
   onClearFrameSelection,
   onFrameDelete,
+  onFrameDuplicate,
   onDiagramDelete,
   onDiagramDuplicate,
   onDiagramSelectAll,
@@ -98,6 +100,7 @@ function Keys({
     frameSelectionActive,
     onClearFrameSelection,
   onFrameDelete,
+  onFrameDuplicate,
     onDiagramDelete,
     onDiagramDuplicate,
     onDiagramSelectAll,
@@ -1342,4 +1345,17 @@ it('routes root Delete and Backspace to frame deletion without deleting Craft RO
   fireEvent.keyDown(window,{key:'Backspace'});
   expect(onFrameDelete).toHaveBeenCalledTimes(2);
   expect(editor().query.node(ROOT_NODE).get()).toBeTruthy();
+});
+
+
+it.each([false, true])('duplicates a selected root frame with Cmd/Ctrl+D (title selection: %s)', async titleSelected => {
+  const onFrameDuplicate = vi.fn();
+  const { editor } = mount({onFrameDuplicate, frameSelectionActive: titleSelected});
+  await screen.findByRole('button', {name:'Doomed'});
+  if (!titleSelected) act(()=>editor().actions.selectNode(ROOT_NODE));
+  expect(fireEvent.keyDown(window,{key:'d',metaKey:true})).toBe(false);
+  expect(fireEvent.keyDown(window,{key:'d',ctrlKey:true})).toBe(false);
+  expect(onFrameDuplicate).toHaveBeenCalledTimes(2);
+  fireEvent.keyDown(screen.getByLabelText('typing'),{key:'d',metaKey:true});
+  expect(onFrameDuplicate).toHaveBeenCalledTimes(2);
 });

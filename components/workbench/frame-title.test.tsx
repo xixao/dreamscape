@@ -370,3 +370,17 @@ describe('FrameTitle', () => {
     });
   });
 });
+
+it('moves a selected frame from its body at the current zoom and double-click enters its contents', () => {
+  const onEnterContents = vi.fn();
+  const {onMove,onDragEnd,onRename}=renderTitle({surface:true,zoom:.5,onEnterContents});
+  const body=screen.getByRole('button',{name:'Move selected frame Frame 1'});
+  fireEvent.pointerDown(body,{pointerId:1,button:0,clientX:100,clientY:100});
+  fireEvent.pointerMove(body,{pointerId:1,clientX:140,clientY:120,metaKey:true});
+  fireEvent.pointerUp(body,{pointerId:1});
+  expect(onMove).toHaveBeenLastCalledWith({x:180,y:240},{dx:80,dy:40});
+  expect(onDragEnd).toHaveBeenCalledOnce();
+  fireEvent.doubleClick(body);
+  expect(onEnterContents).toHaveBeenCalledOnce();
+  expect(onRename).not.toHaveBeenCalled();
+});

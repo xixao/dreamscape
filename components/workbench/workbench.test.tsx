@@ -291,6 +291,23 @@ describe('Workbench', () => {
     window.location.hash = '';
   });
 
+  it('duplicates root frames with Cmd+D from the iframe and frame title', async () => {
+    render(<Workbench file={makeFile({screens:[{...SCREEN_1,layout:emptyLayoutJson()},{...SCREEN_2,layout:emptyLayoutJson()}]})} />);
+    await waitFor(()=>expect(frameBody().querySelector('[data-block="LayoutBox"]')).toBeTruthy());
+    const root=frameBody().querySelector('[data-block="LayoutBox"]')!;
+    fireEvent.mouseDown(root);fireEvent.click(root);
+    root.addEventListener('keydown', event=>event.stopPropagation());
+    fireEvent.keyDown(root,{key:'d',metaKey:true});
+    expect(await screen.findByRole('button',{name:'Frame 1 copy'})).toBeInTheDocument();
+    const title=screen.getByRole('button',{name:'Frame 2'});
+    fireEvent.pointerDown(title,{button:0,pointerId:1});
+    fireEvent.pointerUp(title,{pointerId:1});fireEvent.click(title);
+    await waitFor(()=>expect(screen.getByTestId('frame-screen0002')).toHaveAttribute('data-selected','true'));
+    fireEvent.keyDown(title,{key:'d',metaKey:true});
+    expect(await screen.findByRole('button',{name:'Frame 2 copy'})).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-frame]')).toHaveLength(4);
+  });
+
   it('deletes an empty root from its iframe and selects another frame through its title', async () => {
     render(<Workbench file={makeFile({screens:[{...SCREEN_1,layout:emptyLayoutJson()},{...SCREEN_2,layout:emptyLayoutJson()}]})} />);
     await waitFor(()=>expect(frameBody().querySelector('[data-block="LayoutBox"]')).toBeTruthy());

@@ -1309,6 +1309,17 @@ export function Canvas({
                   multiDragStartRef.current = null;
                 }}
               />
+              {selected && !spaceDown && !panning && !comments.commentMode && <FrameTitle
+                surface screen={screen} focused={focused} zoom={viewport.zoom}
+                height={frameRect(screen, measuredHeights).height}
+                onRename={name => onRenameScreen(screen.id, name)}
+                onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
+                otherFrames={otherFrames}
+                onSnapGuides={result => setSnapResult({ frameId: screen.id, ...result })}
+                onDragEnd={() => { multiDragStartRef.current = null; }}
+                onShiftSelect={() => onToggleFrameSelection(screen.id)}
+                onEnterContents={() => { onClearFrameSelection(); onFocusScreen(screen.id); }}
+              />}
               <PersistentScreenSurface screen={screen} focused={focused} viewport={viewport} comments={comments}
                 diagramFrameSelect={diagramFrameSelect} onMeasuredHeight={stableOnMeasuredHeight}
                 initialHeight={measuredHeights.get(screen.id)} onFocusScreen={onFocusScreen}
