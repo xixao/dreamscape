@@ -47,6 +47,7 @@ export function buildPackage(snapshot:Snapshot,ids:string[],start:string) {
       diagram.nodes.push({id:nodeId,kind:'note',x:80+(diagram.nodes.length%3)*380,y:80+Math.floor(diagram.nodes.length/3)*220,width:240,height:120,text:action.action==='back'?'Back to previous screen':action.action==='closeOverlay'?'Close current overlay':`Open dialog · ${destination}`,color:'violet'});
       diagram.edges.push({id:`edge-${i}`,source:{nodeId:e.screenId},target:{nodeId},kind:'curve',arrow:'end',label:`Click ${e.label}`});
     }
+    if (action.intendedCondition?.trim()) behavior.push(`- Intended condition for ${source.name} / ${e.label}: ${action.intendedCondition.trim()} (documentation only; prototype simulates on click).`);
     behavior.push(`- [ ] ${source.name} / ${e.label}: on ${action.trigger}, ${action.action}${destination?` → ${destination}`:''}.`);
   });
   const notes=snapshot.notes.filter(n=>n.screenId?included.has(n.screenId):screens.some(s=>s.pageId===n.pageId));

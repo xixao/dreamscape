@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { act, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Element, Frame, ROOT_NODE } from '@craftjs/core';
 import { Button } from '@/components/blocks/button';
@@ -217,6 +217,23 @@ describe('PrototypePanel', () => {
       expect(screen.queryByRole('combobox', { name: 'Screen' })).toBeNull();
     });
   });
+});
+
+
+it('edits the target toast placement and saves intended conditions separately', async () => {
+ const overlay = createOverlayScreen({type:'toast',id:'toast',name:'Saved',pageId:'p1',x:0,y:0});
+ const update = vi.fn();
+ const { editor } = renderInEditor(<><Frame><Element is={LayoutBox} canvas><Button label="Save" /></Element></Frame><PrototypePanel screens={[...SCREENS,overlay]} currentScreenId="s1" onUpdatePresentation={update} /></>);
+ const id = await selectFirstChild(editor);
+ await chooseOnClick('Open overlay...');
+ fireEvent.change(screen.getByLabelText('Overlay position'), {target:{value:'top-left'}});
+ expect(update).toHaveBeenCalledWith(overlay.id,{...overlay.presentation,position:'top-left'});
+ fireEvent.change(screen.getByLabelText('Overlay edge offset'),{target:{value:'32'}});
+ fireEvent.blur(screen.getByLabelText('Overlay edge offset'));
+ expect(update).toHaveBeenCalledWith(overlay.id,{...overlay.presentation,offset:32});
+ fireEvent.change(screen.getByLabelText('Intended condition'),{target:{value:'After save succeeds'}});
+ fireEvent.blur(screen.getByLabelText('Intended condition'));
+ expect(editor().query.node(id).get().data.custom.interactions[0]).toMatchObject({action:'openOverlay',intendedCondition:'After save succeeds',trigger:'click'});
 });
 
 it('Show all connections toggles the shared prototype setting for the whole frame', async () => {

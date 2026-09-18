@@ -23,6 +23,9 @@ import { breakpointForDevice, type DevicePreset } from '@/lib/stage/device-prese
 // descendants of CanvasFrame) - need a provider scoped above Stage itself.
 // StageProvider already wraps every one of them, so it is the natural home;
 // canvas-frame.tsx's own useCanvasDocument() just reads it from here.
+export const CompactRootContext = createContext(false);
+export const useCompactRoot = () => useContext(CompactRootContext);
+
 export type CanvasDocument = { document: Document; window: Window };
 
 export interface StageContextValue {

@@ -904,6 +904,24 @@ describe('Player overlays', () => {
     expect(toast).not.toHaveClass('top-4');
   });
 
+  it("applies a toast's edge offset on the sides it sits against and sizes the overlay root to its content", async () => {
+    const file = makeOverlayFile();
+    file.screens = file.screens.map((s) =>
+      s.id === 'noticeOverlay' ? { ...s, presentation: { type: 'toast' as const, position: 'bottom-right' as const, offset: 32 } } : s,
+    );
+    const user = await renderOnLogin(file);
+    await user.click(screen.getByRole('button', { name: 'Show notice' }));
+
+    const toast = await screen.findByRole('status', { name: 'Notice' });
+    expect(toast.style.bottom).toBe('32px');
+    expect(toast.style.right).toBe('32px');
+    expect(toast.style.top).toBe('');
+    expect(toast.style.maxWidth).toBe('calc(100vw - 64px)');
+    // An overlay's root frame hugs its content instead of the screen minimum.
+    const root = within(screen.getByTestId('overlay-artboard-noticeOverlay')).getByText('Notice content').closest<HTMLElement>('[data-block="LayoutBox"]');
+    expect(['0px', '0']).toContain(root?.style.minHeight);
+  });
+
   it('a non-dismissible dialog hides its close button and ignores Escape and outside pointer downs, closing only through its own interaction', async () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });

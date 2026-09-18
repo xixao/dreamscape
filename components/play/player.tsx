@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { LABEL } from '@/components/workbench/chrome';
-import { StageProvider } from '@/components/workbench/stage-context';
+import { CompactRootContext, StageProvider } from '@/components/workbench/stage-context';
 import type { FileRecord, OverlayPresentation, OverlayScreen, Screen, ToastPosition } from '@/lib/files/repository';
 import { OVERLAY_MIN_HEIGHT, isOverlay } from '@/lib/files/screens';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
@@ -478,7 +478,7 @@ function OverlayHost({
   };
 
   const artboard = (
-    <StageProvider initialWidth={overlay.stageWidth}>
+    <CompactRootContext.Provider value={true}><StageProvider initialWidth={overlay.stageWidth}>
       <div
         data-testid={`overlay-artboard-${overlay.id}`}
         className={cn('relative w-full bg-background text-foreground', overlay.stageHeight != null && 'overflow-auto')}
@@ -488,7 +488,7 @@ function OverlayHost({
           <Frame data={overlay.layout} />
         </Editor>
       </div>
-    </StageProvider>
+    </StageProvider></CompactRootContext.Provider>
   );
 
   let content: ReactNode;
@@ -535,7 +535,7 @@ function OverlayHost({
             'theme-basic pointer-events-auto fixed z-[60] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-background text-foreground shadow-lg',
             TOAST_POSITION_CLASSES[presentation.position],
           )}
-          style={{ width: overlay.stageWidth }}
+          style={{ width: overlay.stageWidth, maxWidth: `calc(100vw - ${(presentation.offset ?? 16) * 2}px)`, ...(presentation.position.startsWith('top') ? {top:presentation.offset ?? 16} : {bottom:presentation.offset ?? 16}), ...(presentation.position.endsWith('left') ? {left:presentation.offset ?? 16} : presentation.position.endsWith('right') ? {right:presentation.offset ?? 16} : {}) }}
         >
           <Button
             type="button"

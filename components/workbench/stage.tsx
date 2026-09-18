@@ -37,7 +37,7 @@ import {
 } from "./comments/comment-layer";
 import { LayoutGridOverlay, resolveLayoutGrid } from "./layout-grid";
 import type { CanvasDocument } from "./stage-context";
-import { StageProvider, useStage } from './stage-context';
+import { CompactRootContext, StageProvider, useStage } from './stage-context';
 
 const ARTBOARD_SELECTOR = "[data-artboard]";
 
@@ -483,14 +483,20 @@ function StageImpl({
   // (canvas-frame.tsx) just as surely as an unstable child element would;
   // wrapping both in one Fragment and memoizing THAT is what actually
   // fixes it - canvas-preview-memoization.test.tsx catches this specifically.
+  // The compact-root provider (an overlay frame's root does not get the
+  // whole-screen minimum height) lives INSIDE this memo on purpose: a
+  // provider element created fresh on every render around an otherwise
+  // stable child would hand CanvasFrame new `children` on every viewport
+  // tick and defeat its memo just like an unstable child element.
+  const compactRoot = isOverlay(screen);
   const frameChildren = useMemo(
     () => (
-      <>
+      <CompactRootContext.Provider value={compactRoot}>
         <Frame key={screen.id} data={screen.layout} />
         <LayoutGridOverlay grid={resolveLayoutGrid(screen.layoutGrid)} />
-      </>
+      </CompactRootContext.Provider>
     ),
-    [screen.id, screen.layout, screen.layoutGrid],
+    [screen.id, screen.layout, screen.layoutGrid, compactRoot],
   );
 
   return (
@@ -816,9 +822,10 @@ function FramePreviewImpl({
   // so a pure viewport tick never re-runs this function body at all - but a
   // genuine re-render for an unrelated screen change should still hand
   // CanvasFrame ONE stable children value, not a fresh `[a, b]` array.
+  const compactRoot = isOverlay(screen);
   const previewChildren = useMemo(
     () => (
-      <>
+      <CompactRootContext.Provider value={compactRoot}>
         {/* Every block resolves its responsive breakpoint through useStage(),
             and the nearest provider above a preview used to be the
             workbench-level one, whose width is the FOCUSED frame's - so a
@@ -841,9 +848,9 @@ function FramePreviewImpl({
           </Editor>
         </StageProvider>
         <LayoutGridOverlay grid={resolveLayoutGrid(screen.layoutGrid)} />
-      </>
+      </CompactRootContext.Provider>
     ),
-    [screen.stageWidth, screen.stageHeight, screen.deviceName, screen.layout, screen.layoutGrid],
+    [screen.stageWidth, screen.stageHeight, screen.deviceName, screen.layout, screen.layoutGrid, compactRoot],
   );
 
   return (

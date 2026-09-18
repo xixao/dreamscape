@@ -166,7 +166,7 @@ export type OverlayPresentationType = (typeof PRESENTATION_TYPES)[number];
 export type OverlayPresentation =
   | { type: 'dialog'; dismissible: boolean }
   | { type: 'sheet'; side: OverlaySide; dismissible: boolean }
-  | { type: 'toast'; position: ToastPosition };
+  | { type: 'toast'; position: ToastPosition; offset?: number };
 
 export const SCREEN_KINDS = ['screen', 'overlay'] as const;
 export type ScreenKind = (typeof SCREEN_KINDS)[number];
@@ -367,7 +367,7 @@ export function validatePages(input: PageInput[]): ValidatePagesResult {
 const PRESENTATION_KEYS: Record<OverlayPresentationType, readonly string[]> = {
   dialog: ['type', 'dismissible'],
   sheet: ['type', 'side', 'dismissible'],
-  toast: ['type', 'position'],
+  toast: ['type', 'position', 'offset'],
 };
 
 function isPresentationType(type: unknown): type is OverlayPresentationType {
@@ -426,7 +426,8 @@ export function validatePresentation(input: unknown): ValidatePresentationResult
       if (!(TOAST_POSITIONS as readonly unknown[]).includes(position)) {
         return { ok: false, reason: `presentation position must be one of ${TOAST_POSITIONS.join(', ')}` };
       }
-      return { ok: true, presentation: { type, position: position as ToastPosition } };
+      if (raw.offset !== undefined && (typeof raw.offset !== 'number' || !Number.isFinite(raw.offset) || raw.offset < 0 || raw.offset > 128)) return { ok: false, reason: 'toast offset must be between 0 and 128' };
+      return { ok: true, presentation: { type, position: position as ToastPosition, ...(raw.offset !== undefined ? {offset:raw.offset as number} : {}) } };
     }
   }
 }

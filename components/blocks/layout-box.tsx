@@ -15,7 +15,7 @@ import { getInteraction, interactionHandler } from '@/lib/interactions';
 import { ARTBOARD_MIN_HEIGHT } from '@/lib/stage';
 import { cn } from '@/lib/utils';
 import { usePlay } from '@/components/play/play-context';
-import { useStage } from '@/components/workbench/stage-context';
+import { useCompactRoot, useStage } from '@/components/workbench/stage-context';
 import { DropZone, StageEmptyState } from './drop-zone';
 import { GROW_FIELD, type BlockSchema } from './schema';
 
@@ -23,6 +23,7 @@ export type LayoutBoxBlockProps = Partial<LayoutBoxProps> & { children?: ReactNo
 
 export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...props }) => {
   const { breakpoint } = useStage();
+  const compactRoot = useCompactRoot();
   const play = usePlay();
   const {
     connectors: { connect, drag },
@@ -62,7 +63,7 @@ export const LayoutBox: UserComponent<LayoutBoxBlockProps> = ({ children, ...pro
       }}
       data-block="LayoutBox"
       className={cn(layoutBoxClasses(merged, breakpoint), !isRoot && blockClasses(merged))}
-      style={{ ...(isRoot ? { minHeight: ARTBOARD_MIN_HEIGHT } : {}), gap: merged.gapPx, padding: merged.paddingPx, ...designStyle(merged), '--component-node-min-height': merged.minHeightPx !== undefined ? `${merged.minHeightPx}px` : undefined } as CSSProperties}
+      style={{ ...(isRoot ? { minHeight: compactRoot ? 0 : ARTBOARD_MIN_HEIGHT } : {}), gap: merged.gapPx, padding: merged.paddingPx, ...designStyle(merged), '--component-node-min-height': merged.minHeightPx !== undefined ? `${merged.minHeightPx}px` : undefined } as CSSProperties}
       onClick={onClick}
     >
       {childCount === 0 ? (isRoot ? <StageEmptyState /> : <DropZone />) : children}

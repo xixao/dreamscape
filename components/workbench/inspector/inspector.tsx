@@ -687,7 +687,7 @@ export function Inspector({
         ) : (
           <div className="flex flex-col gap-3.5 overflow-y-auto p-4">
             {panelMode === 'prototype' ? (
-              <PrototypePanel screens={screens} currentScreenId={currentScreenId} pages={pages} />
+              <PrototypePanel screens={screens} currentScreenId={currentScreenId} pages={pages} onUpdatePresentation={onUpdatePresentation} />
             ) : frameAlignmentContext ? (
               <AlignmentFields context={frameAlignmentContext} />
             ) : diagramAlignment ? (

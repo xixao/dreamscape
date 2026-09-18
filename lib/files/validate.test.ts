@@ -3,18 +3,19 @@ import {
   PRESENTATION_TYPES,
   canonicalLayout,
   dropDanglingDiagramEdges,
+  hasRootNode,
   normalizeLayout,
-  validateDiagram,
-  validateDiagramReferences,
-  validateLayout,
-  validatePages,
-  validateScreens,
   type DiagramInput,
   type Page,
   type PageInput,
   type Screen,
   type ScreenInput,
-  hasRootNode,
+  validateDiagram,
+  validateDiagramReferences,
+  validateLayout,
+  validatePages,
+  validatePresentation,
+  validateScreens,
 } from './validate';
 
 describe('canonicalLayout', () => {
@@ -994,5 +995,33 @@ describe('dropDanglingDiagramEdges', () => {
     const plain = page();
     const result = dropDanglingDiagramEdges([plain], [screen()]);
     expect(result[0]).toBe(plain);
+  });
+});
+
+describe('validatePresentation toast offset', () => {
+  it('keeps a toast edge offset between 0 and 128 px and leaves it out when absent', () => {
+    expect(validatePresentation({ type: 'toast', position: 'top-left', offset: 32 })).toEqual({
+      ok: true,
+      presentation: { type: 'toast', position: 'top-left', offset: 32 },
+    });
+    expect(validatePresentation({ type: 'toast', position: 'bottom-right', offset: 0 })).toEqual({
+      ok: true,
+      presentation: { type: 'toast', position: 'bottom-right', offset: 0 },
+    });
+    expect(validatePresentation({ type: 'toast', position: 'top-left' })).toEqual({
+      ok: true,
+      presentation: { type: 'toast', position: 'top-left' },
+    });
+  });
+
+  it('rejects an offset outside 0-128 or that is not a finite number', () => {
+    for (const offset of [-1, 129, Number.NaN, Number.POSITIVE_INFINITY, '16', null]) {
+      expect(validatePresentation({ type: 'toast', position: 'top-left', offset }), String(offset)).toMatchObject({ ok: false });
+    }
+  });
+
+  it('never accepts an offset on a dialog or sheet', () => {
+    expect(validatePresentation({ type: 'dialog', dismissible: true, offset: 16 })).toMatchObject({ ok: false });
+    expect(validatePresentation({ type: 'sheet', side: 'right', dismissible: true, offset: 16 })).toMatchObject({ ok: false });
   });
 });

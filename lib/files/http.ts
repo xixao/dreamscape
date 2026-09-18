@@ -105,6 +105,7 @@ const overlayPresentationField = z.strictObject({
   dismissible: z.boolean().optional(),
   side: z.enum(OVERLAY_SIDES).optional(),
   position: z.enum(TOAST_POSITIONS).optional(),
+  offset: z.number().min(0).max(128).optional(),
 });
 
 // Shape only: id/name/layout/stageWidth types, nothing about content. The

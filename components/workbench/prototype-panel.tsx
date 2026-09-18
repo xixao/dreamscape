@@ -19,8 +19,9 @@ import {
   getInteraction,
   setInteraction,
 } from '@/lib/interactions';
-import type { Page, Screen } from '@/lib/files/repository';
+import type { OverlayPresentation, Page, Screen } from '@/lib/files/repository';
 import { isOverlay, overlayBadgeLabel } from '@/lib/files/screens';
+import { TOAST_POSITIONS, OVERLAY_SIDES } from '@/lib/files/validate';
 import { cn } from '@/lib/utils';
 import { CHIP, DANGER_GHOST, EMPTY, LABEL, MENU_HINT, SECTION, SECTION_TITLE } from './chrome';
 import { usePrototypeContext } from './prototype-context';
@@ -52,6 +53,7 @@ export function PrototypePanel({
   screens,
   currentScreenId,
   pages = [],
+  onUpdatePresentation,
 }: {
   screens: Screen[];
   currentScreenId: string;
@@ -61,6 +63,7 @@ export function PrototypePanel({
   // (or a test that does not care) keeps rendering exactly as before, just
   // with an ungrouped select if it happens to also have overlay frames.
   pages?: Page[];
+  onUpdatePresentation?: (id: string, presentation: OverlayPresentation) => void;
 }) {
   const {showAllConnections,setShowAllConnections} = usePrototypeContext();
   const connectionsToggle = <label className="mb-3 flex items-center gap-2 text-xs"><input type="checkbox" checked={!!showAllConnections} onChange={e=>setShowAllConnections?.(e.target.checked)} />Show all connections in this frame</label>;
@@ -102,6 +105,9 @@ export function PrototypePanel({
           .map((page) => ({ page, overlays: overlayScreens.filter((overlay) => overlay.pageId === page.id) }))
           .filter((group) => group.overlays.length > 0)
       : null;
+  const targetOverlay = interaction?.action === 'openOverlay' ? overlayScreens.find(s => s.id === interaction.targetScreenId) : undefined;
+  const presentation = targetOverlay?.presentation;
+  const updatePresentation = (next: OverlayPresentation) => { if (targetOverlay) onUpdatePresentation?.(targetOverlay.id, next); };
   const onClickValue: OnClickValue = interaction?.action ?? 'none';
 
   function change(next: Interaction | null): void {
@@ -225,6 +231,19 @@ export function PrototypePanel({
             </Select>
           </div>
         )}
+
+        {presentation && <div className="flex flex-col gap-3 border-t border-border pt-3">
+          <h4 className={SECTION_TITLE}>Placement</h4>
+          <p className="text-xs text-muted-foreground">{targetOverlay?.name} · {presentation.type}. Applies everywhere this overlay is opened. Canvas position is only for organizing.</p>
+          {presentation.type === 'toast' && <>
+            <label className={LABEL}>Position<select aria-label="Overlay position" disabled={!onUpdatePresentation} className={`${SELECT_TRIGGER_CLASS} mt-1 rounded border p-2`} value={presentation.position} onChange={e => updatePresentation({...presentation, position:e.target.value as typeof presentation.position})}>{TOAST_POSITIONS.map(position => <option key={position} value={position}>{position.replace('-', ' ')}</option>)}</select></label>
+            <label className={LABEL}>Edge offset (px)<input aria-label="Overlay edge offset" type="number" min={0} max={128} className={`${SELECT_TRIGGER_CLASS} mt-1 rounded border p-2`} defaultValue={presentation.offset ?? 16} key={`${targetOverlay?.id}-${presentation.offset}`} disabled={!onUpdatePresentation} onBlur={e => { const value=Number(e.target.value); if (Number.isFinite(value)) updatePresentation({...presentation,offset:Math.max(0,Math.min(128,value))}); }} /></label>
+          </>}
+          {presentation.type === 'sheet' && <label className={LABEL}>Screen edge<select aria-label="Overlay edge" disabled={!onUpdatePresentation} className={`${SELECT_TRIGGER_CLASS} mt-1 rounded border p-2`} value={presentation.side} onChange={e => updatePresentation({...presentation, side:e.target.value as typeof presentation.side})}>{OVERLAY_SIDES.map(side => <option key={side} value={side}>{side}</option>)}</select></label>}
+          {presentation.type === 'dialog' && <p className="text-sm">Centered over the screen with a backdrop.</p>}
+          {presentation.type !== 'toast' && <label className="flex items-center gap-2 text-sm"><input aria-label="Dismiss overlay outside or with Escape" type="checkbox" disabled={!onUpdatePresentation} checked={presentation.dismissible} onChange={e => updatePresentation({...presentation,dismissible:e.target.checked})} />Dismiss outside or with Escape</label>}
+        </div>}
+        {interaction && <label className="flex flex-col gap-2"><span className={LABEL}>Intended condition</span><textarea key={`${id}-${interaction.id}`} aria-label="Intended condition" placeholder="For example: After the application saves successfully" defaultValue={interaction.intendedCondition ?? ''} className="min-h-20 rounded border border-border bg-muted p-2 text-sm" onBlur={e => { if (e.target.value !== (interaction.intendedCondition ?? '')) change({...interaction,intendedCondition:e.target.value}); }} /><span className="text-xs text-muted-foreground">Implementation note for handoff. Playback runs this action on click; it does not evaluate this condition.</span></label>}
 
         {interaction && (
           <Button
