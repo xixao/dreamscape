@@ -108,6 +108,7 @@ export const Text: UserComponent<Partial<TextBlockProps>> = (props) => {
         elementRef.current = element;
         if (element) connect(drag(element));
       }}
+      data-writer-prop="text"
       data-block="Text"
       contentEditable={editing}
       suppressContentEditableWarning

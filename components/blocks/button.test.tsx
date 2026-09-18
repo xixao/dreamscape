@@ -19,6 +19,17 @@ describe('Button block', () => {
     expect(button).not.toHaveAttribute('aria-disabled');
   });
 
+  it('falls back to the icon name for an icon-only button until an accessible label is authored', async () => {
+    renderTree(
+      <Element is={LayoutBox} canvas>
+        <Button label="" icon="plus" iconOnly />
+        <Button label="" icon="plus" iconOnly accessibleLabel="Add a file" />
+      </Element>,
+    );
+    expect(await screen.findByRole('button', { name: 'plus' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add a file' })).toBeInTheDocument();
+  });
+
   it('uses the defaults when no props are given', async () => {
     renderTree(
       <Element is={LayoutBox} canvas>

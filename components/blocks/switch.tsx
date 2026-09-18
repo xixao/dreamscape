@@ -1,3 +1,4 @@
+import { useId as useAccessibilityId } from 'react';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { useState } from 'react';
 import { Switch as UiSwitch } from '@/components/ui/switch';
@@ -10,11 +11,13 @@ import { GROW_FIELD, type BlockSchema } from './schema';
 
 export interface SwitchBlockProps extends GrowProps {
   label: string;
+  accessibleLabel?: string;
   checked: boolean;
   disabled: boolean;
 }
 
 export const SWITCH_DEFAULTS: SwitchBlockProps = {
+  accessibleLabel: '',
   label: 'Enable notifications',
   checked: false,
   disabled: false,
@@ -24,6 +27,7 @@ export const SWITCH_DEFAULTS: SwitchBlockProps = {
 export const Switch: UserComponent<Partial<SwitchBlockProps>> = (props) => {
   const merged: SwitchBlockProps = { ...SWITCH_DEFAULTS, ...props };
   const play = usePlay();
+  const accessibilityId = useAccessibilityId();
   const {
     connectors: { connect, drag },
     custom,
@@ -41,8 +45,9 @@ export const Switch: UserComponent<Partial<SwitchBlockProps>> = (props) => {
       className={cn('flex items-center justify-between gap-3', blockClasses(merged))}
       onClick={onClick}
     >
-      <Label>{merged.label}</Label>
+      <Label data-writer-prop="label" htmlFor={accessibilityId}>{merged.label}</Label>
       <UiSwitch
+        id={accessibilityId} aria-label={merged.label ? undefined : merged.accessibleLabel || undefined}
         checked={isPlay ? checked : merged.checked}
         onCheckedChange={isPlay ? setChecked : () => {}}
         disabled={isPlay ? merged.disabled : undefined}
@@ -62,6 +67,7 @@ Switch.craft = {
 export const switchSchema: BlockSchema = {
   type: 'Switch',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     { prop: 'checked', label: 'Checked', kind: 'boolean', section: 'Style' },
     { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'Style' },

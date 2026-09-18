@@ -75,8 +75,8 @@ export const Card: UserComponent<Partial<CardBlockProps>> = (props) => {
     >
       {showHeader && (
         <CardHeader>
-          {merged.title !== '' && <CardTitle>{merged.title}</CardTitle>}
-          {merged.description !== '' && <CardDescription>{merged.description}</CardDescription>}
+          {merged.title !== '' && <CardTitle data-writer-prop="title">{merged.title}</CardTitle>}
+          {merged.description !== '' && <CardDescription data-writer-prop="description">{merged.description}</CardDescription>}
         </CardHeader>
       )}
       <Element id="content" is={CardContent} canvas />

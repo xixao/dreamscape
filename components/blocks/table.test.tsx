@@ -100,3 +100,10 @@ describe('Table record filters', () => {
     expect(screen.getByRole('textbox', { name: 'Search table' })).toHaveAttribute('readonly');
   });
 });
+
+it.each(['empty','noResults','loading','error'] as const)('renders authored %s state instead of sample rows', async state => {
+  renderTree(<Element is={LayoutBox} canvas><Table displayState={state} emptyTitle="No applications" noResultsText="Try another search" loadingText="Fetching applications" errorTitle="Connection failed" recordData="Private example | In review" /></Element>);
+  const expected = {empty:'No applications',noResults:'Try another search',loading:'Fetching applications',error:'Connection failed'}[state];
+  expect(await screen.findByText(expected)).toBeInTheDocument();
+  expect(screen.queryByText('Private example')).not.toBeInTheDocument();
+});

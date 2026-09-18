@@ -1,3 +1,4 @@
+import { useId as useAccessibilityId } from 'react';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { useState } from 'react';
 import { RadioGroup as UiRadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -11,12 +12,14 @@ import { GROW_FIELD, type BlockSchema } from './schema';
 
 export interface RadioGroupBlockProps extends GrowProps {
   label: string;
+  accessibleLabel?: string;
   options: string;
   selected: 1 | 2 | 3 | 4;
   disabled: boolean;
 }
 
 export const RADIO_GROUP_DEFAULTS: RadioGroupBlockProps = {
+  accessibleLabel: '',
   label: '',
   options: 'Option A, Option B',
   selected: 1,
@@ -38,6 +41,7 @@ function selectedValue(options: readonly string[], selected: number): string {
 export const RadioGroup: UserComponent<Partial<RadioGroupBlockProps>> = (props) => {
   const merged: RadioGroupBlockProps = { ...RADIO_GROUP_DEFAULTS, ...props };
   const play = usePlay();
+  const accessibilityId = useAccessibilityId();
   const {
     connectors: { connect, drag },
     custom,
@@ -57,8 +61,10 @@ export const RadioGroup: UserComponent<Partial<RadioGroupBlockProps>> = (props) 
       className={cn('flex flex-col gap-3', blockClasses(merged))}
       onClick={onClick}
     >
-      {merged.label !== '' && <Label>{merged.label}</Label>}
+      {merged.label !== '' && <Label data-writer-prop="label" id={accessibilityId}>{merged.label}</Label>}
       <UiRadioGroup
+        aria-labelledby={merged.label ? accessibilityId : undefined}
+        aria-label={merged.label ? undefined : merged.accessibleLabel || undefined}
         value={isPlay ? value : defaultValue}
         onValueChange={isPlay ? setValue : () => {}}
         disabled={isPlay ? merged.disabled : undefined}
@@ -67,7 +73,7 @@ export const RadioGroup: UserComponent<Partial<RadioGroupBlockProps>> = (props) 
       >
         {options.map((option) => (
           <div key={option} className="flex items-center gap-2">
-            <RadioGroupItem value={option} tabIndex={isPlay ? undefined : -1} />
+            <RadioGroupItem aria-label={option} value={option} tabIndex={isPlay ? undefined : -1} />
             <Label>{option}</Label>
           </div>
         ))}
@@ -84,6 +90,7 @@ RadioGroup.craft = {
 export const radioGroupSchema: BlockSchema = {
   type: 'RadioGroup',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     { prop: 'options', label: 'Options', kind: 'text', section: 'Content' },
     {

@@ -75,3 +75,10 @@ describe('Input block in play mode', () => {
     expect(await screen.findByPlaceholderText('Off')).toBeDisabled();
   });
 });
+
+it('connects authored validation text to the invalid input', async () => {
+ renderTree(<Element is={LayoutBox} canvas><Input label="Email" invalid errorText="Enter a valid email." /></Element>);
+ const input = await screen.findByLabelText('Email');
+ expect(input).toHaveAttribute('aria-invalid','true');
+ expect(input).toHaveAccessibleDescription('Enter a valid email.');
+});

@@ -10,10 +10,12 @@ export type AvatarSize = 'sm' | 'md' | 'lg';
 
 export interface AvatarBlockProps extends GrowProps {
   initials: string;
+  accessibleLabel?: string;
   size: AvatarSize;
 }
 
 export const AVATAR_DEFAULTS: AvatarBlockProps = {
+  accessibleLabel: '',
   initials: 'AB',
   size: 'md',
   grow: false,
@@ -42,12 +44,14 @@ export const Avatar: UserComponent<Partial<AvatarBlockProps>> = (props) => {
       ref={(element) => {
         if (element) connect(drag(element));
       }}
+      role={merged.accessibleLabel ? "img" : undefined}
+      aria-label={merged.accessibleLabel || undefined}
       data-block="Avatar"
       size={UI_SIZE[merged.size]}
       className={cn(blockClasses(merged))}
       onClick={onClick}
     >
-      <AvatarFallback>{merged.initials}</AvatarFallback>
+      <AvatarFallback data-writer-prop="initials">{merged.initials}</AvatarFallback>
     </UiAvatar>
   );
 };
@@ -60,6 +64,7 @@ Avatar.craft = {
 export const avatarSchema: BlockSchema = {
   type: 'Avatar',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility' },
     { prop: 'initials', label: 'Initials', kind: 'text', section: 'Content' },
     {
       prop: 'size',

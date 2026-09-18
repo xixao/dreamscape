@@ -86,6 +86,7 @@ import { selectedIdFrom, useSelectedNode, useZoneRedirect } from './selection';
 import { ShortcutsOverlay } from './shortcuts-overlay';
 import { StageErrorBoundary } from './stage-error-boundary';
 import { StageProvider, useStage } from './stage-context';
+import { WriterWorkspace } from './writer/workspace';
 import { Topbar, presentHrefFor } from './topbar';
 
 // Screen-px padding Shift+2 (zoom to selection/focused frame) leaves around
@@ -278,6 +279,8 @@ export function Workbench({
   // below - purely a hint for that notice, never re-validated here.
   invalidScreenIds?: string[];
 }) {
+  const [writerOpen, setWriterOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'writer');
+  useEffect(() => { const open = () => { const url = new URL(window.location.href); url.searchParams.set('mode', 'writer'); window.history.replaceState(null, '', url); setWriterOpen(true); }; window.addEventListener('dreamscape:writer', open); return () => window.removeEventListener('dreamscape:writer', open); }, []);
   const [components, setComponents] = useState<ComponentDefinition[]>(file.components ?? []);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [appearance, setAppearance] = useState<'light' | 'dark' | 'internal-light' | 'internal-dark'>(file.appearance ?? 'light');
@@ -1080,6 +1083,13 @@ export function Workbench({
     if (focused) editorActionsRef.current?.deserialize(focused.layout);
     queuePatch({ components: nextComponents, screens: nextScreens });
   }
+
+  if (writerOpen) return <WriterWorkspace fileName={fileName} pages={pages} screens={screens} screenId={currentScreenId} pageId={currentPageId} appearance={appearance} saveState={saveState}
+    onSelectScreen={switchScreen} onSelectPage={switchPage} onRetry={() => { saver.queue({ screens: screensRef.current }); void saver.flush(); }}
+    onChange={(id, layout) => {
+      const next = screensRef.current.map(screen => screen.id === id ? { ...screen, layout } : screen);
+      screensRef.current = next; lastSavedLayoutsRef.current[id] = layout; setScreens(next); setSaveState('saving'); queuePatch({ screens: next });
+    }} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('mode'); window.history.replaceState(null, '', url); editorActionsRef.current = null; baselinedScreenIdsRef.current.clear(); setWriterOpen(false); }} />;
 
   return (
     <AppearanceContext.Provider value={{ appearance, setAppearance: next => { setAppearance(next); queuePatch({ appearance: next }); }, setFrameAppearance: (id, value) => recordInspectorScreens([{ id, patch: { appearance: value } }]) }}>

@@ -1,3 +1,4 @@
+import { useId as useAccessibilityId } from 'react';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { useState } from 'react';
 import { Slider as UiSlider } from '@/components/ui/slider';
@@ -11,11 +12,13 @@ import { clampPercent } from '@/lib/lists';
 
 export interface SliderBlockProps extends GrowProps {
   label: string;
+  accessibleLabel?: string;
   value: string;
   disabled: boolean;
 }
 
 export const SLIDER_DEFAULTS: SliderBlockProps = {
+  accessibleLabel: '',
   label: '',
   value: '50',
   disabled: false,
@@ -34,6 +37,7 @@ export { clampPercent };
 export const Slider: UserComponent<Partial<SliderBlockProps>> = (props) => {
   const merged: SliderBlockProps = { ...SLIDER_DEFAULTS, ...props };
   const play = usePlay();
+  const accessibilityId = useAccessibilityId();
   const {
     connectors: { connect, drag },
     custom,
@@ -52,8 +56,9 @@ export const Slider: UserComponent<Partial<SliderBlockProps>> = (props) => {
       className={cn('flex flex-col gap-3', blockClasses(merged))}
       onClick={onClick}
     >
-      {merged.label !== '' && <Label>{merged.label}</Label>}
+      {merged.label !== '' && <Label data-writer-prop="label" id={accessibilityId}>{merged.label}</Label>}
       <UiSlider
+        aria-label={merged.label || merged.accessibleLabel || undefined}
         value={[isPlay ? value : defaultValue]}
         onValueChange={isPlay ? (next) => setValue(next[0]) : () => {}}
         disabled={isPlay ? merged.disabled : undefined}
@@ -73,6 +78,7 @@ Slider.craft = {
 export const sliderSchema: BlockSchema = {
   type: 'Slider',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     { prop: 'value', label: 'Value', kind: 'text', section: 'Content' },
     { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'Style' },

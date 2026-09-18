@@ -40,8 +40,8 @@ export const Alert: UserComponent<Partial<AlertBlockProps>> = (props) => {
       className={cn(blockClasses(merged))}
       onClick={onClick}
     >
-      <AlertTitle>{merged.title}</AlertTitle>
-      {merged.description !== '' && <AlertDescription>{merged.description}</AlertDescription>}
+      <AlertTitle data-writer-prop="title">{merged.title}</AlertTitle>
+      {merged.description !== '' && <AlertDescription data-writer-prop="description">{merged.description}</AlertDescription>}
     </UiAlert>
   );
 };

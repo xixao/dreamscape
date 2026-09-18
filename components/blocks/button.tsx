@@ -50,7 +50,10 @@ export const Button: UserComponent<Partial<ButtonBlockProps>> = (props) => {
       variant={merged.variant}
       size={merged.iconOnly && Icon ? (merged.size === 'sm' ? 'icon-sm' : merged.size === 'lg' ? 'icon-lg' : 'icon') : merged.size}
       style={{ ...designStyle(merged), ...(merged.circular ? { borderRadius: '50%' } : {}) }}
-      aria-label={merged.accessibleLabel || (merged.iconOnly ? merged.label || merged.icon || 'Button' : undefined)}
+      // An icon-only button with no authored label still exposes the icon's
+      // name so it is never nameless in Play; Writer's missing-text check
+      // reads the authored props, not this fallback, so it keeps flagging it.
+      aria-label={merged.accessibleLabel || (merged.iconOnly ? merged.label || merged.icon || undefined : undefined)}
       aria-busy={merged.loading || undefined}
       disabled={isPlay ? merged.disabled || merged.loading : undefined}
       aria-disabled={merged.disabled || undefined}
@@ -58,7 +61,7 @@ export const Button: UserComponent<Partial<ButtonBlockProps>> = (props) => {
       onClick={onClick}
     >
       {Icon && merged.iconPosition !== 'end' && <Icon aria-hidden className={merged.loading ? 'animate-spin' : undefined} />}
-      {(!merged.iconOnly || !Icon) && merged.label}
+      {(!merged.iconOnly || !Icon) && <span data-writer-prop="label">{merged.label}</span>}
       {Icon && merged.iconPosition === 'end' && <Icon aria-hidden className={merged.loading ? 'animate-spin' : undefined} />}
     </UiButton>
   );
@@ -78,6 +81,7 @@ export const buttonSchema: BlockSchema = {
     { section: 'Style', title: 'Appearance' },
     { section: 'State', title: 'State' },
     { section: 'Layout', title: 'Layout' },
+    { section: 'Accessibility', title: 'Accessibility' },
     { section: 'Advanced', title: 'Advanced', collapsed: true },
   ],
   fields: [
@@ -91,7 +95,6 @@ export const buttonSchema: BlockSchema = {
     { prop: 'iconOnly', label: 'Icon only', kind: 'boolean', section: 'Content', showWhen: hasIcon },
     { prop: 'iconPosition', label: 'Icon position', kind: 'select', section: 'Content', showWhen: p => hasIcon(p) && !p.iconOnly,
       options: [{ value: 'start', label: 'Leading' }, { value: 'end', label: 'Trailing' }] },
-    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Content', showWhen: p => hasIcon(p) && Boolean(p.iconOnly) },
     { prop: 'variant', label: 'Variant', kind: 'select', section: 'Style', row: 'button-appearance', options: [
       { value: 'default', label: 'Default' }, { value: 'destructive', label: 'Destructive' },
       { value: 'outline', label: 'Outline' }, { value: 'secondary', label: 'Secondary' },
@@ -109,6 +112,6 @@ export const buttonSchema: BlockSchema = {
       row: /Mode$/.test(field.prop) ? 'button-sizing' : /^(min|max)Width/.test(field.prop) ? 'width-limits' : /^(min|max)Height/.test(field.prop) ? 'height-limits' : undefined,
     })),
     GROW_FIELD,
-    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Advanced', showWhen: p => !p.iconOnly || !hasIcon(p) },
+    { prop: 'accessibleLabel', label: 'Accessible label', kind: 'text', section: 'Accessibility' },
   ],
 };

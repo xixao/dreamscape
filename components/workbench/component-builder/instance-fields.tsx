@@ -20,7 +20,7 @@ export function InstanceFields({ id, props }: { id: string; props: Record<string
       <InstanceSizing props={props} onChange={patch => actions.setProp(id, p => { Object.assign(p, patch); })} />
     </section>
     {Object.entries(tree).map(([nodeId, node]) => {
-      const fields = schemaFor(node.type.resolvedName)?.fields.filter(field => field.section === 'Content' && (!field.showWhen || field.showWhen({ ...node.props, ...overrides[nodeId] }))) ?? [];
+      const fields = schemaFor(node.type.resolvedName)?.fields.filter(field => (field.section === 'Content' || field.section === 'Accessibility') && (!field.showWhen || field.showWhen({ ...node.props, ...overrides[nodeId] }))) ?? [];
       if (!fields.length) return null;
       return <section key={nodeId} className="flex flex-col gap-3 border-t border-line-soft pt-3"><h4 className="text-xs text-muted-foreground">{node.displayName}</h4>
         {fields.map(field => <Field key={field.prop} field={{ ...field, responsive: false }} breakpoint="desktop"

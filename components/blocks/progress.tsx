@@ -11,9 +11,11 @@ import { clampPercent } from '@/lib/lists';
 export interface ProgressBlockProps extends GrowProps {
   value: string;
   label: string;
+  accessibleLabel?: string;
 }
 
 export const PROGRESS_DEFAULTS: ProgressBlockProps = {
+  accessibleLabel: '',
   value: '50',
   label: '',
   grow: false,
@@ -39,8 +41,8 @@ export const Progress: UserComponent<Partial<ProgressBlockProps>> = (props) => {
       className={cn('flex w-full flex-col gap-2', blockClasses(merged))}
       onClick={onClick}
     >
-      {merged.label !== '' && <Label>{merged.label}</Label>}
-      <UiProgress value={clampPercent(merged.value)} />
+      {merged.label !== '' && <Label data-writer-prop="label">{merged.label}</Label>}
+      <UiProgress aria-label={merged.label || merged.accessibleLabel || undefined} value={clampPercent(merged.value)} />
     </div>
   );
 };
@@ -53,6 +55,7 @@ Progress.craft = {
 export const progressSchema: BlockSchema = {
   type: 'Progress',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     { prop: 'value', label: 'Value', kind: 'text', section: 'Content' },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     GROW_FIELD,

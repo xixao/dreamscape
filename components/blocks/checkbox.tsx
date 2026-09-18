@@ -1,3 +1,4 @@
+import { useId as useAccessibilityId } from 'react';
 import { useNode, type UserComponent } from '@craftjs/core';
 import { useState } from 'react';
 import { Checkbox as UiCheckbox } from '@/components/ui/checkbox';
@@ -10,11 +11,13 @@ import { GROW_FIELD, type BlockSchema } from './schema';
 
 export interface CheckboxBlockProps extends GrowProps {
   label: string;
+  accessibleLabel?: string;
   checked: boolean;
   disabled: boolean;
 }
 
 export const CHECKBOX_DEFAULTS: CheckboxBlockProps = {
+  accessibleLabel: '',
   label: 'Accept the terms',
   checked: false,
   disabled: false,
@@ -28,6 +31,7 @@ export const CHECKBOX_DEFAULTS: CheckboxBlockProps = {
 export const Checkbox: UserComponent<Partial<CheckboxBlockProps>> = (props) => {
   const merged: CheckboxBlockProps = { ...CHECKBOX_DEFAULTS, ...props };
   const play = usePlay();
+  const accessibilityId = useAccessibilityId();
   const {
     connectors: { connect, drag },
     custom,
@@ -46,6 +50,7 @@ export const Checkbox: UserComponent<Partial<CheckboxBlockProps>> = (props) => {
       onClick={onClick}
     >
       <UiCheckbox
+        id={accessibilityId} aria-label={merged.label ? undefined : merged.accessibleLabel || undefined}
         checked={isPlay ? checked : merged.checked}
         onCheckedChange={isPlay ? (value) => setChecked(value === true) : () => {}}
         disabled={isPlay ? merged.disabled : undefined}
@@ -53,7 +58,7 @@ export const Checkbox: UserComponent<Partial<CheckboxBlockProps>> = (props) => {
         aria-disabled={!isPlay && merged.disabled ? true : undefined}
         className={cn(!isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       />
-      <Label>{merged.label}</Label>
+      <Label data-writer-prop="label" htmlFor={accessibilityId}>{merged.label}</Label>
     </div>
   );
 };
@@ -66,6 +71,7 @@ Checkbox.craft = {
 export const checkboxSchema: BlockSchema = {
   type: 'Checkbox',
   fields: [
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     { prop: 'checked', label: 'Checked', kind: 'boolean', section: 'Style' },
     { prop: 'disabled', label: 'Disabled', kind: 'boolean', section: 'Style' },

@@ -80,7 +80,7 @@ const PANEL_LABEL: Record<PanelMode, string> = {
 
 export type { PanelMode };
 
-const SECTION_ORDER: SectionName[] = ['Layout', 'Content', 'Style', 'Editor'];
+const SECTION_ORDER: SectionName[] = ['Layout', 'Content', 'Style', 'Accessibility', 'Editor'];
 const SECTION_TITLES: Record<SectionName, string> = {
   Layout: 'Auto layout',
   Content: 'Content',
@@ -88,6 +88,7 @@ const SECTION_TITLES: Record<SectionName, string> = {
   Editor: 'Editor',
   State: 'State',
   Advanced: 'Advanced',
+  Accessibility: 'Accessibility',
 };
 const CONTAINER_TYPES = new Set(['LayoutBox', 'Card', 'Dialog']);
 

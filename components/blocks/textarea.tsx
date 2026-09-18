@@ -1,3 +1,4 @@
+import { useId as useAccessibilityId } from 'react';
 import { useEffect, useRef, useId } from 'react';
 import { designStyle, SIZE_DEFAULTS, SIZE_FIELDS, type DesignProps } from './design-controls';
 import { useNode, type UserComponent } from '@craftjs/core';
@@ -14,12 +15,16 @@ export type TextareaRows = 2 | 3 | 4 | 5 | 6;
 export interface TextareaBlockProps extends GrowProps, DesignProps {
   borderless?: boolean; autoGrow?: boolean; previewText?: string;
   label: string;
+  accessibleLabel?: string;
+  helpText?: string;
   placeholder: string;
   rows: TextareaRows;
   disabled: boolean;
 }
 
 export const TEXTAREA_DEFAULTS: TextareaBlockProps = {
+  accessibleLabel: '',
+  helpText: '',
   ...SIZE_DEFAULTS, borderless: false, autoGrow: false, previewText: '',
   label: '',
   placeholder: 'Placeholder',
@@ -31,6 +36,7 @@ export const TEXTAREA_DEFAULTS: TextareaBlockProps = {
 export const Textarea: UserComponent<Partial<TextareaBlockProps>> = (props) => {
   const merged: TextareaBlockProps = { ...TEXTAREA_DEFAULTS, ...props };
   const play = usePlay();
+  const accessibilityId = useAccessibilityId();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
   useEffect(() => {
@@ -72,9 +78,10 @@ export const Textarea: UserComponent<Partial<TextareaBlockProps>> = (props) => {
       className={cn('flex flex-col gap-2', blockClasses(merged))}
       onClick={onClick}
     >
-      {merged.label !== '' && <Label htmlFor={inputId}>{merged.label}</Label>}
+      {merged.label !== '' && <Label data-writer-prop="label" htmlFor={inputId}>{merged.label}</Label>}
       <UiTextarea
-        ref={inputRef} id={inputId} aria-label={merged.label || merged.placeholder || 'Message'}
+        ref={inputRef} id={inputId} aria-label={merged.label ? undefined : merged.accessibleLabel || undefined}
+        aria-describedby={merged.helpText ? `${accessibilityId}-help` : undefined}
         value={!isPlay ? merged.previewText ?? '' : undefined}
         defaultValue={isPlay ? merged.previewText : undefined}
         style={{ ...designStyle({ ...merged, widthMode: 'fill' }), ...(merged.borderless ? { border: 0, boxShadow: 'none', background: 'transparent' } : {}), ...(merged.autoGrow ? { resize: 'none', fieldSizing: 'fixed' } : {}) }}
@@ -86,6 +93,7 @@ export const Textarea: UserComponent<Partial<TextareaBlockProps>> = (props) => {
         aria-disabled={!isPlay && merged.disabled ? true : undefined}
         className={cn(!isPlay && 'pointer-events-none', merged.disabled && 'opacity-50')}
       />
+      {merged.helpText && <p id={`${accessibilityId}-help`} className="text-sm text-muted-foreground">{merged.helpText}</p>}
     </div>
   );
 };
@@ -98,6 +106,8 @@ Textarea.craft = {
 export const textareaSchema: BlockSchema = {
   type: 'Textarea',
   fields: [
+    { prop: 'helpText', label: 'Help text', kind: 'text', section: 'Content' },
+    { prop: 'accessibleLabel', label: 'Accessible name', kind: 'text', section: 'Accessibility', showWhen: p => !p.label },
     ...SIZE_FIELDS,
     { prop: 'borderless', label: 'Borderless', kind: 'boolean', section: 'Style' },
     { prop: 'autoGrow', label: 'Auto-grow', kind: 'boolean', section: 'Layout' },

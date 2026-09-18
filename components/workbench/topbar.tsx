@@ -579,6 +579,7 @@ export function Topbar({
           </TooltipTrigger>
           <TooltipContent>Present</TooltipContent>
         </Tooltip>
+        <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new Event('dreamscape:writer'))}>Writer</Button>
         <a href={`/f/${fileId}/develop?screen=${encodeURIComponent(currentScreenId ?? '')}`} target="_blank" rel="noopener noreferrer" aria-label="Develop" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Develop</a>
         <SharePrototypeButton playHref={presentHref} screens={screens} pages={pages} currentScreenId={currentScreenId} />
         {onHandoff && <Button size="sm" onClick={onHandoff}>Handoff</Button>}

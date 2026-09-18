@@ -92,7 +92,7 @@ export const Dialog: UserComponent<Partial<DialogBlockProps>> = (props) => {
         >
           <DialogTrigger asChild>
             <UiButton type="button" variant="outline">
-              {merged.triggerLabel}
+              <span data-writer-prop="triggerLabel">{merged.triggerLabel}</span>
             </UiButton>
           </DialogTrigger>
           <UiDialogContent>
@@ -116,7 +116,7 @@ export const Dialog: UserComponent<Partial<DialogBlockProps>> = (props) => {
       className={cn('flex flex-col items-start gap-4', blockClasses(merged))}
     >
       <UiButton type="button" variant="outline">
-        {merged.triggerLabel}
+        <span data-writer-prop="triggerLabel">{merged.triggerLabel}</span>
       </UiButton>
       {merged.previewOpen && (
         <div
@@ -124,9 +124,9 @@ export const Dialog: UserComponent<Partial<DialogBlockProps>> = (props) => {
           className="flex w-full max-w-lg flex-col gap-4 rounded-lg border bg-background p-6 shadow-lg"
         >
           <div className="flex flex-col gap-1.5">
-            <h2 className="text-lg leading-none font-semibold">{merged.title}</h2>
+            <h2 data-writer-prop="title" className="text-lg leading-none font-semibold">{merged.title}</h2>
             {merged.description !== '' && (
-              <p className="text-sm text-muted-foreground">{merged.description}</p>
+              <p data-writer-prop="description" className="text-sm text-muted-foreground">{merged.description}</p>
             )}
           </div>
           <Element id="content" is={DialogContent} canvas />

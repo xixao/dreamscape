@@ -685,7 +685,7 @@ describe('Inspector', () => {
 
     expect(within(panel).getByTestId('inspector-type')).toHaveTextContent('Button');
     expect(within(panel).getByText('Frame')).toBeInTheDocument();
-    for (const section of ['Content', 'Appearance', 'State', 'Layout']) {
+    for (const section of ['Content', 'Appearance', 'State', 'Layout', 'Accessibility']) {
       expect(within(panel).getByRole('heading', { name: section })).toBeInTheDocument();
     }
     expect(within(panel).queryByRole('heading', { name: 'Editor' })).toBeNull();
@@ -712,10 +712,10 @@ describe('Inspector', () => {
     await screen.findByText('Billing');
     const id = await select(editor, 'button');
     const panel = within(screen.getByRole('complementary', { name: 'Design' }));
-    expect(panel.getAllByRole('heading').map(heading => heading.textContent).filter(name => name !== 'Align')).toEqual(['Content', 'Appearance', 'State', 'Layout']);
+    expect(panel.getAllByRole('heading').map(heading => heading.textContent).filter(name => name !== 'Align')).toEqual(['Content', 'Appearance', 'State', 'Layout', 'Accessibility']);
     expect(panel.queryByRole('switch', { name: 'Icon only' })).toBeNull();
     expect(panel.queryByRole('radiogroup', { name: 'Icon position' })).toBeNull();
-    expect(panel.getByRole('textbox', { name: 'Accessible label' })).not.toBeVisible();
+    expect(panel.getByRole('textbox', { name: 'Accessible label' })).toBeVisible();
     await user.click(panel.getByRole('combobox', { name: 'Icon' }));
     await user.click(screen.getByRole('option', { name: 'Microphone' }));
     await user.click(panel.getByRole('switch', { name: 'Icon only' }));

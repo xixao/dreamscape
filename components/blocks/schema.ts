@@ -24,7 +24,7 @@ export type ZoneType = 'CardContent' | 'DialogContent' | 'TabsContent';
 
 export type FieldKind = 'select' | 'text' | 'boolean' | 'spacing' | 'color' | 'border' | 'width-limit' | 'image-source' | 'image-size';
 
-export type SectionName = 'Layout' | 'Content' | 'Style' | 'State' | 'Advanced' | 'Editor';
+export type SectionName = 'Layout' | 'Content' | 'Style' | 'State' | 'Advanced' | 'Editor' | 'Accessibility';
 
 export interface FieldOption {
   value: string | number;

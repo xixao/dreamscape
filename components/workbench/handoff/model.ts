@@ -1,3 +1,4 @@
+import { writerTargets } from '../writer/model';
 import type { SerializedNodes } from '@craftjs/core';
 import type { Page, Screen } from '@/lib/files/repository';
 import type { CommentThread } from '@/lib/comments/store';
@@ -57,8 +58,16 @@ export function buildPackage(snapshot:Snapshot,ids:string[],start:string) {
   const files:Record<string,string>={
     'spec.md':spec,'flow.svg':svg,'flow.diagram.json':JSON.stringify(diagram,null,2),
     'snapshot.json':JSON.stringify({...snapshot,screens,pages:snapshot.pages.filter(p=>screens.some(s=>s.pageId===p.id)),notes},null,2),
-    'README.md':`# ${snapshot.fileName} handoff\n\nSnapshot ${snapshot.id}.\n\n- spec.md: editable requirements draft and open questions.\n- flow.svg: portable prototype flow diagram.\n- flow.diagram.json: Dreamscape diagram model (editable node/edge data).\n- snapshot.json: scoped design, custom component definitions, and notes.\n- screens/: per-screen Craft UI previews requiring the Dreamscape runtime.\n\nAI generation and GitHub delivery are not connected. Exporting this package does not publish or push anything.\n`,
+    'README.md':`# ${snapshot.fileName} handoff\n\nSnapshot ${snapshot.id}.\n\n- spec.md: editable requirements draft and open questions.\n- flow.svg: portable prototype flow diagram.\n- flow.diagram.json: Dreamscape diagram model (editable node/edge data).\n- snapshot.json: scoped design, custom component definitions, and notes.\n- writer-content.json: authored copy, accessibility text, and missing-text review flags.\n- screens/: per-screen Craft UI previews requiring the Dreamscape runtime.\n\nAI generation and GitHub delivery are not connected. Exporting this package does not publish or push anything.\n`,
   };
+  files['writer-content.json'] = JSON.stringify({
+    note: 'Authored copy and accessibility text. Missing-text flags are drafting guidance, not an accessibility audit.',
+    screens: screens.map(screen => ({ id: screen.id, name: screen.name, components: writerTargets(screen.layout).map(target => ({
+      nodeId: target.nodeId, innerId: target.innerId, name: target.name, type: target.type,
+      needsAccessibilityText: target.missing,
+      fields: Object.fromEntries(target.fields.map(field => [field.prop, target.props[field.prop] ?? (field.kind === 'boolean' ? false : '')])),
+    })) })),
+  }, null, 2);
   screens.forEach(s=>{const nodes=readNodes(s);if(nodes.ROOT)files[`screens/${s.id}.tsx`]=selectionCode(nodes,'ROOT');else issues.push(`${s.name}: missing root component; preview could not be exported.`);});
   return {files,diagram,issues,spec,screens,questions};
 }

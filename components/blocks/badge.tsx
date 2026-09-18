@@ -34,6 +34,7 @@ export const Badge: UserComponent<Partial<BadgeBlockProps>> = (props) => {
         if (element) connect(drag(element));
       }}
       data-block="Badge"
+      data-writer-prop="text"
       variant={merged.variant}
       className={cn(blockClasses(merged))}
       onClick={onClick}

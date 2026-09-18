@@ -16,6 +16,7 @@ export interface ImageBlockProps extends GrowProps {
   label: string;
   src: string;
   alt: string;
+  decorative?: boolean;
   aspect: ImageAspect;
   radius: ImageRadius;
 }
@@ -25,6 +26,7 @@ export const IMAGE_DEFAULTS: ImageBlockProps = {
   label: 'Image',
   src: '',
   alt: '',
+  decorative: false,
   aspect: 'square',
   radius: 'md',
   grow: false,
@@ -79,7 +81,7 @@ export const Image: UserComponent<Partial<ImageBlockProps>> = (props) => {
         {merged.src ? (
           // Uploaded images are stored in the file; URL images may use any host.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={merged.src} alt={merged.alt} onLoad={event => { const width = event.currentTarget.naturalWidth; if (width > 0) setIntrinsic({ src: merged.src, width }); }} draggable={false} className="block w-full object-cover" style={{ aspectRatio: 'inherit', height: merged.grow ? undefined : '100%' }} />
+          <img src={merged.src} alt={merged.decorative ? '' : merged.alt || undefined} onLoad={event => { const width = event.currentTarget.naturalWidth; if (width > 0) setIntrinsic({ src: merged.src, width }); }} draggable={false} className="block w-full object-cover" style={{ aspectRatio: 'inherit', height: merged.grow ? undefined : '100%' }} />
         ) : <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <ImageIcon className="size-8" aria-hidden />
           <span className="text-sm">{merged.label}</span>
@@ -105,7 +107,8 @@ export const imageSchema: BlockSchema = {
   fields: [
     { prop: 'size', label: 'Size', kind: 'image-size', section: 'Layout' },
     { prop: 'src', label: 'Image', kind: 'image-source', section: 'Content' },
-    { prop: 'alt', label: 'Alt text', kind: 'text', section: 'Content' },
+    { prop: 'decorative', label: 'Decorative image', kind: 'boolean', section: 'Accessibility' },
+    { prop: 'alt', label: 'Alternative text', kind: 'text', section: 'Accessibility', showWhen: p => !p.decorative },
     { prop: 'label', label: 'Label', kind: 'text', section: 'Content' },
     {
       prop: 'aspect',
