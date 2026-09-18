@@ -10,11 +10,9 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
-  Monitor,
   Play,
   Redo2,
   Smartphone,
-  Tablet,
   Undo2,
   type LucideIcon,
 } from 'lucide-react';
@@ -30,14 +28,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import { SegmentedControl, SegmentedItem } from './segmented-control';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
 import { isOverlay } from '@/lib/files/screens';
 import { zoomTo } from '@/lib/canvas/viewport';
 import type { SaveState } from '@/lib/persistence';
 import { formatKeys, SHORTCUTS_BY_ID } from '@/lib/shortcuts';
-import { STAGE_PRESETS, STAGE_PRESET_ORDER, type StagePreset } from '@/lib/stage';
 import { DEVICE_PRESET_GROUPS } from '@/lib/stage/device-presets';
 import { readoutFor } from '@/lib/stage/size';
 import { cn } from '@/lib/utils';
@@ -90,11 +86,6 @@ export function presentHrefFor(fileId: string, pageId: string, screens: Screen[]
   return `/f/${fileId}/play?${params.toString()}`;
 }
 
-const PRESET_META: Record<StagePreset, { label: string; icon: LucideIcon }> = {
-  mobile: { label: 'Mobile', icon: Smartphone },
-  tablet: { label: 'Tablet', icon: Tablet },
-  desktop: { label: 'Desktop', icon: Monitor },
-};
 
 const MAX_NAME_LENGTH = 120;
 
@@ -448,7 +439,7 @@ export function Topbar({
   hidePageSelector?: boolean;
   historyOverride?: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void };
 }) {
-  const { width, height, preset, deviceName, zoom, setPreset, setDevice } = useStage();
+  const { width, height, deviceName, zoom, setDevice } = useStage();
   const { actions, canUndo, canRedo } = useEditor((_, query) => ({
     canUndo: query.history.canUndo(),
     canRedo: query.history.canRedo(),
@@ -530,30 +521,6 @@ export function Topbar({
           onZoomToFrame={onZoomToFrame}
         />
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-[22px]" />
-        <SegmentedControl
-          aria-label="Frame width"
-          value={preset ?? ''}
-          onValueChange={(value) => {
-            if (value) setPreset(value as StagePreset);
-          }}
-          className="w-auto"
-        >
-          {STAGE_PRESET_ORDER.map((key) => {
-            const { label, icon: Icon } = PRESET_META[key];
-            return (
-              <SegmentedItem
-                key={key}
-                value={key}
-                aria-label={label}
-                title={`${STAGE_PRESETS[key]} px`}
-                className="gap-1.5 px-3"
-              >
-                <Icon className="size-3.5" aria-hidden />
-                <span className="hidden 2xl:inline">{label}</span>
-              </SegmentedItem>
-            );
-          })}
-        </SegmentedControl>
         {(!focusedIsOverlay || !frameSelected) && <DevicePresetMenu deviceName={frameSelected ? deviceName : null} onSelect={device => { if (!frameSelected && onCreateDeviceFrame) onCreateDeviceFrame(device); else setDevice(device); }} />}
         <ZoomMenu
           readoutText={readoutFor({ width, height, deviceName, zoom })}

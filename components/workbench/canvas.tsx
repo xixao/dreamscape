@@ -424,6 +424,7 @@ export function Canvas({
   onRenameScreen,
   onMoveScreen,
   onMoveScreens = noopIds,
+  onResizeScreen,
   comments,
   canvasComments,
   rootRef,
@@ -450,6 +451,7 @@ export function Canvas({
   // A multi-frame drag (spec docs/superpowers/specs/2026-09-13-grid-
   // snapping-alignment-design.md section 3: "saves every moved x, y in one
   // patch") - every selected frame's new position, applied together.
+  onResizeScreen?: (id: string, width: number) => void;
   onMoveScreens?: (updates: { id: string; x: number; y: number }[]) => void;
   comments: StageCommentsProps;
   canvasComments?: StageCommentsProps;
@@ -1289,6 +1291,7 @@ export function Canvas({
                 // every other frame's instead of lagging a step behind.
                 height={frameRect(screen, measuredHeights).height}
                 onRename={(name) => onRenameScreen(screen.id, name)}
+                onResize={width => onResizeScreen?.(screen.id, width)}
                 onMove={(position, delta) => handleFrameMove(screen.id, position, delta)}
                 onSelect={() => {
                   onDeselectDiagram();

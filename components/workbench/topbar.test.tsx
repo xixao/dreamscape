@@ -12,11 +12,7 @@ import { renderInEditor } from '@/test/craft-harness';
 import { CanvasViewportProvider } from './canvas';
 import { Topbar } from './topbar';
 
-function presetButton(label: string) {
-  const button = screen.getByText(label).closest('button');
-  if (!button) throw new Error(`no button for ${label}`);
-  return button;
-}
+
 
 // Topbar's zoom menu reads/writes the canvas viewport through
 // useCanvasViewport() (components/workbench/canvas.tsx) - this plays the
@@ -126,26 +122,11 @@ function renderTopbar(
 // lib/stage/size.test.ts; the tests below just confirm Topbar renders it
 // through data-testid="stage-readout" with the live stage values.
 describe('Topbar', () => {
-  it('marks the active preset and switches width on click', async () => {
+  it('keeps the size readout without a viewport switcher in the toolbar', () => {
     renderTopbar({}, { width: 1440 });
     expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
-    expect(presetButton('Desktop')).toHaveAttribute('data-state', 'on');
-    expect(presetButton('Mobile')).toHaveAttribute('data-state', 'off');
-
-    await userEvent.click(presetButton('Tablet'));
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('768 px · tablet');
-    expect(presetButton('Tablet')).toHaveAttribute('data-state', 'on');
-
-    await userEvent.click(presetButton('Mobile'));
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('375 px · mobile');
-  });
-
-  it('shows no active preset at a custom width', () => {
-    renderTopbar({}, { width: 900 });
-    expect(screen.getByTestId('stage-readout')).toHaveTextContent('900 px · tablet');
-    for (const label of ['Mobile', 'Tablet', 'Desktop']) {
-      expect(presetButton(label)).toHaveAttribute('data-state', 'off');
-    }
+    expect(screen.queryByRole('group', { name: 'Frame width' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Mobile' })).toBeNull();
   });
 
   it('enables Undo and Redo as the history changes', async () => {
@@ -384,7 +365,7 @@ describe('Topbar', () => {
       expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveAttribute('aria-haspopup', 'menu');
     });
 
-    it('lists Figma device groups; choosing a device sets the readout, the chip label and the matching segment', async () => {
+    it('lists Figma device groups; choosing a device sets the readout, the chip label', async () => {
       renderTopbar({}, { width: 1440 });
 
       await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
@@ -392,23 +373,21 @@ describe('Topbar', () => {
       await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
 
       expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPhone 16 & 17 Pro · 402 × 874');
-      expect(presetButton('Mobile')).toHaveAttribute('data-state', 'on');
       expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('iPhone 16 & 17 Pro');
     });
 
-    it('selects the Tablet segment for a Tablet-group device and Desktop for a Desktop-group device', async () => {
+    it('supports tablet and desktop device presets', async () => {
       renderTopbar({}, { width: 1440 });
 
       await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Tablet' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'iPad Pro 11"' }));
-      expect(presetButton('Tablet')).toHaveAttribute('data-state', 'on');
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('iPad Pro 11');
 
       await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'Desktop' }));
       await userEvent.click(await screen.findByRole('menuitem', { name: 'MacBook Air' }));
-      expect(presetButton('Desktop')).toHaveAttribute('data-state', 'on');
-      expect(presetButton('Tablet')).toHaveAttribute('data-state', 'off');
+      expect(screen.getByTestId('stage-readout')).toHaveTextContent('MacBook Air');
     });
 
     it('marks the current device with a check mark in the menu, and no other device', async () => {
@@ -426,18 +405,7 @@ describe('Topbar', () => {
       expect(within(other).queryByTestId('device-check')).toBeNull();
     });
 
-    it('clicking a Mobile/Tablet/Desktop segment after a device clears the chip label back to "Device"', async () => {
-      renderTopbar({}, { width: 1440 });
-      await userEvent.click(screen.getByRole('button', { name: 'Frame size presets' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'Phone' }));
-      await userEvent.click(await screen.findByRole('menuitem', { name: 'iPhone 16 & 17 Pro' }));
-      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('iPhone 16 & 17 Pro');
 
-      await userEvent.click(presetButton('Desktop'));
-
-      expect(screen.getByRole('button', { name: 'Frame size presets' })).toHaveTextContent('Device');
-      expect(screen.getByTestId('stage-readout')).toHaveTextContent('1440 px · desktop');
-    });
   });
 
   describe('zoom menu', () => {

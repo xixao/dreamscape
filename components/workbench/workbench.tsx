@@ -1057,6 +1057,20 @@ export function Workbench({
     }
   }
 
+  function resizeScreen(id: string, width: number): void {
+    const screen = screensRef.current.find(screen => screen.id === id);
+    if (!screen) return;
+    // Breakpoint presets change width only. Clearing a fixed height here
+    // switches the frame to content sizing and introduces bottom whitespace.
+    if (id === currentScreenIdRef.current) {
+      handleSizeChange({ width, height: screen.stageHeight ?? null, deviceName: null });
+      return;
+    }
+    const layout = JSON.parse(screen.layout);
+    if (layout.ROOT?.custom) delete layout.ROOT.custom.frameSize;
+    recordInspectorScreens([{ id, patch: { stageWidth: width, deviceName: null, layout: JSON.stringify(layout) } }]);
+  }
+
   function handleDeviceChange(device: { width: number; height: number; deviceName: string }): void {
     handleSizeChange(device);
   }
@@ -1159,6 +1173,7 @@ export function Workbench({
           onNamePrototype={namePrototype}
           onMoveScreen={moveScreen}
           onMoveScreens={moveScreens}
+          onResizeScreen={resizeScreen}
           onUpdateLayoutGrid={updateLayoutGrid}
           onUpdatePresentation={updateScreenPresentation}
           onDuplicateScreen={duplicateScreen}
@@ -1200,6 +1215,7 @@ function WorkbenchShell({
   onNamePrototype,
   onMoveScreen,
   onMoveScreens,
+  onResizeScreen,
   onUpdateLayoutGrid,
   onUpdatePresentation,
   onDuplicateScreen,
@@ -1237,6 +1253,7 @@ function WorkbenchShell({
   onRenameScreen: (id: string, name: string) => void;
   onNamePrototype: (id: string, name: string) => void;
   onMoveScreen: (id: string, position: { x: number; y: number }) => void;
+  onResizeScreen: (id: string, width: number) => void;
   onMoveScreens: (updates: { id: string; x: number; y: number }[]) => void;
   onUpdateLayoutGrid: (id: string, patch: Partial<LayoutGrid>) => void;
   onUpdatePresentation: (id: string, presentation: OverlayPresentation, name?: string) => void;
@@ -2081,6 +2098,7 @@ function WorkbenchShell({
                 onRenameScreen={onRenameScreen}
                 onMoveScreen={onMoveScreen}
                 onMoveScreens={onMoveScreens}
+                onResizeScreen={onResizeScreen}
                 comments={commentsProps}
                 canvasComments={{ ...notes.canvasComments, portalContainer: commentsProps.portalContainer }}
                 rootRef={rootRef}

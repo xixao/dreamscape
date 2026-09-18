@@ -11,13 +11,9 @@ import { Workbench } from './workbench';
 import loginExampleLayout from '@/lib/examples/login-screen.json';
 import { emptyLayoutJson } from '@/components/blocks/registry';
 
-// The stage-width ToggleGroupItem buttons are `role="radio"` (a single-select
-// ToggleGroup is a radiogroup), not `role="button"`; matched by visible text
-// instead, same as components/workbench/topbar.test.tsx's own presetButton().
-function presetButton(label: string) {
-  const button = screen.getByText(label).closest('button');
-  if (!button) throw new Error(`no button for ${label}`);
-  return button;
+async function chooseFramePreset(label: string, name = 'Frame 1') {
+  await userEvent.click(screen.getByRole('button', { name: `Frame options for ${name}` }));
+  await userEvent.click(screen.getByRole('menuitem', { name: new RegExp(label, 'i') }));
 }
 
 // A dedicated instance with the per-interaction delay disabled, used by the
@@ -406,7 +402,7 @@ describe('Workbench', () => {
     fetchMock.mockReturnValueOnce(pending);
     render(<Workbench file={makeFile()} />);
 
-    await userEvent.click(presetButton('Mobile'));
+    await chooseFramePreset('Mobile');
     await waitFor(() => expect(screen.getByTestId('save-state')).toHaveTextContent('Saving'), {
       timeout: 1500,
     });
@@ -419,7 +415,7 @@ describe('Workbench', () => {
     fetchMock.mockResolvedValueOnce(conflict('Tserver'));
     render(<Workbench file={makeFile()} />);
 
-    await userEvent.click(presetButton('Mobile'));
+    await chooseFramePreset('Mobile');
 
     await waitFor(
       () => expect(screen.getByTestId('save-state')).toHaveTextContent('Someone else changed this file.'),
@@ -431,7 +427,7 @@ describe('Workbench', () => {
   it('PATCHes the new stage width, on the current screen, when the frame width changes', async () => {
     render(<Workbench file={makeFile()} />);
 
-    await userEvent.click(presetButton('Mobile'));
+    await chooseFramePreset('Mobile');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -455,7 +451,7 @@ describe('Workbench', () => {
   it('flushes a pending save on unmount', async () => {
     const { unmount } = render(<Workbench file={makeFile()} />);
 
-    await userEvent.click(presetButton('Mobile'));
+    await chooseFramePreset('Mobile');
     expect(fetchMock).not.toHaveBeenCalled();
     unmount();
 
@@ -466,7 +462,7 @@ describe('Workbench', () => {
   it('flushes a pending save on pagehide', async () => {
     render(<Workbench file={makeFile()} />);
 
-    await userEvent.click(presetButton('Mobile'));
+    await chooseFramePreset('Mobile');
     expect(fetchMock).not.toHaveBeenCalled();
     await act(async () => {
       window.dispatchEvent(new Event('pagehide'));
@@ -906,7 +902,7 @@ describe('Workbench', () => {
     it('the saver receives every screen, not just the one being edited', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
-      await userEvent.click(presetButton('Mobile'));
+      await chooseFramePreset('Mobile');
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -1006,7 +1002,7 @@ describe('Workbench', () => {
     it('flushes the saver before switching screens, ahead of the normal debounce', async () => {
       render(<Workbench file={makeFile({ screens: [SCREEN_1, SCREEN_2] })} />);
 
-      await userEvent.click(presetButton('Mobile'));
+      await chooseFramePreset('Mobile');
       await selectFrame('Frame 2');
 
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -1053,7 +1049,7 @@ describe('Workbench', () => {
       await new Promise((resolve) => setTimeout(resolve, 900));
       expect(fetchMock).not.toHaveBeenCalled();
 
-      await userEvent.click(presetButton('Mobile'));
+      await chooseFramePreset('Mobile');
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
@@ -1370,18 +1366,31 @@ describe('Workbench', () => {
       expect(body.baseUpdatedAt).toBe(BASE_FILE.updatedAt);
     });
 
-    it('clicking a Mobile/Tablet/Desktop segment after a device queues a save clearing stageHeight and deviceName', async () => {
+    it('choosing a frame viewport preset preserves height and clears the device name', async () => {
       const deviceScreen: Screen = { ...SCREEN_1, stageWidth: 402, stageHeight: 874, deviceName: 'iPhone 16 & 17 Pro' };
       render(<Workbench file={makeFile({ screens: [deviceScreen] })} />);
 
-      await userEvent.click(presetButton('Desktop'));
+      await chooseFramePreset('Desktop');
       await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1500 });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.screens[0].stageWidth).toBe(1440);
-      expect(body.screens[0].stageHeight).toBeNull();
+      expect(body.screens[0].stageHeight).toBe(874);
       expect(body.screens[0].deviceName).toBeNull();
     });
+  });
+
+  it('keeps an unfocused frame height through breakpoint changes and undo', async () => {
+    render(<Workbench file={makeFile({ screens: [SCREEN_1, { ...SCREEN_2, stageHeight: 930 }] })} />);
+    await chooseFramePreset('Mobile', SCREEN_2.name);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 1500 });
+    let saved = JSON.parse(fetchMock.mock.calls.at(-1)![1].body).screens;
+    expect(saved.find((item: Screen) => item.id === SCREEN_2.id)).toMatchObject({ stageWidth: 375, stageHeight: 930 });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      saved = JSON.parse(fetchMock.mock.calls.at(-1)![1].body).screens;
+      expect(saved.find((item: Screen) => item.id === SCREEN_2.id)).toMatchObject({ stageWidth: SCREEN_2.stageWidth, stageHeight: 930 });
+    }, { timeout: 1500 });
   });
 
   describe('the Files back link', () => {

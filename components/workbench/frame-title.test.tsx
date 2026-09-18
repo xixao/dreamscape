@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -38,16 +39,16 @@ describe('FrameTitle', () => {
     expect(screen.getByText('Frame 1')).toBeInTheDocument();
   });
 
-  it('is text-t2 when focused, text-t4 otherwise', () => {
+  it('uses readable title text for focused and unfocused frames', () => {
     const { rerender } = render(
       <FrameTitle screen={SCREEN} focused zoom={1} height={ARTBOARD_MIN_HEIGHT} onRename={vi.fn()} onMove={vi.fn()} />,
     );
-    expect(screen.getByText('Frame 1')).toHaveClass('text-t2');
+    expect(screen.getByText('Frame 1')).toHaveClass('text-t1');
 
     rerender(
       <FrameTitle screen={SCREEN} focused={false} zoom={1} height={ARTBOARD_MIN_HEIGHT} onRename={vi.fn()} onMove={vi.fn()} />,
     );
-    expect(screen.getByText('Frame 1')).toHaveClass('text-t4');
+    expect(screen.getByText('Frame 1')).toHaveClass('text-t2');
   });
 
   it('shows no badge after a plain screen\'s name', () => {
@@ -384,3 +385,16 @@ it('moves a selected frame from its body at the current zoom and double-click en
   expect(onEnterContents).toHaveBeenCalledOnce();
   expect(onRename).not.toHaveBeenCalled();
 });
+
+ describe('frame viewport menu', () => {
+  it.each([['mobile', 375], ['tablet', 768], ['desktop', 1440]] as const)('resizes to %s without starting a drag', async (name, width) => {
+    const onResize = vi.fn();
+    const onSelect = vi.fn();
+    const { onMove } = renderTitle({ onResize, onSelect });
+    await userEvent.click(screen.getByRole('button', { name: 'Frame options for Frame 1' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: new RegExp(name, 'i') }));
+    expect(onResize).toHaveBeenCalledWith(width);
+    expect(onMove).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+ });

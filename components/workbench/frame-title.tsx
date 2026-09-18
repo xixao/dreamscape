@@ -1,6 +1,9 @@
 'use client';
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { STAGE_PRESETS, STAGE_PRESET_ORDER } from '@/lib/stage';
 import type { Screen } from '@/lib/files/repository';
 import { resolveSnap, type SnapBox, type SnapDistance, type SnapGuide } from '@/lib/canvas/snap';
 import { capturePointer } from '@/lib/dom';
@@ -18,7 +21,7 @@ const NO_SNAP_RESULT: FrameSnapResult = { guides: [], distances: [] };
 /**
  * A frame's title, drawn above its top-left corner in canvas space (spec
  * docs/superpowers/specs/2026-09-12-infinite-canvas-design.md section 6):
- * mono, `text-t2` when the frame is focused and `text-t4` otherwise.
+ * a constant-size chrome tab with a viewport resize menu.
  * Doubles as the drag handle that moves the whole frame - pointer capture,
  * deltas divided by the current zoom so a screen-pixel drag always moves the
  * frame by the same amount regardless of how zoomed in or out the canvas
@@ -55,7 +58,9 @@ export function FrameTitle({
   onSelect,
   surface = false,
   onEnterContents,
+  onResize,
 }: {
+  onResize?: (width: number) => void;
   surface?: boolean;
   onEnterContents?: () => void;
   screen: Screen;
@@ -168,19 +173,22 @@ export function FrameTitle({
 
   if (renaming) {
     return (
-      <div className="absolute bottom-full left-0 mb-1">
+      <div className="absolute bottom-full left-0 mb-2" style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'bottom left' }}>
         <RenameInput screen={screen} onCommit={commitRename} onCancel={() => setRenaming(false)} inputRef={inputRef} />
       </div>
     );
   }
 
   return (
+    <div className="absolute bottom-full left-0 mb-2 flex items-center gap-1 rounded-md border border-line-soft bg-card p-1 text-foreground shadow-sm"
+      style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'bottom left' }}
+      onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
     <button
       type="button"
       data-frame-title={screen.id}
       className={cn(
-        'absolute bottom-full left-0 mb-1 cursor-grab touch-none rounded-sm px-0.5 font-mono text-[11px] select-none active:cursor-grabbing',
-        focused ? 'text-t2' : 'text-t4',
+        'max-w-64 truncate cursor-grab touch-none rounded-sm px-2 py-1 text-xs font-medium select-none active:cursor-grabbing',
+        focused ? 'text-t1' : 'text-t2',
       )}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -192,5 +200,18 @@ export function FrameTitle({
       {screen.name}
       {isOverlay(screen) && <span className="ml-1 text-t4">{overlayBadgeLabel(screen.presentation)}</span>}
     </button>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label={`Frame options for ${screen.name}`} className="rounded p-1 hover:bg-muted" onPointerDown={event => event.stopPropagation()}>
+          <MoreHorizontal className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48" onPointerDown={event => event.stopPropagation()}>
+        {STAGE_PRESET_ORDER.map(preset => <DropdownMenuItem key={preset} onSelect={() => onResize?.(STAGE_PRESETS[preset])}>
+          <span>{preset[0].toUpperCase() + preset.slice(1)}</span><span className="ml-auto text-muted-foreground">{STAGE_PRESETS[preset]} px</span>
+        </DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+    </div>
   );
 }
