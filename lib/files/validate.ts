@@ -1,3 +1,4 @@
+import { explorationSchema, type Exploration } from '@/lib/variations/model';
 import { annotationSchema, type Annotation } from '@/lib/accessibility/kit';
 import { validTable } from '@/lib/diagram/table';
 import { sectionsSchema, type CanvasSection } from '../canvas/sections';
@@ -297,8 +298,8 @@ function validateLayoutGrid(screenName: string, grid: LayoutGrid): { ok: true } 
 // screens rather than inside any one of them - optional, so a file saved
 // before diagrams existed (or a page nobody has drawn on) keeps working
 // with no migration needed.
-export type Page = { id: string; name: string; diagram?: DiagramData; sections?: CanvasSection[] };
-export type PageInput = { id: string; name: string; diagram?: DiagramInput; sections?: CanvasSection[] };
+export type Page = { id: string; name: string; kind?: 'design' | 'variations'; exploration?: Exploration; diagram?: DiagramData; sections?: CanvasSection[] };
+export type PageInput = { id: string; name: string; kind?: 'design' | 'variations'; exploration?: Exploration; diagram?: DiagramInput; sections?: CanvasSection[] };
 export type ValidatePagesResult = { ok: true; pages: Page[] } | { ok: false; reason: string };
 
 const PAGE_NAME_MAX = 80;
@@ -353,9 +354,12 @@ export function validatePages(input: PageInput[]): ValidatePagesResult {
       diagram = validatedDiagram.diagram;
     }
 
+    if (raw.kind !== undefined && raw.kind !== 'design' && raw.kind !== 'variations') return { ok: false, reason: 'Unknown page kind' };
+    const exploration = raw.exploration === undefined ? undefined : explorationSchema.safeParse(raw.exploration);
+    if ((raw.kind === 'variations' && !exploration?.success) || (exploration && (!exploration.success || raw.kind !== 'variations'))) return { ok: false, reason: `page "${name}" has invalid exploration data` };
     const sections = raw.sections === undefined ? undefined : sectionsSchema.safeParse(raw.sections);
     if (sections && !sections.success) return { ok: false, reason: `page "${name}" has invalid sections` };
-    pages.push({ id: raw.id, name, ...(diagram !== undefined ? { diagram } : {}), ...(sections?.success ? { sections: sections.data } : {}) });
+    pages.push({ id: raw.id, name, ...(raw.kind ? {kind:raw.kind} : {}), ...(exploration?.success ? {exploration:exploration.data} : {}), ...(diagram !== undefined ? { diagram } : {}), ...(sections?.success ? { sections: sections.data } : {}) });
   }
 
   return { ok: true, pages };

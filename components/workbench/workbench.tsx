@@ -38,7 +38,12 @@ import { canonicalLayout, hasRootNode } from '@/lib/files/validate';
 import type { FileRecord, LayoutGrid, OverlayPresentation, OverlayPresentationType, Page, Screen } from '@/lib/files/repository';
 import { createOverlayScreen, isOverlay, nextOverlayDefaultName, wouldStrandPage } from '@/lib/files/screens';
 import { loadChatPanelOpen, saveChatPanelOpen } from '@/lib/chat/store';
-import { placeholderTransport } from '@/lib/chat/transport';
+import { ExplorationEntryContext } from './variations/context';
+import { cloneExploration } from '@/lib/variations/model';
+import { ExplorationSetup } from './variations/setup';
+import { VariationsWorkspace } from './variations/workspace';
+import type { Exploration, Snapshot, Variation } from '@/lib/variations/model';
+import { placeholderTransport, type ChatTransport } from '@/lib/chat/transport';
 import { createFileSaver, type FilePatch, type SaveState } from '@/lib/persistence';
 import { STAGE_PRESETS } from '@/lib/stage';
 import { cn } from '@/lib/utils';
@@ -49,7 +54,7 @@ import {
   savePanelMode,
 } from '@/lib/workbench/panel-store';
 import { moveSectionToPage } from '@/lib/canvas/move-section';
-import { containsRect, type CanvasSection } from '@/lib/canvas/sections';
+import { containsRect, growDiagramSections, type CanvasSection } from '@/lib/canvas/sections';
 import type { SectionChange } from '@/lib/canvas/sections';
 import { SectionsContext } from './sections/section-context';
 import { useSectionsController } from './sections/use-sections';
@@ -271,14 +276,17 @@ function EditorActionsBridge({ actionsRef }: { actionsRef: { current: EditorActi
 export function Workbench({
   file,
   invalidScreenIds = [],
+  chatTransport = placeholderTransport,
 }: {
   file: FileRecord;
+  chatTransport?: ChatTransport;
   // Screen ids whose saved layout failed validation server-side and was
   // replaced with an empty one before this component ever saw it (see
   // app/f/[id]/page.tsx's resolveClientScreens). Drives the topbar notice
   // below - purely a hint for that notice, never re-validated here.
   invalidScreenIds?: string[];
 }) {
+  const [exploreSource,setExploreSource]=useState<{screens:Snapshot[];ids:string[];name:string|null}|null>(null);
   const [writerOpen, setWriterOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'writer');
   useEffect(() => { const open = () => { const url = new URL(window.location.href); url.searchParams.set('mode', 'writer'); window.history.replaceState(null, '', url); setWriterOpen(true); }; window.addEventListener('dreamscape:writer', open); return () => window.removeEventListener('dreamscape:writer', open); }, []);
   const [components, setComponents] = useState<ComponentDefinition[]>(file.components ?? []);
@@ -562,7 +570,12 @@ export function Workbench({
       screens.filter((screen) => screen.pageId === pageId).map((screen) => screen.id),
     );
     const sanitized = sanitizeDiagram(diagram, validScreenIds);
-    const next = pages.map((page) => (page.id === pageId ? { ...page, diagram: sanitized } : page));
+    const next = pagesRef.current.map(page => page.id === pageId ? {
+      ...page,
+      diagram: sanitized,
+      ...(page.sections ? { sections: growDiagramSections(page.sections, page.diagram ?? { nodes: [], edges: [] }, sanitized) } : {}),
+    } : page);
+    pagesRef.current = next;
     setPages(next);
     queuePatch({ pages: next });
   }
@@ -590,6 +603,7 @@ export function Workbench({
     const sourceDiagram = pages[index].diagram;
     const newPage: Page = {
       id: newPageId,
+      ...(pages[index].kind === 'variations' ? {kind:'variations' as const,exploration:pages[index].exploration ? cloneExploration(pages[index].exploration) : undefined} : {}),
       name: `${pages[index].name} copy`,
       ...(pages[index].sections ? { sections: pages[index].sections.map(section => ({ ...section, id: nanoid(10) })) } : {}),
       ...(sourceDiagram ? { diagram: cloneDiagram(sourceDiagram, screenIdMap, () => nanoid(10)) } : {}),
@@ -1098,6 +1112,46 @@ export function Workbench({
     queuePatch({ components: nextComponents, screens: nextScreens });
   }
 
+  function startExploration(screenId?: string, nodeIds: string[] = []) {
+    const source = screensRef.current.find(screen => screen.id === (screenId ?? currentScreenIdRef.current));
+    const snapshots:Snapshot[]=source ? [{sourceScreenId:source.id,sourcePageId:source.pageId,name:source.name,layout:source.layout,width:source.stageWidth,height:source.stageHeight??null,appearance:source.appearance??appearance}] : [];
+    setExploreSource({screens:snapshots,ids:nodeIds,name:source ? (nodeIds.length ? `${nodeIds.length} selected element${nodeIds.length===1?'':'s'} in ${source.name}` : source.name) : null});
+  }
+  function createExploration(prompt:string) {
+    if(!exploreSource)return;
+    const page:Page={id:nanoid(10),name:`${exploreSource.screens[0]?.name??'New'} exploration`.slice(0,80),kind:'variations',exploration:{brief:'',source:exploreSource.screens,selectedIds:exploreSource.ids,sets:[{id:nanoid(10),parentId:null,prompt,count:1,countFromPrompt:true,teach:true,status:'pending',variations:[]}]}};
+    const next=[...pagesRef.current,page];pagesRef.current=next;setPages(next);queuePatch({pages:next});setExploreSource(null);switchPage(page.id);
+  }
+  function updateExploration(id:string, exploration:Exploration) {
+    if(!pagesRef.current.some(page=>page.id===id))return;
+    const next=pagesRef.current.map(page=>page.id===id?{...page,exploration}:page);setPages(next);queuePatch({pages:next});
+  }
+  function promoteVariation(variation:Variation,destination:string) {
+    const explorationPage=pagesRef.current.find(page=>page.id===currentPageId);
+    if(!explorationPage?.exploration)return;
+    if(variation.promoted && screensRef.current.some(screen=>screen.id===variation.promoted!.screenIds[0])){switchPage(variation.promoted.pageId);switchScreen(variation.promoted.screenIds[0]);return;}
+    const newPage:Page={id:nanoid(10),name:variation.name.slice(0,80)};
+    const original=explorationPage.exploration.source[0];
+    const source=screensRef.current.find(screen=>screen.id===original?.sourceScreenId)??screensRef.current.find(screen=>screen.layout===original?.layout);
+    const target=destination==='source'?(pagesRef.current.find(page=>page.id===source?.pageId&&page.kind!=='variations')??newPage):destination==='new'?newPage:pagesRef.current.find(page=>page.id===destination&&page.kind!=='variations');
+    if(!target)return;
+    const existing=screensRef.current.filter(screen=>screen.pageId===target.id);
+    let x=source?.pageId===target.id?(source.x??0)+source.stageWidth+120:Math.max(0,...existing.map(screen=>(screen.x??0)+screen.stageWidth+120));
+    const y=source?.pageId===target.id?(source.y??0):0;
+    const obstacles=[...existing.map(s=>({x:s.x??0,y:s.y??0,width:s.stageWidth,height:s.stageHeight??1200})),...(target.diagram?.nodes??[])];
+    const added=variation.screens.map(snapshot=>{
+      let collision;
+      do {collision=obstacles.find(box=>x<box.x+box.width+80&&x+snapshot.width+80>box.x&&y<box.y+box.height+80&&y+(snapshot.height??1200)+80>box.y);if(collision)x=collision.x+collision.width+120;}while(collision);
+      const tree=JSON.parse(snapshot.layout);
+      for(const key of ['canvasSections','inspectorScreens','crossFrameLayouts','frameSize'])if(tree.ROOT?.custom)delete tree.ROOT.custom[key];
+      const result:Screen={id:nanoid(10),pageId:target.id,name:snapshot.name,layout:JSON.stringify(tree),stageWidth:snapshot.width,stageHeight:snapshot.height,appearance:snapshot.appearance,x,y};obstacles.push({x,y,width:snapshot.width,height:snapshot.height??1200});x+=snapshot.width+120;return result;});
+    const nextScreens=[...screensRef.current,...added];
+    const nextPages=[...pagesRef.current,...(!pagesRef.current.some(page=>page.id===target.id)?[target]:[])].map(page=>page.id===explorationPage.id?{...page,exploration:{...page.exploration!,sets:page.exploration!.sets.map(set=>({...set,variations:set.variations.map(item=>item.id===variation.id?{...item,promoted:{pageId:target.id,screenIds:added.map(screen=>screen.id)}}:item)}))}}:page);
+    screensRef.current=nextScreens;setScreens(nextScreens);setPages(nextPages);queuePatch({pages:nextPages,screens:nextScreens});switchPage(target.id);switchScreen(added[0].id);
+  }
+  const variationsPage=pages.find(page=>page.id===currentPageId && page.kind==='variations');
+  if(variationsPage?.exploration) return <VariationsWorkspace key={variationsPage.id} fileId={file.id} page={variationsPage} pages={pages} transport={chatTransport} saveState={saveState} onUpdate={data=>updateExploration(variationsPage.id,data)} onSwitch={switchPage} onNew={()=>startExploration('')} onPromote={promoteVariation}/>;
+
   if (writerOpen) return <WriterWorkspace fileName={fileName} pages={pages} screens={screens} screenId={currentScreenId} pageId={currentPageId} appearance={appearance} saveState={saveState}
     onSelectScreen={switchScreen} onSelectPage={switchPage} onRetry={() => { saver.queue({ screens: screensRef.current }); void saver.flush(); }}
     onChange={(id, layout) => {
@@ -1106,6 +1160,8 @@ export function Workbench({
     }} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('mode'); window.history.replaceState(null, '', url); editorActionsRef.current = null; baselinedScreenIdsRef.current.clear(); setWriterOpen(false); }} />;
 
   return (
+    <ExplorationEntryContext.Provider value={startExploration}>
+      {exploreSource&&<ExplorationSetup name={exploreSource.name} onClose={()=>setExploreSource(null)} onCreate={createExploration}/>}
     <AppearanceContext.Provider value={{ appearance, setAppearance: next => { setAppearance(next); queuePatch({ appearance: next }); }, setFrameAppearance: (id, value) => recordInspectorScreens([{ id, patch: { appearance: value } }]) }}>
     <ComponentLibraryProvider fileId={file.id} components={components} saveState={saveState}
       onSave={(definition, sourceId) => changeComponent(definition, false, sourceId)} onRemove={definition => changeComponent(definition, true)}
@@ -1143,6 +1199,7 @@ export function Workbench({
         onDeviceChange={handleDeviceChange}
       >
         <WorkbenchShell
+          chatTransport={chatTransport}
           fileId={file.id}
           folderId={file.folderId ?? null}
           fileName={fileName}
@@ -1183,11 +1240,12 @@ export function Workbench({
       </StageProvider>
     </Editor>
     </ComponentLibraryProvider>
-    </AppearanceContext.Provider>
+    </AppearanceContext.Provider></ExplorationEntryContext.Provider>
   );
 }
 
 function WorkbenchShell({
+  chatTransport,
   fileId,
   folderId,
   fileName,
@@ -1222,6 +1280,7 @@ function WorkbenchShell({
   onDeleteScreen,
   onMoveScreenToPage,
 }: {
+  chatTransport: ChatTransport;
   fileId: string;
   folderId: string | null;
   fileName: string;
@@ -2011,7 +2070,7 @@ function WorkbenchShell({
   const chatPositionClass = 'left-3 w-64';
 
   return (
-    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ prototypesOpen, setPrototypesOpen, pageSelector: <PagesMenu pages={pages} currentPageId={currentPageId} screens={screens} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} onDuplicate={onDuplicatePage} onDelete={onDeletePage} onMove={onMovePage} />, onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={placeholderTransport}>
+    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ prototypesOpen, setPrototypesOpen, pageSelector: <PagesMenu pages={pages} currentPageId={currentPageId} screens={screens} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} onDuplicate={onDuplicatePage} onDelete={onDeletePage} onMove={onMovePage} />, onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={chatTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           <CursorMinimap enabled={!componentLibrary?.editing} />

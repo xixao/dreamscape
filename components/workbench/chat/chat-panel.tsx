@@ -1,4 +1,5 @@
 'use client';
+import { sendDesignRequest } from '@/lib/chat/design-instructions';
 
 import { SelectionChip, useChatSelection, setChatSelection, beginSelectionRequest } from './selection-chip';
 import { CanvasPromptControls } from './canvas-prompt-controls';
@@ -162,8 +163,7 @@ export function ChatPanel({
     controller.signal.addEventListener('abort', clearOutline, { once: true });
     setPending(true);
 
-    transport
-      .send(history, trimmed, controller.signal)
+    sendDesignRequest(transport, history, trimmed, controller.signal)
       .then((reply) => {
         if (controller.signal.aborted) return;
         setMessages(store.append(newMessage('assistant', reply)));

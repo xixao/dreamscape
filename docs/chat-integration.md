@@ -62,17 +62,18 @@ server, the same way the rest of this app's client code never sees
 
 ## Where the provider is mounted
 
-`components/workbench/workbench.tsx` wraps `WorkbenchShell` in:
+`Workbench` accepts an optional `chatTransport: ChatTransport` prop, defaulting
+currently to `placeholderTransport`. Pass the real client transport from the
+client loader, or replace the default transport import in Workbench once the
+integration is available. Keep credentials on the server.
 
-```tsx
-<ChatTransportProvider transport={placeholderTransport}>
-```
+Workbench passes this same transport to the Chat panel provider and the
+Variations workspace. Changing only the nested ChatTransportProvider would
+leave Variations disconnected. Tests inject a controlled transport through
+this prop; no fixture transport is exposed in the product.
 
-To go live, change that one prop to the real transport (import it in place of
-`placeholderTransport` from `@/lib/chat/transport`). `ChatPanel` reads the
-transport through `useChatTransport()`
-(`components/workbench/chat/chat-transport-context.tsx`) and never imports a
-transport implementation directly, so this is the only line that needs to change.
+See [Variations integration](variations-integration.md) for its JSON contract,
+validation and current limitations.
 
 ## What the panel guarantees
 
@@ -96,3 +97,17 @@ Messages persist per file in `localStorage` under
 `assembly-workbench:chat:<fileId>` (`lib/chat/store.ts`,
 `createChatStore`). A real transport does not need to know about this - it
 only ever sees the `history` array `ChatPanel` passes it.
+
+### Shared design rationale instructions
+All built-in chat, inline prompt, and Variations requests pass through
+`sendDesignRequest` in `lib/chat/design-instructions.ts`. This attaches the
+versioned Dreamscape guidance independently of the chosen provider. New request
+surfaces must use this entry point. Adapters should additionally place
+`DESIGN_INSTRUCTIONS` in their provider's system/developer message; preserve the
+envelope for adapters that only accept plain text. Never rely on conversation
+history to carry the instructions to later requests.
+
+The guidance teaches UX principles without inventing organizational workflows,
+separates evidence from hypotheses, and makes recommendations conditional.
+It is prompt guidance, not a guarantee of factual compliance; human review
+remains necessary. Existing saved rationale is not rewritten automatically.

@@ -1,4 +1,5 @@
 'use client';
+import { useExploreVariations } from './variations/context';
 import { DRAG_MOVE_TO } from './drag-surfaces';
 import { startAreaPrompt } from './chat/canvas-prompt-controls';
 import { useEditor } from '@craftjs/core';
@@ -25,6 +26,7 @@ const SELECTION_MENU_ROW = `${MENU_ROW} grid grid-cols-[minmax(0,1fr)_48px_12px]
 const SELECTION_MENU_KEY = 'col-start-2 justify-self-end rounded border border-line-soft bg-muted px-1 text-[10px] leading-4 font-sans text-muted-foreground';
 
 export function FrameSelectionActions({ active = true, builder = false, alignmentScope = 'all', onZoomSelection }: { active?: boolean; builder?: boolean; alignmentScope?: 'all' | 'size'; onZoomSelection?: () => void }) {
+  const explore = useExploreVariations();
   const { actions, query } = useEditor();
   const canvas = useCanvasDocument();
   const library = useComponentLibrary();
@@ -207,7 +209,7 @@ export function FrameSelectionActions({ active = true, builder = false, alignmen
       const id = [...query.getState().events.selected][0];
       const nodes = query.getSerializedNodes();
       if (id && nodes[id]) { setComponentCode(nodes[id].type && typeof nodes[id].type === 'object' && nodes[id].type.resolvedName === 'CustomComponent' ? nodes[id].props.layout : null); setCode({ name: nodes[id].custom.layerName || nodes[id].displayName, text: selectionCode(nodes, id) }); setCopyStatus('Copy code'); }
-    }}>View Code</DropdownMenuItem><DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={copyPng}>Copy as PNG<kbd className={SELECTION_MENU_KEY}>⌘⇧C</kbd></DropdownMenuItem>
+    }}>View Code</DropdownMenuItem>{explore && !builder && <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={()=>explore(undefined,[...query.getState().events.selected])}>Explore variations…</DropdownMenuItem>}<DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={copyPng}>Copy as PNG<kbd className={SELECTION_MENU_KEY}>⌘⇧C</kbd></DropdownMenuItem>
     <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={() => window.dispatchEvent(new Event(DRAG_MOVE_TO))}>Move to…</DropdownMenuItem>
     <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={startAreaPrompt}>Ask AI about an area</DropdownMenuItem>
     {library?.create && <DropdownMenuItem className={SELECTION_MENU_ROW} onSelect={createComponent}>Create Custom Component</DropdownMenuItem>}

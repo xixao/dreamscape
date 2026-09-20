@@ -49,3 +49,56 @@ export function fitSectionObjects(section: CanvasSection, sections: CanvasSectio
   const x=Math.floor(Math.min(...boxes.map(b=>b.x))-64),y=Math.floor(Math.min(...boxes.map(b=>b.y))-80);
   return {x,y,width:Math.max(160,Math.ceil(Math.max(...boxes.map(b=>b.x+b.width))+64-x)),height:Math.max(120,Math.ceil(Math.max(...boxes.map(b=>b.y+b.height))+64-y))};
 }
+
+/** Expand existing diagram sections without shrinking or capturing unrelated canvas objects. */
+export function growDiagramSections(
+  sections: CanvasSection[],
+  previous: import('../diagram/store').DiagramData,
+  next: import('../diagram/store').DiagramData,
+): CanvasSection[] {
+  if (!sections.length) return sections;
+  const ordered = [...sections].sort((a, b) => a.width * a.height - b.width * b.height || a.id.localeCompare(b.id));
+  const owners = new Map<string, string>();
+  const oldNodes = new Map(previous.nodes.map(node => [node.id, node]));
+  const overlaps = (a: FrameRect, b: FrameRect) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  for (const node of next.nodes) {
+    const old = oldNodes.get(node.id);
+    const owner = ordered.find(section => old ? containsRect(section, old) : overlaps(section, node));
+    if (owner) owners.set(node.id, owner.id);
+  }
+  // Newly connected shapes inherit the section of the existing diagram.
+  // Iterate to cover a pasted chain regardless of connector ordering.
+  for (let pass = 0; pass < next.nodes.length; pass++) {
+    let changed = false;
+    for (const edge of next.edges) {
+      for (const [from, to] of [[edge.source.nodeId, edge.target.nodeId], [edge.target.nodeId, edge.source.nodeId]]) {
+        if (!from || !to || (oldNodes.has(to) && previous.edges.some(old => old.id === edge.id)) || owners.has(to) || !owners.has(from)) continue;
+        owners.set(to, owners.get(from)!); changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  const expanded = new Map<string, CanvasSection>();
+  function include(section: CanvasSection, box: FrameRect): CanvasSection {
+    if (containsRect(section, box)) return section;
+    const x = Math.max(-1000000, Math.floor(Math.min(section.x, box.x - 64)));
+    const y = Math.max(-1000000, Math.floor(Math.min(section.y, box.y - 80)));
+    return { ...section, x, y,
+      width: Math.min(100000, Math.ceil(Math.max(section.x + section.width, box.x + box.width + 64) - x)),
+      height: Math.min(100000, Math.ceil(Math.max(section.y + section.height, box.y + box.height + 64) - y)) };
+  }
+  for (const original of ordered) {
+    let section = original;
+    for (const node of next.nodes) {
+      if (owners.get(node.id) === original.id) section = include(section, node);
+    }
+    for (const child of ordered) {
+      if (child.id !== original.id && containsRect(original, child) && expanded.has(child.id)) {
+        section = include(section, expanded.get(child.id)!);
+      }
+    }
+    expanded.set(original.id, section);
+  }
+  const result = sections.map(section => expanded.get(section.id)!);
+  return result.every((section, index) => section === sections[index]) ? sections : result;
+}

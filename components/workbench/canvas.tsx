@@ -1,4 +1,5 @@
 'use client';
+import { useExploreVariations } from './variations/context';
 import { panMomentum, type PanSample } from '@/lib/canvas/pan-momentum';
 import { startAreaPrompt } from './chat/canvas-prompt-controls';
 
@@ -514,6 +515,7 @@ export function Canvas({
   const sections = useSections();
   const [sectionDiagramPreview, setSectionDiagramPreview] = useState<FramePosition[]>([]);
   const [sectionPreview, setSectionPreview] = useState<FramePosition[]>([]);
+  const explore = useExploreVariations();
   const [sectionMenu, setSectionMenu] = useState<{x:number;y:number;frameId?:string}|null>(null);
   const setStageZoom = useStage().setZoom;
   const focusedCanvasDocument = useCanvasDocument();
@@ -1214,6 +1216,7 @@ export function Canvas({
         <DropdownMenu open={!!sectionMenu} onOpenChange={open=>{if(!open)setSectionMenu(null);}} modal={false}>
           <DropdownMenuTrigger asChild><button aria-hidden tabIndex={-1} style={{position:'fixed',left:sectionMenu?.x??0,top:sectionMenu?.y??0,width:1,height:1,opacity:0,pointerEvents:'none'}}/></DropdownMenuTrigger>
           <DropdownMenuContent className="w-64" onCloseAutoFocus={event=>event.preventDefault()}>
+            {explore && sectionMenu?.frameId && <DropdownMenuItem onSelect={()=>explore(sectionMenu.frameId)}>Explore variations…</DropdownMenuItem>}
             <DropdownMenuItem onSelect={sections.start}>Create Section<span className="ml-auto text-xs text-muted-foreground">⇧S</span></DropdownMenuItem>
             <DropdownMenuItem onSelect={startAreaPrompt}>Ask AI about an area</DropdownMenuItem>
             {sectionMenu?.frameId && <DropdownMenuItem onSelect={()=>sections.wrap(selectedFrameIds.has(sectionMenu.frameId!)?[...selectedFrameIds]:[sectionMenu.frameId!])}>Wrap in Section</DropdownMenuItem>}

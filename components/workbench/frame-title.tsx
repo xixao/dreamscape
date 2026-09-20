@@ -1,4 +1,5 @@
 'use client';
+import { useExploreVariations } from './variations/context';
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { MoreHorizontal } from 'lucide-react';
@@ -98,6 +99,7 @@ export function FrameTitle({
   onShiftSelect?: () => void;
   onSelect?: () => void;
 }) {
+  const explore = useExploreVariations();
   const [renaming, setRenaming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // The drag's own starting point (both in screen px, for computing deltas,
@@ -207,6 +209,7 @@ export function FrameTitle({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48" onPointerDown={event => event.stopPropagation()}>
+        {explore && <DropdownMenuItem onSelect={() => explore(screen.id)}>Explore variations…</DropdownMenuItem>}
         {STAGE_PRESET_ORDER.map(preset => <DropdownMenuItem key={preset} onSelect={() => onResize?.(STAGE_PRESETS[preset])}>
           <span>{preset[0].toUpperCase() + preset.slice(1)}</span><span className="ml-auto text-muted-foreground">{STAGE_PRESETS[preset]} px</span>
         </DropdownMenuItem>)}

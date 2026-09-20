@@ -1393,6 +1393,66 @@ describe('Workbench', () => {
     }, { timeout: 1500 });
   });
 
+  describe('variation entry and generation', () => {
+    const generated = { name:'Task-focused', screens:[{name:'Tasks', layout:emptyLayoutJson(), width:1440, height:900}], rationale:{hypothesis:'Focus on tasks', assumption:'Users need a next action', tradeoff:'Less overview', decisions:[], precedents:[], test:'Find the next task'} };
+    it('creates a persistent Variations Page and promotes a generated result without changing the source', async () => {
+      const transport={send:vi.fn().mockResolvedValue(JSON.stringify({variations:[generated]}))};
+      render(<Workbench file={makeFile()} chatTransport={transport}/>);
+      await userEvent.click(screen.getByRole('button',{name:'Frame options for Frame 1'}));
+      await userEvent.click(screen.getByRole('menuitem',{name:'Explore variations…'}));
+      await userEvent.type(screen.getByRole('textbox',{name:/What would you like to explore/}),'Create one variation');
+      await userEvent.click(screen.getByRole('button',{name:'Generate variations'}));
+      await screen.findByRole('button',{name:/Task-focused/});
+      expect(transport.send).toHaveBeenCalledTimes(1);
+      await waitFor(()=>expect(fetchMock.mock.calls.some(([,init])=>JSON.parse(init.body).pages?.some((page: {kind?:string})=>page.kind==='variations'))).toBe(true),{timeout:1500});
+
+      await userEvent.click(screen.getByRole('button',{name:'Add to canvas'}));
+      await waitFor(()=>expect(screen.getByRole('button',{name:'Frames'})).toHaveTextContent('Tasks'));
+      await waitFor(()=>{
+        const bodies=fetchMock.mock.calls.map(([,init])=>JSON.parse(init.body));
+        const saved=bodies.find(body=>body.screens?.some((item:Screen)=>item.name==='Tasks'));
+        expect(saved).toBeDefined();expect(saved.screens.find((item:Screen)=>item.id===SCREEN_1.id).layout).toBe(SCREEN_1.layout);
+        const added=saved.screens.find((item:Screen)=>item.name==='Tasks');
+        const original=saved.screens.find((item:Screen)=>item.id===SCREEN_1.id);
+        expect(added.pageId).toBe(original.pageId);expect(added.y).toBe(original.y??0);expect(added.x).toBeGreaterThanOrEqual((original.x??0)+original.stageWidth+120);
+      },{timeout:1500});
+    });
+    it('creates a child round while preserving earlier alternatives', async () => {
+      const transport={send:vi.fn()
+        .mockResolvedValueOnce(JSON.stringify({variations:[generated]}))
+        .mockResolvedValueOnce(JSON.stringify({variations:[{...generated,name:'Search-focused'}]}))};
+      render(<Workbench file={makeFile()} chatTransport={transport}/>);
+      await userEvent.click(screen.getByRole('button',{name:'Frame options for Frame 1'}));
+      await userEvent.click(screen.getByRole('menuitem',{name:'Explore variations…'}));
+      await userEvent.type(screen.getByRole('textbox',{name:/What would you like to explore/}),'Create one variation');
+      await userEvent.click(screen.getByRole('button',{name:'Generate variations'}));
+      await screen.findByRole('button',{name:/Task-focused/});
+
+      await userEvent.type(screen.getByLabelText('Follow-up prompt'),'Prioritize search');
+      await userEvent.click(screen.getByRole('button',{name:'Generate variations'}));
+      await screen.findByRole('button',{name:/Search-focused/});
+      expect(screen.getByRole('region',{name:'Round 2'})).toHaveTextContent('Search-focused');
+      expect(screen.getByText('Based on: Task-focused')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Compare with')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Review zoom')).not.toBeInTheDocument();
+      expect(screen.getAllByLabelText('Review Tasks')).toHaveLength(2);
+      await waitFor(()=>{
+        const bodies=fetchMock.mock.calls.map(([,init])=>JSON.parse(init.body));
+        const exploration=bodies.flatMap(body=>body.pages??[]).findLast((p:{kind?:string})=>p.kind==='variations')?.exploration;
+        expect(exploration?.sets).toHaveLength(2);
+        expect(exploration.sets[1].parentId).toBe(exploration.sets[0].variations[0].id);
+      },{timeout:1500});
+    });
+    it('shows an honest unavailable state with the placeholder connection',async()=>{
+      render(<Workbench file={makeFile()}/>);
+      await userEvent.click(screen.getByRole('button',{name:'Frame options for Frame 1'}));
+      await userEvent.click(screen.getByRole('menuitem',{name:'Explore variations…'}));
+      await userEvent.click(screen.getByRole('button',{name:'I’m feeling lucky'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Connect the working Cursor');
+      expect(screen.queryByRole('button',{name:'Open variation'})).toBeNull();
+    });
+  });
+
   describe('the Files back link', () => {
     it('goes to the top level when the file has no folder', () => {
       render(<Workbench file={makeFile({ folderId: null })} />);

@@ -1,9 +1,11 @@
 'use client';
+import { sendDesignRequest } from '@/lib/chat/design-instructions';
+import { useExploreVariations } from '../variations/context';
 
 import { useCanvasPrompts } from './canvas-prompt-controls';
 import { useEditor } from '@craftjs/core';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, X } from 'lucide-react';
+import { ArrowUp, GitBranch, X } from 'lucide-react';
 import { createChatStore } from '@/lib/chat/store';
 import { useChatTransport } from './chat-transport-context';
 import { Input } from '@/components/ui/input';
@@ -11,9 +13,10 @@ import { PANEL, SEARCH, SEARCH_INPUT } from '../chrome';
 
 /** UI-only element-scoped AI entry point. Never mutates the document. */
 export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: () => void }) {
-  const { id, node, dragging } = useEditor(state => {
+  const explore = useExploreVariations();
+  const { id, selectedIds, node, dragging } = useEditor(state => {
     const id = Array.from(state.events.selected)[0];
-    return { id, node: id ? state.nodes[id] : undefined, dragging: state.events.dragged.size > 0 };
+    return { id, selectedIds: Array.from(state.events.selected), node: id ? state.nodes[id] : undefined, dragging: state.events.dragged.size > 0 };
   });
   const enabled = useCanvasPrompts();
   const transport = useChatTransport();
@@ -80,11 +83,12 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
     setText(''); setSent(true);
     // Uses the same transport and per-file conversation as the full Chat panel.
     // Finish the reply even if the user selects another component meanwhile.
-    transport.send(history, request).then(reply => append('assistant', reply)).catch(() => append('assistant', 'Something went wrong. Try again.')).finally(() => setSent(false));
+    sendDesignRequest(transport,history, request).then(reply => append('assistant', reply)).catch(() => append('assistant', 'Something went wrong. Try again.')).finally(() => setSent(false));
   }
   return <section ref={promptRef} aria-label={`AI edit ${name}`} style={position} className={`${PANEL} fixed z-50 w-80 max-w-[calc(100vw-24px)] p-1.5`} onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
     <form className={`${SEARCH} h-10 flex-nowrap gap-2 py-1 pr-1 pl-3`} onSubmit={event => { event.preventDefault(); send(); }}>
       <Input type="text" key={id} aria-label={`Ask AI about ${name}`} placeholder={`Ask AI to edit ${name}…`} value={text} onChange={event => setText(event.target.value)} className={`${SEARCH_INPUT.replace('placeholder:text-t4', 'placeholder:text-t2')} flex-1 text-[13px] placeholder:opacity-100`} />
+      {explore&&<button type="button" aria-label="Explore variations…" title="Explore variations…" className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring" onClick={()=>explore(undefined,selectedIds)}><GitBranch aria-hidden className="size-4" /></button>}
       <button type="submit" title="Send to AI conversation" aria-label="Send request" disabled={!text.trim() || sent} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"><ArrowUp aria-hidden className="size-4" /></button>
       <button type="button" title="Close prompt" aria-label="Close prompt" onClick={onClose} className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X aria-hidden className="size-4" /></button>
     </form>

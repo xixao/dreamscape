@@ -1,8 +1,9 @@
 import { annotationMeta, annotationFields, stampLabel, type Annotation } from '@/lib/accessibility/kit';
 
 /** Native, editable annotation content. These overlays never enter the product component tree. */
-export function AnnotationContent({annotation:a}: {annotation:Annotation}) {
+export function AnnotationContent({annotation:a, compact=false}: {annotation:Annotation;compact?:boolean}) {
   const meta=annotationMeta(a);
+  if(compact)return <div style={{background:'var(--bg-panel, #22202c)',color:'var(--text-primary, #f1eff7)',border:'1px solid #8250df',borderRadius:8,padding:12,fontSize:13,lineHeight:1.5}}><div style={{display:'flex',gap:8,alignItems:'center',fontWeight:600,marginBottom:6}}><span style={{background:meta.color,color:'#fff',borderRadius:20,width:22,height:22,textAlign:'center',flexShrink:0}}>{a.number}</span>{a.values.title}</div><p>{a.values.description}</p></div>;
   const pill=<span style={{display:'inline-flex',alignItems:'center',gap:8,borderRadius:24,background:meta.color,color:'#fff',padding:'6px 12px',whiteSpace:'nowrap',fontSize:14,fontWeight:600}}>{stampLabel(a)}{a.showNumber&&<span style={{borderLeft:'1px solid #ffffff80',paddingLeft:8}}>{a.number}</span>}{a.resolved&&' ✓'}</span>;
   if(a.format==='pin'||a.format==='lasso'||a.format==='bracket') {
     const horizontal=a.position==='left'||a.position==='right';

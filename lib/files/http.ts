@@ -1,3 +1,4 @@
+import { explorationSchema } from '@/lib/variations/model';
 import { annotationSchema } from '@/lib/accessibility/kit';
 import { sectionsSchema } from '@/lib/canvas/sections';
 import { componentLibrarySchema } from '@/lib/custom-components/model';
@@ -83,6 +84,8 @@ const diagramField = z.object({
 // page) live in validatePages (lib/files/validate.ts), called from the
 // repository - same split every other content rule here already has.
 const pageField = z.object({
+  kind: z.enum(['design', 'variations']).optional(),
+  exploration: explorationSchema.optional(),
   id: z.string().min(1),
   name: z.string(),
   diagram: diagramField.optional(),

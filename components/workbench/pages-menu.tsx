@@ -1,4 +1,5 @@
 'use client';
+import { useExploreVariations } from './variations/context';
 
 import { useRef, useState } from 'react';
 import { Check, ChevronDown, Layers2 } from 'lucide-react';
@@ -72,6 +73,7 @@ export function PagesMenu({
   // place screens-strip.tsx's own Rename ends up (its menu closes first,
   // then the tab's own label becomes the input), sidesteps that fight
   // rather than trying to out-race it.
+  const explore = useExploreVariations();
   const [renaming, setRenaming] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Page | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -145,7 +147,7 @@ export function PagesMenu({
         >
           {pages.map((page) => (
             <DropdownMenuItem key={page.id} onSelect={() => onSwitch(page.id)}>
-              <span className="flex-1 truncate">{page.name}</span>
+              <span className="flex-1 truncate">{page.kind==='variations'?'Variations · ':''}{page.name}</span>
               {page.id === currentPageId && (
                 <Check data-testid="page-check" className="size-3.5 shrink-0" aria-hidden />
               )}
@@ -172,6 +174,7 @@ export function PagesMenu({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onAdd}>New page</DropdownMenuItem>
+          {explore&&<DropdownMenuItem onSelect={()=>explore('')}>New Variations Page</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>
 
