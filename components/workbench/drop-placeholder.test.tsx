@@ -51,7 +51,7 @@ describe('stable drag previews', () => {
         [a, b, c].forEach((id, i) => setRect(h.query.node(id).get().dom!, { left: i * 100, top: 0, width: 90, height: 60 }));
         return { h, a, b, c, root, ...utils };
     }
-    it('keeps the layout and original styles unchanged throughout a drag; commits once on drop and undoes', () => {
+    it('preserves the layout during drag; commits once on drop and undoes', () => {
         const { h, a, b, c, root } = arrangement();
         const dom = h.query.node(a).get().dom!;
         const before = root.innerHTML;
@@ -67,6 +67,39 @@ describe('stable drag previews', () => {
         expect([...h.query.getState().events.selected]).toEqual([a]);
         act(() => h.actions.history.undo());
         expect(h.query.node(ROOT_NODE).get().data.nodes).toEqual([a, b, c]);
+    });
+    it('uses the actual component preview and restores source styles after cancellation', async () => {
+        const { h, a, b, c } = arrangement();
+        const dom = h.query.node(a).get().dom!;
+        const panel = document.createElement('aside');
+        document.body.append(panel);
+        dom.style.opacity = '0.8';
+        dom.style.outline = '2px solid red';
+        const dt = dataTransfer();
+        fireEvent.dragStart(dom, { dataTransfer: dt });
+        const preview = dt.setDragImage.mock.calls[0][0] as HTMLElement;
+        expect(preview.querySelector('button')?.textContent).toBe('A');
+        expect(panel.hasAttribute('data-drag-obscured')).toBe(false);
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+        expect(dom.style.opacity).toBe('0.35');
+        expect(panel.getAttribute('data-drag-obscured')).toBe('true');
+        expect(h.query.node(ROOT_NODE).get().data.nodes).toEqual([a, b, c]);
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(dom.style.opacity).toBe('0.8');
+        expect(dom.style.outline).toBe('2px solid red');
+        expect(preview.isConnected).toBe(false);
+        expect(panel.hasAttribute('data-drag-obscured')).toBe(false);
+        panel.remove();
+    });
+    it('keeps a trailing-edge footprint within the receiving container', () => {
+        const { h, a, c } = arrangement();
+        const dt = dataTransfer();
+        fireEvent.dragStart(h.query.node(a).get().dom!, { dataTransfer: dt });
+        dragOver(h.query.node(c).get().dom!, { clientX: 295, clientY: 30, dataTransfer: dt });
+        const footprint = document.querySelector<HTMLElement>('[data-drop-footprint]')!;
+        expect(footprint.style.display).toBe('block');
+        expect(parseFloat(footprint.style.left) + parseFloat(footprint.style.width)).toBeLessThanOrEqual(300);
+        fireEvent.keyDown(document, { key: 'Escape' });
     });
     it('Escape and invalid drops leave the tree untouched', () => {
         const { h, a, b, c } = arrangement();

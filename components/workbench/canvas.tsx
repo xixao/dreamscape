@@ -1,4 +1,5 @@
 'use client';
+import { useDragEdgePan } from './use-drag-edge-pan';
 import { useExploreVariations } from './variations/context';
 import { panMomentum, type PanSample } from '@/lib/canvas/pan-momentum';
 import { startAreaPrompt } from './chat/canvas-prompt-controls';
@@ -260,6 +261,8 @@ export function useCanvasViewportController({
       return next.x === current.x && next.y === current.y && next.zoom === current.zoom ? current : next;
     });
   }, []);
+
+  useDragEdgePan(rootRef, setViewport);
 
   const animateTo = useCallback((target: Viewport, durationMs: number = TAB_FOCUS_ANIMATION_MS) => {
     if (animationRef.current) animationRef.current.cancelled = true;

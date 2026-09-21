@@ -10,3 +10,6 @@ export type DragSurface = {
 export const dragSurfaces = new Map<string, DragSurface>();
 export const DRAG_MOVE_TO = 'dreamscape-move-to';
 export const DRAG_TARGET = 'dreamscape-drag-target';
+
+export const DRAG_POINTER = 'dreamscape-drag-pointer';
+export const DRAG_PANNED = 'dreamscape-drag-panned';

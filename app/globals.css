@@ -214,3 +214,13 @@
   --sidebar-border: oklch(1 0 0 / 15%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+/* Reveal the canvas while moving an existing canvas component. */
+aside { transition: opacity 150ms ease-out; }
+aside[data-drag-obscured="true"], aside[data-drag-obscured="true"] * {
+  pointer-events: none !important;
+}
+aside[data-drag-obscured="true"] { opacity: 0 !important; }
+@media (prefers-reduced-motion: reduce) {
+  aside { transition: none; }
+}

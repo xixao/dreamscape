@@ -152,14 +152,60 @@ export function FrameSelectionActions({ active = true, builder = false, alignmen
         if (next.length) { consume(); actions.selectNode(next); }
         return;
       }
-      if (canvasFocus && !event.shiftKey && event.key.startsWith('Arrow')) {
+      if ((canvasFocus || target?.closest('[data-drag-layer]')) && !event.shiftKey && event.key.startsWith('Arrow') && !query.getState().events.dragged.size) {
         const parent = nodes[ids[0]]?.parent;
-        const horizontal = parent && resolve(nodes[parent].props.direction, breakpoint) === 'row';
-        const delta = event.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') ? -1 : event.key === (horizontal ? 'ArrowRight' : 'ArrowDown') ? 1 : 0;
+        const parentDom = parent ? query.node(parent).get().dom : null;
+        const css = parentDom?.ownerDocument.defaultView?.getComputedStyle(parentDom);
+        let direction = parent ? resolve(nodes[parent].props.direction, breakpoint) : 'column';
+        if (css?.display.includes('flex')) direction = css.flexDirection || direction;
+        else if (parent && (css?.display.includes('grid') || nodes[parent].props.mode === 'grid')) {
+          // A grid has no flex direction. Use the visible relationship to the
+          // adjacent sibling, so responsive columns follow the actual canvas.
+          const siblings = nodes[parent].nodes;
+          const index = siblings.indexOf(ids[0]);
+          const current = query.node(ids[0]).get().dom?.getBoundingClientRect();
+          const neighborId = siblings[index + 1] ?? siblings[index - 1];
+          const neighbor = neighborId ? query.node(neighborId).get().dom?.getBoundingClientRect() : null;
+          if (current && neighbor && current.width && neighbor.width) {
+            const overlapY = Math.min(current.bottom, neighbor.bottom) - Math.max(current.top, neighbor.top);
+            direction = overlapY > 0 ? 'row' : 'column';
+          } else if (css?.gridTemplateColumns && css.gridTemplateColumns !== 'none') {
+            direction = css.gridTemplateColumns.trim().split(/\s+/).length > 1 ? 'row' : 'column';
+          }
+        }
+        const horizontal = direction === 'row' || direction === 'row-reverse';
+        const reverse = direction === 'row-reverse' || direction === 'column-reverse';
+        const delta = (event.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') ? -1 : event.key === (horizontal ? 'ArrowRight' : 'ArrowDown') ? 1 : 0) * (reverse ? -1 : 1);
         if (delta) {
           consume();
           const next = reorderSelection(nodes, ids, delta);
-          if (next) { actions.deserialize(JSON.stringify(next)); actions.selectNode(ids); }
+          if (next && parent) {
+            const positions = new Map(nodes[parent].nodes.flatMap(id => {
+              const dom = query.node(id).get().dom;
+              return dom ? [[id, dom.getBoundingClientRect()] as const] : [];
+            }));
+            // Preserve existing node instances and let Craft validate the move.
+            const ordered = next[parent].nodes;
+            const moving = nodes[parent].nodes.filter(id => ids.includes(id));
+            try {
+              // Multiple nonadjacent selections keep their relative spacing.
+              if (moving.length === 1) {
+                const from = nodes[parent].nodes.indexOf(moving[0]);
+                const to = ordered.indexOf(moving[0]);
+                actions.move(moving[0], parent, to > from ? to + 1 : to);
+              } else actions.deserialize(JSON.stringify(next));
+              actions.selectNode(ids);
+              if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) requestAnimationFrame(() => {
+                for (const [id, before] of positions) {
+                  const dom = query.getState().nodes[id]?.dom;
+                  if (!dom?.animate) continue;
+                  const after = dom.getBoundingClientRect();
+                  const dx = before.left - after.left, dy = before.top - after.top;
+                  if (dx || dy) dom.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }], { duration: 160, easing: 'ease-out' });
+                }
+              });
+            } catch { setNotice('This component cannot move to that position.'); }
+          }
         }
         return;
       }

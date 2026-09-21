@@ -1,4 +1,5 @@
 'use client';
+import { layerLabel } from '@/lib/layer-label';
 import { useEffect, useRef, useState } from 'react';
 import { useEditor } from '@craftjs/core';
 import { X } from 'lucide-react';
@@ -48,7 +49,7 @@ export function AreaPrompt({ fileId, onCapture }: { fileId: string; onCapture: (
 
     const matches = Object.values(query.getNodes()).filter(n => n.dom?.isConnected && lassoEncloses(polygon,screenBox(n.dom)));
     if (!matches.length) { setEmpty(true); return; }
-    setChatSelection(fileId, matches.map(n => ({id:n.id,name:n.data.custom?.layerName || n.data.displayName})), polygon.map(p => ({x:(p.x-viewport.x)/viewport.zoom,y:(p.y-viewport.y)/viewport.zoom})));
+    setChatSelection(fileId, matches.map(n => ({id:n.id,name:layerLabel(n.data)})), polygon.map(p => ({x:(p.x-viewport.x)/viewport.zoom,y:(p.y-viewport.y)/viewport.zoom})));
     setActive(false); onCapture();
   }}>
     <div data-lasso-help className={`${PANEL} absolute top-20 left-1/2 -translate-x-1/2 px-3 py-2 text-xs flex items-center gap-3`}>{empty ? 'No components enclosed. Circle them again.' : 'Circle components to ask AI. Release to finish. Escape cancels.'}<button aria-label="Cancel area prompt" onClick={()=>setActive(false)}><X className="size-4" /></button></div>

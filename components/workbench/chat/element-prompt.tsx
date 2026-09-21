@@ -1,4 +1,5 @@
 'use client';
+import { layerLabel } from '@/lib/layer-label';
 import { sendDesignRequest } from '@/lib/chat/design-instructions';
 import { useExploreVariations } from '../variations/context';
 
@@ -71,7 +72,7 @@ export function ElementPrompt({ fileId, onClose }: { fileId: string; onClose: ()
     update(); return () => cancelAnimationFrame(raf);
   }, [node?.dom]);
   if (!enabled || dragging || !node || !position) return null;
-  const name = node.data.custom?.layerName || node.data.displayName || node.data.name;
+  const name = layerLabel(node.data);
   function send() {
     const prompt = text.trim();
     if (!prompt || sent) return;

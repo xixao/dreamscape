@@ -180,3 +180,42 @@ it('creates a named reusable component from selection and detaches its instance 
   expect(detached.data.name).toBe('LayoutBox');
   expect(editor().query.node(detached.data.nodes[0]).get().data.props.label).toBe('Keep this label');
 });
+
+it('reorders from a layer row and preserves selection with one-step undo', () => {
+  const { editor } = setup();
+  const ids = editor().query.node('ROOT').get().data.nodes;
+  act(() => { editor().actions.selectNode(ids[1]); editor().actions.history.clear(); });
+  const row = document.createElement('button');
+  row.setAttribute('data-drag-layer', ids[1]); document.body.append(row);
+  fireEvent.keyDown(row, { key: 'ArrowRight' });
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual([ids[0], ids[2], ids[1]]);
+  expect([...editor().query.getState().events.selected]).toEqual([ids[1]]);
+  fireEvent.keyDown(row, { key: 'ArrowRight' });
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual([ids[0], ids[2], ids[1]]);
+  act(() => editor().actions.history.undo());
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual(ids);
+  expect(editor().query.history.canUndo()).toBe(false);
+  row.remove();
+});
+it('moves an entire nested row below its next sibling in a vertical layout', () => {
+  const { editor } = renderInEditor(<><Frame><Element is={LayoutBox} canvas direction={{ mobile: 'column' }}><Element is={LayoutBox} canvas direction={{ mobile: 'row' }}><Button label="Card one" /><Button label="Card two" /></Element><Button label="Table placeholder" /></Element></Frame><FrameSelectionActions /></>);
+  const ids = editor().query.node('ROOT').get().data.nodes;
+  const children = editor().query.node(ids[0]).get().data.nodes;
+  act(() => { editor().actions.selectNode(ids[0]); editor().actions.history.clear(); });
+  fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual([ids[1], ids[0]]);
+  expect(editor().query.node(ids[0]).get().data.nodes).toEqual(children);
+  act(() => editor().actions.history.undo());
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual(ids);
+});
+
+it('uses the rendered horizontal grid rather than its unused column direction', () => {
+  const { editor } = setup();
+  const root = editor().query.node('ROOT').get();
+  const ids = root.data.nodes;
+  act(() => { editor().actions.setProp('ROOT', p => { p.mode = 'grid'; p.direction = { mobile: 'column' }; }); editor().actions.selectNode(ids[0]); });
+  const spies = ids.map((id, i) => vi.spyOn(editor().query.node(id).get().dom!, 'getBoundingClientRect').mockReturnValue({ left: i * 110, right: i * 110 + 100, top: 0, bottom: 80, width: 100, height: 80 } as DOMRect));
+  fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+  expect(editor().query.node('ROOT').get().data.nodes).toEqual([ids[1], ids[0], ids[2]]);
+  spies.forEach(spy => spy.mockRestore());
+});

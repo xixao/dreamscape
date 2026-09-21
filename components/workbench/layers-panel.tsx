@@ -1,5 +1,6 @@
 'use client';
 
+import { layerLabel } from '@/lib/layer-label';
 import { useEditor, type NodeTree } from '@craftjs/core';
 import { CanvasMinimap } from './canvas-minimap';
 import { SectionsList } from './sections/section-tools';
@@ -96,13 +97,13 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     attempt(() => { actions.addNodeTree(tree, node.data.parent!, index + 1); actions.selectNode(tree.rootNodeId); });
   }
   function commitName() {
-    if (renaming && name.trim()) actions.setCustom(renaming, custom => { custom.layerName = name.trim(); });
+    if (renaming && name.trim()) actions.setCustom(renaming, custom => { custom.layerName = name.trim(); custom.layerNameExplicit = true; });
     setRenaming(null);
   }
   function rows(id: string, depth: number): React.ReactNode {
     const item = state.nodes[id]; if (!item) return null;
     const children = [...Object.values(item.data.linkedNodes), ...item.data.nodes];
-    const label = String(item.data.custom.layerName || (id === 'ROOT' ? 'Frame' : item.data.displayName));
+    const label = id === 'ROOT' ? String(item.data.custom.layerName || 'Frame') : layerLabel(item.data);
     const movable = !!item.data.parent && state.nodes[item.data.parent]?.data.nodes.includes(id);
     return <div key={id} role="treeitem" aria-label={label} aria-selected={state.events.selected.has(id)} aria-expanded={children.length ? !collapsed.has(id) : undefined}>
       <div className={`group/layer flex items-center gap-1 rounded-md py-1.5 pr-2 text-xs ${state.events.selected.has(id) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'}`}

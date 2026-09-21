@@ -1,8 +1,10 @@
 'use client';
+import { layerLabel } from '@/lib/layer-label';
 import { useEditor, type Indicator } from '@craftjs/core';
 import { useEffect, useRef, useState } from 'react';
+import { cloneDragPreview } from './drag-preview';
 import { useCanvasDocument } from './canvas-frame';
-import { dragSurfaces, DRAG_MOVE_TO, DRAG_TARGET, type DragSurface } from './drag-surfaces';
+import { dragSurfaces, DRAG_MOVE_TO, DRAG_TARGET, DRAG_POINTER, DRAG_PANNED, type DragSurface } from './drag-surfaces';
 import { canMoveInto, insertionAt, movableRoots } from './drag-model';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 export function containerDirection(style: Pick<CSSStyleDeclaration, 'display' | 'flexDirection'>): 'grid' | 'column' | 'row' {
@@ -21,7 +23,7 @@ type Destination = {
 };
 const label = (surface: DragSurface, id: string) => {
     const n = surface.nodes()[id];
-    return String(n?.data.custom.layerName || n?.data.displayName || 'Frame');
+    return n ? layerLabel(n.data) : 'Frame';
 };
 function outerRect(element: HTMLElement) {
     const r = element.getBoundingClientRect();
@@ -58,6 +60,7 @@ export function useDropPlaceholder(options: Options = {}) {
         Object.assign(parentOutline.style, { position: 'fixed', pointerEvents: 'none', zIndex: '9998', border: '1px solid color-mix(in srgb, var(--acc) 50%, transparent)', display: 'none' });
         document.body.append(parentOutline);
         const footprint = document.createElement('div');
+        footprint.setAttribute('data-drop-footprint', '');
         Object.assign(footprint.style, { position: 'fixed', pointerEvents: 'none', zIndex: '9999', border: '1px dashed var(--acc)', background: 'color-mix(in srgb, var(--acc) 8%, transparent)', display: 'none' });
         document.body.append(footprint);
         let ids: string[] = [], destination: Destination | null = null, ended = false;
@@ -68,11 +71,22 @@ export function useDropPlaceholder(options: Options = {}) {
             y: number;
             target: Element | null;
         } | null = null;
+        // Set this to 'legacy' and refresh for an immediate visual rollback.
+        let fluidDrag = true;
+        try { fluidDrag = window.localStorage.getItem('dreamscape:drag-preview') !== 'legacy'; } catch { /* Storage may be unavailable in private sessions. */ }
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (fluidDrag && !reducedMotion) {
+            for (const el of [footprint]) el.style.transition = 'left 100ms ease-out, top 100ms ease-out, width 100ms ease-out, height 100ms ease-out';
+        }
         let ghost: HTMLElement | null = null;
+        let fadedPanels: HTMLElement[] = [];
+        let panelFadeFrame = 0;
+        let sourceStyles: {el:HTMLElement; opacity:string; outline:string}[] = [];
+        let dimTimer: ReturnType<typeof setTimeout> | null = null;
         const animations = new Set<Animation>();
         const hide = (complete = false) => { parentOutline.style.display = 'none'; overlay.style.display = 'none'; footprint.style.display = 'none'; queueMicrotask(() => window.dispatchEvent(new CustomEvent(DRAG_TARGET, { detail: complete ? { complete: true } : null }))); };
-        const finish = (complete: boolean | Event = false) => { if (ids.length)
-            store.actions.setNodeEvent('dragged', []); ids = []; destination = null; ended = true; hide(complete === true); ghost?.remove(); ghost = null; };
+        const finish = (complete: boolean | Event = false) => { cancelAnimationFrame(panelFadeFrame); for (const panel of fadedPanels) panel.removeAttribute('data-drag-obscured'); fadedPanels = []; window.dispatchEvent(new CustomEvent(DRAG_POINTER, { detail: null })); if (ids.length)
+            store.actions.setNodeEvent('dragged', []); ids = []; destination = null; ended = true; hide(complete === true); ghost?.remove(); ghost = null; if(dimTimer)clearTimeout(dimTimer); for(const saved of sourceStyles){saved.el.style.opacity=saved.opacity;saved.el.style.outline=saved.outline;} sourceStyles=[]; };
         function allowed(surface: DragSurface, parent: string) {
             if (surface.id !== sourceId)
                 return !!latest.current.transfer && !!surface.nodes()[parent]?.data.isCanvas && (surface.accept?.(parent, ids.map(id => source.nodes()[id])) ?? true);
@@ -102,18 +116,29 @@ export function useDropPlaceholder(options: Options = {}) {
                 path.unshift(label(dest.surface, cursor));
                 cursor = nodes[cursor]?.data.parent;
             }
-            caption.textContent = `${ids.length > 1 ? `${ids.length} components · ` : ''}${dest.surface.name} › ${path.join(' › ')} · ${inside ? 'Move into' : `Position ${dest.index + 1}`} · Alt: parent`;
+            caption.textContent = `${ids.length > 1 ? `${ids.length} components · ` : ''}${dest.surface.name} › ${path.join(' › ')} · ${inside ? 'Move into container' : `Insert ${atEnd ? 'after' : 'before'} ${label(dest.surface, nodes[dest.parent].data.nodes[atEnd ? children.length - 1 : dest.index] ?? dest.parent)}`} · Alt: parent`;
+            caption.style.position = 'fixed';
+            caption.style.left = `${Math.max(12, Math.min(pr.left, window.innerWidth - Math.min(560, window.innerWidth - 24) - 12))}px`;
+            caption.style.top = `${Math.max(12, Math.min(parseFloat(overlay.style.top) - 34, window.innerHeight - 40))}px`;
+            caption.style.bottom = 'auto';
             // Outline is an estimate of the existing fill/percent sizing, never a
             // temporary change to the actual component or receiving frame.
             const first = source.nodes()[ids[0]];
-            if (first?.dom && first.data.parent !== dest.parent) {
+            if (first?.dom) {
                 const old = outerRect(first.dom), props = first.data.props;
                 const css = parent.ownerDocument.defaultView!.getComputedStyle(parent);
                 const scale = pr.width / (parent.getBoundingClientRect().width || 1);
                 const available = Math.max(0, pr.width - (parseFloat(css.paddingLeft || '0') + parseFloat(css.paddingRight || '0')) * scale);
-                const width = props.widthMode === 'fill' ? available : props.widthMode === 'percent' ? available * Number(props.widthPercent ?? 100) / 100 : old.width;
-                caption.textContent += ' · Approx. size';
-                Object.assign(footprint.style, { display: 'block', left: `${pr.left}px`, top: overlay.style.top, width: `${width}px`, height: `${old.height}px` });
+                const siblings = nodes[dest.parent].data.nodes.filter(id => dest.surface.id !== sourceId || !ids.includes(id));
+                const gap = (parseFloat(css.columnGap) || 0) * scale;
+                const fillWidth = direction === 'row' && css.flexWrap !== 'wrap' ? Math.max(1, (available - gap * siblings.length) / (siblings.length + 1)) : available;
+                const width = Math.max(1, props.widthMode === 'fill' ? fillWidth : props.widthMode === 'percent' ? available * Number(props.widthPercent ?? 100) / 100 : old.width);
+                const insetX = pr.left + (parseFloat(css.paddingLeft) || 0) * scale;
+                const insetY = pr.top + (parseFloat(css.paddingTop) || 0) * scale;
+                const x = inside || direction === 'column' ? insetX : r.left + (atEnd ? r.width : 0);
+                const y = inside ? insetY : direction === 'column' ? r.top + (atEnd ? r.height : 0) : r.top;
+                caption.textContent += `${dest.surface.id !== sourceId ? ' · Move to this frame' : ''} · Approx. ${Math.round(width / scale)} × ${Math.round(old.height / scale)}`;
+                Object.assign(footprint.style, { display: 'block', left: `${Math.max(insetX, Math.min(x, pr.left + pr.width - Math.min(width, available)))}px`, top: `${Math.max(insetY, Math.min(y, pr.top + pr.height - Math.min(old.height, pr.height)))}px`, width: `${Math.min(width, available)}px`, height: `${Math.min(old.height, pr.height)}px` });
             }
             else
                 footprint.style.display = 'none';
@@ -193,7 +218,35 @@ export function useDropPlaceholder(options: Options = {}) {
             ghost.textContent = ids.length > 1 ? `${ids.length} components` : label(source, ids[0]);
             Object.assign(ghost.style, { position: 'fixed', left: '-1000px', padding: '10px 16px', background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--acc)', borderRadius: '8px', font: '13px system-ui' });
             document.body.append(ghost);
-            event.dataTransfer?.setDragImage(ghost, 20, 20);
+            const original = source.nodes()[ids[0]]?.dom;
+            if (fluidDrag && original) {
+                const rect = original.getBoundingClientRect();
+                const outer = outerRect(original);
+                const scale = rect.width > 0 ? outer.width / rect.width : 1;
+                const visual = cloneDragPreview(original);
+                Object.assign(visual.style, {position:'relative',left:'0',top:'0',margin:'0',width:`${rect.width}px`,height:`${rect.height}px`,transform:`scale(${scale})`,transformOrigin:'top left'});
+                ghost.replaceChildren(visual);
+                Object.assign(ghost.style,{left:`${-Math.max(1000, outer.width + 100)}px`,width:`${outer.width}px`,height:`${outer.height}px`,padding:'0',background:'transparent',border:'0',borderRadius:'0',overflow:'visible',boxShadow:'0 12px 32px rgba(0,0,0,.25)'});
+                if(ids.length>1){const count=document.createElement('div');count.textContent=`${ids.length} components`;Object.assign(count.style,{position:'absolute',right:'0',top:'-24px',background:'var(--card)',color:'var(--foreground)',padding:'4px 8px',borderRadius:'5px'});ghost.append(count);}
+                // Canvas drags retain the grab point. Layers-panel drags use
+                // a small inset because the pointer started outside the card.
+                const fromCanvas = !layer && !handle;
+                const grabX = fromCanvas ? Math.max(0,Math.min(outer.width,(event.clientX-rect.left)*scale)) : 16;
+                const grabY = fromCanvas ? Math.max(0,Math.min(outer.height,(event.clientY-rect.top)*scale)) : 16;
+                event.dataTransfer?.setDragImage(ghost,grabX,grabY);
+                dimTimer=setTimeout(()=>{if(ended)return;sourceStyles=ids.flatMap(id=>{const el=source.nodes()[id]?.dom;if(!el)return [];const saved={el,opacity:el.style.opacity,outline:el.style.outline};el.style.opacity='0.35';el.style.outline='1px dashed var(--acc)';return [saved];});},0);
+            } else event.dataTransfer?.setDragImage(ghost, 20, 20);
+            if (!layer) {
+                fadedPanels = [...document.querySelectorAll<HTMLElement>('aside')];
+                // Let the browser finish the native drag snapshot before
+                // starting the same opacity transition used when panels return.
+                panelFadeFrame = requestAnimationFrame(() => {
+                    panelFadeFrame = requestAnimationFrame(() => {
+                        if (ended) return;
+                        for (const panel of fadedPanels) panel.setAttribute('data-drag-obscured', 'true');
+                    });
+                });
+            }
             window.dispatchEvent(new CustomEvent(DRAG_TARGET, { detail: { active: true } }));
         }
         function resolveTarget(surface: DragSurface, x: number, y: number, target: Element | null) {
@@ -270,6 +323,7 @@ export function useDropPlaceholder(options: Options = {}) {
             const x = (fr?.left ?? 0) + event.clientX * scale, y = (fr?.top ?? 0) + event.clientY * scale;
             const travel = Math.hypot(x - lastPoint.x, y - lastPoint.y);
             lastOver = { surface, x, y, target: event.target as Element };
+            window.dispatchEvent(new CustomEvent(DRAG_POINTER, { detail: { x, y } }));
             lastPoint = { x, y };
             if (doc === document && !(event.target as Element)?.closest?.('[data-drag-layer]') && source.document !== document) {
                 destination = null;
@@ -279,6 +333,10 @@ export function useDropPlaceholder(options: Options = {}) {
             ancestorOffset = event.altKey ? (event.shiftKey ? 2 : 1) : 0;
             const result = resolveTarget(surface, x, y, event.target as Element);
             if (!result) {
+                // Retain a valid target only across a small gap in the same surface.
+                const parent = destination?.surface.id === surface.id ? surface.nodes()[destination.parent]?.dom : null;
+                const r = parent ? outerRect(parent) : null;
+                if (destination && r && x >= r.left - 12 && x <= r.left + r.width + 12 && y >= r.top - 12 && y <= r.top + r.height + 12 && allowed(surface, destination.parent)) return;
                 destination = null;
                 hide();
                 return;
@@ -329,6 +387,18 @@ export function useDropPlaceholder(options: Options = {}) {
                 }
             }
         }
+        const panned = () => {
+            if (!ids.length || !lastOver) return;
+            const { x, y } = lastOver;
+            const hit = document.elementFromPoint(x, y);
+            const surface = [...dragSurfaces.values()].find(s => s.document.defaultView?.frameElement === hit);
+            if (!surface) { destination = null; hide(); return; }
+            const result = resolveTarget(surface, x, y, null);
+            destination = result?.dest ?? null;
+            if (result) show(result.dest, result.inside); else hide();
+        };
+        window.addEventListener(DRAG_PANNED, panned);
+        window.addEventListener('blur', finish);
         const docs = new Map<Document, () => void>();
         function bind(doc: Document) { if (docs.has(doc))
             return; doc.addEventListener('dragstart', start, true); doc.addEventListener('dragover', over, true); doc.addEventListener('drop', drop, true); doc.addEventListener('dragend', finish, true); doc.addEventListener('keydown', key, true); docs.set(doc, () => { doc.removeEventListener('dragstart', start, true); doc.removeEventListener('dragover', over, true); doc.removeEventListener('drop', drop, true); doc.removeEventListener('dragend', finish, true); doc.removeEventListener('keydown', key, true); }); }
@@ -363,7 +433,7 @@ export function useDropPlaceholder(options: Options = {}) {
         const open = () => { setSearch(''); setMoveOpen(true); };
         window.addEventListener(DRAG_MOVE_TO, open);
         return () => { finish(); for (const stop of docs.values())
-            stop(); clearInterval(discover); unsubscribe(); window.removeEventListener(DRAG_MOVE_TO, open); window.removeEventListener('dreamscape-move-preview', preview); overlay.remove(); footprint.remove(); parentOutline.remove(); animations.forEach(a => a.cancel()); if (dragSurfaces.get(sourceId) === source)
+            stop(); clearInterval(discover); unsubscribe(); window.removeEventListener(DRAG_MOVE_TO, open); window.removeEventListener('dreamscape-move-preview', preview); window.removeEventListener(DRAG_PANNED, panned); window.removeEventListener('blur', finish); overlay.remove(); footprint.remove(); parentOutline.remove(); animations.forEach(a => a.cancel()); if (dragSurfaces.get(sourceId) === source)
             dragSurfaces.delete(sourceId); };
         // Craft returns fresh action/query wrappers on selection updates. Their
         // methods access the same store; resubscribing would end an active drag.

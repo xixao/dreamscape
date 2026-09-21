@@ -1,5 +1,6 @@
 'use client';
 
+import { layerLabel } from '@/lib/layer-label';
 import { ROOT_NODE, useNode } from '@craftjs/core';
 import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
@@ -64,12 +65,13 @@ export function SelectionOutline({
 }
 
 export function NodeIndicator({ render }: { render: ReactElement }) {
-  const { id, dom, name, displayName, isHovered, custom } = useNode((node) => ({
+  const { id, dom, name, displayName, isHovered, custom, props } = useNode((node) => ({
     dom: node.dom,
     name: node.data.name,
     displayName: node.data.displayName,
     isHovered: node.events.hovered,
     custom: node.data.custom,
+    props: node.data.props,
   }));
   const editorSnapshot = useSettledEditorState();
   const nodes = editorSnapshot.nodes;
@@ -149,7 +151,7 @@ export function NodeIndicator({ render }: { render: ReactElement }) {
                 dragId={!isRoot && !isZone ? id : undefined}
                 rect={rect}
                 color="var(--acc)"
-                label={String(custom.layerName || displayName || name)}
+                label={layerLabel({ custom, props, displayName, name })}
                 weight={isSelected ? 'selected' : 'hover'}
               />
             )}
