@@ -580,6 +580,14 @@ describe('Workbench', () => {
       expect(screen.getByTestId('frame-screen0001')).toHaveStyle({left:'0px',top:'0px'});
     });
 
+    it('fits a diagram Section on a page with no root frames', async () => {
+      const node={id:'diagram001',kind:'rect' as const,x:50,y:60,width:80,height:40,text:'Diagram',color:'neutral' as const};
+      render(<Workbench file={makeFile({screens:[],pages:[{id:PAGE_ID,name:'Page 1',sections:[{...section,width:300,height:300}],diagram:{nodes:[node],edges:[]}}]})} />);
+      await user.click(screen.getByRole('button',{name:'Section options for Checkout'}));
+      await user.click(screen.getByRole('menuitem',{name:'Resize to Fit'}));
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toHaveStyle({left:'-14px',top:'-20px',width:'208px',height:'184px'}));
+    });
+
     it('fits annotation/diagram objects without frames and offers separate remove and delete actions', async () => {
       const node={id:'diagram001',kind:'rect' as const,x:50,y:60,width:80,height:40,text:'Diagram',color:'neutral' as const};
       const region={...section,width:300,height:300};
@@ -598,6 +606,17 @@ describe('Workbench', () => {
       await user.click(screen.getByRole('button',{name:'Undo'}));
       await waitFor(()=>expect(screen.getByTestId('diagram-node-diagram001')).toBeInTheDocument());
       expect(screen.getByTestId('section-section001')).toBeInTheDocument();
+    });
+    it('undoes section deletion while the diagram palette remains open', async () => {
+      render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
+      fireEvent.keyDown(window, { key: 'D', code: 'KeyD', shiftKey: true });
+      await user.click(screen.getByRole('button',{name:'Section options for Checkout'}));
+      await user.click(screen.getByRole('menuitem',{name:'Remove Section (keep objects)'}));
+      await waitFor(()=>expect(screen.queryByTestId('section-section001')).toBeNull());
+      await user.click(screen.getByRole('button',{name:'Undo'}));
+      await waitFor(()=>expect(screen.getByTestId('section-section001')).toBeInTheDocument());
+      await user.click(screen.getByRole('button',{name:'Redo'}));
+      await waitFor(()=>expect(screen.queryByTestId('section-section001')).toBeNull());
     });
     it('deletes a section and its contained page frames', async () => {
       render(<Workbench file={makeFile({screens:frames,pages:[{id:PAGE_ID,name:'Page 1',sections:[section]}]})} />);
@@ -1447,8 +1466,9 @@ describe('Workbench', () => {
       render(<Workbench file={makeFile()}/>);
       await userEvent.click(screen.getByRole('button',{name:'Frame options for Frame 1'}));
       await userEvent.click(screen.getByRole('menuitem',{name:'Explore variations…'}));
-      await userEvent.click(screen.getByRole('button',{name:'I’m feeling lucky'}));
-      expect(await screen.findByRole('alert')).toHaveTextContent('Connect the working Cursor');
+      await userEvent.type(screen.getByRole('textbox', {name:/What would you like to explore/}), 'Create a variation');
+      await userEvent.click(screen.getByRole('button',{name:'Generate variations'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Connect an AI generation transport');
       expect(screen.queryByRole('button',{name:'Open variation'})).toBeNull();
     });
   });

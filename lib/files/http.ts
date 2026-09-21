@@ -47,6 +47,7 @@ const diagramNodeField = z.object({
   // shape at all (e.g. its own unit tests), same split as kind/color above.
   annotation: annotationSchema.optional(),
   table: z.array(z.array(z.string().max(500)).min(1).max(10)).min(1).max(20).optional(),
+  textAlign: z.enum(['left', 'center', 'right']).optional(),
   textSize: z.enum(TEXT_SIZES).optional(),
   textFont: z.enum(TEXT_FONTS).optional(),
   textColor: z.enum(TEXT_COLORS).optional(),
@@ -68,6 +69,11 @@ const diagramEdgeField = z.object({
   // content rule for callers that reach it without this zod shape at all.
   lineStyle: z.enum(LINE_STYLES).optional(),
   label: z.string().optional(),
+  labelPosition: z.number().min(0).max(1).optional(),
+  textSize: z.enum(TEXT_SIZES).optional(),
+  textFont: z.enum(TEXT_FONTS).optional(),
+  textBold: z.boolean().optional(),
+  textItalic: z.boolean().optional(),
 });
 
 // Shape only: a page's diagram is an optional `{ nodes, edges }` (spec

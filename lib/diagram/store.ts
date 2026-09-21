@@ -84,6 +84,7 @@ export interface DiagramNode {
   textSize?: TextSize;
   textFont?: TextFont;
   textColor?: TextColor;
+  textAlign?: 'left' | 'center' | 'right';
   // Marquee selection and groups (spec section 10, Matt 2026-09-13: "for
   // diagram, i need to be able to drag to select multiple items, group
   // them, and also move them around") - optional so a file saved before
@@ -119,6 +120,12 @@ export interface DiagramEdge {
   arrow: ArrowKind;
   lineStyle?: LineStyle;
   label?: string;
+  labelPosition?: number;
+  textSize?: TextSize;
+  textFont?: TextFont;
+  textBold?: boolean;
+  textItalic?: boolean;
+
 }
 
 /** The persisted shape: `pages[].diagram` (lib/files/validate.ts). */
@@ -190,6 +197,8 @@ export type DiagramAction =
   | { type: 'resize'; id: string; width: number; height: number; x?: number; y?: number }
   | { type: 'setAnnotation'; id: string; annotation: Annotation }
   | { type: 'setTable'; id: string; cells: string[][] }
+  | { type: 'setLabelPosition'; id: string; position: number }
+  | { type: 'setLabelStyle'; id: string; patch: Pick<DiagramEdge, 'textSize' | 'textFont' | 'textBold' | 'textItalic'> }
   | { type: 'setText'; id: string; text: string }
   // `ids` (not a single `id`, unlike setKind/setArrow below) - Matt's
   // multi-selection follow-up needs the Design panel to recolour every
@@ -215,7 +224,7 @@ export type DiagramAction =
   // applied (an absent key leaves that field alone on every id), and
   // nothing not already a node in `ids` is touched - an edge id is
   // silently ignored, text styling has no meaning for a connector.
-  | { type: 'setTextStyle'; ids: string[]; textSize?: TextSize; textFont?: TextFont; textColor?: TextColor }
+  | { type: 'setTextStyle'; ids: string[]; textSize?: TextSize; textFont?: TextFont; textColor?: TextColor; textAlign?: 'left' | 'center' | 'right' }
   | { type: 'connect'; edge: DiagramEdge }
   // Moves ONE end of an existing connector to a different node/frame/side
   // (spec section 12, Matt 2026-09-14: "select a connector line and
@@ -465,6 +474,14 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
       if (!target || JSON.stringify(target.table) === JSON.stringify(action.cells)) return state;
       return commit(state, { nodes: state.nodes.map(node => node.id === action.id ? { ...node, table: action.cells.map(row => [...row]) } : node), edges: state.edges });
     }
+    case 'setLabelPosition': {
+      if (!Number.isFinite(action.position)) return state;
+      return commit(state, {nodes:state.nodes,edges:state.edges.map(e=>e.id===action.id?{...e,labelPosition:Math.max(0,Math.min(1,action.position))}:e)});
+    }
+    case 'setLabelStyle': {
+      if (!state.edges.some(e => e.id === action.id)) return state;
+      return commit(state, { nodes: state.nodes, edges: state.edges.map(e => e.id === action.id ? {...e, ...action.patch} : e) });
+    }
     case 'setText': {
       const text = clampText(action.text);
       if (state.nodes.some((n) => n.id === action.id)) {
@@ -546,6 +563,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
           next.textFont = action.textFont;
           changed = true;
         }
+        if (action.textAlign !== undefined && next.textAlign !== action.textAlign) { next.textAlign = action.textAlign; changed = true; }
         if (action.textColor !== undefined && next.textColor !== action.textColor) {
           next.textColor = action.textColor;
           changed = true;
@@ -776,6 +794,7 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
         textSize: source.textSize,
         textFont: source.textFont,
         textColor: source.textColor,
+        textAlign: source.textAlign,
       };
       const newEdge: DiagramEdge = {
         id: action.newEdgeId,

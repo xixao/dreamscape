@@ -44,7 +44,7 @@ export function VariationsWorkspace({ fileId, page, pages, transport, onUpdate, 
       store.append({id:crypto.randomUUID(),role:'user',text:`Explore variations: ${set.prompt}`,createdAt:new Date().toISOString()});
       const run=async()=>{
         try {
-          if(transport===placeholderTransport)throw new Error('Connect the working Cursor chat transport to generate designs. Your source and request are saved; retry after connecting.');
+          if(transport===placeholderTransport)throw new Error('Connect an AI generation transport to generate designs. Your source and request are saved; retry after connecting.');
           const raw=await sendDesignRequest(transport,history,text,controller.signal);
           if(controller.signal.aborted)return;
           const results=parseGeneration(raw,set.countFromPrompt?undefined:set.count,source,data.selectedIds);

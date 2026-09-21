@@ -15,11 +15,11 @@ describe('exploration entry',()=>{
     await userEvent.click(screen.getByRole('button',{name:'Generate variations'}));
     expect(create).toHaveBeenCalledWith('Create three layouts with clearer hierarchy');
   });
-  it('generates three variations through the explicit lucky action',async()=>{
+  it('links the lucky action to the static demo without generating',async()=>{
     const create=vi.fn();
     render(<ExplorationSetup name="Loan pipeline" onClose={()=>{}} onCreate={create}/>);
-    await userEvent.click(screen.getByRole('button',{name:'I’m feeling lucky'}));
-    expect(create).toHaveBeenCalledWith(expect.stringContaining('Create three meaningfully distinct variations of the supplied design'));
+    expect(screen.getByRole('link',{name:'I’m feeling lucky'})).toHaveAttribute('href','/demos/variations');
+    expect(create).not.toHaveBeenCalled();
   });
   it('supports scratch entry and cancel without creating an exploration',async()=>{
     const create=vi.fn(),close=vi.fn();

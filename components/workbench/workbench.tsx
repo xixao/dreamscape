@@ -1427,11 +1427,18 @@ function WorkbenchShell({
   // component never re-hydrates state it would only have to clean up again
   // on the next real edit (see that function's own doc comment).
   const pageScreenIds = new Set(pageScreens.map((screen) => screen.id));
-  const [diagram, dispatchDiagram] = useReducer(diagramReducer, undefined, () =>
+  const [sectionHistoryActive, setSectionHistoryActive] = useState(false);
+  const [diagram, dispatchDiagramRaw] = useReducer(diagramReducer, undefined, () =>
     createInitialDiagramState(
       sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
     ),
   );
+  const dispatchDiagram = useCallback((action: Parameters<typeof dispatchDiagramRaw>[0]) => {
+    // Selection and section restoration must not steal Undo from the section
+    // transaction. Only a subsequent diagram edit chooses diagram history.
+    if (!['load', 'sectionPositions', 'select', 'selectAll', 'clearSelection'].includes(action.type)) setSectionHistoryActive(false);
+    dispatchDiagramRaw(action);
+  }, []);
   const [lastSectionMove, setLastSectionMove] = useState(sectionMove?.revision);
   if (sectionMove?.revision !== lastSectionMove) {
     setLastSectionMove(sectionMove?.revision);
@@ -1441,6 +1448,7 @@ function WorkbenchShell({
   const [lastDiagramPageId, setLastDiagramPageId] = useState(currentPageId);
   if (currentPageId !== lastDiagramPageId) {
     setLastDiagramPageId(currentPageId);
+    setSectionHistoryActive(false);
     dispatchDiagram({
       type: 'load',
       data: sanitizeDiagram(pages.find((page) => page.id === currentPageId)?.diagram ?? { nodes: [], edges: [] }, pageScreenIds),
@@ -1787,7 +1795,7 @@ function WorkbenchShell({
         setMovedSection({ pageId: moved.pageId, section: moved });
       }
     },
-    commit: change => onUpdateSections(currentPageId, change),
+    commit: change => { setSectionHistoryActive(true); onUpdateSections(currentPageId, change); },
     onStart: () => { setPanelMode('design'); notes.cancel(); setDiagramTool(POINTER_TOOL); dispatchDiagram({ type: 'clearSelection' }); setSelectedFrameIds(new Set()); },
     focusFrame: id => { onSelectScreen(id); handleZoomToFrame(id); },
     zoomTo: section => {
@@ -1883,7 +1891,7 @@ function WorkbenchShell({
   // see canvas.tsx) that Cmd+=/Cmd+-/Cmd+0 zoom around: there is no pointer
   // position for a keyboard shortcut to anchor to the way a wheel gesture
   // has one.
-  const diagramHistoryActive = diagramSelectionActive || ((diagramPaletteOpen || annotationLibraryMode !== null) && !sectionController.selected && !selectedNodeId && pageFrameSelection.size === 0);
+  const diagramHistoryActive = !sectionHistoryActive && (diagramSelectionActive || ((diagramPaletteOpen || annotationLibraryMode !== null) && !sectionController.selected && !selectedNodeId && pageFrameSelection.size === 0));
   const viewportCenter = { x: viewportSize.width / 2, y: viewportSize.height / 2 };
 
   useWorkbenchKeyboard({

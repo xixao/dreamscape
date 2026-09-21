@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { growDiagramSections, sectionFrames, fitSection, translateSection, sectionsSchema } from './sections';
+import { fitSectionObjects, growDiagramSections, sectionFrames, fitSection, translateSection, sectionsSchema } from './sections';
 import { validatePages } from '../files/validate';
 import type { Screen } from '../files/validate';
 const section={id:'section001',name:'Checkout',x:0,y:0,width:1000,height:800};
@@ -70,3 +70,13 @@ describe('Canvas sections',()=>{
     expect(result[2]).toBe(neighbor);
   });
  });
+
+describe('diagram resize to fit',()=>{
+ it('includes a shape crossing the section edge',()=>{expect(fitSectionObjects(section,[section],[],[{x:950,y:100,width:200,height:100}])).toEqual({x:886,y:20,width:328,height:244});});
+ it('includes connected outside shapes but excludes members of another section',()=>{
+  const nodes=[{id:'a',x:100,y:100,width:100,height:100},{id:'b',x:1200,y:100,width:100,height:100}];
+  const edges=[{source:{nodeId:'a'},target:{nodeId:'b'}}] as import('../diagram/store').DiagramEdge[];
+  expect(fitSectionObjects(section,[section],[],nodes,undefined,edges)?.width).toBe(1328);
+  expect(fitSectionObjects(section,[section,{...section,id:'other00001',x:1150}],[],nodes,undefined,edges)?.width).toBe(228);
+ });
+});

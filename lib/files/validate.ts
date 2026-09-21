@@ -595,6 +595,7 @@ export type DiagramNodeInput = {
   color: string;
   annotation?: Annotation;
   table?: string[][];
+  textAlign?: 'left' | 'center' | 'right';
   textSize?: string;
   textFont?: string;
   textColor?: string;
@@ -614,6 +615,12 @@ export type DiagramEdgeInput = {
   // own enum in validateDiagram below, same shape as kind/arrow above.
   lineStyle?: string;
   label?: string;
+  labelPosition?: number;
+  textSize?: TextSize;
+  textFont?: TextFont;
+  textBold?: boolean;
+  textItalic?: boolean;
+
 };
 export type DiagramInput = { nodes: DiagramNodeInput[]; edges: DiagramEdgeInput[] };
 export type ValidateDiagramResult = { ok: true; diagram: DiagramData } | { ok: false; reason: string };
@@ -691,6 +698,7 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     // on every file saved before this feature), so only checked against
     // their own enum when actually present - same shape as kind/color's
     // own checks above, just skipped rather than failed when undefined.
+    if (node.textAlign !== undefined && !['left', 'center', 'right'].includes(node.textAlign)) return { ok: false, reason: 'Unknown diagram text alignment' };
     if (node.textSize !== undefined && !(TEXT_SIZES as readonly string[]).includes(node.textSize)) {
       return { ok: false, reason: `diagram node "${node.id}" has an unknown text size "${node.textSize}"` };
     }
@@ -711,6 +719,11 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
   }
 
   for (const edge of input.edges) {
+    if (edge.labelPosition !== undefined && (!Number.isFinite(edge.labelPosition) || edge.labelPosition < 0 || edge.labelPosition > 1)) return {ok:false,reason:"Invalid connector label position"};
+    if (edge.textSize !== undefined && !(TEXT_SIZES as readonly string[]).includes(edge.textSize)) return {ok:false,reason:'Unknown connector text size'};
+    if (edge.textFont !== undefined && !(TEXT_FONTS as readonly string[]).includes(edge.textFont)) return {ok:false,reason:'Unknown connector font'};
+    if ([edge.textBold,edge.textItalic].some(value=>value !== undefined && typeof value !== 'boolean')) return {ok:false,reason:'Invalid connector font style'};
+
     if (seenIds.has(edge.id)) return { ok: false, reason: `diagram id "${edge.id}" is used more than once` };
     seenIds.add(edge.id);
 

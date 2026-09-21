@@ -85,8 +85,8 @@ const ARROWHEAD_FILL = '#8C97DB';
 // The CHIP surface a label sits in (components/workbench/chrome.ts CHIP:
 // `bg-(--chip)`, border `--bevel-line`) and the `--foreground` its text
 // inherits from body.
-const LABEL_CHIP_FILL = 'rgba(255,255,255,0.055)';
-const LABEL_CHIP_STROKE = 'rgba(255,255,255,0.09)';
+const LABEL_CHIP_FILL = 'rgba(34,33,46,0.95)';
+const LABEL_CHIP_STROKE = 'rgba(255,255,255,0.6)';
 const LABEL_TEXT_FILL = '#EAE8F0';
 
 // The app's font stacks (app/layout.tsx loads Archivo and IBM Plex Mono via
@@ -112,8 +112,9 @@ const EDGE_STROKE_WIDTH = 1.5;
 const EDGE_DASH_ON = 4;
 const EDGE_DASH_OFF = 3;
 const LABEL_PADDING_X = 8;
+function connectorFont(edge: DiagramEdge): ExportTextFont { return {size: edge.textSize ? SHAPE_FONT_SIZES[edge.textSize] : LABEL_FONT.size, family: edge.textFont ? SHAPE_FONT_FAMILIES[edge.textFont] : LABEL_FONT.family, weight: edge.textBold ? 700 : 400}; }
 const LABEL_HEIGHT = 20;
-const LABEL_RADIUS = 4;
+const LABEL_RADIUS = 0;
 // A frame is live HTML, never rasterised: an attached one is drawn as a 1 px
 // outline carrying its name, nothing else (spec section 8).
 const FRAME_STROKE = 'rgba(255,255,255,0.5)';
@@ -328,18 +329,19 @@ function shapeText(box: Box, node: DiagramNode, measureText: MeasureText): strin
   const maxLines = Math.max(1, Math.floor(innerHeight / lineHeight));
   const lines = wrapText(node.text, innerWidth, (line) => measureText(line, font)).slice(0, maxLines);
   const { x: centerX, y: centerY } = center(box);
+  const textX = node.textAlign === 'left' ? box.x + SHAPE_TEXT_INSET : node.textAlign === 'right' ? box.x + box.width - SHAPE_TEXT_INSET : centerX;
   const top = centerY - (lines.length * lineHeight) / 2;
   const spans = lines
-    .map((line, index) => element('tspan', { x: centerX, y: top + (index + 0.5) * lineHeight }, escapeXml(line)))
+    .map((line, index) => element('tspan', { x: textX, y: top + (index + 0.5) * lineHeight }, escapeXml(line)))
     .join('');
   return element(
     'text',
     {
-      x: centerX,
+      x: textX,
       fill,
       'font-family': font.family,
       'font-size': font.size,
-      'text-anchor': 'middle',
+      'text-anchor': node.textAlign === 'left' ? 'start' : node.textAlign === 'right' ? 'end' : 'middle',
       'dominant-baseline': 'central',
       'xml:space': 'preserve',
     },
@@ -420,7 +422,7 @@ function renderNode(node: DiagramNode, box: Box, measureText: MeasureText): stri
       const font = shapeFont(node);
       let label = text.replace(/\s+/g, ' ');
       while (label.length && measureText(label, font) > width - 16) label = label.slice(0, -1);
-      content += element('text', { x: cell.x + 8, y: cell.y + height / 2, fill: SHAPE_TEXT_COLORS[node.textColor ?? 'default'], 'font-family': font.family, 'font-size': font.size, 'font-weight': r === 0 ? 600 : 400, 'dominant-baseline': 'central' }, escapeXml(label));
+      content += element('text', { x: node.textAlign === 'right' ? cell.x + width - 8 : node.textAlign === 'center' ? cell.x + width / 2 : cell.x + 8, 'text-anchor': node.textAlign === 'right' ? 'end' : node.textAlign === 'center' ? 'middle' : 'start', y: cell.y + height / 2, fill: SHAPE_TEXT_COLORS[node.textColor ?? 'default'], 'font-family': font.family, 'font-size': font.size, 'font-weight': r === 0 ? 600 : 400, 'dominant-baseline': 'central' }, escapeXml(label));
     }));
     return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + content);
   }
@@ -494,10 +496,18 @@ function resolveEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, chipWidt
     route = getSmoothStepPath(sourcePoint, sourceSide, targetPoint, targetSide);
     extent = getStepPoints(sourcePoint, sourceSide, targetPoint, targetSide).map(pointBox);
   }
+  if (edge.labelPosition !== undefined && typeof document !== 'undefined') {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', route.path);
+    if (typeof path.getTotalLength === 'function') {
+      const point = path.getPointAtLength(path.getTotalLength() * edge.labelPosition);
+      route = {...route, labelX: point.x, labelY: point.y};
+    }
+  }
   const chip =
     chipWidth === undefined
       ? null
-      : { x: route.labelX - chipWidth / 2, y: route.labelY - LABEL_HEIGHT / 2, width: chipWidth, height: LABEL_HEIGHT };
+      : { x: route.labelX - chipWidth / 2, y: route.labelY - (edge.textSize ? connectorFont(edge).size * 1.6 + 8 : LABEL_HEIGHT) / 2, width: chipWidth, height: edge.textSize ? connectorFont(edge).size * 1.6 + 8 : LABEL_HEIGHT };
   if (chip) extent.push(chip);
   return { route, chip, extent };
 }
@@ -529,6 +539,7 @@ function renderEdge(edge: DiagramEdge, resolved: ResolvedEdge): string {
         rx: LABEL_RADIUS,
         fill: LABEL_CHIP_FILL,
         stroke: LABEL_CHIP_STROKE,
+        'stroke-dasharray': '1 3',
       }) +
       element(
         'text',
@@ -536,8 +547,10 @@ function renderEdge(edge: DiagramEdge, resolved: ResolvedEdge): string {
           x: resolved.route.labelX,
           y: resolved.route.labelY,
           fill: LABEL_TEXT_FILL,
-          'font-family': LABEL_FONT.family,
-          'font-size': LABEL_FONT.size,
+          'font-family': connectorFont(edge).family,
+          'font-size': connectorFont(edge).size,
+          'font-weight': connectorFont(edge).weight,
+          'font-style': edge.textItalic ? 'italic' : 'normal',
           'text-anchor': 'middle',
           'dominant-baseline': 'central',
         },
@@ -615,7 +628,7 @@ export function renderDiagramSvg(input: RenderDiagramSvgInput): RenderedDiagramS
 
   const chipWidths = new Map<string, number>();
   for (const { edge } of exportedEdges) {
-    if (edge.label) chipWidths.set(edge.id, input.measureText(edge.label, LABEL_FONT) + 2 * LABEL_PADDING_X);
+    if (edge.label) chipWidths.set(edge.id, input.measureText(edge.label, connectorFont(edge)) + 2 * LABEL_PADDING_X);
   }
 
   // Canvas-space pass: the bounds cover the shapes, the attached frames and

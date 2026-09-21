@@ -42,9 +42,15 @@ export function translateSection(section: CanvasSection, members: Screen[], dx: 
   return { section: {...section,x:section.x+dx,y:section.y+dy}, positions:members.map(s=>({id:s.id,x:(s.x??0)+dx,y:(s.y??0)+dy})) };
 }
 
-/** Bounds of all objects fully contained by a section, including nested sections. */
-export function fitSectionObjects(section: CanvasSection, sections: CanvasSection[], screens: Screen[], nodes: FrameRect[], heights?: ReadonlyMap<string, number>): FrameRect | null {
-  const boxes = [...screens.map(s => frameRect(s, heights)), ...nodes, ...sections.filter(s => s.id !== section.id)].filter(box => containsRect(section, box));
+/** Fit diagram members crossing the boundary as well as fully contained objects. */
+export function fitSectionObjects(section: CanvasSection, sections: CanvasSection[], screens: Screen[], nodes: (FrameRect & {id?:string})[], heights?: ReadonlyMap<string, number>, edges: import('../diagram/store').DiagramEdge[] = []): FrameRect | null {
+  const intersects=(box:FrameRect)=>box.x<section.x+section.width&&box.x+box.width>section.x&&box.y<section.y+section.height&&box.y+box.height>section.y;
+  const belongsElsewhere=(box:FrameRect)=>sections.some(other=>other.id!==section.id&&!containsRect(section,other)&&containsRect(other,box)&&!containsRect(other,section));
+  const members=new Set(nodes.filter(n=>intersects(n)&&!belongsElsewhere(n)));
+  let changed=true;
+  while(changed){changed=false;for(const edge of edges){const source=nodes.find(n=>n.id===edge.source.nodeId),target=nodes.find(n=>n.id===edge.target.nodeId);if(!source||!target)continue;for(const [from,to] of [[source,target],[target,source]])if(members.has(from)&&!members.has(to)&&!belongsElsewhere(to)){members.add(to);changed=true;}}}
+  const boxes = [...screens.map(s => frameRect(s, heights)), ...sections.filter(s => s.id !== section.id)].filter(box => containsRect(section, box));
+  boxes.push(...members);
   if (!boxes.length) return null;
   const x=Math.floor(Math.min(...boxes.map(b=>b.x))-64),y=Math.floor(Math.min(...boxes.map(b=>b.y))-80);
   return {x,y,width:Math.max(160,Math.ceil(Math.max(...boxes.map(b=>b.x+b.width))+64-x)),height:Math.max(120,Math.ceil(Math.max(...boxes.map(b=>b.y+b.height))+64-y))};

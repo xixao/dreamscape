@@ -321,6 +321,20 @@ describe('DiagramLayer rendering', () => {
     expect(screen.getByTestId('diagram-handle-node-node000001-right')).toHaveStyle({ opacity: 1 });
   });
 
+  it('clears canvas hover when the pointer enters an overlapping editor panel', () => {
+    renderLayer({ diagram: stateWith({ nodes: [node({ x: 0, y: 0, width: 100, height: 50 })] }) });
+    hoverAt(50, 25);
+    const handle = screen.getByTestId('diagram-handle-node-node000001-right');
+    expect(handle).toHaveStyle({ opacity: 1 });
+    const panel = document.createElement('aside');
+    document.body.appendChild(panel);
+    fireEvent.pointerMove(panel, { clientX: 50, clientY: 25 });
+    expect(handle).toHaveStyle({ opacity: 0, pointerEvents: 'none' });
+    panel.remove();
+    hoverAt(50, 25);
+    expect(handle).toHaveStyle({ opacity: 1 });
+  });
+
   it('shows hover handles on a frame once the pointer moves over it', () => {
     const frames: DiagramFrameBox[] = [{ id: 'screen1', x: 0, y: 0, width: 400, height: 800 }];
     renderLayer({ frames });
@@ -2770,4 +2784,15 @@ describe('DiagramLayer: deleting a partial group leaves a real, still-usable sur
     expect(screen.getByTestId('diagram-resize-b-se')).toBeInTheDocument();
     expect(screen.getByTestId('diagram-node-b')).toHaveAttribute('data-selected', 'true');
   });
+});
+
+it('reveals an editable ghost label at a connector midpoint', () => {
+ const {dispatch} = renderLayer({diagram:stateWith({nodes:[node({id:'a'}),node({id:'b',x:300})],edges:[edge()]})});
+ expect(screen.queryByRole('button',{name:'Add connector label'})).toBeNull();
+ fireEvent.pointerEnter(screen.getByTestId('diagram-edge-edge0000001'));
+ fireEvent.click(screen.getByRole('button',{name:'Add connector label'}));
+ const input=screen.getByTestId('diagram-text-input-edge0000001');
+ fireEvent.change(input,{target:{value:'Approved'}});
+ fireEvent.keyDown(input,{key:'Enter'});
+ expect(dispatch).toHaveBeenCalledWith({type:'setText',id:'edge0000001',text:'Approved'});
 });

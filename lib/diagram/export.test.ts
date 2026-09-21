@@ -17,8 +17,8 @@ const LABEL_FONT_FAMILY = "'IBM Plex Mono', ui-monospace, Menlo, monospace";
 // arrowheads use, and the CHIP surface a label sits on.
 const CANVAS = '#14121B';
 const ACCENT = '#8C97DB';
-const CHIP_FILL = 'rgba(255,255,255,0.055)';
-const CHIP_STROKE = 'rgba(255,255,255,0.09)';
+const CHIP_FILL = 'rgba(34,33,46,0.95)';
+const CHIP_STROKE = 'rgba(255,255,255,0.6)';
 const CHIP_TEXT = '#EAE8F0';
 
 // A deterministic stand-in for canvas measureText: 7 px per character, whatever
@@ -630,7 +630,7 @@ describe('renderDiagramSvg', () => {
   });
 
   describe('edge labels', () => {
-    it('draws a CHIP-surfaced chip centred on the label point, sized from the measurer', () => {
+    it('draws a dotted rectangular label centred on the label point, sized from the measurer', () => {
       const labelled = group(renderDoc({ nodes: [A, B], edges: [edge({ label: 'yes' })], padding: 0 }), 'data-edge', 'e1');
       // The straight path M100,25 L200,25 has its label point at 150,25;
       // "yes" measures 21 px, plus 8 px padding each side.
@@ -639,7 +639,8 @@ describe('renderDiagramSvg', () => {
       expect(chip.getAttribute('y')).toBe('15');
       expect(chip.getAttribute('width')).toBe('37');
       expect(chip.getAttribute('height')).toBe('20');
-      expect(chip.getAttribute('rx')).toBe('4');
+      expect(chip.getAttribute('rx')).toBe('0');
+      expect(chip.getAttribute('stroke-dasharray')).toBe('1 3');
       expect(chip.getAttribute('fill')).toBe(CHIP_FILL);
       expect(chip.getAttribute('stroke')).toBe(CHIP_STROKE);
       const text = only(labelled, 'text');
@@ -834,10 +835,10 @@ describe('renderDiagramSvg', () => {
       expect(only(doc, 'defs > marker > path').getAttribute('fill')).toBe(token('acc'));
     });
 
-    it('surfaces label chips like CHIP (--chip, --bevel-line, --foreground)', () => {
+    it('uses a readable dark backing and dotted border for labels', () => {
       const labelled = group(renderDoc({ nodes: [A, B], edges: [edge({ label: 'yes' })] }), 'data-edge', 'e1');
-      expect(only(labelled, 'rect').getAttribute('fill')).toBe(token('chip'));
-      expect(only(labelled, 'rect').getAttribute('stroke')).toBe(token('bevel-line'));
+      expect(only(labelled, 'rect').getAttribute('fill')).toBe(CHIP_FILL);
+      expect(only(labelled, 'rect').getAttribute('stroke')).toBe(CHIP_STROKE);
       expect(only(labelled, 'text').getAttribute('fill')).toBe(token('foreground'));
     });
 

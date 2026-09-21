@@ -296,6 +296,12 @@ export function DiagramFields({
               }}
             />
             <Field
+              field={{ prop: 'textAlign', label: 'Text alignment', kind: 'select', section: 'Style', options: [{value:'left',label:'Left'},{value:'center',label:'Center'},{value:'right',label:'Right'}, {value:MIXED,label:'Mixed'}] }}
+              value={valueOrMixed(nodes, n => n.textAlign ?? (n.kind === 'table' ? 'left' : 'center'))}
+              breakpoint="mobile"
+              onChange={next => { if (next !== MIXED) onAction({type:'setTextStyle', ids:nodeIds, textAlign:next as 'left'|'center'|'right'}); }}
+            />
+            <Field
               field={textSizeField(textSizeValue === MIXED)}
               value={textSizeValue}
               breakpoint="mobile"
@@ -376,6 +382,12 @@ export function DiagramFields({
           breakpoint="mobile"
           onChange={(next) => onAction({ type: 'setLineStyle', id: edge.id, lineStyle: next as LineStyle })}
         />
+        <Field field={textSizeField(false)} value={edge.textSize ?? 'small'} breakpoint="mobile" onChange={next=>onAction({type:'setLabelStyle',id:edge.id,patch:{textSize:next as TextSize}})} />
+        <Field field={textFontField(false)} value={edge.textFont ?? 'mono'} breakpoint="mobile" onChange={next=>onAction({type:'setLabelStyle',id:edge.id,patch:{textFont:next as TextFont}})} />
+        <div className="flex gap-2">
+          <button aria-pressed={!!edge.textBold} className="rounded border px-3 py-1 font-bold" onClick={()=>onAction({type:'setLabelStyle',id:edge.id,patch:{textBold:!edge.textBold}})}>Bold</button>
+          <button aria-pressed={!!edge.textItalic} className="rounded border px-3 py-1 italic" onClick={()=>onAction({type:'setLabelStyle',id:edge.id,patch:{textItalic:!edge.textItalic}})}>Italic</button>
+        </div>
         <Field
           field={EDGE_LABEL_FIELD}
           value={edge.label ?? ''}

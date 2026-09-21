@@ -5,6 +5,7 @@ import type { Screen } from '@/lib/files/repository';
 export type SectionsController = {
   pages?: import('@/lib/files/repository').Page[]; pageId?: string;
   moveToPage?: (section: CanvasSection, pageId: string) => void;
+  diagramEdges?: import('@/lib/diagram/store').DiagramEdge[];
   diagramNodes?: import('@/lib/diagram/store').DiagramNode[];
   sections: CanvasSection[]; screens: Screen[]; heights: ReadonlyMap<string,number>;
   selected: string|null; select: (id:string|null)=>void;

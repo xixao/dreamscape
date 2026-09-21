@@ -340,6 +340,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
   // request here rather than calling setEditing directly - see
   // queueEditFromMenu's own comment below for why.
   const pendingMenuEditRef = useRef<{ id: string; text: string } | null>(null);
+  const labelDrag = useRef<{id:string; x:number; y:number; moved:boolean; position:number} | null>(null);
+  const suppressLabelClick = useRef(false);
+  const [labelPreview,setLabelPreview] = useState<{id:string;position:number}|null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const [hover, setHover] = useState<HoverTarget>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -874,6 +878,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
       // different shape mid-drag must not fire this shape's own hover
       // handles.
       if (drag || resize || connect || endpointDrag || place) return;
+      // Global coordinate hit-testing must respect editor chrome above the
+      // canvas. Otherwise hidden objects expose handles through the panels.
+      const target = event.target;
+      if (target instanceof Element && target.closest('aside, header, [role="dialog"], [role="menu"], [data-note-layer]')) {
+        setHover(current => current === null ? current : null);
+        return;
+      }
+
       const point = clientToCanvas(event.clientX, event.clientY);
       // findLast, not find (review finding 4): nodes paint in array order,
       // so the LAST one is on top - find would resolve an overlap to
@@ -1724,7 +1736,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   shape's fill/stroke. Spec section 9: the ghost also
                   honours the source's own text size/font/color. */}
               <foreignObject x={box.x} y={box.y} width={box.width} height={box.height}>
-                <div className={cn('flex size-full items-center justify-center overflow-hidden p-1.5 text-center break-words whitespace-pre-wrap', textStyleClasses(source))}>
+                <div style={{textAlign: source.textAlign ?? 'center', justifyContent: source.textAlign === 'left' ? 'flex-start' : source.textAlign === 'right' ? 'flex-end' : 'center'}} className={cn('flex size-full items-center overflow-hidden p-1.5 break-words whitespace-pre-wrap', textStyleClasses(source))}>
                   {source.text}
                 </div>
               </foreignObject>
@@ -1809,6 +1821,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   }}
                   data-testid={`diagram-text-input-${rawNode.id}`}
                   value={editing.draft}
+                  style={{textAlign: rawNode.textAlign ?? 'center'}}
                   maxLength={MAX_TEXT_LENGTH}
                   className={cn('size-full resize-none border-0 bg-transparent p-1 text-center outline-none', textStyleClasses(rawNode))}
                   onChange={(event) => setEditing({ id: rawNode.id, draft: event.target.value })}
@@ -1825,7 +1838,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   onBlur={() => commitPendingEdit(true)}
                 />
               ) : (
-                <div className={cn('flex size-full items-center justify-center overflow-hidden p-1.5 text-center break-words whitespace-pre-wrap', textStyleClasses(rawNode))}>
+                <div style={{textAlign: rawNode.textAlign ?? 'center', justifyContent: rawNode.textAlign === 'left' ? 'flex-start' : rawNode.textAlign === 'right' ? 'flex-end' : 'center'}} className={cn('flex size-full items-center overflow-hidden p-1.5 break-words whitespace-pre-wrap', textStyleClasses(rawNode))}>
                   {rawNode.text}
                 </div>
               )}
@@ -1905,6 +1918,18 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (!resolved) return null;
     const selected = isSelected(diagram.selection, 'edge', edge.id);
     const isEditingLabel = editing?.id === edge.id;
+    const labelPath = typeof document !== 'undefined' ? document.createElementNS('http://www.w3.org/2000/svg','path') : null;
+    labelPath?.setAttribute('d',resolved.path);
+    const position = labelPreview?.id === edge.id ? labelPreview.position : edge.labelPosition;
+    if (position !== undefined && labelPath?.getTotalLength) {
+      const point = labelPath.getPointAtLength(labelPath.getTotalLength()*position);
+      resolved.labelX=point.x; resolved.labelY=point.y;
+    }
+    const fontSize = edge.textSize ? ({small:12,medium:16,large:20,xlarge:28,huge:36}[edge.textSize]) : 10.5;
+    const labelWidth = Math.max(100, Math.min(600, (isEditingLabel ? editing.draft.length : (edge.label?.length ?? 9)) * fontSize * .65 + 32));
+    const labelHeight = fontSize * 1.6 + 8;
+    const labelStyle = {fontSize, fontFamily: edge.textFont === 'serif' ? 'Georgia, serif' : edge.textFont === 'sans' ? 'Arial, sans-serif' : 'monospace', fontWeight: edge.textBold ? 700 : 400, fontStyle: edge.textItalic ? 'italic' : 'normal'};
+
 
     return (
       <ContextMenu key={edge.id}>
@@ -1916,7 +1941,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             if (tool.kind === 'pointer') ensureSelected('edge', edge.id);
           }}
         >
-          <g data-testid={`diagram-edge-${edge.id}`}>
+          <g data-testid={`diagram-edge-${edge.id}`} onPointerEnter={()=>setHoveredEdge(edge.id)} onPointerLeave={()=>setHoveredEdge(null)}>
             {/* A fat, invisible stroke carries the click/hover target so a thin
                 connector line is still easy to select - the visible path below
                 has pointer-events disabled so it never competes with this one. */}
@@ -1947,7 +1972,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
               markerStart={edge.arrow === 'both' ? 'url(#diagram-arrowhead)' : undefined}
             />
             {isEditingLabel ? (
-              <foreignObject x={resolved.labelX - 40} y={resolved.labelY - 12} width={80} height={24}>
+              <foreignObject x={resolved.labelX - labelWidth / 2} y={resolved.labelY - labelHeight / 2} width={labelWidth} height={labelHeight} style={{pointerEvents: 'all'}}>
                 <input
                   // Same "entering edit mode is itself the focus request" as
                   // a node's own inline textarea above.
@@ -1955,10 +1980,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   ref={(el) => {
                     editInputRef.current = el;
                   }}
+                  style={labelStyle}
+                  onPointerDown={event=>event.stopPropagation()}
                   data-testid={`diagram-text-input-${edge.id}`}
                   value={editing.draft}
+
                   maxLength={MAX_TEXT_LENGTH}
-                  className={`${CHIP} min-h-0 w-full justify-center border-0 bg-transparent px-2 py-0.5 text-center font-mono text-[10.5px] text-white outline-none`}
+                  className="size-full rounded-none border border-dotted border-current/60 bg-[#22212e]/95 px-2 py-0.5 text-center text-white outline-none"
                   onChange={(event) => setEditing({ id: edge.id, draft: event.target.value })}
                   onFocus={(event) => event.currentTarget.select()}
                   onKeyDown={(event) => {
@@ -1974,9 +2002,13 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 />
               </foreignObject>
             ) : (
-              edge.label && (
-                <foreignObject x={resolved.labelX - 40} y={resolved.labelY - 12} width={80} height={24} style={{ pointerEvents: 'none' }}>
-                  <div className={`${CHIP} min-h-0 justify-center px-2 py-0.5 text-center font-mono text-[10.5px]`}>{edge.label}</div>
+              (edge.label || hoveredEdge === edge.id) && (
+                <foreignObject x={resolved.labelX - labelWidth / 2} y={resolved.labelY - labelHeight / 2} width={labelWidth} height={labelHeight} style={{ pointerEvents: 'all' }}>
+                  <button aria-label={edge.label ? `Edit connector label ${edge.label}` : 'Add connector label'} style={labelStyle} className={`size-full rounded-none border border-dotted border-current/60 bg-[#22212e]/95 px-2 py-0.5 text-center text-white ${edge.label ? '' : 'opacity-60'}`} onPointerDown={event=>{event.stopPropagation();if(event.button!==0)return;suppressLabelClick.current=false;labelDrag.current={id:edge.id,x:event.clientX,y:event.clientY,moved:false,position:edge.labelPosition??.5};event.currentTarget.setPointerCapture(event.pointerId);}}
+                  onPointerMove={event=>{const drag=labelDrag.current;if(!drag||drag.id!==edge.id||!labelPath?.getTotalLength)return;if(!drag.moved&&Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<4)return;drag.moved=true;const cursor=clientToCanvas(event.clientX,event.clientY);const length=labelPath.getTotalLength();let best=Infinity,t=0;for(let i=0;i<=500;i++){const p=labelPath.getPointAtLength(length*i/500);const distance=(p.x-cursor.x)**2+(p.y-cursor.y)**2;if(distance<best){best=distance;t=i/500;}}drag.position=t;setLabelPreview({id:edge.id,position:t});}}
+                  onPointerUp={event=>{const drag=labelDrag.current;if(!drag)return;labelDrag.current=null;suppressLabelClick.current=drag.moved;if(drag.moved)dispatch({type:'setLabelPosition',id:edge.id,position:drag.position});setLabelPreview(null);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
+                  onPointerCancel={()=>{labelDrag.current=null;setLabelPreview(null);suppressLabelClick.current=true;}}
+                  onClick={event=>{event.stopPropagation();if(suppressLabelClick.current){suppressLabelClick.current=false;return;}ensureSelected('edge',edge.id);setEditing({id:edge.id,draft:edge.label??''});}}>{edge.label || 'Add label'}</button>
                 </foreignObject>
               )
             )}

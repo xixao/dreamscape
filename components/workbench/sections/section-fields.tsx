@@ -11,7 +11,7 @@ export function SectionFields({section}:{section:CanvasSection}){
   const [name,setName]=useState(section.name);
   const [previous,setPrevious]=useState(section.name);
   if(previous!==section.name){setPrevious(section.name);setName(section.name);}
-  const fitBounds=fitSectionObjects(section,context.sections,context.screens,context.diagramNodes??[],context.heights);
+  const fitBounds=fitSectionObjects(section,context.sections,context.screens,context.diagramNodes??[],context.heights,context.diagramEdges??[]);
   function update(patch:Partial<CanvasSection>){context.commit({sections:context.sections.map(s=>s.id===section.id?{...s,...patch}:s),positions:[]});}
   function rename(){const value=name.trim();if(value&&value!==section.name)update({name:value});else setName(section.name);}
   return <section className="space-y-4" aria-label="Section properties">
