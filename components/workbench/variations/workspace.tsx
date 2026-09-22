@@ -1,10 +1,12 @@
 'use client';
 import { sendDesignRequest } from '@/lib/chat/design-instructions';
-import Link from 'next/link';
+import { FilesLink } from '../files-link';
+import { PagesList } from '../pages-list';
+import { PANEL } from '../chrome';
 import { RoundsCanvas } from './rounds-canvas';
 import { anotherRound } from '@/lib/variations/rounds';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 
 import { generationPrompt, parseGeneration, type Exploration, type Variation, type VariationSet } from '@/lib/variations/model';
@@ -12,8 +14,8 @@ import { placeholderTransport, type ChatTransport } from '@/lib/chat/transport';
 import { createChatStore } from '@/lib/chat/store';
 import type { Page } from '@/lib/files/repository';
 
-export function VariationsWorkspace({ fileId, page, pages, transport, onUpdate, onSwitch, onPromote, saveState }: {
-  fileId:string; page:Page; pages:Page[]; transport:ChatTransport; saveState:string;
+export function VariationsWorkspace({ fileId, page, pages, pageActions, onRenamePage, onAddPage, transport, onUpdate, onSwitch, onPromote, saveState }: {
+  fileId:string; page:Page; pages:Page[]; pageActions?: (page: Page) => ReactNode; onRenamePage?: (id: string, name: string) => void; onAddPage?: () => void; transport:ChatTransport; saveState:string;
   onUpdate:(data:Exploration)=>void; onSwitch:(id:string)=>void; onNew:()=>void;
   onPromote:(variation:Variation,destination:string)=>void;
 }) {
@@ -62,16 +64,17 @@ export function VariationsWorkspace({ fileId, page, pages, transport, onUpdate, 
     onUpdate({...data,sets:[...data.sets,retryRound?anotherRound(retryRound,prompt):{id:crypto.randomUUID(),parentId:chosen?.id??null,prompt:request.trim(),count:1,countFromPrompt:true,teach:true,status:'pending',variations:[]}]});
     setPrompt('');setRetryRound(null);
   }
-  return <main className="fixed inset-0 flex flex-col bg-canvas text-foreground">
-    <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b bg-card px-5 py-3">
-      <div className="flex min-w-0 items-center gap-3"><Link className="shrink-0" href="/">← Files</Link><select aria-label="Pages" className="min-w-0 max-w-64 rounded border bg-input p-2" value={page.id} onChange={e=>onSwitch(e.target.value)}>{pages.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><span className="text-xs text-muted-foreground">{saveState}</span></div>
+  return <main className="fixed inset-0 flex flex-col gap-2.5 bg-canvas p-3 text-foreground">
+    <header className={`${PANEL} relative z-10 grid h-[54px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3.5`}>
+      <div className="flex min-w-0 items-center gap-3"><FilesLink /><span className="truncate text-sm">{page.name}</span><span className="text-xs text-muted-foreground">{saveState}</span></div>
       <h1 className="text-sm font-medium">Variations</h1><span/>
     </header>
     {data.sets.filter(s=>s.status!=='ready').map(set=><section key={set.id} aria-label={`Variation set: ${set.prompt}`} className="border-b p-3"><p role={set.status==='error'?'alert':'status'}>{set.status==='pending'?'Generating variations…':set.error}</p><Button variant="outline" onClick={()=>{if(set.status==='pending'){jobs.current.get(set.id)?.abort();patchSet(set.id,{status:'error',error:'Generation cancelled.'});}else patchSet(set.id,{status:'pending',error:undefined});}}>{set.status==='pending'?'Cancel':'Retry generation'}</Button></section>)}
     <>
 
-    <div className="flex min-h-0 flex-1 gap-3 px-5 pb-3">
-      <aside aria-label="Variation chat" className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border bg-card">
+    <div className="flex min-h-0 flex-1 gap-3">
+      <aside aria-label="Variation chat" className={`${PANEL} flex w-80 shrink-0 flex-col overflow-hidden`}>
+        <PagesList storageKey={`dreamscape:pages-list:${fileId}`} pages={pages} currentPageId={page.id} onSwitch={onSwitch} onRename={onRenamePage} onAdd={onAddPage} pageActions={pageActions} />
         <div className="border-b px-4 py-3"><h2 className="font-medium">Chat</h2><p className="mt-1 truncate text-xs text-muted-foreground">{retryRound?'Trying another round':chosen?.name??'New exploration'}</p></div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {data.brief.trim()&&<section aria-label="Design context"><h3 className="mb-2 text-xs font-medium text-muted-foreground">Design context</h3><p className="whitespace-pre-wrap text-sm">{data.brief}</p></section>}

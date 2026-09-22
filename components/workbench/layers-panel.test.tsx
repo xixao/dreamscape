@@ -58,8 +58,8 @@ describe('Layers panel', () => {
     const user = userEvent.setup();
     render(<StageProvider><Editor resolver={resolver}><Frame><Element is={LayoutBox} canvas><Element is={LayoutBox} canvas><Button label="Mic" /></Element><Card title="Example" /></Element></Frame><LayersPanel /></Editor></StageProvider>);
     const tree = screen.getByRole('tree');
-    await user.click(within(tree).getByRole('button', { name: 'Button' }));
-    await user.dblClick(within(tree).getByRole('button', { name: 'Button' }));
+    await user.click(within(tree).getByRole('button', { name: 'Mic' }));
+    await user.dblClick(within(tree).getByRole('button', { name: 'Mic' }));
     await user.clear(screen.getByRole('textbox', { name: 'Layer name' }));
     await user.type(screen.getByRole('textbox', { name: 'Layer name' }), 'Microphone{Enter}');
     await waitFor(() => expect(within(tree).getByRole('treeitem', { name: 'Microphone' })).toHaveAttribute('aria-selected', 'true'));
@@ -92,14 +92,14 @@ it('adds and removes layers with Shift-click and shares canvas selection', async
   render(<StageProvider><Editor resolver={resolver} handlers={selectionHandlers}><Frame><Element is={LayoutBox} canvas><Button label="First" /><Button label="Second" /><Button label="Third" /></Element></Frame><LayersPanel /></Editor></StageProvider>);
   const tree = screen.getByRole('tree');
   const rows = within(tree).getAllByRole('treeitem').slice(1);
-  const labels = rows.map(row => within(row).getByRole('button', {name:'Button'}));
+  const labels = rows.map((row, i) => within(row).getByRole('button', {name:['First', 'Second', 'Third'][i]}));
   fireEvent.click(labels[0]);
   fireEvent.click(labels[1], {shiftKey:true});
   await waitFor(()=>expect(rows[0]).toHaveAttribute('aria-selected','true'));
   await waitFor(()=>expect(rows[1]).toHaveAttribute('aria-selected','true'));
   fireEvent.click(labels[0], {shiftKey:true});
   await waitFor(()=>expect(rows[0]).toHaveAttribute('aria-selected','false'));
-  const third = screen.getByRole('button',{name:'Third'});
+  const third = screen.getAllByRole('button',{name:'Third'}).find(button => !tree.contains(button))!;
   fireEvent.mouseDown(third,{shiftKey:true});fireEvent.click(third,{shiftKey:true});
   await waitFor(()=>expect(rows[1]).toHaveAttribute('aria-selected','true'));
   await waitFor(()=>expect(rows[2]).toHaveAttribute('aria-selected','true'));

@@ -221,7 +221,7 @@ describe('matchShortcut', () => {
     expect(matchShortcut(key({ key: 't' }))).toBe('diagram-text-tool');
     expect(matchShortcut(key({ key: 'T' }))).toBe('diagram-text-tool');
     expect(matchShortcut(key({ key: 't', metaKey: true }))).toBeNull();
-    expect(matchShortcut(key({ key: 't', shiftKey: true }))).toBeNull();
+    expect(matchShortcut(key({ key: 't', shiftKey: true }))).toBe('tool-table');
   });
 
   it('matches Shift+N for a new screen', () => {

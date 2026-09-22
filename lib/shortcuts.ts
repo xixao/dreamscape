@@ -57,6 +57,7 @@ export const SHORTCUTS: Shortcut[] = [
   },
   { id: 'toggle-ui', area: 'Panels', keys: ['Mod', '\\'], label: 'Show or hide all panels', always: true },
   { id: 'present', area: 'Present', keys: ['Mod', 'R'], label: 'Present the focused screen', always: true },
+  { id: 'tool-table', area: 'Tools', keys: ['Shift', 'T'], label: 'Draw a table' },
   { id: 'tool-section', area: 'Tools', keys: ['Shift', 'S'], label: 'Section tool' },
   { id: 'tool-pointer', area: 'Tools', keys: ['V'], label: 'Pointer' },
   { id: 'tool-comment', area: 'Tools', keys: ['Shift', 'C'], label: 'Comment tool' },
@@ -321,6 +322,7 @@ export function matchShortcut(event: ShortcutKeyEvent): string | null {
   // combination that only reports `key` still matches).
   if (shift && (event.code === 'Digit1' || event.key === '!')) return 'zoom-to-fit';
   if (shift && (event.code === 'Digit2' || event.key === '@')) return 'zoom-to-selection';
+  if (shift && key === 't') return 'tool-table';
   if (shift && key === 's') return 'tool-section';
   if (shift && key === 'n') return 'screen-new';
   if (shift && key === 'o') return 'new-overlay';

@@ -5,9 +5,8 @@ import type { NoteKind } from '@/lib/comments/store';
 import { SharePrototypeButton } from './prototype-actions';
 import { useState } from 'react';
 import { useEditor } from '@craftjs/core';
-import Link from 'next/link';
+import { FilesLink } from './files-link';
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   Play,
@@ -472,14 +471,7 @@ export function Topbar({
           text) would be a confusing, redundant stop for a screen reader,
           so the icon now sits inside this same link instead of its own.
         */}
-        <Link
-          href={filesHref}
-          aria-label="Files"
-          className="flex items-center gap-1.5 text-[13px] font-semibold hover:underline"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden />
-          Files
-        </Link>
+        <FilesLink href={filesHref} />
         <span className="font-mono text-[13px] text-muted-foreground" aria-hidden>
           ›
         </span>

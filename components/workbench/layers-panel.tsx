@@ -13,14 +13,17 @@ import { useSettledEditorState } from './use-settled-editor-state';
 import { LABEL } from './chrome';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 
-export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = false, rootFrame }: { rootFrame?: { name: string; duplicate: () => void; delete: () => void; deleteDisabled: boolean }; showSections?: boolean; onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
+export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = false, rootFrame, persistenceKey }: { persistenceKey?: string; rootFrame?: { name: string; duplicate: () => void; delete: () => void; deleteDisabled: boolean }; showSections?: boolean; onOpenShortcuts?: () => void; onAddElement?: (type: string, parent: string, index: number) => void }) {
   const panelMode = useContext(LeftPanelContext);
   const { actions, query } = useEditor();
   const state = useSettledEditorState();
   const [localCollapsed, setLocalCollapsed] = useState(false);
   const panelCollapsed = panelMode?.collapsed ?? localCollapsed;
   const setPanelCollapsed = panelMode?.setCollapsed ?? setLocalCollapsed;
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try { const saved = persistenceKey ? JSON.parse(localStorage.getItem(persistenceKey) || '[]') : []; return new Set(Array.isArray(saved) ? saved.filter(id => typeof id === 'string') : []); } catch { return new Set(); }
+  });
+  useEffect(() => { if (persistenceKey) { try { localStorage.setItem(persistenceKey, JSON.stringify([...collapsed])); } catch {} } }, [collapsed, persistenceKey]);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -56,6 +59,8 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     window.addEventListener(DRAG_TARGET, target);
     return () => { clearTimeout(timer); window.removeEventListener(DRAG_TARGET, target); };
   }, []);
+  const expandableIds = Object.keys(state.nodes).filter(id => state.nodes[id].data.nodes.length || Object.keys(state.nodes[id].data.linkedNodes).length);
+  const allCollapsed = expandableIds.length > 0 && expandableIds.every(id => collapsed.has(id));
   const selected = [...state.events.selected][0];
   useEffect(() => {
     if (!selected) return;
@@ -104,10 +109,12 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     const item = state.nodes[id]; if (!item) return null;
     const children = [...Object.values(item.data.linkedNodes), ...item.data.nodes];
     const label = id === 'ROOT' ? String(item.data.custom.layerName || 'Frame') : layerLabel(item.data);
+    const isFrame = id === 'ROOT' || item.data.name === 'LayoutBox';
     const movable = !!item.data.parent && state.nodes[item.data.parent]?.data.nodes.includes(id);
     return <div key={id} role="treeitem" aria-label={label} aria-selected={state.events.selected.has(id)} aria-expanded={children.length ? !collapsed.has(id) : undefined}>
       <div className={`group/layer flex items-center gap-1 rounded-md py-1.5 pr-2 text-xs ${state.events.selected.has(id) ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'}`}
         data-drag-layer={id}
+        data-layer-kind={isFrame ? 'frame' : 'component'}
         draggable={movable && renaming !== id}
         onDragStart={event => { event.stopPropagation(); event.dataTransfer.setData('application/x-dreamscape-layer', id); event.dataTransfer.effectAllowed = 'move'; }}
         data-drop-placement={dropHint?.id === id ? dropHint.placement : undefined}
@@ -145,7 +152,7 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
         </button>
         {renaming === id ? <input autoFocus aria-label="Layer name" className="min-w-0 flex-1 rounded border bg-background px-1 text-xs" value={name} onChange={event => setName(event.target.value)} onBlur={commitName}
           onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') commitName(); if (event.key === 'Escape') setRenaming(null); }} /> :
-          <button className="min-w-0 flex-1 truncate text-left" onClick={event => {
+          <button className={`min-w-0 flex-1 truncate text-left ${isFrame ? 'font-semibold text-foreground' : ''}`} onClick={event => {
             const current = query.getEvent('selected').all();
             actions.selectNode(event.shiftKey || event.metaKey || event.ctrlKey
               ? current.includes(id) ? current.filter(value => value !== id) : [...current, id]
@@ -178,7 +185,8 @@ export function LayersPanel({ onAddElement, onOpenShortcuts, showSections = fals
     }}>
     {panelMode ? <LeftPanelHeader action={<button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button>} /> : <div className="flex items-center gap-2 border-b border-line-soft p-4"><Layers className="size-4 text-muted-foreground" /><h2 className={LABEL}>Layers</h2><button aria-label="Minimize layers panel" aria-expanded={true} title="Minimize layers panel" className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" onClick={() => setPanelCollapsed(true)}><ChevronLeft className="size-4" /></button></div>}
 
-    {panelMode?.pageSelector && (showSections ? <CanvasMinimap>{panelMode.pageSelector}</CanvasMinimap> : <div className="border-b border-line-soft p-3">{panelMode.pageSelector}</div>)}
+    {panelMode?.pageSelector}
+    {showSections && <CanvasMinimap><div className="flex items-center justify-between gap-2"><span className={LABEL}>Layers</span><button type="button" className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(expandableIds))}>{allCollapsed ? 'Expand all' : 'Collapse all'}</button></div></CanvasMinimap>}
     {showSections && <SectionsList />}
     <div role="tree" aria-label="Layers" aria-multiselectable="true" className="min-h-0 flex-1 overflow-auto p-2">{rows('ROOT', 0)}</div>
     {error && <p role="alert" className="px-3 text-xs text-destructive">{error}</p>}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDiagramNode } from './insertion';
-import { tableCells, resizeTable, validTable } from './table';
+import { tableCells, resizeTable, validTable, tableFromText, insertTextRows } from './table';
 import { createInitialDiagramState, diagramReducer } from './store';
 import { validateDiagram } from '../files/validate';
 import { renderDiagramSvg } from './export';
@@ -35,4 +35,19 @@ describe('diagram tables', () => {
     expect(svg?.svg).toContain('&lt;script&gt;');
     expect(svg?.svg).toContain('A&amp;B');
   });
+});
+
+it('creates a two-column table without losing list items', () => {
+  expect(tableFromText('apple\r\nbanana\n\ncarrot\npeach')).toEqual([['Item','Column 2'],['apple',''],['banana',''],['carrot',''],['peach','']]);
+  expect(tableFromText(Array(250).fill('item').join('\n'))).toBeNull();
+});
+it('inserts whole rows in the chosen column and undoes dimensions and content together', () => {
+  const cells = [['Name','Value'],['Existing','Keep']];
+  const next = insertTextRows(cells, 1, 1, 'apple\nbanana')!;
+  expect(next).toEqual([['Name','Value'],['','apple'],['','banana'],['Existing','Keep']]);
+  const node = {...createDiagramNode('table', {x:0,y:0}), table:cells};
+  const initial = createInitialDiagramState({nodes:[node],edges:[]});
+  const changed = diagramReducer(initial,{type:'setTable',id:node.id,cells:next});
+  expect(changed.nodes[0].height).toBe(node.height * 2);
+  expect(diagramReducer(changed,{type:'undo'}).nodes).toEqual(initial.nodes);
 });

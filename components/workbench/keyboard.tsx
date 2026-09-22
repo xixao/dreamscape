@@ -146,6 +146,7 @@ export function useWorkbenchKeyboard(
     // click places a text block and opens its editor. Escape returns to the
     // pointer. Guarded like every other bare single-letter tool shortcut.
     onTextTool?: () => void;
+    onTableTool?: () => void;
     // Cmd+R (spec section 2, "always, preventDefault"): presents the
     // focused screen the same way the top bar's Present link does. Always,
     // like the zoom chords above, since it deliberately takes over the
@@ -213,6 +214,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onSectionTool,
     onTextTool,
+    onTableTool,
     onPresent,
     onAddScreen,
     onAddOverlay,
@@ -397,6 +399,11 @@ export function useWorkbenchKeyboard(
           onPointerTool?.();
           return;
 
+        case 'tool-table':
+          event.preventDefault();
+          onTableTool?.();
+          return;
+
         case 'diagram-text-tool':
           onTextTool?.();
           return;
@@ -544,6 +551,7 @@ export function useWorkbenchKeyboard(
     onPointerTool,
     onSectionTool,
     onTextTool,
+    onTableTool,
     onPresent,
     onAddScreen,
     onAddOverlay,

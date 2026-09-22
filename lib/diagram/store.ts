@@ -15,6 +15,7 @@
 // components/workbench/workbench.tsx).
 
 import { annotationSchema, annotationSize, annotationHeight, type Annotation } from '@/lib/accessibility/kit';
+import { tableDocument, validTableDocument, remapTable, type TableMeta } from './table-model';
 import { validTable } from './table';
 import { bezierControlPoints, bounds, getHandlePosition, sideFromPoint, type Box, type Point, type Side } from './geometry';
 
@@ -81,6 +82,7 @@ export interface DiagramNode {
   color: DiagramColor;
   annotation?: Annotation;
   table?: string[][];
+  tableMeta?: TableMeta;
   textSize?: TextSize;
   textFont?: TextFont;
   textColor?: TextColor;
@@ -121,6 +123,8 @@ export interface DiagramEdge {
   lineStyle?: LineStyle;
   label?: string;
   labelPosition?: number;
+  /** Cleanup connectors reroute around nearby canvas objects. */
+  autoRoute?: boolean;
   textSize?: TextSize;
   textFont?: TextFont;
   textBold?: boolean;
@@ -196,7 +200,7 @@ export type DiagramAction =
   // all - see diagram-layer.tsx's endResize.
   | { type: 'resize'; id: string; width: number; height: number; x?: number; y?: number }
   | { type: 'setAnnotation'; id: string; annotation: Annotation }
-  | { type: 'setTable'; id: string; cells: string[][] }
+  | { type: 'setTable'; id: string; cells: string[][]; meta?: TableMeta }
   | { type: 'setLabelPosition'; id: string; position: number }
   | { type: 'setLabelStyle'; id: string; patch: Pick<DiagramEdge, 'textSize' | 'textFont' | 'textBold' | 'textItalic'> }
   | { type: 'setText'; id: string; text: string }
@@ -471,8 +475,22 @@ export function diagramReducer(state: DiagramState, action: DiagramAction): Diag
     case 'setTable': {
       if (!validTable(action.cells)) return state;
       const target = state.nodes.find(node => node.id === action.id && node.kind === 'table');
-      if (!target || JSON.stringify(target.table) === JSON.stringify(action.cells)) return state;
-      return commit(state, { nodes: state.nodes.map(node => node.id === action.id ? { ...node, table: action.cells.map(row => [...row]) } : node), edges: state.edges });
+      if (!target) return state;
+      if (JSON.stringify(target.table) === JSON.stringify(action.cells) && (!action.meta || JSON.stringify(target.tableMeta) === JSON.stringify(action.meta))) return state;
+      const previous = tableDocument(target);
+      const meta = action.meta ?? remapTable(previous,
+        action.cells.map((_, r) => r < previous.cells.length ? r : -1),
+        action.cells[0].map((_, c) => c < previous.cells[0].length ? c : -1),
+      ).meta;
+      if (!validTableDocument({ cells: action.cells, meta })) return state;
+      const updated = {
+        ...target,
+        table: structuredClone(action.cells),
+        tableMeta: structuredClone(meta),
+        width: meta.widths?.reduce((a, b) => a + b, 0) ?? target.width,
+        height: meta.heights?.reduce((a, b) => a + b, 0) ?? target.height,
+      };
+      return commit(state, { nodes: state.nodes.map(node => node.id === action.id ? updated : node), edges: state.edges });
     }
     case 'setLabelPosition': {
       if (!Number.isFinite(action.position)) return state;

@@ -114,6 +114,7 @@ Generated from `lib/shortcuts.ts`, the single registry every shortcut handler, t
 | Panels | ⌘\ | Show or hide all panels |
 | Present | ⌘R | Present the focused screen |
 | Tools | ⇧S | Section tool |
+| Tools | ⇧T | Draw a table |
 | Tools | V | Pointer |
 | Tools | ⇧C | Comment tool |
 | Tools | ⇧D | Diagram palette |

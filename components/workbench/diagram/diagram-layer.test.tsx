@@ -2325,27 +2325,30 @@ describe('DiagramLayer inline text editing', () => {
     expect(screen.getByTestId('diagram-text-input-node000001')).toHaveValue('Login');
   });
 
-  it('commits on Enter', () => {
+  it.each([{ metaKey: true }, { ctrlKey: true }])('commits on modified Enter (%o)', (modifier) => {
     const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Login' })] }) });
     fireEvent.doubleClick(screen.getByTestId('diagram-node-node000001'));
     const input = screen.getByTestId('diagram-text-input-node000001');
 
     fireEvent.change(input, { target: { value: 'Sign in' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter', ...modifier });
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'setText', id: 'node000001', text: 'Sign in' });
     expect(screen.queryByTestId('diagram-text-input-node000001')).not.toBeInTheDocument();
   });
 
-  it('breaks a line on Shift+Enter instead of committing', () => {
+  it.each([false, true])('keeps native newline behavior on Enter (shift=%s)', (shiftKey) => {
     const { dispatch } = renderLayer({ diagram: stateWith({ nodes: [node({ text: 'Login' })] }) });
     fireEvent.doubleClick(screen.getByTestId('diagram-node-node000001'));
     const input = screen.getByTestId('diagram-text-input-node000001');
 
-    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(fireEvent.keyDown(input, { key: 'Enter', shiftKey })).toBe(true);
+    fireEvent.change(input, { target: { value: 'apple\npeach\ncarrot' } });
 
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'setText' }));
-    expect(screen.getByTestId('diagram-text-input-node000001')).toBeInTheDocument();
+    expect(input).toHaveValue('apple\npeach\ncarrot');
+    fireEvent.blur(input);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'setText', id: 'node000001', text: 'apple\npeach\ncarrot' });
   });
 
   it('cancels on Escape without dispatching', () => {
@@ -2795,4 +2798,13 @@ it('reveals an editable ghost label at a connector midpoint', () => {
  fireEvent.change(input,{target:{value:'Approved'}});
  fireEvent.keyDown(input,{key:'Enter'});
  expect(dispatch).toHaveBeenCalledWith({type:'setText',id:'edge0000001',text:'Approved'});
+});
+
+it('adds rows and columns with explicit controls without creating connected tables', () => {
+  const table = node({kind:'table', table:[['A','B'],['C','D']]});
+  const {dispatch} = renderLayer({diagram:stateWith({nodes:[table],selection:[{type:'node',id:table.id}]})});
+  fireEvent.click(screen.getByRole('button',{name:'+ Add row'}));
+  expect(dispatch).toHaveBeenLastCalledWith({type:'setTable',id:table.id,cells:[['A','B'],['C','D'],['','']],meta:expect.any(Object)});
+  fireEvent.click(screen.getByRole('button',{name:'+ Add column'}));
+  expect(dispatch).toHaveBeenLastCalledWith({type:'setTable',id:table.id,cells:[['A','B',''],['C','D','']],meta:expect.any(Object)});
 });

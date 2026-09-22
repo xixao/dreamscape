@@ -15,6 +15,14 @@ export function setChatSelection(fileId: string, targets: ChatTarget[], outline?
   if (targets.length) drafts.set(fileId, targets); else drafts.delete(fileId);
   listeners.forEach(fn => fn());
 }
+// Explicit dismissal clears both draft and in-flight visual context; it does
+// not cancel an AI request that has already been submitted.
+export function clearChatSelection(fileId: string) {
+  drafts.delete(fileId);
+  outlines.delete(fileId);
+  pendingOutlines.delete(fileId);
+  listeners.forEach(fn => fn());
+}
 export function useChatSelection(fileId: string) {
   return useSyncExternalStore(fn => { listeners.add(fn); return () => { listeners.delete(fn); }; }, () => drafts.get(fileId) || empty, () => empty);
 }

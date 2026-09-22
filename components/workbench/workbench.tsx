@@ -69,6 +69,7 @@ import { ChatPanel } from './chat/chat-panel';
 import { ChatTransportProvider } from './chat/chat-transport-context';
 import { CHIP, PANEL } from './chrome';
 import { LayersPanel } from './layers-panel';
+import { PagesList } from './pages-list';
 import { PagesMenu } from './pages-menu';
 import { PrototypesPanel } from './prototypes-panel';
 import type { CommentThread } from '@/lib/comments/store';
@@ -428,7 +429,17 @@ export function Workbench({
     let nextPages: Page[] | undefined;
     if (restoreSections) {
       appliedSectionChange.current = sectionPatch.revision;
-      nextPages = pagesRef.current.map(page => page.id === sectionPatch.pageId ? { ...page, sections: sectionPatch.sections } : page);
+      // Persist diagram and section geometry together. A later queued section
+      // save must never overwrite the reducer's cleaned diagram with old nodes.
+      nextPages = pagesRef.current.map(page => page.id === sectionPatch.pageId ? {
+        ...page, sections: sectionPatch.sections,
+        ...(sectionPatch.diagram ? { diagram: sectionPatch.diagram } : page.diagram && sectionPatch.diagramPositions?.length ? {
+          diagram: { ...page.diagram, nodes: page.diagram.nodes.map(node => {
+            const position = sectionPatch.diagramPositions.find((p: {id:string;x:number;y:number}) => p.id === node.id);
+            return position ? {...node,x:position.x,y:position.y} : node;
+          }) },
+        } : {}),
+      } : page);
       pagesRef.current = nextPages;
     }
     const frameSize = JSON.parse(json).ROOT?.custom?.frameSize;
@@ -1150,7 +1161,7 @@ export function Workbench({
     screensRef.current=nextScreens;setScreens(nextScreens);setPages(nextPages);queuePatch({pages:nextPages,screens:nextScreens});switchPage(target.id);switchScreen(added[0].id);
   }
   const variationsPage=pages.find(page=>page.id===currentPageId && page.kind==='variations');
-  if(variationsPage?.exploration) return <VariationsWorkspace key={variationsPage.id} fileId={file.id} page={variationsPage} pages={pages} transport={chatTransport} saveState={saveState} onUpdate={data=>updateExploration(variationsPage.id,data)} onSwitch={switchPage} onNew={()=>startExploration('')} onPromote={promoteVariation}/>;
+  if(variationsPage?.exploration) return <VariationsWorkspace key={variationsPage.id} fileId={file.id} page={variationsPage} pages={pages} onRenamePage={renamePage} onAddPage={addPage} pageActions={p => <PagesMenu compact pages={pages} currentPageId={p.id} screens={screens} onSwitch={switchPage} onAdd={addPage} onRename={renamePage} onDuplicate={duplicatePage} onDelete={deletePage} onMove={movePage} />} transport={chatTransport} saveState={saveState} onUpdate={data=>updateExploration(variationsPage.id,data)} onSwitch={switchPage} onNew={()=>startExploration('')} onPromote={promoteVariation}/>;
 
   if (writerOpen) return <WriterWorkspace fileName={fileName} pages={pages} screens={screens} screenId={currentScreenId} pageId={currentPageId} appearance={appearance} saveState={saveState}
     onSelectScreen={switchScreen} onSelectPage={switchPage} onRetry={() => { saver.queue({ screens: screensRef.current }); void saver.flush(); }}
@@ -1565,6 +1576,7 @@ function WorkbenchShell({
   const [diagramPaletteOpen, setDiagramPaletteOpen] = useState(false);
   const [diagramTool, setDiagramTool] = useState<DiagramTool>(POINTER_TOOL);
 
+
   function closeDiagramTool(): void {
     setDiagramPaletteOpen(false);
     setDiagramTool(POINTER_TOOL);
@@ -1600,7 +1612,7 @@ function WorkbenchShell({
     sectionController.select(null);
     actions.selectNode();
     setSelectedFrameIds(new Set());
-    if (tool.kind !== 'shape') { setDiagramTool(tool); return; }
+    if (tool.kind !== 'shape' || tool.shape === 'table') { setDiagramTool(tool); return; }
     // Read the mounted canvas now: its cached size can be stale after returning
     // from the component editor, where the main canvas is temporarily unmounted.
     const bounds = rootRef.current?.getBoundingClientRect();
@@ -1906,6 +1918,7 @@ function WorkbenchShell({
     diagramToolActive: diagramPaletteOpen || diagramTool.kind !== 'pointer',
     onExitDiagramTool: closeDiagramTool,
     onTextTool,
+    onTableTool: () => selectDiagramToolFromTray({kind:'shape',shape:'table'}),
     diagramSelectionActive,
     onDeselectDiagram: () => dispatchDiagram({ type: 'clearSelection' }),
     frameSelectionActive: pageFrameSelection.size > 0,
@@ -2078,7 +2091,7 @@ function WorkbenchShell({
   const chatPositionClass = 'left-3 w-64';
 
   return (
-    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ prototypesOpen, setPrototypesOpen, pageSelector: <PagesMenu pages={pages} currentPageId={currentPageId} screens={screens} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} onDuplicate={onDuplicatePage} onDelete={onDeletePage} onMove={onMovePage} />, onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={chatTransport}>
+    <SectionsContext.Provider value={sectionController}><LeftPanelContext.Provider value={{ prototypesOpen, setPrototypesOpen, pageSelector: <PagesList storageKey={`dreamscape:pages-list:${fileId}`} pages={pages} currentPageId={currentPageId} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} pageActions={page => <PagesMenu compact pages={pages} currentPageId={page.id} screens={screens} onSwitch={onSwitchPage} onAdd={onAddPage} onRename={onRenamePage} onDuplicate={onDuplicatePage} onDelete={onDeletePage} onMove={onMovePage} />} />, onOpenFileSettings: () => setFileSettingsOpen(true), chatOpen, setChatOpen, notesOpen: notes.notesOpen, setNotesOpen: open => { notes.setNotesOpen(open); if (!open) { notes.cancel(); notes.commentsProps.onCloseThread(); } }, collapsed: leftCollapsed, setCollapsed: setLeftCollapsed }}><ChatTransportProvider transport={chatTransport}>
       <PrototypeProvider value={{ panelMode, screens }}>
         <CanvasViewportProvider viewport={viewport} setViewport={setViewport} viewportSize={viewportSize} animateTo={animateTo}>
           <CursorMinimap enabled={!componentLibrary?.editing} />
@@ -2227,7 +2240,7 @@ function WorkbenchShell({
               <LayerStackMenu />
               <FrameSelectionActions />
             </StageErrorBoundary>
-            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || prototypesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel showSections rootFrame={activeLayerScreen ? { name: activeLayerScreen.name, duplicate: () => onDuplicateScreen(currentScreenId), delete: () => onDeleteScreen(currentScreenId), deleteDisabled: wouldStrandPage(activeLayerScreen, pageScreens) } : undefined} onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
+            {!uiHidden && <aside aria-label="Layers panel" style={{ display: chatOpen || prototypesOpen ? 'none' : undefined, '--left-width': `${leftWidth}px` } as React.CSSProperties} className={cn(PANEL, 'absolute top-[76px] left-3 bottom-3 z-10 group/left-panel w-[var(--left-width)] has-[[data-layers-collapsed=true]]:w-10')}><PanelResize width={leftWidth} onChange={setLeftWidth} /><LayersPanel key={currentPageId} persistenceKey={`dreamscape:layers:${fileId}:${currentPageId}`} showSections rootFrame={activeLayerScreen ? { name: activeLayerScreen.name, duplicate: () => onDuplicateScreen(currentScreenId), delete: () => onDeleteScreen(currentScreenId), deleteDisabled: wouldStrandPage(activeLayerScreen, pageScreens) } : undefined} onAddElement={(type, parent, index) => { const item = trayItems.find(item => item.type === type); if (!item) return; const tree = query.parseReactElement(createTrayElement(item, query.getOptions().resolver)).toNodeTree(); actions.addNodeTree(tree, parent, index); actions.selectNode(tree.rootNodeId); }} onOpenShortcuts={() => setShortcutsOpen(true)} /></aside>}
             {!uiHidden && (
               <Inspector
                 key="inspector"

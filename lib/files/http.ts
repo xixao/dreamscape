@@ -1,3 +1,4 @@
+import { tableMetaSchema } from '@/lib/diagram/table-model';
 import { explorationSchema } from '@/lib/variations/model';
 import { annotationSchema } from '@/lib/accessibility/kit';
 import { sectionsSchema } from '@/lib/canvas/sections';
@@ -46,7 +47,8 @@ const diagramNodeField = z.object({
   // content rule for callers that reach it without going through this zod
   // shape at all (e.g. its own unit tests), same split as kind/color above.
   annotation: annotationSchema.optional(),
-  table: z.array(z.array(z.string().max(500)).min(1).max(10)).min(1).max(20).optional(),
+  tableMeta: tableMetaSchema.optional(),
+  table: z.array(z.array(z.string().max(500)).min(1).max(500)).min(1).max(500).optional(),
   textAlign: z.enum(['left', 'center', 'right']).optional(),
   textSize: z.enum(TEXT_SIZES).optional(),
   textFont: z.enum(TEXT_FONTS).optional(),
@@ -70,6 +72,7 @@ const diagramEdgeField = z.object({
   lineStyle: z.enum(LINE_STYLES).optional(),
   label: z.string().optional(),
   labelPosition: z.number().min(0).max(1).optional(),
+  autoRoute: z.boolean().optional(),
   textSize: z.enum(TEXT_SIZES).optional(),
   textFont: z.enum(TEXT_FONTS).optional(),
   textBold: z.boolean().optional(),

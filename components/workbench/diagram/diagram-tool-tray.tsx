@@ -1,5 +1,6 @@
 'use client';
 
+import { parseDelimited } from '@/lib/diagram/table-model';
 import { useRef, useState } from 'react';
 import { Info, Search } from 'lucide-react';
 import { startDiagramDrag, endDiagramDrag } from '@/lib/diagram/insertion';
@@ -58,6 +59,7 @@ export function DiagramToolTray({
   onSelectDiagramTool?: (tool: DiagramTool) => void;
 } = {}) {
   const [filter, setFilter] = useState('');
+  const [importError,setImportError]=useState('');
   // One Component documentation dialog for the whole tab (see
   // component-tray.tsx's own identical precedent for why this outlives
   // `open`: the dialog's closing animation keeps showing the tool it was
@@ -87,6 +89,8 @@ export function DiagramToolTray({
           className={SEARCH_INPUT}
         />
       </div>
+      <label className="cursor-pointer rounded border border-line-soft p-2 text-center text-xs">Import table from CSV<input className="sr-only" aria-label="Import new table from CSV" type="file" accept=".csv,text/csv" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;try{if(file.size>2_000_000)throw new Error('CSV must be under 2 MB.');const cells=parseDelimited(await file.text());window.dispatchEvent(new CustomEvent('dreamscape:import-table',{detail:cells}));setImportError('');}catch(err){setImportError((err as Error).message);}e.target.value='';}}/></label>
+      {importError&&<p role="alert" className="text-xs text-destructive">{importError}</p>}
       {filteredItems.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2">
           {filteredItems.map((item) => {
@@ -101,7 +105,7 @@ export function DiagramToolTray({
                   data-diagram-tool-item={docKey}
                   aria-pressed={toolsEqual(diagramTool, item.tool)}
                   aria-label={item.label}
-                  title={item.tool.kind === 'shape' ? `${item.label} — click to add or drag onto canvas` : 'Connect two shapes or frames'}
+                  title={item.tool.kind === 'shape' ? item.tool.shape === 'table' ? 'Table — click, then drag on canvas to choose rows and columns' : `${item.label} — click to add or drag onto canvas` : 'Connect two shapes or frames'}
                   draggable={item.tool.kind === 'shape'}
                   onDragStart={event => { if (item.tool.kind === 'shape') startDiagramDrag(event.dataTransfer, item.tool.shape); }}
                   onDragEnd={endDiagramDrag}

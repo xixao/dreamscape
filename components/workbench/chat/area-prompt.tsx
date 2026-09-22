@@ -6,7 +6,8 @@ import { X } from 'lucide-react';
 import { PANEL } from '../chrome';
 import { lassoEncloses, type Point } from './lasso';
 import { useCanvasViewport } from '../canvas';
-import { setChatSelection, useSelectionOutline } from './selection-chip';
+import { useCanvasDocument } from '../canvas-frame';
+import { clearChatSelection, useChatSelection, setChatSelection, useSelectionOutline } from './selection-chip';
 type Box = { left: number; top: number; width: number; height: number };
 export function screenBox(dom: HTMLElement): Box {
   const r = dom.getBoundingClientRect(); const frame = dom.ownerDocument.defaultView?.frameElement as HTMLElement | null;
@@ -18,6 +19,8 @@ export function AreaPrompt({ fileId, onCapture }: { fileId: string; onCapture: (
   const { query } = useEditor();
   const { viewport } = useCanvasViewport();
   const outline = useSelectionOutline(fileId);
+  const selection = useChatSelection(fileId);
+  const canvas = useCanvasDocument();
   const [active, setActive] = useState(false);
   const stroke = useRef<Point[]>([]);
   const pointer = useRef<number | null>(null);
@@ -28,7 +31,21 @@ export function AreaPrompt({ fileId, onCapture }: { fileId: string; onCapture: (
   useEffect(() => { const show = (e: Event) => setHighlightIds((e as CustomEvent<string[]>).detail); window.addEventListener('dreamscape:highlight-chat-selection', show); return () => window.removeEventListener('dreamscape:highlight-chat-selection', show); }, []);
   useEffect(() => { if (!highlightIds.length) { setHighlights([]); return; } let raf: number; const update = () => { const nodes = query.getNodes(); setHighlights(highlightIds.flatMap(id => nodes[id]?.dom?.isConnected ? [screenBox(nodes[id].dom!)] : [])); raf = requestAnimationFrame(update); }; update(); return () => cancelAnimationFrame(raf); }, [highlightIds, query]);
   useEffect(() => { const start = () => { setActive(true); stroke.current = []; pointer.current = null; setPoints([]); setEmpty(false); }; window.addEventListener('dreamscape:ask-area', start); return () => window.removeEventListener('dreamscape:ask-area', start); }, []);
-  useEffect(() => { if (!active) return; const key = (e:KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setActive(false); } }; window.addEventListener('keydown', key, true); return () => window.removeEventListener('keydown', key, true); }, [active]);
+  useEffect(() => {
+    if (!active && !outline.length && !selection.length && !highlightIds.length) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      // A dialog or open menu gets its own Escape first.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      pointer.current = null; stroke.current = [];
+      setPoints([]); setEmpty(false); setActive(false); setHighlightIds([]); setHighlights([]);
+      clearChatSelection(fileId);
+    };
+    const windows = [...new Set([window, ...(canvas?.window ? [canvas.window] : [])])];
+    windows.forEach(win => win.addEventListener('keydown', key, true));
+    return () => windows.forEach(win => win.removeEventListener('keydown', key, true));
+  }, [active, outline.length, selection.length, highlightIds.length, fileId, canvas?.window]);
   if (!active) return <>{outline.length > 2 && <svg aria-hidden data-testid="pending-lasso-highlight" className="pointer-events-none fixed inset-0 z-[9] h-full w-full text-primary"><polygon points={outline.map(p=>`${p.x * viewport.zoom + viewport.x},${p.y * viewport.zoom + viewport.y}`).join(' ')} fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg>}{highlights.map((r, i) => <div key={i} style={r} className="pointer-events-none fixed z-40 border-2 border-primary bg-primary/10" />)}</>;
   return <div className="fixed inset-0 z-[90] cursor-crosshair" aria-label="Select an area for AI" onPointerDown={e => {
     if (e.button !== 0 || (e.target as HTMLElement).closest('button,[data-lasso-help]')) return;

@@ -1,7 +1,9 @@
 'use client';
+import { drawnTable, tableDocument, editAxis, parseDelimited, validTableDocument, serializeDelimited } from '@/lib/diagram/table-model';
 import { AnnotationContent } from '../accessibility/annotation-content';
 import { TableContent } from './table-content';
-import { tableCells } from '@/lib/diagram/table';
+import { tableCells, tableFromText } from '@/lib/diagram/table';
+import { routeAroundObstacles } from '@/lib/diagram/obstacle-route';
 
 // This file stays one composition root for the fix wave in
 // task-diagram-followups-review.md, but it has outgrown that shape - the
@@ -16,7 +18,7 @@ import { tableCells } from '@/lib/diagram/table';
 // together.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { DEFAULT_DIAGRAM_SIZE } from '@/lib/diagram/insertion';
+import { DEFAULT_DIAGRAM_SIZE, createDiagramNode } from '@/lib/diagram/insertion';
 import { nanoid } from 'nanoid';
 import { Plus } from 'lucide-react';
 import {
@@ -327,6 +329,35 @@ function endpointFor(target: { type: 'node' | 'frame'; id: string }, side: Side)
  */
 export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onToolConsumed, onExport }: DiagramLayerProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  useEffect(()=>{
+    const paste=(event:ClipboardEvent)=>{
+      if(event.defaultPrevented || isEditableTarget(event.target) || (event.target instanceof Element && event.target.closest('[data-table-editor]')))return;
+      const text=event.clipboardData?.getData('text/plain')??'',custom=event.clipboardData?.getData('application/x-dreamscape-table');
+      if(!custom&&!/[\t\n\r]/.test(text))return;
+      try {
+        const incoming=custom?JSON.parse(custom):{cells:parseDelimited(text,text.includes('\t')?'\t':'\u0000'),meta:{}};
+        if(!validTableDocument(incoming))return;
+        event.preventDefault();
+        const rect=svgRef.current?.getBoundingClientRect();
+        dispatch({type:'add',node:{...createDiagramNode('table',{x:0,y:0}),x:((window.innerWidth/2)-(rect?.left??0))/viewport.zoom,y:((window.innerHeight/2)-(rect?.top??0))/viewport.zoom,table:incoming.cells,tableMeta:incoming.meta,width:incoming.meta.widths?.reduce((a:number,b:number)=>a+b,0)??incoming.cells[0].length*160,height:incoming.meta.heights?.reduce((a:number,b:number)=>a+b,0)??incoming.cells.length*48}});
+      } catch { /* Invalid clipboard data stays available for ordinary paste. */ }
+    };
+    const importTable=(event:Event)=>{
+      const cells=(event as CustomEvent<string[][]>).detail;if(!validTableDocument({cells,meta:{}}))return;
+      const rect=svgRef.current?.getBoundingClientRect();
+      dispatch({type:'add',node:{...createDiagramNode('table',{x:0,y:0}),x:(window.innerWidth/2-(rect?.left??0))/viewport.zoom,y:(window.innerHeight/2-(rect?.top??0))/viewport.zoom,table:cells,width:cells[0].length*160,height:cells.length*48}});
+    };
+    window.addEventListener('dreamscape:import-table',importTable);
+    window.addEventListener('paste',paste);return()=>{window.removeEventListener('paste',paste);window.removeEventListener('dreamscape:import-table',importTable);};
+  },[dispatch,viewport.zoom]);
+
+  useEffect(()=>{
+    const copy=(e:ClipboardEvent)=>{if(e.defaultPrevented||isEditableTarget(e.target)||(e.target instanceof Element&&e.target.closest('[data-table-editor]')))return;
+      if(diagram.selection.length!==1||diagram.selection[0].type!=='node')return;
+      const node=diagram.nodes.find(n=>n.id===diagram.selection[0].id&&n.kind==='table');if(!node)return;
+      e.preventDefault();const doc=tableDocument(node);e.clipboardData?.setData('application/x-dreamscape-table',JSON.stringify(doc));e.clipboardData?.setData('text/plain',serializeDelimited(doc.cells,'\t'));
+    };window.addEventListener('copy',copy);return()=>window.removeEventListener('copy',copy);
+  },[diagram.nodes,diagram.selection]);
   // The single active inline editor (a node's text or a connector's label -
   // at most one at a time, `editing.id` says which). Given a ref rather than
   // relying on `autoFocus` alone when the editor was opened from a context
@@ -712,6 +743,11 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
         <ContextMenuItem className={MENU_ROW} disabled={node.kind === 'table'} onSelect={() => queueEditFromMenu(node.id, node.text)}>
           Edit text
         </ContextMenuItem>
+        {node.kind !== 'table' && !node.annotation && <ContextMenuItem className={MENU_ROW} disabled={!tableFromText(node.text)} onSelect={() => {
+          const cells = tableFromText(node.text);
+          if (!cells) return;
+          dispatch({ type: 'add', node: { ...createDiagramNode('table', { x: 0, y: 0 }), x: node.x + node.width + 48, y: node.y, width: 320, height: cells.length * 48, textAlign: 'left', table: cells } });
+        }}>Create table from text</ContextMenuItem>}
         <ContextMenuItem className={MENU_ROW} onSelect={() => duplicateSelection(selectedNodeIds)}>
           Duplicate
           <span aria-hidden className={cn(MENU_HINT, 'ml-auto')}>
@@ -1359,6 +1395,11 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     const dyScreen = (place.current.y - place.start.y) * viewport.zoom;
     const dragged = Math.hypot(dxScreen, dyScreen) >= PLACEMENT_CLICK_THRESHOLD;
     const kind = tool.shape;
+    if (kind === 'table') {
+      const grid=drawnTable(place.start,dragged?place.current:{x:place.start.x+320,y:place.start.y+96});
+      dispatch({type:'add',node:{...createDiagramNode('table',place.start),x:grid.x,y:grid.y,width:grid.width,height:grid.height,table:grid.cells,textAlign:'left'}});
+      setPlace(null);onToolConsumed();return;
+    }
     const defaultSize = DEFAULT_DIAGRAM_SIZE[kind];
 
     let box: Box;
@@ -1541,8 +1582,9 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
     if (!sourceResolved || !targetResolved) return null;
     const sourcePoint = getHandlePosition(sourceResolved.box, sourceResolved.side);
     const targetPoint = getHandlePosition(targetResolved.box, targetResolved.side);
-    const result =
-      edge.kind === 'straight'
+    const result = edge.autoRoute && edge.kind === 'step'
+      ? routeAroundObstacles(sourceResolved.box, sourceResolved.side, targetResolved.box, targetResolved.side, [...diagram.nodes.map(renderedNodeBox), ...frames])
+      : edge.kind === 'straight'
         ? getStraightPath(sourcePoint, targetPoint)
         : edge.kind === 'curve'
           ? getBezierPath(sourcePoint, sourceResolved.side, targetPoint, targetResolved.side)
@@ -1801,6 +1843,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             onPointerCancel={(event) => cancelDrag(event.pointerId)}
             onDoubleClick={event => {
               if (rawNode.kind !== 'table') { handleNodeDoubleClick(rawNode); return; }
+              if ((event.target as Element).closest?.('[data-table-editor]')) return;
               if (tool.kind !== 'pointer') return;
               const point = clientToCanvas(event.clientX, event.clientY);
               const cells = tableCells(rawNode);
@@ -1810,8 +1853,8 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
             }}
           >
             {shape}
-            <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ pointerEvents: isEditing || rawNode.kind === 'table' || rawNode.annotation?.format === 'card' || rawNode.annotation?.format === 'summary' ? 'all' : 'none' }}>
-              {rawNode.annotation ? <AnnotationContent annotation={rawNode.annotation} /> : rawNode.kind === 'table' ? <div className={cn('size-full overflow-hidden', textStyleClasses(rawNode))}><TableContent key={`${rawNode.id}:${tableEdit?.id === rawNode.id ? tableEdit.revision : 0}`} initialCell={tableEdit?.id === rawNode.id ? tableEdit : undefined} node={rawNode} onChange={cells => dispatch({ type: 'setTable', id: rawNode.id, cells })} /></div> : isEditing ? (
+            <foreignObject x={box.x} y={box.y} width={box.width} height={box.height} style={{ overflow: rawNode.kind === 'table' ? 'visible' : undefined, pointerEvents: isEditing || rawNode.kind === 'table' || rawNode.annotation?.format === 'card' || rawNode.annotation?.format === 'summary' ? 'all' : 'none' }}>
+              {rawNode.annotation ? <AnnotationContent annotation={rawNode.annotation} /> : rawNode.kind === 'table' ? <div className={cn('size-full', textStyleClasses(rawNode))}><TableContent key={`${rawNode.id}:${tableEdit?.id === rawNode.id ? tableEdit.revision : 0}`} initialCell={tableEdit?.id === rawNode.id ? tableEdit : undefined} node={rawNode} onSelectTable={() => dispatch({type: 'select', selection: [{type: 'node', id: rawNode.id}]})} onDeleteTable={() => dispatch({type: 'delete', ids: [rawNode.id]})} onHistory={redo=>dispatch({type:redo?'redo':'undo'})} active={selected} onStickies={texts => dispatch({type:'insertDiagram',data:{nodes:texts.map((text,i)=>({...createDiagramNode('note',{x:0,y:0}),text,x:rawNode.x+rawNode.width+48+(i%4)*180,y:rawNode.y+Math.floor(i/4)*160,width:160,height:140})),edges:[]}})} onChange={(cells,meta) => dispatch({ type: 'setTable', id: rawNode.id, cells, meta })} /></div> : isEditing ? (
                 <textarea
                   // Entering inline edit mode is itself the user's request for
                   // focus here.
@@ -1827,7 +1870,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                   onChange={(event) => setEditing({ id: rawNode.id, draft: event.target.value })}
                   onFocus={(event) => event.currentTarget.select()}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
                       event.preventDefault();
                       commitPendingEdit(true);
                     } else if (event.key === 'Escape') {
@@ -1843,6 +1886,14 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
                 </div>
               )}
             </foreignObject>
+            {selected && rawNode.kind === 'table' && <>
+              <foreignObject x={box.x + 12 / viewport.zoom} y={box.y + box.height + 12 / viewport.zoom} width={110 / viewport.zoom} height={32 / viewport.zoom} style={{pointerEvents: 'all'}}>
+                <button style={{fontSize: 12 / viewport.zoom}} className="size-full rounded border border-line-soft bg-card text-foreground" disabled={(tableCells(rawNode).length+1)*tableCells(rawNode)[0].length>500} onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const next=editAxis(tableDocument(rawNode),'row',[tableCells(rawNode).length-1],'insertAfter'); dispatch({type:'setTable',id:rawNode.id,cells:next.cells,meta:next.meta}); }}>+ Add row</button>
+              </foreignObject>
+              <foreignObject x={box.x + box.width + 12 / viewport.zoom} y={box.y + 12 / viewport.zoom} width={110 / viewport.zoom} height={32 / viewport.zoom} style={{pointerEvents: 'all'}}>
+                <button style={{fontSize: 12 / viewport.zoom}} className="size-full rounded border border-line-soft bg-card text-foreground" disabled={(tableCells(rawNode)[0].length+1)*tableCells(rawNode).length>500} onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const next=editAxis(tableDocument(rawNode),'column',[tableCells(rawNode)[0].length-1],'insertAfter'); dispatch({type:'setTable',id:rawNode.id,cells:next.cells,meta:next.meta}); }}>+ Add column</button>
+              </foreignObject>
+            </>}
             {selected && (
               <>
                 <rect
@@ -2111,7 +2162,7 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           style={{ strokeWidth: 1.5 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}`, pointerEvents: 'none' }}
         />
       )}
-      {place && (place.start.x !== place.current.x || place.start.y !== place.current.y) && tool.kind === 'shape' && (
+      {place && (place.start.x !== place.current.x || place.start.y !== place.current.y) && tool.kind === 'shape' && tool.shape !== 'table' && (
         <rect
           x={Math.min(place.start.x, place.current.x)}
           y={Math.min(place.start.y, place.current.y)}
@@ -2122,6 +2173,10 @@ export function DiagramLayer({ diagram, dispatch, frames, viewport, tool, onTool
           style={{ strokeWidth: 1 / viewport.zoom, strokeDasharray: `${4 / viewport.zoom} ${3 / viewport.zoom}`, pointerEvents: 'none' }}
         />
       )}
+      {place && tool.kind==='shape' && tool.shape==='table' && (()=>{
+        const grid=drawnTable(place.start,place.current),rows=grid.cells.length,columns=grid.cells[0].length;
+        return <g pointerEvents="none" data-testid="table-grid-preview"><rect x={grid.x} y={grid.y} width={grid.width} height={grid.height} className="fill-card stroke-(--acc)"/>{Array.from({length:columns-1},(_,i)=><line key={`c${i}`} x1={grid.x+(i+1)*160} x2={grid.x+(i+1)*160} y1={grid.y} y2={grid.y+grid.height} className="stroke-(--acc)"/>)}{Array.from({length:rows-1},(_,i)=><line key={`r${i}`} x1={grid.x} x2={grid.x+grid.width} y1={grid.y+(i+1)*48} y2={grid.y+(i+1)*48} className="stroke-(--acc)"/>)}<text x={grid.x} y={grid.y-12/viewport.zoom} fontSize={14/viewport.zoom} fill="currentColor">{columns} columns × {rows} rows</text></g>;
+      })()}
     </svg>
   );
 }

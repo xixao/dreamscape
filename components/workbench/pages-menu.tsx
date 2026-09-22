@@ -2,7 +2,7 @@
 import { useExploreVariations } from './variations/context';
 
 import { useRef, useState } from 'react';
-import { Check, ChevronDown, Layers2 } from 'lucide-react';
+import { Check, ChevronDown, Layers2, MoreHorizontal } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +42,7 @@ const PAGE_NAME_MAX = 80;
  * funnelled straight through to whoever owns page state (workbench.tsx).
  */
 export function PagesMenu({
+  compact = false,
   pages,
   currentPageId,
   screens,
@@ -52,6 +53,7 @@ export function PagesMenu({
   onDelete,
   onMove,
 }: {
+  compact?: boolean;
   pages: Page[];
   currentPageId: string;
   // Only read to count how many screens a Delete confirmation would remove
@@ -122,16 +124,17 @@ export function PagesMenu({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="Pages"
+            aria-label={compact ? `Page options for ${currentPage?.name}` : 'Pages'}
             aria-haspopup="menu"
-            className={cn(CHIP, 'gap-1.5 px-2 text-[12.5px] font-medium text-foreground')}
+            className={compact ? 'rounded p-1.5 text-muted-foreground hover:bg-accent' : cn(CHIP, 'gap-1.5 px-2 text-[12.5px] font-medium text-foreground')}
           >
-            <Layers2 className="size-3.5 text-muted-foreground" aria-hidden />
+            <>{compact ? <MoreHorizontal className="size-4" /> : <><Layers2 className="size-3.5 text-muted-foreground" aria-hidden />
             <span className="max-w-36 truncate">{currentPage?.name}</span>
-            <ChevronDown className="size-3 text-muted-foreground" aria-hidden />
+            <ChevronDown className="size-3 text-muted-foreground" aria-hidden /></>}</>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          className="z-[110] w-max min-w-48 max-w-[calc(100vw-24px)]"
           align="start"
           // Same trick as screens-strip.tsx's own Rename item, and for the
           // same reason: Radix returns focus to the trigger the instant it
@@ -145,7 +148,7 @@ export function PagesMenu({
             renameInputRef.current.select();
           }}
         >
-          {pages.map((page) => (
+          {!compact && pages.map((page) => (
             <DropdownMenuItem key={page.id} onSelect={() => onSwitch(page.id)}>
               <span className="flex-1 truncate">{page.kind==='variations'?'Variations · ':''}{page.name}</span>
               {page.id === currentPageId && (
@@ -154,7 +157,7 @@ export function PagesMenu({
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+          {!compact && <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>}
           <DropdownMenuItem onSelect={() => onDuplicate(currentPageId)}>Duplicate page</DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
@@ -163,18 +166,18 @@ export function PagesMenu({
           >
             Delete page
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={currentIndex <= 0} onSelect={() => onMove(currentPageId, 'up')}>
+          {!compact && <DropdownMenuItem disabled={currentIndex <= 0} onSelect={() => onMove(currentPageId, 'up')}>
             Move up
-          </DropdownMenuItem>
-          <DropdownMenuItem
+          </DropdownMenuItem>}
+          {!compact && <DropdownMenuItem
             disabled={currentIndex === -1 || currentIndex >= pages.length - 1}
             onSelect={() => onMove(currentPageId, 'down')}
           >
             Move down
-          </DropdownMenuItem>
+          </DropdownMenuItem>}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onAdd}>New page</DropdownMenuItem>
-          {explore&&<DropdownMenuItem onSelect={()=>explore('')}>New Variations Page</DropdownMenuItem>}
+          {!compact && <DropdownMenuItem onSelect={onAdd}>New page</DropdownMenuItem>}
+          {explore&&<DropdownMenuItem className="whitespace-nowrap" onSelect={()=>explore('')}>New Variations Page</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>
 

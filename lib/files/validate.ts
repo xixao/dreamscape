@@ -1,3 +1,4 @@
+import { validTableDocument, type TableMeta } from '@/lib/diagram/table-model';
 import { explorationSchema, type Exploration } from '@/lib/variations/model';
 import { annotationSchema, type Annotation } from '@/lib/accessibility/kit';
 import { validTable } from '@/lib/diagram/table';
@@ -595,6 +596,7 @@ export type DiagramNodeInput = {
   color: string;
   annotation?: Annotation;
   table?: string[][];
+  tableMeta?: TableMeta;
   textAlign?: 'left' | 'center' | 'right';
   textSize?: string;
   textFont?: string;
@@ -616,6 +618,7 @@ export type DiagramEdgeInput = {
   lineStyle?: string;
   label?: string;
   labelPosition?: number;
+  autoRoute?: boolean;
   textSize?: TextSize;
   textFont?: TextFont;
   textBold?: boolean;
@@ -691,6 +694,7 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
     if (node.table !== undefined && !validTable(node.table)) {
       return { ok: false, reason: `diagram node "${node.id}" has an invalid table` };
     }
+    if (node.tableMeta !== undefined && (!node.table || !validTableDocument({cells:node.table,meta:node.tableMeta}))) return {ok:false,reason:'Invalid table formatting or dimensions'};
     if (node.text.length > DIAGRAM_TEXT_MAX) {
       return { ok: false, reason: `diagram node "${node.id}" text is longer than ${DIAGRAM_TEXT_MAX} characters` };
     }
@@ -719,6 +723,7 @@ export function validateDiagram(input: DiagramInput): ValidateDiagramResult {
   }
 
   for (const edge of input.edges) {
+    if (edge.autoRoute !== undefined && typeof edge.autoRoute !== "boolean") return {ok:false,reason:"Invalid connector routing"};
     if (edge.labelPosition !== undefined && (!Number.isFinite(edge.labelPosition) || edge.labelPosition < 0 || edge.labelPosition > 1)) return {ok:false,reason:"Invalid connector label position"};
     if (edge.textSize !== undefined && !(TEXT_SIZES as readonly string[]).includes(edge.textSize)) return {ok:false,reason:'Unknown connector text size'};
     if (edge.textFont !== undefined && !(TEXT_FONTS as readonly string[]).includes(edge.textFont)) return {ok:false,reason:'Unknown connector font'};

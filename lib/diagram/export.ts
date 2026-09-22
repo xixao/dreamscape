@@ -14,7 +14,8 @@
 // task; nothing here imports React or reads a store.
 
 import { annotationMeta, annotationFields, stampLabel } from '@/lib/accessibility/kit';
-import { tableCells } from './table';
+import { cellKey, cellMerge, cellText, tableDocument } from './table-model';
+import { routeAroundObstacles } from './obstacle-route';
 import {
   anchorOnBox,
   bezierControlPoints,
@@ -412,17 +413,28 @@ function renderNode(node: DiagramNode, box: Box, measureText: MeasureText): stri
     shape = element('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx, ...paint });
   }
   if (node.kind === 'table') {
-    const cells = tableCells(node);
-    const width = box.width / cells[0].length;
-    const height = box.height / cells.length;
-    let content = '';
-    cells.forEach((row, r) => row.forEach((text, c) => {
-      const cell = { x: box.x + c * width, y: box.y + r * height, width, height };
-      content += element('rect', { ...cell, fill: r === 0 ? 'rgba(255,255,255,0.1)' : 'none', stroke: colors.stroke, 'stroke-width': 1 });
-      const font = shapeFont(node);
-      let label = text.replace(/\s+/g, ' ');
-      while (label.length && measureText(label, font) > width - 16) label = label.slice(0, -1);
-      content += element('text', { x: node.textAlign === 'right' ? cell.x + width - 8 : node.textAlign === 'center' ? cell.x + width / 2 : cell.x + 8, 'text-anchor': node.textAlign === 'right' ? 'end' : node.textAlign === 'center' ? 'middle' : 'start', y: cell.y + height / 2, fill: SHAPE_TEXT_COLORS[node.textColor ?? 'default'], 'font-family': font.family, 'font-size': font.size, 'font-weight': r === 0 ? 600 : 400, 'dominant-baseline': 'central' }, escapeXml(label));
+    const doc=tableDocument({...node,width:box.width,height:box.height});
+    const widths=doc.meta.widths!,heights=doc.meta.heights!;
+    const sum=(v:number[])=>v.reduce((a,b)=>a+b,0);
+    let content='';
+    doc.cells.forEach((row,r)=>row.forEach((_,c)=>{
+      const m=cellMerge(doc,r,c);if(m&&(m.row!==r||m.column!==c))return;
+      const cell={x:box.x+sum(widths.slice(0,c)),y:box.y+sum(heights.slice(0,r)),width:sum(widths.slice(c,c+(m?.columns??1))),height:sum(heights.slice(r,r+(m?.rows??1)))};
+      const s=doc.meta.styles?.[cellKey(r,c)]??{},font=shapeFont(node),size=s.size??font.size,align=s.align??node.textAlign??'left';
+      content+=element('rect',{...cell,fill:s.fill??(r===0?'#34333b':colors.fill),stroke:colors.stroke,'stroke-width':1});
+      const clip=`table-${node.id}-${r}-${c}`;
+      content+=element('defs',{},element('clipPath',{id:clip},element('rect',{x:cell.x+4,y:cell.y+2,width:Math.max(1,cell.width-8),height:Math.max(1,cell.height-4)})));
+      const text=cellText(doc,r,c),lines:string[]=[];
+      text.split('\n').forEach((line,i)=>{
+        const prefix=s.list==='bullet'?'• ':s.list==='number'?`${i+1}. `:'';
+        let current='';
+        for(const char of prefix+(i===0&&s.stamp?s.stamp+' ':'')+line){
+          if(current&&measureText(current+char,{...font,size,family:s.font??font.family})>cell.width-16){lines.push(current);current=char;}else current+=char;
+        }lines.push(current);
+      });
+      const x=align==='right'?cell.x+cell.width-8:align==='center'?cell.x+cell.width/2:cell.x+8;
+      const textMarkup=element('text',{x,y:cell.y+Math.max(size+4,(cell.height-lines.length*size*1.3)/2+size),fill:s.color??(r===0?'#ffffff':SHAPE_TEXT_COLORS[node.textColor??'default']),'font-family':s.font??font.family,'font-size':size,'font-weight':s.bold===undefined?(r===0?600:400):s.bold?700:400,'text-anchor':align==='right'?'end':align==='center'?'middle':'start','text-decoration':s.strike?'line-through':s.href?'underline':undefined,'clip-path':`url(#${clip})`},lines.map((line,i)=>element('tspan',{x,dy:i?size*1.3:0},escapeXml(line))).join(''));
+      content+=s.href?element('a',{href:s.href},textMarkup):textMarkup;
     }));
     return element('g', { 'data-node': node.id, 'data-kind': node.kind }, shape + content);
   }
@@ -478,14 +490,17 @@ interface ResolvedEdge {
 }
 
 /** The path, chip rect and extent of `edge` between two boxes, in whichever space the boxes are in. */
-function resolveEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, chipWidth: number | undefined): ResolvedEdge {
+function resolveEdge(edge: DiagramEdge, sourceBox: Box, targetBox: Box, chipWidth: number | undefined, obstacles: Box[]): ResolvedEdge {
   const sourceSide = resolveSide(edge.source, sourceBox, targetBox);
   const targetSide = resolveSide(edge.target, targetBox, sourceBox);
   const sourcePoint = getHandlePosition(sourceBox, sourceSide);
   const targetPoint = getHandlePosition(targetBox, targetSide);
   let route: PathResult;
   let extent: Box[];
-  if (edge.kind === 'straight') {
+  if (edge.autoRoute && edge.kind === 'step') {
+    const routed = routeAroundObstacles(sourceBox, sourceSide, targetBox, targetSide, obstacles);
+    route = routed; extent = routed.points.map(pointBox);
+  } else if (edge.kind === 'straight') {
     route = getStraightPath(sourcePoint, targetPoint);
     extent = [];
   } else if (edge.kind === 'curve') {
@@ -638,7 +653,7 @@ export function renderDiagramSvg(input: RenderDiagramSvgInput): RenderedDiagramS
   const extent = bounds([
     ...nodes,
     ...frames,
-    ...exportedEdges.flatMap(({ edge, source, target }) => resolveEdge(edge, source, target, chipWidths.get(edge.id)).extent),
+    ...exportedEdges.flatMap(({ edge, source, target }) => resolveEdge(edge, source, target, chipWidths.get(edge.id), [...input.nodes, ...input.frames]).extent),
   ]);
   if (!extent) return null;
 
@@ -655,7 +670,7 @@ export function renderDiagramSvg(input: RenderDiagramSvgInput): RenderedDiagramS
   ];
   for (const frame of frames) parts.push(renderFrame(frame, shift(frame)));
   for (const { edge, source, target } of exportedEdges) {
-    parts.push(renderEdge(edge, resolveEdge(edge, shift(source), shift(target), chipWidths.get(edge.id))));
+    parts.push(renderEdge(edge, resolveEdge(edge, shift(source), shift(target), chipWidths.get(edge.id), [...input.nodes, ...input.frames].map(shift))));
   }
   for (const node of nodes) parts.push(renderNode(node, shift(node), input.measureText));
   parts.push('</svg>');
